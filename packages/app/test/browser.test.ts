@@ -82,6 +82,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       `        run: "'${process.execPath}' '${stubApp}'"`,
       '        env:',
       '          STUB_APP_BROWSER: "1"',
+      '          STUB_APP_EDGE_MARKS: "1"',
     ].join('\n'),
   })
   let client = await daemonAsApp(home, env)
@@ -390,16 +391,34 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
   const adminPage = new URL(admin.url ?? '').href
   await checkRefusedNames(app, panel, adminPage)
-  const screenshotSize = async () => {
+  const screenshot = async () => {
     const shot = await command({ action: 'screenshot' })
     if (!shot.attachment) throw new Error('Screenshot missing')
-    const png = Buffer.from(
-      (await client.readBrowserCapture(task.id, shot.attachment.hash)).data,
-      'base64',
-    )
-    return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
+    const data = (await client.readBrowserCapture(task.id, shot.attachment.hash)).data
+    return app?.evaluate(({ nativeImage }, base64) => {
+      const image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'))
+      const { width, height } = image.getSize()
+      const bitmap = image.toBitmap()
+      // toBitmap's channel order depends on the platform; the fixture's corner colours read the same in RGBA and BGRA.
+      const channels = (x: number, y: number) =>
+        [0, 1, 2].map((c) => ((bitmap[(y * width + x) * 4 + c] ?? 0) > 127 ? 1 : 0)).join('')
+      return {
+        width,
+        height,
+        topRight: channels(width - 10, 10),
+        bottomRight: channels(width - 10, height - 10),
+        bottomLeft: channels(10, height - 10),
+      }
+    }, data)
   }
-  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
+  const mobileShot = {
+    width: 390,
+    height: 844,
+    topRight: '010',
+    bottomRight: '101',
+    bottomLeft: '000',
+  }
+  expect(await screenshot()).toEqual(mobileShot)
   await panel.getByRole('button', { name: '← Task Lead' }).click()
   await expect
     .poll(() =>
@@ -413,7 +432,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       }, adminPage),
     )
     .toBe(false)
-  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
+  expect(await screenshot()).toEqual(mobileShot)
   await window.getByRole('tab', { name: 'Apps' }).click()
   await window.getByRole('button', { name: 'Preview Admin', exact: true }).click()
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
@@ -502,12 +521,17 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       return Math.max(...centers) - Math.min(...centers)
     })
   const widthField = panel.getByLabel('Custom width in pixels')
-  for (const width of [1440, 1280]) {
-    await window.setViewportSize({ width, height: 900 })
-    await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+  const sizeButtonFocused = () =>
+    sizeButton.evaluate((button) => button === document.activeElement).catch(() => false)
+  const openCustomWidth = async () => {
     await sizeButton.click()
     await window.getByRole('menuitemradio', { name: /^Custom width/ }).click()
     await widthField.waitFor()
+  }
+  for (const width of [1440, 1280]) {
+    await window.setViewportSize({ width, height: 900 })
+    await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+    await openCustomWidth()
     expect(await sizeButton.count()).toBe(0)
     await expect.poll(addressRowSpread).toBeLessThan(4)
     await widthField.fill('10')
@@ -518,7 +542,26 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     await addressRow.getByRole('button', { name: 'Cancel' }).click()
     await sizeButton.waitFor()
     expect(await widthField.count()).toBe(0)
+    await expect.poll(sizeButtonFocused).toBe(true)
   }
+  await openCustomWidth()
+  await widthField.press('Escape')
+  await expect.poll(sizeButtonFocused).toBe(true)
+  const previewSize = () => panel.locator('[data-preview-size]').getAttribute('data-preview-size')
+  await openCustomWidth()
+  await widthField.fill('1024')
+  await widthField.press('Enter')
+  await expect.poll(sizeButtonFocused).toBe(true)
+  await expect.poll(previewSize).toBe('1024')
+  await openCustomWidth()
+  await widthField.fill('1200')
+  await addressRow.getByRole('button', { name: 'Apply' }).click()
+  await expect.poll(sizeButtonFocused).toBe(true)
+  await expect.poll(previewSize).toBe('1200')
+  await sizeButton.click()
+  await window.getByRole('menuitemradio', { name: /^Desktop/ }).click()
+  await expect.poll(previewSize).toBe('desktop')
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   await window.setViewportSize({ width: 1100, height: 760 })
   await expect
     .poll(async () =>

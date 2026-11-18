@@ -1,6 +1,6 @@
 # Work in progress skips the busy hold
 
-Status: accepted (TED-519). Amends ADR 0125-inbox-continuations-wait-for-working-run-slots and ADR 0166-new-work-waits-while-the-computer-is-busy.
+Status: accepted (TED-519). Amends ADR 0125-inbox-continuations-wait-for-working-run-slots and ADR 0166-new-work-waits-while-the-computer-is-busy. Amended by ADR 0192-cleanup-skips-the-busy-hold-and-queued-labels-say-only-why: Cleanup skips the hold too, and the reason labels are gone.
 
 Since ADR 0125 an idle Task Lead gets Ted’s next message only through the queue: an answer, a sign-off approval, the Check results and Validate instructions from `tasks/validation.ts`. A Task holds no slot while its Checks run, and Checks push the load past the busy mark of ADR 0166, which went on by default. So a Task whose Checks had just passed, or whose question the user had just answered, waited until nothing else was working.
 

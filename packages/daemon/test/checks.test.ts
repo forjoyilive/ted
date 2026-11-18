@@ -1268,7 +1268,7 @@ describe('the Checks’ environment', () => {
 })
 
 describe('ted checks', () => {
-  test('Work runs the Checks; the results go back to the agent and into one Check run', async () => {
+  test('outside Work the Checks run; the results go back to the agent and into one Check run', async () => {
     await workflow(
       [
         '      - { name: Typecheck, run: "echo typed" }',
@@ -1282,8 +1282,6 @@ describe('ted checks', () => {
     const task = await startTask(
       client,
       steps(
-        { everyMessage: [{ endTurn: true }] },
-        advance,
         { run: ['sh', '-c', 'echo x > a.txt'] },
         { run: ['ted', 'checks'] },
         { run: ['ted', 'checks', '--name', 'Typecheck'] },
@@ -1293,8 +1291,8 @@ describe('ted checks', () => {
 
     const runs = await finishedRuns(client, task, 2)
     expect(runs.map((r) => [r.trigger, r.stage])).toEqual([
-      ['agent', 'work'],
-      ['agent', 'work'],
+      ['agent', 'intake'],
+      ['agent', 'intake'],
     ])
     expect(states(runs[0])).toEqual([
       ['Typecheck', 'passed'],
@@ -1307,39 +1305,53 @@ describe('ted checks', () => {
       const texts = assistantTexts((await client.getRun(current?.leadRunId ?? '')).conversation)
         .filter((t) => t.startsWith('{'))
         .map((t) => JSON.parse(t) as { code: number; stdout: string })
-      return texts.length >= 4 ? texts : undefined
+      return texts.length >= 3 ? texts : undefined
     }, 'the ted checks results')
-    expect(results[2]?.code).toBe(1)
-    expect(results[2]?.stdout).toContain('exit code 2')
-    expect(results[2]?.stdout).toContain('broken')
-    expect(results[2]?.stdout).toContain('– Lint · not run')
-    expect(results[2]?.stdout).toContain(
+    expect(results[1]?.code).toBe(1)
+    expect(results[1]?.stdout).toContain('exit code 2')
+    expect(results[1]?.stdout).toContain('broken')
+    expect(results[1]?.stdout).toContain('– Lint · not run')
+    expect(results[1]?.stdout).toContain(
       'Instruction Checks run at Validate. Ted starts an agent for each one; one that may fix runs before the commands, the others after them:\n\n- Docs drift (may fix)\n  Check the docs.\n\n- Review\n  Look again.',
     )
-    expect(results[3]?.code).toBe(0)
-    expect(results[3]?.stdout).toContain('✓ Typecheck')
-    expect((await getTask(client, task.id))?.stage).toBe('work')
+    expect(results[2]?.code).toBe(0)
+    expect(results[2]?.stdout).toContain('✓ Typecheck')
+    expect((await getTask(client, task.id))?.stage).toBe('intake')
   })
 
-  test('a Check name the Factory doesn’t have is refused', async () => {
+  test('a Check name the Factory doesn’t have is refused, and Work refuses every ted checks', async () => {
     await workflow('      - { name: Typecheck, run: "echo typed" }')
     const client = await startTed()
     const task = await startTask(
       client,
-      steps({ run: ['ted', 'checks', '--name', 'Nope'] }, { endTurn: true }),
+      steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['ted', 'checks', '--name', 'Nope'] },
+        advance,
+        { run: ['ted', 'checks'] },
+        { run: ['ted', 'checks', '--name', 'Typecheck'] },
+        { endTurn: true },
+      ),
     )
     const current = await waitUntil(async () => {
       const t = await getTask(client, task.id)
       return t?.leadRunId ? t : undefined
     }, 'the Task Lead')
-    const [result] = await waitUntil(async () => {
+    const results = await waitUntil(async () => {
       const texts = assistantTexts((await client.getRun(current.leadRunId ?? '')).conversation)
-      return texts.length > 0
-        ? texts.map((t) => JSON.parse(t) as { code: number; stderr: string })
-        : undefined
-    }, 'the ted checks result')
-    expect(result?.code).not.toBe(0)
-    expect(result?.stderr).toContain('no check named “Nope”')
+        .filter((t) => t.startsWith('{'))
+        .map((t) => JSON.parse(t) as { code: number; stderr: string })
+      return texts.length >= 4 ? texts : undefined
+    }, 'the ted checks results')
+    expect(results[0]?.code).not.toBe(0)
+    expect(results[0]?.stderr).toContain('no check named “Nope”')
+    expect(results[1]?.code).toBe(0)
+    for (const refused of [results[2], results[3]]) {
+      expect(refused?.code).not.toBe(0)
+      expect(refused?.stderr).toContain('`ted checks` doesn’t run in Work')
+      expect(refused?.stderr).toContain(`when ${task.displayId} enters Validate`)
+    }
+    expect((await getTask(client, task.id))?.stage).toBe('work')
     expect(await checkRuns(client, task)).toEqual([])
   })
 })

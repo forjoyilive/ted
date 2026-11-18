@@ -27,7 +27,7 @@ A Check was a shell command. Some things a Factory wants checked on every Task n
 
 **Fixing happens only at Validate.** A Check may fix only in a `validate` Check run while the Task is in Validate. At Merge a changed Task goes back to Work, so a `fix: true` Check that has to rerun there runs report-only; so does one that `ted checks` runs.
 
-**`ted checks` in Work runs commands only.** It plans the command Checks, then lists the instruction Checks with their instructions, marking those that may fix. Naming an instruction Check in Work is refused. Whether Work should run Checks at all is TED-583.
+**`ted checks` before Validate runs commands only.** It plans the command Checks, then lists the instruction Checks with their instructions, marking those that may fix. In Work `ted checks` is refused altogether (TED-583, ADR 0193-ted-checks-is-refused-in-work).
 
 **Run now on a chosen Task.** In Factory settings, Run now on an instruction Check asks for a Task: `GET /factories/:id/checks/try/tasks` lists open Tasks in the Factory, owned by this machine, with a Task Lead Run and a worktree that has changes. The try goes through the same human-only `POST /factories/:id/checks/try` with `instruction` and `taskId` (`InstructionCheckTryRequest`) and runs through `check-tries.ts` as before. It is always report-only. Its result (Last run and Report) shows only in Factory settings; it opens no failure case and changes nothing on the Task. The agent is still a sub-agent Run on that Task, so it shows in the Task’s Runs; the thread leaves out its start line through `runNowAgents` in `tasks/thread.ts`, which picks out an `instruction-check` sub-agent that started outside any Check run of that Task holding an instruction Check of the same name.
 

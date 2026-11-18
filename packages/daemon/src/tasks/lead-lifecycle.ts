@@ -7,7 +7,13 @@ import type { Clock, Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { RecordedSetup, RunFlags, StoredTask, TedStore } from '../store/index.ts'
+import type {
+  CarriedMessages,
+  RecordedSetup,
+  RunFlags,
+  StoredTask,
+  TedStore,
+} from '../store/index.ts'
 import type { WorkflowSettings } from '../workflow/check.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { endingReason, failedAsk, memoryReason, revivedMessage, silentReason } from './failures.ts'
@@ -16,7 +22,15 @@ import { overnightGuidance } from './overnight.ts'
 import { type FactoryRepoEntry, repoEntry, sameRepo } from './repos.ts'
 
 export type SetupStep = { repo: TaskRepo; setup: RecordedSetup }
-type LaunchIntent = { resumeSession?: string | undefined; pickUp?: string | undefined }
+export interface RestartFailure {
+  askAgain(): void
+  waitsForBlockers(): boolean
+}
+type LaunchIntent = {
+  resumeSession?: string | undefined
+  pickUp?: string | undefined
+  replacing?: CarriedMessages | undefined
+}
 export type PreparationIntent =
   | { kind: 'existing' }
   | { kind: 'held' }
@@ -316,17 +330,23 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     const unread = store.runMessages(run.id).filter((message) => message.queued === true)
     const pickUp = await note(unread)
     await runs.stop(run.id)
-    await launch(task, resolution, env, undefined, { pickUp })
-    if (find(task.id).leadRunId === run.id) return true
-    for (const message of unread) store.deleteRunMessage(run.id, message.id)
-    await store.persisted()
+    const replacing = { runId: run.id, messageIds: unread.map((message) => message.id) }
+    await launch(task, resolution, env, undefined, { pickUp, replacing })
+    await deleteCarried(task.id, replacing)
     return true
+  }
+
+  async function deleteCarried(taskId: string, carried: CarriedMessages): Promise<void> {
+    if (find(taskId).leadRunId === carried.runId) return
+    for (const id of carried.messageIds) store.deleteRunMessage(carried.runId, id)
+    await store.persisted()
   }
 
   async function restartFromBrief(
     taskId: string,
     note: (unread: readonly RunMessage[]) => Promise<string>,
     starting: () => void,
+    failed: RestartFailure,
   ): Promise<void> {
     const task = find(taskId)
     const run = liveLead(task)
@@ -353,16 +373,27 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       )
     const after = refusal()
     if (after !== undefined) throw new RequestError(409, after)
-    applying.add(taskId)
+    let started = false
     try {
-      starting()
-      if (!(await freshLead(find(taskId), run, agent, note)))
-        throw new RequestError(
-          409,
-          `${agentShortNames[agent]} isn’t ready. Check Settings → Providers.`,
-        )
-    } finally {
-      applying.delete(taskId)
+      applying.add(taskId)
+      try {
+        starting()
+        started = true
+        if (!(await freshLead(find(taskId), run, agent, note)))
+          throw new RequestError(
+            409,
+            `${agentShortNames[agent]} isn’t ready. Check Settings → Providers.`,
+          )
+      } finally {
+        applying.delete(taskId)
+      }
+    } catch (error) {
+      if (started && liveLead(find(taskId))) failed.askAgain()
+      else if (started) {
+        store.resumeTask(taskId, { waitForBlockers: failed.waitsForBlockers() })
+        wake()
+      }
+      throw error
     }
   }
 
@@ -403,8 +434,14 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     resolution: WorkflowResolution,
     env: Record<string, string>,
     setupReport?: string,
-    { resumeSession, pickUp }: LaunchIntent = {},
+    { resumeSession, pickUp, replacing }: LaunchIntent = {},
   ): Promise<void> {
+    const held = {
+      taskId: task.id,
+      ...(resumeSession !== undefined && { sessionId: resumeSession }),
+      ...(replacing !== undefined && { carried: replacing }),
+      ...(replacing !== undefined && pickUp !== undefined && { pickUp }),
+    }
     const previous = find(task.id)
     if (previous.archived || previous.stopped || previous.waitsForBlockers) return
     await local(task.id)
@@ -416,11 +453,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     const lead = effectiveLead(current, defaultLead(resolution.workflow.settings)) as TaskLead
     const agent = lead.agent
     if (agentStartHold(store, agent) || !(await health.ready(agent))) {
-      store.holdTaskRun({
-        taskId: task.id,
-        agent,
-        ...(resumeSession !== undefined && { sessionId: resumeSession }),
-      })
+      store.holdTaskRun({ ...held, agent })
       return
     }
     const { prompt, cwd, waiting, overnight, shared } = await context(
@@ -463,11 +496,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       await store.persisted()
     } catch (error) {
       if (!(error instanceof AgentDisabledError)) throw error
-      store.holdTaskRun({
-        taskId: task.id,
-        agent,
-        ...(resumeSession !== undefined && { sessionId: resumeSession }),
-      })
+      store.holdTaskRun({ ...held, agent })
       return
     } finally {
       protectComments([...waiting.comments, ...waiting.answers], false)
@@ -506,6 +535,15 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
         return
       }
       if (held ? leadLive : task.leadRunId) return
+      if (held?.carried !== undefined) {
+        const resolution = await workflow(find(taskId))
+        const env = leadEnv(task, entries(task, resolution))
+        await launch(task, resolution, env, undefined, {
+          pickUp: held.pickUp,
+          replacing: held.carried,
+        })
+        return deleteCarried(taskId, held.carried)
+      }
       if (held?.sessionId !== undefined && (task.lead?.agent ?? held.agent) === held.agent) {
         const resolution = await workflow(find(taskId))
         const env = store.recordedSetup(taskId, repo.name)?.env ?? {}
@@ -563,6 +601,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     const now = store.getTask(task.id)
     if (!now || now.leadRunId !== run.id || now.stage === 'done') return
     if (now.waitsForBlockers || now.stopped || stoppedByTed) return
+    if (store.heldRuns().some((h) => h.taskId === task.id && h.carried !== undefined)) return
     if (signedOut !== undefined) {
       const held = new Set(store.heldAnswers(task.id).map((c) => c.id))
       for (const comment of store.listComments(task.id)) {

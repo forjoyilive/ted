@@ -112,6 +112,7 @@ function RecordedCheckOutput({
                   aria-selected={i === shown}
                   className={styles.tab}
                   onClick={() => {
+                    if (i === shown) return
                     following.current = true
                     setShown(i)
                   }}

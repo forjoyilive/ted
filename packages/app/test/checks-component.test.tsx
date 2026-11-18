@@ -77,7 +77,10 @@ test('Check output opens the failed output and tabs switch to another Check', as
   expect(close).toHaveBeenCalledOnce()
 })
 
-test('Check output follows new lines only while scrolled to the bottom', async () => {
+const lineText = (prefix: string, count: number) =>
+  Array.from({ length: count }, (_, i) => `${prefix} ${i + 1}`).join('\n')
+
+function fakeScrolling() {
   const scrolled = new WeakMap<Element, number>()
   const lineHeight = 20
   const shownHeight = 100
@@ -100,14 +103,27 @@ test('Check output follows new lines only while scrolled to the bottom', async (
       },
     },
   })
+  return () => {
+    for (const name of ['clientHeight', 'scrollHeight', 'scrollTop']) {
+      Reflect.deleteProperty(HTMLPreElement.prototype, name)
+    }
+  }
+}
+
+function shownOutput(container: HTMLElement) {
+  const pre = container.querySelector('pre')
+  if (!pre) throw new Error('No output shown')
+  return pre
+}
+
+test('Check output follows new lines only while scrolled to the bottom', async () => {
+  const restore = fakeScrolling()
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   try {
     let lines = 10
-    const lineText = (count: number) =>
-      Array.from({ length: count }, (_, i) => `line ${i + 1}`).join('\n')
     bridge({
       listFailures: () => [],
-      checkOutput: () => ({ text: lineText(lines), log: '/test/check.log' }),
+      checkOutput: () => ({ text: lineText('line', lines), log: '/test/check.log' }),
     })
     const running: CheckRun = {
       ...run,
@@ -116,11 +132,7 @@ test('Check output follows new lines only while scrolled to the bottom', async (
     const { container } = render(
       <CheckOutputDialog checkRun={running} position={1} onClose={vi.fn()} />,
     )
-    const output = () => {
-      const pre = container.querySelector('pre')
-      if (!pre) throw new Error('No output shown')
-      return pre
-    }
+    const output = () => shownOutput(container)
     const grow = async (count: number) => {
       lines = count
       act(() => void vi.advanceTimersByTime(1000))
@@ -138,15 +150,45 @@ test('Check output follows new lines only while scrolled to the bottom', async (
     await grow(30)
     expect(output().scrollTop).toBe(50)
 
-    output().scrollTop = 490
+    fireEvent.click(screen.getByRole('tab', { name: 'Tests' }))
+    await grow(35)
+    expect(output().scrollTop).toBe(50)
+
+    output().scrollTop = 590
     fireEvent.scroll(output())
     await grow(40)
     expect(output().scrollTop).toBe(700)
   } finally {
     vi.useRealTimers()
-    for (const name of ['clientHeight', 'scrollHeight', 'scrollTop']) {
-      Reflect.deleteProperty(HTMLPreElement.prototype, name)
-    }
+    restore()
+  }
+})
+
+test('a finished Check opens at the bottom and a tab switch starts at the bottom', async () => {
+  const restore = fakeScrolling()
+  try {
+    bridge({
+      listFailures: () => [],
+      checkOutput: (_id, position) => ({
+        text: position === 1 ? lineText('line', 30) : lineText('typed', 15),
+        log: '/test/check.log',
+      }),
+    })
+    const { container } = render(
+      <CheckOutputDialog checkRun={run} position={1} onClose={vi.fn()} />,
+    )
+    const output = () => shownOutput(container)
+
+    await expect.poll(() => output().textContent).toContain('line 30')
+    expect(output().scrollTop).toBe(500)
+
+    output().scrollTop = 50
+    fireEvent.scroll(output())
+    fireEvent.click(screen.getByRole('tab', { name: 'Typecheck' }))
+    await expect.poll(() => output().textContent).toContain('typed 15')
+    expect(output().scrollTop).toBe(200)
+  } finally {
+    restore()
   }
 })
 

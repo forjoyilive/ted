@@ -113,7 +113,7 @@ const freshContextSteps = (id: string) =>
   `Capture a fresh context with \`ted failure context\`, add evidence that names it with \`ted failure evidence ${shortReference(id)} --file <json>\` (\`{"evidence":"…","contextId":"<new context ID>"}\`), then run \`ted failure assess ${shortReference(id)} --file <json>\` and \`ted failure ask ${shortReference(id)}\`. Evidence without the new contextId leaves the decision bound to the old context.`
 
 const newCaseSteps =
-  'A newly captured context can’t be attached to this failure, because Ted can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory check); a failure that happens again is a new case to record, assess and ask about.'
+  'A newly captured context can’t be attached to this failure, because Ted can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (for a Factory check, `ted checks` outside Work; in Work, Ted runs the checks again when the Task enters Validate); a failure that happens again is a new case to record, assess and ask about.'
 
 export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
   return workflow.settings.stages.work?.lead_closes_failures === true

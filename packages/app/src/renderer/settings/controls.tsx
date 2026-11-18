@@ -254,6 +254,7 @@ export function Segmented<T extends string>({
   options,
   onChange,
   className,
+  disabled = false,
 }: {
   label: string
   name: string
@@ -261,6 +262,7 @@ export function Segmented<T extends string>({
   options: readonly { value: T; label: string }[]
   onChange: (value: T) => void
   className?: string | undefined
+  disabled?: boolean
 }) {
   return (
     <div
@@ -275,6 +277,7 @@ export function Segmented<T extends string>({
             name={name}
             className={styles.radio}
             checked={value === option.value}
+            disabled={disabled}
             onChange={() => onChange(option.value)}
           />
           {option.label}

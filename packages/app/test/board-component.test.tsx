@@ -688,19 +688,28 @@ test('the Stage lists reload for a requested Factory, even before its first list
   expect(affects(moved, ['f1'], listed)).toBe(false)
 })
 
-test('a Task waiting after its Checks says so, with its place in the hover title', async () => {
+test('a queued Task that skips the busy hold shows its place, and one the hold stops says the computer is busy', async () => {
   api()
-  const facts: TaskFacts = {
+  const busy = { loadRatio: 2 }
+  const skips = taskStatus({
     stage: 'work',
     runs: ['idle'],
-    queue: { place: 2, after: 'checks-passed' },
-    busy: { loadRatio: 2 },
-  }
-  const status = taskStatus(facts)
-  if (!status) throw new Error('Expected a queued status')
-  render(<Board {...props()} tasks={[task({ stage: 'work', status, markers: [] })]} />)
-  const chip = await screen.findByText('Queued · Checks passed, waiting for a slot')
-  expect(chip.title).toBe('2nd in the queue')
+    queue: { place: 2, skipsBusy: true },
+    busy,
+  })
+  const held = taskStatus({ stage: 'work', runs: [], queue: { place: 3 }, busy })
+  if (!skips || !held) throw new Error('Expected queued statuses')
+  render(
+    <Board
+      {...props()}
+      tasks={[
+        task({ stage: 'work', status: skips, markers: [] }),
+        task({ id: 'NB-2', displayId: 'NB-2', stage: 'work', status: held, markers: [] }),
+      ]}
+    />,
+  )
+  expect(await screen.findByText('Queued · 2nd')).toBeTruthy()
+  expect(await screen.findByText('Queued · computer is busy')).toBeTruthy()
 })
 
 test('Stopped is red, Snoozed is amber and Ready for Work stays green', async () => {

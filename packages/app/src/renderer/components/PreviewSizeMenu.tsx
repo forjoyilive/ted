@@ -39,10 +39,23 @@ export function PreviewSizeMenu({
   const [custom, setCustom] = useState<string>()
   const [problem, setProblem] = useState<string>()
   const field = useRef<HTMLInputElement>(null)
+  const sizeButton = useRef<HTMLButtonElement>(null)
+  const closing = useRef(false)
   const editing = custom !== undefined
   useEffect(() => {
     if (editing) field.current?.select()
   }, [editing])
+  useEffect(() => {
+    if (editing || disabled || !closing.current) return
+    closing.current = false
+    if (document.activeElement === null || document.activeElement === document.body)
+      sizeButton.current?.focus()
+  }, [editing, disabled])
+  const closeCustom = () => {
+    closing.current = true
+    setProblem(undefined)
+    setCustom(undefined)
+  }
   const device = size.kind === 'tablet' || size.kind === 'mobile' ? size.kind : undefined
   const landscape = size.kind === 'tablet' || size.kind === 'mobile' ? size.landscape : undefined
   const items = (): MenuAction[] => [
@@ -96,8 +109,7 @@ export function PreviewSizeMenu({
       setProblem(`Use ${min}–${max} px`)
       return
     }
-    setProblem(undefined)
-    setCustom(undefined)
+    closeCustom()
     await onSize({ kind: 'custom', width })
   }
   const percent = Math.round(scale * 100)
@@ -121,10 +133,7 @@ export function PreviewSizeMenu({
                 event.preventDefault()
                 void applyCustom()
               }
-              if (event.key === 'Escape') {
-                setProblem(undefined)
-                setCustom(undefined)
-              }
+              if (event.key === 'Escape') closeCustom()
             }}
           />
           {problem ? (
@@ -135,18 +144,12 @@ export function PreviewSizeMenu({
             <span className={styles.unit}>px</span>
           )}
           <Button onClick={() => void applyCustom()}>Apply</Button>
-          <Button
-            onClick={() => {
-              setProblem(undefined)
-              setCustom(undefined)
-            }}
-          >
-            Cancel
-          </Button>
+          <Button onClick={closeCustom}>Cancel</Button>
         </span>
       )}
       {custom === undefined && (
         <Button
+          ref={sizeButton}
           aria-haspopup="menu"
           aria-expanded={actions.isOpen}
           aria-label={`Preview size: ${previewSizeLabel(size)}`}

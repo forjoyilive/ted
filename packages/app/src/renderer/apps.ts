@@ -61,6 +61,8 @@ function simulatorLine(app: TaskApp, now: number): string | undefined {
   if (!simulator) return undefined
   const android = isEmulatorApp(app)
   if (app.state === 'waiting') {
+    const building = buildingLine(app)
+    if (building !== undefined) return building
     return `Waiting for ${android ? 'an emulator' : 'a simulator'} · ${simulator.device}`
   }
   if (simulator.booted) {
@@ -74,6 +76,11 @@ function simulatorLine(app: TaskApp, now: number): string | undefined {
   return shutDown.for !== undefined
     ? `Shut down ${ago(shutDown.at, now)} to free a slot for ${shutDown.for}`
     : `${simulator.device} · shut down ${ago(shutDown.at, now)}`
+}
+
+export function buildingLine(app: TaskApp): string | undefined {
+  const on = app.waitingOn
+  return on === undefined ? undefined : `Waiting for ${on.displayId}’s ${on.app} to finish building`
 }
 
 function stateLine(app: TaskApp, now: number): string {

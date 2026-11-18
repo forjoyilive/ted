@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
-import { appendFile, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import https from 'node:https'
 import net from 'node:net'
@@ -41,6 +41,7 @@ import { removeInside } from '../tasks/remove-files.ts'
 import { certificateErrorCode } from '../tls-trust.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
 import type { AppDeclaration } from './declared.ts'
+import { createDevicePool } from './device-pool.ts'
 import type { SimulatorApp } from './device-slots.ts'
 import {
   type AndroidTools,
@@ -124,6 +125,7 @@ export interface AppsOptions {
   idle?: IdleTimer
   pollMs?: number
   readyTimeoutMs?: number
+  buildTurnMs?: number
   stopGraceMs?: number
   logBytes?: number
   simulators?: SimulatorOptions
@@ -273,6 +275,13 @@ export function createApps(options: AppsOptions): Apps {
   const keyOf = (taskId: string, repo: string, name: string) => `${taskId}/${repo}/${slug(name)}`
   const portsFile = (taskId: string) => path.join(taskDir(taskId), 'ports.json')
 
+  const pool = createDevicePool({
+    limit: () => store.settings().maxRunningDevices,
+    oneAtATime: () => store.settings().buildDeviceAppsOneAtATime,
+    ...(options.buildTurnMs !== undefined && { turnMs: options.buildTurnMs }),
+  })
+  const readyFrom = new Map<string, number>()
+
   const simulatorOptions = options.simulators ?? {
     dir: path.join(path.dirname(appsDir), 'simulators'),
     supported: false,
@@ -292,6 +301,7 @@ export function createApps(options: AppsOptions): Apps {
     ...(simulatorOptions.banners !== undefined && { banners: simulatorOptions.banners }),
     ...(options.idle !== undefined && { idle: options.idle }),
     ...(options.busy !== undefined && { busy: options.busy }),
+    pool,
     ...(simulatorOptions.pollMs !== undefined && { pollMs: simulatorOptions.pollMs }),
     ...(simulatorOptions.idleMs !== undefined && { idleMs: simulatorOptions.idleMs }),
     emit: options.emit,
@@ -326,6 +336,7 @@ export function createApps(options: AppsOptions): Apps {
     ...(emulatorOptions.banners !== undefined && { banners: emulatorOptions.banners }),
     ...(options.idle !== undefined && { idle: options.idle }),
     ...(options.busy !== undefined && { busy: options.busy }),
+    pool,
     ...(emulatorOptions.pollMs !== undefined && { pollMs: emulatorOptions.pollMs }),
     ...(emulatorOptions.idleMs !== undefined && { idleMs: emulatorOptions.idleMs }),
     ...(emulatorOptions.bootTimeoutMs !== undefined && {
@@ -426,6 +437,15 @@ export function createApps(options: AppsOptions): Apps {
     const simulator = isDeviceApp(app)
       ? devicesFor(app.kind).info(taskId, repo, app.name)
       : undefined
+    const waiter =
+      state === 'waiting' && instance?.waitingFor !== undefined
+        ? pool.waiter(instance.waitingFor)
+        : undefined
+    const holder = waiter !== undefined && !waiter.asking ? pool.holder() : undefined
+    const waitingOn =
+      holder !== undefined && holder.key !== keyOf(taskId, repo, app.name)
+        ? { displayId: holder.displayId, app: holder.app }
+        : undefined
     return {
       repo,
       name: app.name,
@@ -441,6 +461,7 @@ export function createApps(options: AppsOptions): Apps {
       ...(ended?.problem !== undefined && { problem: ended.problem }),
       ...(state === 'waiting' &&
         instance?.waitingFor !== undefined && { waitingFor: instance.waitingFor }),
+      ...(waitingOn !== undefined && { waitingOn }),
       ...(simulator !== undefined && { simulator }),
       ...(app.electron && { electron: true }),
       ...(app.preview !== undefined && { preview: app.preview }),
@@ -695,6 +716,10 @@ export function createApps(options: AppsOptions): Apps {
     port: number | undefined,
     extra: Record<string, string>,
   ): Promise<TaskApp> {
+    if (isDeviceApp(app)) {
+      const log = appFiles(dirOf(taskId, repo.name, app.name)).log
+      readyFrom.set(keyOf(taskId, repo.name, app.name), await logSize(log))
+    }
     return withRunPermissions(store, { taskId }, async () => {
       task = await options.task(taskId)
       const dir = dirOf(taskId, repo.name, app.name)
@@ -719,6 +744,7 @@ export function createApps(options: AppsOptions): Apps {
       const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
       const sandboxed = await sandboxFor(scope && { ...scope, electron }, task, dir)
       if ('problem' in sandboxed) {
+        pool.endTurn(key)
         await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)
         throw new RequestError(409, `Ted couldn’t start ${app.name}: ${sandboxed.problem}`)
       }
@@ -747,6 +773,9 @@ export function createApps(options: AppsOptions): Apps {
           lowPriority: by !== 'human' && store.settings().lowPriorityWork,
           ...(sandboxed.shell !== undefined && { shell: sandboxed.shell, fds: sandboxed.fds }),
         })
+      } catch (error) {
+        pool.endTurn(key)
+        throw error
       } finally {
         await sandboxed.close?.()
       }
@@ -845,6 +874,24 @@ export function createApps(options: AppsOptions): Apps {
       await watching.get(key)
     } finally {
       stopping.delete(key)
+    }
+  }
+
+  async function saidReady(dir: string, key: string): Promise<boolean> {
+    const file = appFiles(dir).log
+    const size = await logSize(file)
+    const read = readyFrom.get(key) ?? 0
+    const from = read > size ? 0 : read
+    if (size === from) return false
+    const start = Math.max(0, from - readyLine.length - 2)
+    const length = Math.min(size - start, readyChunkBytes)
+    const handle = await open(file, 'r')
+    try {
+      const { buffer, bytesRead } = await handle.read(Buffer.alloc(length), 0, length, start)
+      readyFrom.set(key, start + bytesRead)
+      return readyPattern.test(buffer.subarray(0, bytesRead).toString('utf8'))
+    } finally {
+      await handle.close()
     }
   }
 
@@ -962,6 +1009,8 @@ export function createApps(options: AppsOptions): Apps {
       })
     } finally {
       marked?.unmark()
+      pool.endTurn(key)
+      readyFrom.delete(key)
     }
   }
 
@@ -1004,6 +1053,9 @@ export function createApps(options: AppsOptions): Apps {
           stopping.has(key),
         )
         return
+      }
+      if (started && pool.holder()?.key === key && (await saidReady(dir, key))) {
+        pool.endTurn(key)
       }
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {
@@ -1475,4 +1527,12 @@ function answers(url: string): Promise<Answer> {
       ),
     )
   })
+}
+
+const readyLine = 'TED_APP_READY'
+const readyPattern = /(?:^|\n)[ \t]*TED_APP_READY[ \t]*\r?\n/
+const readyChunkBytes = 1024 * 1024
+
+async function logSize(file: string): Promise<number> {
+  return (await stat(file).catch(() => undefined))?.size ?? 0
 }

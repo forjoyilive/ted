@@ -2100,7 +2100,7 @@
       "count": 1
     },
     "anti-slop/no-runtime-typeof": {
-      "count": 33
+      "count": 31
     },
     "anti-slop/no-unknown-parameters": {
       "count": 10

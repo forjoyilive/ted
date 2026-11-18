@@ -116,6 +116,7 @@ export function BacklogStartsChoice({
           { value: 'all', label: 'All Factories' },
           { value: 'chosen', label: 'Chosen Factories' },
         ]}
+        disabled={disabled}
         onChange={(scope) => onChange({ ...starts, all: scope === 'all' })}
       />
       {starts.all ? (
@@ -208,7 +209,10 @@ export function startsOnItsOwn(task: Task, startsIn: (factoryId: string) => bool
     task.stage === 'backlog' &&
     task.archived === undefined &&
     task.setup === undefined &&
-    task.blockedBy.length === 0 &&
+    task.snoozedUntil === undefined &&
+    task.openBlockers === undefined &&
+    !task.statuses.includes('stopped') &&
+    !task.statuses.includes('failed') &&
     task.createdBy !== 'task-lead' &&
     !(
       task.createdBy === 'automation' &&

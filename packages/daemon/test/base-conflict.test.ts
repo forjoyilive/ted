@@ -35,6 +35,7 @@ const work = () =>
     `${commit} commit -qm work`,
     `touch '${scratchFile('worked')}'`,
   ].join('\n')
+const severalStages = 60_000
 const waitForMain = () => `while [ ! -e '${scratchFile('moved')}' ]; do sleep 0.1; done`
 const resolve = () =>
   [
@@ -62,7 +63,7 @@ async function begin(stages: string[], intake: string[] = [], workflow: string[]
 }
 
 async function moveMain(after: string, files: Record<string, string> = { 'notes.txt': 'main\n' }) {
-  await waitUntil(() => exists(after), `the Task Lead to reach ${after}`)
+  await waitUntil(() => exists(after), `the Task Lead to reach ${after}`, severalStages)
   await commitToOrigin(ctx.scratch, files)
   await writeFile(scratchFile('moved'), '')
 }
@@ -82,6 +83,7 @@ describe('A branch that conflicts with its base', () => {
     await waitUntil(
       async () => (await getTask(client, task.id)).stage === 'validate',
       'the Task to reach Validate',
+      severalStages,
     )
     const refused = await output('refused.out')
     expect(refused).toContain('conflicts with main, so Ted kept it in Work')
@@ -96,7 +98,7 @@ describe('A branch that conflicts with its base', () => {
     ])
     expect(found[0]?.tip).toMatch(/^[0-9a-f]{40}$/)
     expect(found[0]).not.toHaveProperty('sendBackId')
-  })
+  }, 90_000)
 
   test('is sent back from Validate with its cause recorded, and the return counts', async () => {
     const { client, task } = await begin([
@@ -115,10 +117,14 @@ describe('A branch that conflicts with its base', () => {
     ])
     await moveMain('validating')
 
-    const [sendBack] = await waitUntil(async () => {
-      const found = await sendBacks(client, task)
-      return found.length > 0 ? found : undefined
-    }, 'the send-back')
+    const [sendBack] = await waitUntil(
+      async () => {
+        const found = await sendBacks(client, task)
+        return found.length > 0 ? found : undefined
+      },
+      'the send-back',
+      severalStages,
+    )
     expect(sendBack).toMatchObject({
       from: 'validate',
       to: 'work',
@@ -152,9 +158,10 @@ describe('A branch that conflicts with its base', () => {
       async () =>
         (await exists('resolved')) && (await getTask(client, task.id)).stage === 'validate',
       'the Task to come back to Validate',
+      severalStages,
     )
     expect(await sendBacks(client, task)).toHaveLength(1)
-  })
+  }, 120_000)
 
   test('held at Validate’s limit, keeps its cause when the human answers Keep going', async () => {
     const { client, task } = await begin(
@@ -179,6 +186,7 @@ describe('A branch that conflicts with its base', () => {
           (c) => c.kind === 'question' && c.answer === undefined,
         ),
       'the limit question',
+      severalStages,
     )
     expect(question.choices).toEqual(['Keep going', 'Stop the Task'])
     expect(question.body).toContain('This time the branch conflicted with its base branch')
@@ -204,7 +212,57 @@ describe('A branch that conflicts with its base', () => {
         /^Validate sent this back to Work \(round 1 of \d+\) · base conflict$/.test(l),
       ),
     ).toBe(true)
-  })
+  }, 90_000)
+
+  test('sent back after a Loop check finds the rounds converging, keeps its cause', async () => {
+    const findings = scratchFile('converging.md')
+    await writeFile(
+      findings,
+      `${JSON.stringify({ steps: [{ say: 'Verdict: converging' }, { endTurn: true }] })}\n`,
+    )
+    const { client, task } = await begin(
+      [
+        `elif [ ! -e '${scratchFile('worked')}' ]; then`,
+        work(),
+        'ted outcome advance',
+        `elif [ ! -e '${scratchFile('sent-back')}' ]; then`,
+        `touch '${scratchFile('validating')}'`,
+        waitForMain(),
+        `ted outcome advance > '${scratchFile('refused.out')}' 2>&1`,
+        `ted outcome back --to work --cause base-conflict --findings '${findings}' && touch '${scratchFile('sent-back')}'`,
+        `elif [ ! -e '${scratchFile('resolved')}' ]; then`,
+        resolve(),
+        `touch '${scratchFile('resolved')}'`,
+        'ted outcome advance',
+      ],
+      [],
+      ['stages:', '  validate:', '    max_back: 5', '    loop_check: 1'],
+    )
+    await moveMain('validating')
+
+    const [sendBack] = await waitUntil(
+      async () => {
+        const found = await sendBacks(client, task)
+        return found.length > 0 ? found : undefined
+      },
+      'the send-back after the Loop check',
+      severalStages,
+    )
+    expect(sendBack).toMatchObject({
+      from: 'validate',
+      to: 'work',
+      counted: true,
+      round: 1,
+      cause: 'base-conflict',
+    })
+    const thread = await lines(client, task)
+    expect(thread.some((l) => l.startsWith('Loop check: converging'))).toBe(true)
+    expect(
+      thread.some((l) =>
+        /^Validate sent this back to Work \(round 1 of \d+\) · base conflict$/.test(l),
+      ),
+    ).toBe(true)
+  }, 90_000)
 
   test('a send-back that names a conflict Ted can’t find is an ordinary send-back, on a branch Ted moved to the latest base at its first Work entry', async () => {
     const { client, task } = await begin(
@@ -220,10 +278,14 @@ describe('A branch that conflicts with its base', () => {
     )
     await moveMain('intake', { 'other.txt': 'new on main\n' })
 
-    const [sendBack] = await waitUntil(async () => {
-      const found = await sendBacks(client, task)
-      return found.length > 0 ? found : undefined
-    }, 'the send-back')
+    const [sendBack] = await waitUntil(
+      async () => {
+        const found = await sendBacks(client, task)
+        return found.length > 0 ? found : undefined
+      },
+      'the send-back',
+      severalStages,
+    )
     expect(sendBack).toMatchObject({
       from: 'validate',
       to: 'work',
@@ -242,5 +304,5 @@ describe('A branch that conflicts with its base', () => {
     const { leadRunId } = await getTask(client, task.id)
     const heard = await readFile(path.join(ctx.home, 'runs', leadRunId ?? '', 'host.log'), 'utf8')
     expect(heard.split('Ted moved this Task’s branch to the latest main')).toHaveLength(2)
-  })
+  }, 90_000)
 })

@@ -1916,6 +1916,7 @@ export function createTasks(options: {
             rank: task.rank,
             priority: task.priority,
             factoryId: task.factoryId,
+            ...(isCleanup(task.stage) && { skipsBusy: true as const }),
             ...(heldAt !== undefined && continuationFlags(heldAt, clock.now())),
           },
         ]
@@ -2079,22 +2080,41 @@ export function createTasks(options: {
         unfinishedChildren(task.id)
       )
         return []
-      return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
+      return [
+        {
+          id: task.id,
+          kind: 'task' as const,
+          rank: -1,
+          factoryId: task.factoryId,
+          ...(isCleanup(task.stage) && { skipsBusy: true as const }),
+        },
+      ]
     })
+  }
+
+  function cleanupStage(taskId: string): boolean {
+    const task = taskNow(taskId)
+    return task !== undefined && isCleanup(task.stage)
   }
 
   function revivesReady(): QueueEntry[] {
     const paused = store.agentPauses()
-    return leadLifecycle
-      .reviveCandidates()
-      .flatMap(({ taskId, factoryId, agent }) =>
-        agentStartHold(store, agent, taskNow(taskId)?.leadRunId) ||
-        paused[agent] !== undefined ||
-        inFlight.busy(taskId, ['held', 'hierarchy', 'deleting']) ||
-        unfinishedChildren(taskId)
-          ? []
-          : [{ id: taskId, kind: 'task' as const, rank: -1, factoryId }],
-      )
+    return leadLifecycle.reviveCandidates().flatMap(({ taskId, factoryId, agent }) =>
+      agentStartHold(store, agent, taskNow(taskId)?.leadRunId) ||
+      paused[agent] !== undefined ||
+      inFlight.busy(taskId, ['held', 'hierarchy', 'deleting']) ||
+      unfinishedChildren(taskId)
+        ? []
+        : [
+            {
+              id: taskId,
+              kind: 'task' as const,
+              rank: -1,
+              factoryId,
+              ...(cleanupStage(taskId) && { skipsBusy: true as const }),
+            },
+          ],
+    )
   }
 
   let backlogFrom: { version: number; from: ReturnType<typeof backlogStartFactories> } | undefined
@@ -4826,37 +4846,28 @@ export function createTasks(options: {
     asked: Comment,
     answer: () => void,
   ): Promise<void> {
-    let answered = false
-    try {
-      await leadLifecycle.restartFromBrief(
-        task.id,
-        async (unread) =>
-          [
-            fromTheBrief(find(task.id), {
-              heading: 'Picking up after getting stuck',
-              why: `The previous Task Lead kept stopping without asking the human anything, even after Ted nudged it. The human chose to restart from the brief, so you don’t have that conversation. Ted told the human: “${oneLine(asked.body, 500)}” If you need the human to decide or do something, ask with \`ted outcome ask "<question>"\`.`,
-            }),
-            ...(unread.length > 0
-              ? [
-                  `## Messages the old Task Lead hadn’t read\n\n${unread
-                    .map((m) => `${m.from === 'ted' ? 'Ted' : 'The user'}: ${m.text.trim()}`)
-                    .join('\n\n')}`,
-                ]
-              : []),
-          ].join('\n\n'),
-        () => {
-          answer()
-          answered = true
-        },
-      )
-    } catch (error) {
-      if (answered && liveLead(find(task.id))) postIdleQuestion(task.id, asked.body)
-      else if (answered) {
-        store.resumeTask(task.id, { waitForBlockers: unmergedBlockers(task.id).length > 0 })
-        void pump()
-      }
-      throw error
-    }
+    await leadLifecycle.restartFromBrief(
+      task.id,
+      async (unread) =>
+        [
+          fromTheBrief(find(task.id), {
+            heading: 'Picking up after getting stuck',
+            why: `The previous Task Lead kept stopping without asking the human anything, even after Ted nudged it. The human chose to restart from the brief, so you don’t have that conversation. Ted told the human: “${oneLine(asked.body, 500)}” If you need the human to decide or do something, ask with \`ted outcome ask "<question>"\`.`,
+          }),
+          ...(unread.length > 0
+            ? [
+                `## Messages the old Task Lead hadn’t read\n\n${unread
+                  .map((m) => `${m.from === 'ted' ? 'Ted' : 'The user'}: ${m.text.trim()}`)
+                  .join('\n\n')}`,
+              ]
+            : []),
+        ].join('\n\n'),
+      answer,
+      {
+        askAgain: () => postIdleQuestion(task.id, asked.body),
+        waitsForBlockers: () => unmergedBlockers(task.id).length > 0,
+      },
+    )
   }
 
   async function useDefaultModel(ref: string): Promise<Task> {
@@ -8333,7 +8344,7 @@ export function createTasks(options: {
           ? `Validate sent this Task back to Work ${returns} without getting closer to done`
           : `Back to Work ${returns}, and Ted couldn’t check progress`,
       intro: looping
-        ? `Ted’s Loop check found that the rounds keep repeating the same problem. ${reason} If you keep going, add guidance that breaks the pattern.`
+        ? `Ted’s Loop check found that the rounds aren’t getting closer to done. ${reason} If you keep going, add guidance that breaks the pattern.`
         : verdict === 'converging'
           ? `Ted’s Loop check found that the rounds are making progress. ${reason}`
           : `Ted couldn’t check whether the rounds are making progress: ${reason}.`,
@@ -13763,6 +13774,12 @@ export function createTasks(options: {
     async runChecks(ref, caller, only) {
       const { task } = taskLead(ref, caller, 'runs checks')
       refuseDuringRepairHandOff(task)
+      if (handsOff(task.stage)) {
+        throw new RequestError(
+          409,
+          `\`ted checks\` doesn’t run in Work: Ted runs the Factory’s checks when ${task.displayId} enters Validate. To check your work now, run the repo’s quick commands yourself, such as its type check and linter.`,
+        )
+      }
       if (inFlight.is(task.id, 'transition'))
         throw new RequestError(
           409,
@@ -13783,12 +13800,6 @@ export function createTasks(options: {
         const listed = task.setup
           ? await approvedSetupChecks(task)
           : (resolution.workflow.settings.stages.validate?.checks ?? [])
-        const inWork = handsOff(task.stage)
-        if (inWork && listed.some((c) => c.name === only && isInstructionCheck(c)))
-          throw new RequestError(
-            409,
-            `“${only}” is an instruction check: Ted runs it at Validate, not with ted checks in Work`,
-          )
         if (
           only !== undefined &&
           only !== tedSettingsCheck &&
@@ -13804,7 +13815,7 @@ export function createTasks(options: {
         }
         const started = await validation.begin(find(task.id), resolution, 'agent', only, reads)
         if (!started) {
-          const instructions = inWork ? await instructionListing(task) : undefined
+          const instructions = only === undefined ? await instructionListing(task) : undefined
           throw new RequestError(
             409,
             instructions !== undefined && only === undefined

@@ -59,6 +59,8 @@ export interface BrowserCommand {
 export interface BrowserResult {
   url?: string
   text?: string
+  canGoBack?: boolean
+  canGoForward?: boolean
   attachment?: Attachment
 }
 
@@ -75,5 +77,5 @@ export interface BrowserPollRequest {
 export interface BrowserReplyRequest extends BrowserPollRequest {
   canceled?: true
   error?: string
-  result?: Pick<BrowserResult, 'url' | 'text'>
+  result?: Pick<BrowserResult, 'url' | 'text' | 'canGoBack' | 'canGoForward'>
 }

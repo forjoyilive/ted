@@ -157,6 +157,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     powers: ['ask', 'read_code', 'run_commands', 'run_outside'],
     outsideCommands: [
       { name: 'build', command: 'pnpm release build <version>' },
+      { name: 'build-without-tests', command: 'pnpm release build <version> --skip-checks' },
       { name: 'publish', command: 'pnpm release publish' },
       { name: 'discard', command: 'pnpm release discard' },
     ],

@@ -411,7 +411,7 @@ describe('the Validate loop check', () => {
         const ask = await waitForAsk(client, task)
         expect(ask.body).toContain(
           verdict === 'looping'
-            ? 'the rounds keep repeating the same problem'
+            ? 'the rounds aren’t getting closer to done'
             : 'Ted couldn’t check whether the rounds are making progress',
         )
         expect(ask.choices).toEqual(['Keep going', 'Stop the Task'])

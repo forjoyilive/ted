@@ -118,7 +118,7 @@ export type TaskStatus =
   | { kind: 'working' }
   | { kind: 'stopped'; at?: string; prepared?: true }
   | { kind: 'blocked'; by: string; ended?: BlockerEnded }
-  | { kind: 'queued'; place: number; after?: QueuedAfter }
+  | { kind: 'queued'; place: number }
   | { kind: 'queued'; hold: string; busy?: BusyHold }
   | { kind: 'waiting-for-github'; on: GitHubWait }
 
@@ -250,6 +250,7 @@ export interface Task {
   lead?: TaskLead
   stageEffort?: Effort
   blockedBy: string[]
+  openBlockers?: string[]
   parentId?: string
   childIds?: string[]
   attachments: Attachment[]

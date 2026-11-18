@@ -1,6 +1,6 @@
 import type { Priority } from './task.ts'
 
-export const busyHold = 'this computer is busy'
+export const busyHold = 'computer is busy'
 
 export const busyMarks = {
   load: { holdAt: 1, resumeBelow: 0.75 },

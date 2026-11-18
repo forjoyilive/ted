@@ -81,7 +81,7 @@ describe('a Comment on a Task whose Task Lead ended', () => {
     expect(commentDelivery(at({ queue: { hold: 'claude is off.' } }))).toBeUndefined()
     expect(commentDelivery(at({ queue: { place: 1 }, busy: { loadRatio: 2 } }))).toBeUndefined()
     expect(
-      commentDelivery(at({ queue: { place: 1, after: 'answer' }, busy: { loadRatio: 2 } })),
+      commentDelivery(at({ queue: { place: 1, skipsBusy: true }, busy: { loadRatio: 2 } })),
     ).toBe('queued')
     expect(commentDelivery(at({ queue: { place: 1 }, paused: 'Usage limit' }))).toBe('paused')
     expect(commentDelivery(at({ interrupted: true, openRequests: 1 }))).toBeUndefined()
@@ -227,7 +227,7 @@ describe('taskStatus', () => {
     const busy = { memoryAvailable: 0.07 }
     expect(taskStatus(at({ stage: 'intake', queue: { place: 2 }, busy }))).toEqual({
       kind: 'queued',
-      hold: 'this computer is busy',
+      hold: 'computer is busy',
       busy,
     })
     expect(taskStatus(at({ stage: 'intake', queue: { hold: 'disk full' }, busy }))).toEqual({
@@ -235,8 +235,8 @@ describe('taskStatus', () => {
       hold: 'disk full',
     })
     expect(
-      taskStatus(at({ stage: 'validate', queue: { place: 3, after: 'checks-passed' }, busy })),
-    ).toEqual({ kind: 'queued', place: 3, after: 'checks-passed' })
+      taskStatus(at({ stage: 'validate', queue: { place: 3, skipsBusy: true }, busy })),
+    ).toEqual({ kind: 'queued', place: 3 })
     expect(taskStatus(at({ runs: ['working'], busy }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ stage: 'merge', github: 'review' }))).toEqual({
       kind: 'waiting-for-github',

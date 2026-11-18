@@ -1,12 +1,4 @@
-import type {
-  BlockerEnded,
-  GitHubWait,
-  QueuedAfter,
-  Task,
-  TaskMarker,
-  TaskRun,
-  TaskStatus,
-} from '@ted/protocol'
+import type { BlockerEnded, GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
 import { snoozeTime } from '../request-snooze.ts'
 import { ago, useNow } from '../requests.ts'
 import { statusDetail } from '../slots.ts'
@@ -33,12 +25,6 @@ const gitHubGlyphs: Record<GitHubWait, StatusGlyph> = {
   'required-check': 'ci',
 }
 
-const queuedAfterLabels: Record<QueuedAfter, string> = {
-  'checks-passed': 'Checks passed, waiting for a slot',
-  'checks-done': 'Checks finished, waiting for a slot',
-  answer: 'Answered, waiting for a slot',
-}
-
 export function ordinal(n: number): string {
   const tens = n % 100
   const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th')
@@ -63,7 +49,7 @@ export function statusLabel(status: TaskStatus): string {
       return `Blocked by ${status.ended ? `${status.ended} ` : ''}${status.by}`
     case 'queued':
       if ('hold' in status) return `Queued · ${status.hold}`
-      return `Queued · ${status.after ? queuedAfterLabels[status.after] : ordinal(status.place)}`
+      return `Queued · ${ordinal(status.place)}`
     case 'waiting-for-github':
       return gitHubLabels[status.on]
   }
@@ -173,8 +159,6 @@ function Marker({
 }
 
 function statusTitle(status: TaskStatus): string | undefined {
-  if (status.kind === 'queued' && 'place' in status && status.after !== undefined)
-    return `${ordinal(status.place)} in the queue`
   if (status.kind === 'waiting-on-you' && status.snoozedUntil !== undefined)
     return `Snoozed until ${snoozeTime(status.snoozedUntil)}`
   return statusDetail(status)

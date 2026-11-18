@@ -956,6 +956,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskRunHeld':
+      case 'v2.TaskRunHeld':
         held = true
         add(
           entry,
