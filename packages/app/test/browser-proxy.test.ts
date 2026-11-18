@@ -125,7 +125,7 @@ async function proxyWithUpstreams() {
   })
   closers.push(proxy.close)
   const refusals = { count: 0 }
-  const login = proxy.admit(() => refusals.count++)
+  const login = proxy.admit(() => () => refusals.count++)
   return { proxy: { port: proxy.port, login }, guestProxy: proxy, refusals, seen, dialed, looked }
 }
 
@@ -249,7 +249,7 @@ test('the guest proxy tells only the page whose login asked when it refuses a pr
   expect((await tunnel(proxy, 'broken.example:443')).status).toBe(502)
   expect(refusals.count).toBe(0)
   const other = { count: 0 }
-  const second = guestProxy.admit(() => other.count++)
+  const second = guestProxy.admit(() => () => other.count++)
   expect((await get(proxy, 'http://rebind.example/art.png')).status).toBe(403)
   expect((await tunnel(proxy, 'mixed.example:443')).status).toBe(403)
   expect(refusals.count).toBe(2)
@@ -260,6 +260,29 @@ test('the guest proxy tells only the page whose login asked when it refuses a pr
   expect((await get(proxy, 'http://rebind.example/art.png', { login: second })).status).toBe(407)
   expect(other.count).toBe(1)
   expect(refusals.count).toBe(2)
+})
+
+test('a refusal counts for the page that made the request, even when its lookup finishes after navigating', async () => {
+  let release: (() => void) | undefined
+  const proxy = await startGuestProxy({
+    lookup: () =>
+      new Promise((resolve) => {
+        release = () => resolve([{ address: '10.0.0.1', family: 4 }])
+      }),
+  })
+  closers.push(proxy.close)
+  let page = 'first'
+  const counted: string[] = []
+  const login = proxy.admit(() => {
+    const made = page
+    return () => counted.push(made)
+  })
+  const response = get({ port: proxy.port, login }, 'http://private.example/art.png')
+  await expect.poll(() => release).toBeTypeOf('function')
+  page = 'second'
+  release?.()
+  expect((await response).status).toBe(403)
+  expect(counted).toEqual(['first'])
 })
 
 test('a fixed host list resolves only the names it lists, to valid addresses', async () => {
