@@ -435,7 +435,7 @@ describe('the Validate loop check', () => {
       const ask = await waitForAsk(client, task)
       expect(ask).toMatchObject({
         stage: 'validate',
-        title: 'Back to Work 2 times with the same problem',
+        title: 'Validate sent this Task back to Work 2 times without getting closer to done',
         choices: ['Keep going', 'Stop the Task'],
       })
       expect(ask.body).not.toContain('Round 1:')
@@ -550,7 +550,7 @@ describe('the Validate loop check', () => {
       })
       const ask = await waitForAsk(client, task)
       expect(ask).toMatchObject({
-        title: 'Back to Work 3 times, the limit',
+        title: 'Validate sent this Task back to Work 3 times, its limit',
         choices: ['Keep going', 'Stop the Task'],
       })
       expect(ask.body).toContain(

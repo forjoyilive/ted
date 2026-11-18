@@ -2531,7 +2531,7 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
   )
   expect(limit).toMatchObject({
     author: { kind: 'ted' },
-    title: 'Back to Work 1 time, the limit',
+    title: 'Validate sent this Task back to Work 1 time, its limit',
     choices: ['Keep going', 'Stop the Task'],
   })
   const stage = async () =>
