@@ -25,6 +25,13 @@ describe('the home-folder guard', () => {
     'ls /Users/someone',
     'ls ~/library/mobile\\ documents',
     'find ~/Library/Mobile\\ Documents',
+    "find ~/Library -name '*.plist'",
+    'ls ~/Library/',
+    'ls "$HOME/Library/Application Support"',
+    'find ~/* -name .env',
+    'du -sh ~/Library/*',
+    'ls /Users/someone/Library/Application\\ Support/*',
+    'ls ~/D*',
   ])('refuses %s', (command) => {
     expect(namesHomeOrProtectedFolder(command, home)).toBe(true)
   })
@@ -36,6 +43,9 @@ describe('the home-folder guard', () => {
     'cat /Users/someone/.ted/worktrees/TED-1/repo/package.json',
     'echo $HOMEBREW_PREFIX',
     'ls ~/DocumentsArchive',
+    'ls ~/Library/Caches/*',
+    'ls ~/.ted/worktrees/*',
+    'cat ~/Library/Application\\ Support/Code/settings.json',
     'git log --oneline',
   ])('allows %s', (command) => {
     expect(namesHomeOrProtectedFolder(command, home)).toBe(false)

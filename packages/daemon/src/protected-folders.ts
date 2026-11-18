@@ -28,11 +28,18 @@ export function protectedPaths(home: string): string[] {
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const before = `(?:^|[\\s'"=:(\`<>])`
 const end = `(?=$|[\\s'";|&)\`<>])`
+const segmentEnd = `(?=$|[/\\s'";|&)\`<>])`
+const segment = `[^/\\s'";|&)\`<>]*`
+const parents = '(?:/Library(?:/Application Support)?)?'
 
 function homePattern(home: string): RegExp {
   const homes = ['~', '$HOME', '${HOME}', home.replace(/\/+$/, '')].map(escapeRegex).join('|')
   const folders = protectedFolders.map(escapeRegex).join('|')
-  return new RegExp(`${before}(?:${homes})(?:/?${end}|/(?:${folders})(?=$|[/\\s'";|&)\`<>]))`, 'i')
+  const wildcard = `/${segment}[*?[{]${segment}${segmentEnd}`
+  return new RegExp(
+    `${before}(?:${homes})(?:${parents}(?:/?${end}|${wildcard})|/(?:${folders})${segmentEnd})`,
+    'i',
+  )
 }
 
 export function namesHomeOrProtectedFolder(command: string, home: string): boolean {
