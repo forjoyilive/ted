@@ -592,13 +592,26 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     )
     .toBe(0)
   await window.evaluate(() => document.querySelector('#browser-test-dialog')?.remove())
+  type CrashRecovery = typeof globalThis & { crashRecovery?: { busy: boolean; done: boolean } }
+  // The panel reopens a crashed page itself. Until its open command finishes,
+  // the daemon refuses any other browser command for the Task.
+  await panel.evaluate((region) => {
+    const recovery = { busy: false, done: false }
+    ;(globalThis as CrashRecovery).crashRecovery = recovery
+    new MutationObserver((_records, observer) => {
+      const text = region.querySelector('[role="status"]')?.textContent ?? ''
+      if (!text.includes('Ready')) recovery.busy = true
+      else if (recovery.busy) {
+        recovery.done = true
+        observer.disconnect()
+      }
+    }).observe(region, { childList: true, subtree: true, characterData: true })
+  })
   const crashed = await app.evaluate(({ webContents }, url) => {
     const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
     guest?.forcefullyCrashRenderer()
     return guest?.id
   }, firstPage)
-  // The panel reopens a crashed page itself. Until its open command finishes,
-  // the daemon refuses any other browser command for the Task.
   await expect
     .poll(async () =>
       app?.evaluate(
@@ -608,7 +621,9 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       ),
     )
     .toBe(true)
-  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
+  await expect
+    .poll(() => window.evaluate(() => (globalThis as CrashRecovery).crashRecovery?.done))
+    .toBe(true)
   await command({ action: 'reload' })
   expect((await command({ action: 'snapshot' })).text).toContain('Project')
   await checkInFlightNavigation(app, firstPage, command)
