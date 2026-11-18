@@ -1380,12 +1380,20 @@ const folderFetchMs = 60_000
 
 export async function fastForwardFolder(
   folder: string,
-  branch: string,
+  checked: { branch?: string; head: string; uncommitted: number },
+  against: string,
   target: string,
 ): Promise<void> {
-  await fetchNow(folder, folderFetchMs, ['fetch', '--quiet', 'origin', branch])
+  await fetchNow(folder, folderFetchMs, ['fetch', '--quiet', 'origin', against])
   await git(folder, 'cat-file', '-e', `${target}^{commit}`).catch(() => {
     throw new GitError(`the fetch from origin didn’t bring ${target.slice(0, 7)}`)
   })
+  const now = await folderHead(folder)
+  if (
+    now.branch !== checked.branch ||
+    now.head !== checked.head ||
+    now.uncommitted !== checked.uncommitted
+  )
+    throw new GitError('the folder changed while Ted fetched, so Ted left it alone')
   await git(folder, 'merge', '--ff-only', '--quiet', target)
 }

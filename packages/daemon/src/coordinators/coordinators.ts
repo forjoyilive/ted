@@ -2703,7 +2703,14 @@ export function createCoordinators(options: {
           ? localFolderCardAction(ask.localFolder, ask.folder).kind
           : 'run'
         const sameTarget = ask.localFolder?.check.target === plan.local.target
-        if (
+        const failedBefore = ask.localFolder?.updateFailed
+        const runAnywayAfterFailure =
+          now === 'update' &&
+          failedBefore !== undefined &&
+          sameTarget &&
+          ask.localFolder?.check.head === plan.local.head
+        if (runAnywayAfterFailure) plan = { ...plan, updateFailed: failedBefore }
+        else if (
           (now === 'update' && (shownAction !== 'update' || !sameTarget)) ||
           (now === 'hold' && shownAction === 'update')
         ) {
@@ -2714,7 +2721,7 @@ export function createCoordinators(options: {
             `${plan.folder} changed on GitHub or on this Mac since this card was shown. The card now shows what Ted found; nothing ran. Click again to go ahead.`,
           )
         }
-        if (now === 'update') {
+        if (now === 'update' && !runAnywayAfterFailure) {
           plan = await outside.update(chat, plan)
           if (plan.updateFailed !== undefined) {
             store.chats.outsideFolderChecked(asked.id, {

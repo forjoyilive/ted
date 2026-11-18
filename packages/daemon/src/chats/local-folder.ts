@@ -106,7 +106,16 @@ export async function updateFolder(
   if (head === undefined || target === undefined || against === undefined)
     throw new Error('the check didn’t find what to update to')
   try {
-    await git.fastForwardFolder(folder, against, target)
+    await git.fastForwardFolder(
+      folder,
+      {
+        ...(check.branch !== undefined && { branch: check.branch }),
+        head,
+        uncommitted: check.uncommitted ?? 0,
+      },
+      against,
+      target,
+    )
   } catch (error) {
     throw new Error(firstLine(error instanceof Error ? error.message : String(error)))
   }

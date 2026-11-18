@@ -336,7 +336,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
   )
 }, 120_000)
 
-test('a local folder that is behind is updated before the command runs, and one with uncommitted changes holds even an Always-allowed command', async () => {
+test('a local folder that is behind is updated before the command runs, one with uncommitted changes holds even an Always-allowed command, and Run anyway works after a failed update', async () => {
   const bin = path.join(scratch, 'bin')
   const log = path.join(scratch, 'pnpm.log')
   await mkdir(bin)
@@ -489,7 +489,36 @@ test('a local folder that is behind is updated before the command runs, and one 
   expect(await readFile(path.join(folder, 'README.md'), 'utf8')).toBe('edited\n')
   await writeFile(path.join(scratch, 'second'), '')
   await said(second.id, 'Ted couldn’t update it because 1 file has uncommitted changes')
-}, 120_000)
+
+  await git('checkout', '--quiet', '--', 'README.md')
+  await commitToOrigin(scratch, { 'clash.txt': 'from origin\n' })
+  await writeFile(path.join(local, 'clash.txt'), 'mine\n')
+  const third = await chat([{ waitFor: path.join(scratch, 'third') }, { endTurn: true }])
+  const thirdRun = await waitUntil(async () => {
+    const now = await ok<Coordinator>('GET', `/coordinator-chats/${third.id}`)
+    return now.status === 'working' && (await app.call('GET', `/runs/${now.runId}`)).status === 200
+      ? now
+      : undefined
+  }, 'the third chat’s Run to start')
+  await api(daemon.port, tokens.issue(thirdRun.runId)).call('POST', '/chat-outside-commands', {
+    name: 'build',
+    argument: '1.2.5',
+  })
+  const failed = await asked(third.id)
+  expect(failed.outsideCommand?.localFolder?.updateFailed).toBeDefined()
+  await ok('POST', `/coordinator-chats/${third.id}/requests/${failed.id}/outside-command`, {
+    run: true,
+    always: false,
+  })
+  await waitUntil(
+    async () => (await ran()).includes(`${kept}|release build 1.2.5`) || undefined,
+    'Run anyway after a failed update',
+  )
+  expect(await git('rev-parse', 'HEAD')).toBe(kept)
+  expect(await readFile(path.join(folder, 'clash.txt'), 'utf8')).toBe('mine\n')
+  await writeFile(path.join(scratch, 'third'), '')
+  await said(third.id, 'Ted couldn’t update it because Ted’s update failed')
+}, 180_000)
 
 test('an Agent draft can’t give Run outside commands; only the user adds it in settings', () => {
   const base = {

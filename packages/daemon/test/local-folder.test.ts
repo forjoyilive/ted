@@ -80,6 +80,27 @@ test('a clean folder behind main is fast-forwarded to the commit Ted checked, an
   expect(await git(local, 'status', '--porcelain')).toBe('')
 })
 
+test('the update leaves the folder alone when its branch or tracked files changed after the check', async () => {
+  await pushed('a.txt', 'a\n')
+  const before = await git(local, 'rev-parse', 'HEAD')
+
+  const switched = await checkFolder({ folder: local, clone })
+  await git(local, 'checkout', '--quiet', '-b', 'feature')
+  await expect(updateFolder(local, switched, clone)).rejects.toThrow(
+    'the folder changed while Ted fetched, so Ted left it alone',
+  )
+  expect(await git(local, 'rev-parse', 'feature')).toBe(before)
+  await git(local, 'checkout', '--quiet', 'main')
+
+  const edited = await checkFolder({ folder: local, clone })
+  await writeFile(path.join(local, 'README.md'), 'edited\n')
+  await expect(updateFolder(local, edited, clone)).rejects.toThrow(
+    'the folder changed while Ted fetched, so Ted left it alone',
+  )
+  expect(await git(local, 'rev-parse', 'HEAD')).toBe(before)
+  expect(await git(local, 'status', '--porcelain')).toBe('M README.md')
+})
+
 test('uncommitted changes, own commits, other branches and a non-repo folder are reported without touching the folder', async () => {
   await pushed('b.txt', 'b\n')
   await writeFile(path.join(local, 'README.md'), 'edited\n')
