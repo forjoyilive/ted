@@ -978,7 +978,11 @@ export function TaskList({
               aria-label={`Select ${task.displayId}`}
               checked={isSelected}
               onClick={(event) => event.stopPropagation()}
-              onChange={() => toggle(task.id)}
+              onChange={(event) => {
+                const click = event.nativeEvent
+                if (click instanceof MouseEvent && click.shiftKey) select(task, click)
+                else toggle(task.id)
+              }}
             />
           </label>
         </td>
