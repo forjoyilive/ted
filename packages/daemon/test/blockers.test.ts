@@ -1306,7 +1306,14 @@ test('a queued parent is held before launch; Coordinator edits share app safety 
   expect(errors).toEqual([])
   expect(JSON.parse(output.join(''))).toMatchObject({ operation: 'parent', taskId: child.id })
   expect((await app.taskHierarchy(child.id)).parentId).toBeNull()
-  expect((await getTask(client, parent.id)).runs).toEqual([])
+  await waitFor(client, parent, (t) => t.leadRunId !== undefined, 'to carry on once unlinked')
+  await client.ok('POST', `/tasks/${parent.id}/stop`)
+  await waitFor(
+    client,
+    parent,
+    (t) => t.status?.kind === 'stopped' && t.runs.length === 0,
+    'to stop by hand',
+  )
   const queuedChildGate = path.join(scratch, 'queued-child-finish')
   const queuedChild = await create(client, doneWhen(queuedChildGate))
   await parentOf(app, queuedChild, parent)
