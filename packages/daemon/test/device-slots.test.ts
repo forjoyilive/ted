@@ -368,3 +368,22 @@ test('with one build at a time off, two Apps start together', async () => {
   })
   expect(ios.pool.holder()).toBeUndefined()
 })
+
+test('the pool counts device builds until their turn ends or runs out', () => {
+  let at = 0
+  const pool = createDevicePool({
+    limit: () => 2,
+    oneAtATime: () => false,
+    turnMs: 1000,
+    now: () => at,
+  })
+  expect(pool.beginBuild('t1/ios')).toBe(1)
+  expect(pool.beginBuild('t2/android')).toBe(2)
+  expect(pool.beginBuild('t2/android')).toBe(2)
+  pool.endTurn('t1/ios')
+  expect(pool.building('t1/ios')).toBe(false)
+  expect(pool.building('t2/android')).toBe(true)
+  at = 1000
+  expect(pool.building('t2/android')).toBe(false)
+  expect(pool.beginBuild('t3/ios')).toBe(1)
+})

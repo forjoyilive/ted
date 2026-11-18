@@ -1,5 +1,5 @@
 import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type {
@@ -16,6 +16,7 @@ import type {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { checkCpus } from '../src/tasks/check-slots.ts'
 import {
   api,
   assistantTexts,
@@ -138,6 +139,14 @@ const workflow = (run = 'echo udid $TED_TASK $TED_SIMULATOR_UDID; exec sleep 600
     '        device: "iPhone 17"',
     '        run: "exec sleep 600"',
   ].join('\n')
+
+const cpusFile = () => path.join(scratch, 'cpus')
+
+const cpusTold = (count: number) =>
+  waitUntil(async () => {
+    const lines = (await readFile(cpusFile(), 'utf8').catch(() => '')).split('\n').filter(Boolean)
+    return lines.length === count ? lines : undefined
+  }, `${count} Apps to be told their CPUs`)
 
 async function addFactory(client: Client, run?: string) {
   await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow(run) })
@@ -291,7 +300,7 @@ describe('iOS simulator Apps', () => {
     const built = path.join(scratch, 'built')
     await addFactory(
       client,
-      `until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
+      `echo $TED_APP_CPUS >> '${cpusFile()}'; until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
     )
     const task = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
@@ -321,6 +330,26 @@ describe('iOS simulator Apps', () => {
     )
     expect((await iPhone(client, task))?.state).toBe('running')
     expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toEqual([])
+    expect(await cpusTold(1)).toEqual([String(checkCpus(os.availableParallelism(), 1, 50))])
+  })
+
+  test('with one build at a time off, two builds at once split the CPU share', async () => {
+    const client = await start()
+    const built = path.join(scratch, 'built')
+    await addFactory(
+      client,
+      `echo $TED_APP_CPUS >> '${cpusFile()}'; until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
+    )
+    await client.ok('PATCH', '/settings', { buildDeviceAppsOneAtATime: false })
+    const first = await taskWithWorktree(client)
+    const second = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
+    await client.ok('POST', `/tasks/${second.id}/apps/start`, { name: 'iPhone' })
+
+    const cores = os.availableParallelism()
+    expect((await cpusTold(2)).sort()).toEqual(
+      [String(checkCpus(cores, 1, 50)), String(checkCpus(cores, 2, 50))].sort(),
+    )
   })
 
   test('with every slot booted the human must pick one to shut down', async () => {

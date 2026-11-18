@@ -45,6 +45,8 @@ export interface DevicePool {
   turnFree(key: string): boolean
   endTurn(key: string): void
   holder(): TurnHolder | undefined
+  beginBuild(key: string): number
+  building(key: string): boolean
 }
 
 export const buildTurnMs = 15 * 60_000
@@ -62,6 +64,11 @@ export function createDevicePool(options: {
   const waiters = new Map<string, PoolWaiter>()
   let queue: Promise<unknown> = Promise.resolve()
   let turn: (TurnHolder & { at: number }) | undefined
+  const builds = new Map<string, number>()
+  const buildsNow = () => {
+    for (const [key, at] of builds) if (now() - at >= turnMs) builds.delete(key)
+    return builds
+  }
 
   const live = () => members.flatMap((m) => m.live())
   const current = () => {
@@ -134,10 +141,16 @@ export function createDevicePool(options: {
     startTurn: (holder) => !options.oneAtATime() || (line.length === 0 && takeTurn(holder)),
     turnFree,
     endTurn(key) {
+      builds.delete(key)
       if (turn?.key !== key) return
       turn = undefined
       notifyWaiters()
     },
     holder: () => (options.oneAtATime() ? current() : undefined),
+    beginBuild(key) {
+      buildsNow().set(key, now())
+      return builds.size
+    },
+    building: (key) => buildsNow().has(key),
   }
 }
