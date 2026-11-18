@@ -69,6 +69,19 @@ export interface CheckInput {
   timeout?: string
 }
 
+export interface InstructionCheckInput {
+  was?: number
+  name: string
+  instruction: string
+  fix?: boolean
+  timeout?: string
+  agent?: string
+  model?: string
+  effort?: Effort
+}
+
+export const defaultInstructionCheckTimeout = '20m'
+
 export interface StageSettingsInput {
   effort?: Effort | null
 
@@ -88,6 +101,7 @@ export interface FactorySettingsChanges {
   stageFiles?: Partial<Record<AgentStageId, string | null>>
   keepStageFiles?: AgentStageId[]
   checks?: CheckInput[]
+  instructionChecks?: InstructionCheckInput[]
   cleanup?: CleanupSettingsInput
   agents?: Partial<Record<AgentRole, AgentChoiceInput | null>>
   agentFiles?: AgentFileChange[]
@@ -195,6 +209,10 @@ export interface CheckView extends CheckInput {
   was: number
 }
 
+export interface InstructionCheckView extends InstructionCheckInput {
+  was: number
+}
+
 export type CheckTryState = 'running' | 'passed' | 'failed' | 'timed-out' | 'stopped'
 
 export interface CheckTry {
@@ -208,13 +226,40 @@ export interface CheckTry {
   durationMs?: number
   startedAt: string
   finishedAt?: string
+  instruction?: true
+  taskId?: string
+  taskDisplayId?: string
+  noReport?: string
 }
 
-export interface CheckTryRequest {
+export interface CommandCheckTryRequest {
   name: string
   run: string
   repo?: string
   timeout?: string
+}
+
+export interface InstructionCheckTryRequest {
+  name: string
+  instruction: string
+  fix?: boolean
+  timeout?: string
+  agent?: string
+  model?: string
+  effort?: Effort
+  taskId: string
+}
+
+export type CheckTryRequest = CommandCheckTryRequest | InstructionCheckTryRequest
+
+export function isInstructionTry(request: CheckTryRequest): request is InstructionCheckTryRequest {
+  return 'instruction' in request
+}
+
+export interface CheckTryTask {
+  id: string
+  displayId: string
+  title: string
 }
 
 export interface CheckTryOutput {
@@ -269,6 +314,7 @@ export interface FactorySettingsView {
   stages: StageRowView[]
   ignoredStageFiles: string[]
   checks: CheckView[]
+  instructionChecks: InstructionCheckView[]
   cleanup: CleanupSettingsInput
   tries: CheckTry[]
   agents: AgentRowView[]

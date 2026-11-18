@@ -67,6 +67,18 @@ const settings = {
   ...library,
   repos,
   checks: [{ was: 0, name: 'Check', run: 'pnpm typecheck', repo: 'ted', timeout: '30s' }],
+  instructionChecks: [
+    {
+      was: 1,
+      name: 'Docs drift',
+      instruction: 'Check the docs.\nFix what is out of date.',
+      fix: true,
+      timeout: '20m',
+      agent: 'same',
+      model: 'opus',
+      effort: 'high',
+    },
+  ],
   cleanup: {
     enabled: true,
     steps: [
@@ -154,6 +166,41 @@ roundTrip(P.parseCheckTryRequest, {
   repo: 'ted',
   timeout: '30s',
 })
+roundTrip(P.parseCheckTryRequest, {
+  name: 'Docs drift',
+  instruction: 'Check the docs.',
+  fix: true,
+  timeout: '20m',
+  agent: 'claude',
+  model: 'opus',
+  effort: 'high',
+  taskId: 'task-1',
+})
+rejects(
+  P.parseCheckTryRequest,
+  { name: 'Docs drift', instruction: 'Check the docs.' },
+  'Choose the Task to run the instruction check on',
+)
+rejects(
+  P.parseCheckTryRequest,
+  { name: 'Both', instruction: 'Check the docs.', run: 'pnpm test', taskId: 'task-1' },
+  'A check has a command or an instruction, not both',
+)
+rejects(
+  P.parseCheckTryRequest,
+  { name: 'Docs', instruction: 'Check the docs.', repo: 'ted', taskId: 'task-1' },
+  'An instruction check takes no repo',
+)
+rejects(
+  P.parseCheckTryRequest,
+  { name: 'Docs', instruction: 'Check the docs.', agent: 'gpt', taskId: 'task-1' },
+  'agent must be codex, claude, antigravity, same',
+)
+rejects(
+  P.parseInstructionChecks,
+  [{ name: 'Docs', instruction: '  ' }],
+  'An instruction check needs an instruction',
+)
 roundTrip(P.parseFactorySettingsChanges, settings)
 roundTrip(P.parseSaveSettingsRequest, {
   changes: settings,

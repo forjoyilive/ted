@@ -118,6 +118,7 @@ const view: FactorySettingsView = {
   ],
   ignoredStageFiles: [],
   checks: [{ was: 0, name: 'Typecheck', run: 'npm run typecheck' }],
+  instructionChecks: [],
   cleanup: { enabled: false, steps: [] },
   tries: [],
   agents: [

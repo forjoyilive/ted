@@ -13,12 +13,25 @@ export type CheckState =
 export interface CheckResult {
   name: string
   repo?: string
-  command: string
+  command?: string
   timeout: string
   state: CheckState
   exitCode?: number
   durationMs?: number
   builtIn?: 'ted-settings'
+  instruction?: string
+  fix?: boolean
+  agent?: string
+  model?: string
+  effort?: string
+  notRerun?: boolean
+  noReport?: string
+}
+
+export function isInstructionResult(
+  check: Pick<CheckResult, 'instruction'>,
+): check is Pick<CheckResult, 'instruction'> & { instruction: string } {
+  return check.instruction !== undefined
 }
 
 export type CheckRunTrigger = 'validate' | 'agent' | 'merge' | 'hand-off'
