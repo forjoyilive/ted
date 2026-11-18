@@ -148,6 +148,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   let refreshing: Promise<void> | undefined
   const line = pool.line
   const humanTickets = new Set<string>()
+  const withdrawn = new Set<string>()
   const saving = new Set<Promise<void>>()
 
   const keyOf = (taskId: string, repo: string, name: string) => `${taskId}/${repo}/${slug(name)}`
@@ -385,7 +386,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
 
   async function waitInLine(ticket: string, app: SimulatorApp): Promise<SimulatorWait> {
     const record = recordOf(app.taskId, app.repo, app.name)
-    if (!record) {
+    if (!record || withdrawn.has(ticket)) {
       pool.unwait(ticket)
       return { state: 'gone' }
     }
@@ -528,6 +529,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   function list(commentId: string, app: SimulatorApp): void {
     if (!recordOf(app.taskId, app.repo, app.name)) return
     if (commentId.startsWith(lineTicket)) {
+      if (withdrawn.has(commentId)) return
       if (!line.includes(commentId)) line.push(commentId)
       pool.wait(commentId, waiterOf(app, false))
       return
@@ -547,6 +549,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   function withdraw(commentId: string): void {
     pool.unwait(commentId)
     if (commentId.startsWith(lineTicket)) {
+      withdrawn.add(commentId)
       const at = line.indexOf(commentId)
       if (at !== -1) line.splice(at, 1)
       humanTickets.delete(commentId)

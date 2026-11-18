@@ -325,6 +325,24 @@ test('the waiting list says what each App waits for and updates when the build t
   expect(slots.slots().waiting).toEqual([])
 })
 
+test('a withdrawn place in line stays out when a late follower lists or waits with it, so the next App still gets the slot', async () => {
+  const { slots, pool, live } = setup()
+  await slots.acquire(app('t1'), 'human', {})
+  const stopped = await slots.acquire(app('t2'), 'automation', {})
+  if (!('waiting' in stopped)) throw new Error('expected to wait')
+  slots.withdraw(stopped.waiting)
+
+  slots.list(stopped.waiting, app('t2'))
+  expect(await slots.wait(stopped.waiting, app('t2'))).toEqual({ state: 'gone' })
+  expect(slots.slots().waiting).toEqual([])
+  expect(pool.line).toEqual([])
+
+  const again = await slots.acquire(app('t2'), 'automation', {})
+  if (!('waiting' in again)) throw new Error('expected to wait')
+  live.delete('dev-1')
+  expect(await slots.wait(again.waiting, app('t2'))).toEqual({ state: 'granted', udid: 'dev-2' })
+})
+
 test('a build turn that runs out updates what the waiting App waits for', async () => {
   let now = 0
   const pool = createDevicePool({
