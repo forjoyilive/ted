@@ -441,6 +441,33 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .poll(() => panel.getByRole('combobox', { name: 'Web App' }).inputValue())
     .toBe('widgets/Web')
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
+  const addressRow = panel.locator('form:has(input[aria-label="App address"])')
+  const addressRowSpread = () =>
+    addressRow.evaluate((form) => {
+      const centers = [...form.querySelectorAll(':scope > *, :scope > span > *')].flatMap((e) => {
+        const r = e.getBoundingClientRect()
+        return r.width > 0 && r.height > 0 ? [r.top + r.height / 2] : []
+      })
+      return Math.max(...centers) - Math.min(...centers)
+    })
+  const widthField = panel.getByLabel('Custom width in pixels')
+  for (const width of [1440, 1280]) {
+    await window.setViewportSize({ width, height: 900 })
+    await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+    await sizeButton.click()
+    await window.getByRole('menuitemradio', { name: /^Custom width/ }).click()
+    await widthField.waitFor()
+    expect(await sizeButton.count()).toBe(0)
+    await expect.poll(addressRowSpread).toBeLessThan(4)
+    await widthField.fill('10')
+    await addressRow.getByRole('button', { name: 'Apply' }).click()
+    await expect.poll(() => addressRow.getByRole('alert').textContent()).toBe('Use 320–3840 px')
+    expect(await widthField.getAttribute('aria-invalid')).toBe('true')
+    await expect.poll(addressRowSpread).toBeLessThan(4)
+    await addressRow.getByRole('button', { name: 'Cancel' }).click()
+    await sizeButton.waitFor()
+    expect(await widthField.count()).toBe(0)
+  }
   await window.setViewportSize({ width: 1100, height: 760 })
   await expect
     .poll(async () =>

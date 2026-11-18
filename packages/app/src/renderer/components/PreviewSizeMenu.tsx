@@ -127,11 +127,12 @@ export function PreviewSizeMenu({
               }
             }}
           />
-          <span className={styles.unit}>px</span>
-          {problem && (
-            <span role="alert" className={styles.unit}>
+          {problem ? (
+            <span role="alert" className={styles.problem}>
               {problem}
             </span>
+          ) : (
+            <span className={styles.unit}>px</span>
           )}
           <Button onClick={() => void applyCustom()}>Apply</Button>
           <Button
@@ -144,18 +145,20 @@ export function PreviewSizeMenu({
           </Button>
         </span>
       )}
-      <Button
-        aria-haspopup="menu"
-        aria-expanded={actions.isOpen}
-        aria-label={`Preview size: ${previewSizeLabel(size)}`}
-        disabled={disabled}
-        onClick={(event) =>
-          actions.open(buttonPosition(event.currentTarget), 'Preview size', items())
-        }
-      >
-        {previewSizeLabel(size)}
-        {size.kind !== 'desktop' && percent !== 100 ? ` · ${percent}%` : ''} ▾
-      </Button>
+      {custom === undefined && (
+        <Button
+          aria-haspopup="menu"
+          aria-expanded={actions.isOpen}
+          aria-label={`Preview size: ${previewSizeLabel(size)}`}
+          disabled={disabled}
+          onClick={(event) =>
+            actions.open(buttonPosition(event.currentTarget), 'Preview size', items())
+          }
+        >
+          {previewSizeLabel(size)}
+          {size.kind !== 'desktop' && percent !== 100 ? ` · ${percent}%` : ''} ▾
+        </Button>
+      )}
       {actions.menu}
     </>
   )
