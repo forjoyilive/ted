@@ -18,7 +18,18 @@ import { checkLayer } from '../src/workflow/check.ts'
 
 const home = mkdtempSync(path.join(tmpdir(), 'ted-agents-'))
 afterAll(() => rmSync(home, { recursive: true, force: true }))
-const agents = createAgents({ home, claudeBin: '/nowhere/claude', codexBin: '/nowhere/codex' })
+const agents = createAgents({
+  home,
+  claudeBin: '/nowhere/claude',
+  codexBin: '/nowhere/codex',
+  platform: 'linux',
+})
+const macAgents = createAgents({
+  home,
+  claudeBin: '/nowhere/claude',
+  codexBin: '/nowhere/codex',
+  platform: 'darwin',
+})
 const run = {
   prompt: 'Carry on',
   runDir: '/tmp/run',
@@ -137,6 +148,70 @@ describe('agent kinds', () => {
     expect(settings('auto').permissions).toEqual({ allow: ['Bash(ted *)'] })
     expect(settings('auto').hooks).toBeDefined()
     expect(settings('bypass').permissions).toBeUndefined()
+  })
+
+  test('on macOS Claude Code’s own sandbox keeps shell commands out of the personal folders', () => {
+    interface Settings {
+      permissions?: { allow?: string[]; deny?: string[] }
+      sandbox?: {
+        enabled?: boolean
+        autoAllowBashIfSandboxed?: boolean
+        allowUnsandboxedCommands?: boolean
+        filesystem?: { allowWrite?: string[]; denyRead?: string[] }
+      }
+      hooks?: { PreToolUse?: { matcher: string; hooks: { command: string }[] }[] }
+    }
+    const settings = (permissions: 'auto' | 'bypass'): Settings =>
+      JSON.parse(
+        macAgents.get('claude').launch({ ...run, permissions }).files['settings.json'] ?? '{}',
+      )
+
+    for (const permissions of ['auto', 'bypass'] as const) {
+      const { sandbox, hooks } = settings(permissions)
+      expect(sandbox).toMatchObject({
+        enabled: true,
+        autoAllowBashIfSandboxed: false,
+        allowUnsandboxedCommands: true,
+        filesystem: { allowWrite: ['/'] },
+      })
+      expect(sandbox?.filesystem?.denyRead).toEqual(
+        expect.arrayContaining([
+          '~/Desktop',
+          '~/Documents',
+          '~/Downloads',
+          '~/Library/Mobile Documents',
+        ]),
+      )
+      expect(settings(permissions).permissions?.deny).toContain('Read(~/Documents/**)')
+      const guard = hooks?.PreToolUse?.find((entry) => entry.matcher === 'Bash')
+      expect(guard?.hooks[0]?.command).toContain('claude-home-guard.ts')
+    }
+    expect(settings('auto').permissions?.allow).toEqual(['Bash(ted *)'])
+    expect(settings('bypass').permissions?.allow).toBeUndefined()
+
+    const textOnly = macAgents.get('claude').launch({ ...run, tools: 'none' })
+    expect(JSON.parse(textOnly.files['settings.json'] ?? '{}')).toEqual({ disableAllHooks: true })
+    const linux = JSON.parse(agents.get('claude').launch(run).files['settings.json'] ?? '{}')
+    expect(linux.sandbox).toBeUndefined()
+  })
+
+  test('on macOS Codex under auto gets a permission profile that denies the personal folders', () => {
+    const codex = macAgents.get('codex').launch(run).args
+    expect(codex).toEqual(
+      expect.arrayContaining([
+        'default_permissions="ted"',
+        'approval_policy="on-request"',
+        'approvals_reviewer="auto_review"',
+      ]),
+    )
+    const profile = codex.find((arg) => arg.startsWith('permissions='))
+    expect(profile).toContain('extends=":workspace"')
+    expect(profile).toContain('"~/Documents"="deny"')
+    expect(profile).toContain('network={enabled=true}')
+    expect(codex.join(' ')).not.toContain('sandbox_mode')
+
+    const bypass = macAgents.get('codex').launch({ ...run, permissions: 'bypass' }).args
+    expect(bypass).toContain('sandbox_mode="danger-full-access"')
   })
 
   test('Codex keeps network access in its sandbox, so ted reaches the daemon without asking', () => {

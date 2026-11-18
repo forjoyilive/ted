@@ -55,6 +55,9 @@ test('a concise limit question keeps the complete Findings in history', async ()
   const thread = window.getByRole('region', { name: 'Task thread' })
   const card = thread.getByRole('region', { name: 'Question', exact: true })
   await card.getByText(/Ted’s Loop check found that the rounds are making progress/).waitFor()
+  expect(await card.getByRole('heading', { level: 2 }).textContent()).toBe(
+    'Validate sent this Task back to Work 1 time, its limit',
+  )
   expect(await card.textContent()).not.toContain(evidence)
   expect(await card.textContent()).toContain('starts the count again')
   const answer = thread.getByRole('region', { name: 'Answer', exact: true })

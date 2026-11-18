@@ -8,6 +8,7 @@ import {
   type RunWithConversation,
   type TaskApp,
 } from '@ted/protocol'
+import type { Rectangle } from 'electron'
 import { afterEach, expect, test, vi } from 'vitest'
 
 function makeSession() {
@@ -43,8 +44,14 @@ function makeContents() {
     getURL: () => 'http://localhost:3000/',
     getUserAgent: () => 'Electron desktop',
     reload: vi.fn((): void => {}),
+    capturePage: vi.fn(
+      async (_rect?: Rectangle, _options?: { stayHidden?: boolean; stayAwake?: boolean }) => ({
+        toPNG: () => Buffer.from('window'),
+      }),
+    ),
     executeJavaScriptInIsolatedWorld: vi.fn(
       async (_world: number, scripts: { code: string }[]): Promise<unknown> => {
+        if (scripts[0]?.code === 'devicePixelRatio') return 1
         const prefix = /const ref = "([^"]+)"/.exec(scripts[0]?.code ?? '')?.[1]
         return prefix ? `${prefix}:1 button Try it` : { x: 10, y: 10 }
       },
@@ -877,9 +884,20 @@ test('a size command emulates a phone, sends clicks as taps scaled with the zoom
   contents.debugger.sendCommand.mockImplementation(async (method: string) =>
     method === 'Page.captureScreenshot' ? { data: Buffer.from('phone').toString('base64') } : {},
   )
+  const script = contents.executeJavaScriptInIsolatedWorld.getMockImplementation()
+  contents.executeJavaScriptInIsolatedWorld.mockImplementation(async (world, scripts) =>
+    scripts[0]?.code === 'devicePixelRatio' ? 2 : script?.(world, scripts),
+  )
   await transport.send('shot', 'one', 'screenshot')
   await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce())
   expect(Buffer.from(upload.mock.calls[0]?.[2] ?? []).toString()).toBe('phone')
+  expect(sent('Page.captureScreenshot')).toEqual([
+    { format: 'png', clip: { x: 0, y: 0, width: 390, height: 844, scale: 0.5 } },
+  ])
+  expect(contents.capturePage).toHaveBeenCalledWith(undefined, {
+    stayHidden: true,
+    stayAwake: true,
+  })
 
   await transport.send('desktop', 'one', 'size', { value: 'desktop' })
   await vi.waitFor(() => expect(transport.replies.some((r) => r.id === 'desktop')).toBe(true))
@@ -924,8 +942,40 @@ test('a phone-sized screenshot that the page can’t draw fails instead of retur
   await transport.send('shot', 'one', 'screenshot')
   await vi.waitFor(() => expect(transport.replies).toHaveLength(3))
   expect(transport.replies[2]?.error).toBe(
-    'Couldn’t capture the page at its preview size; open its preview and try again',
+    'Couldn’t capture the page at its preview size; try again',
   )
+})
+
+test('a phone-sized screenshot fails when the page’s pixel ratio can’t be read', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+    electron,
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  await transport.send('size', 'one', 'size', { value: 'mobile' })
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  const script = contents.executeJavaScriptInIsolatedWorld.getMockImplementation()
+  contents.executeJavaScriptInIsolatedWorld.mockImplementation(async (world, scripts) => {
+    if (scripts[0]?.code === 'devicePixelRatio') throw new Error('Execution context was destroyed')
+    return script?.(world, scripts)
+  })
+  await transport.send('shot', 'one', 'screenshot')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(3))
+  expect(transport.replies[2]?.error).toBe(
+    'Couldn’t capture the page at its preview size; try again',
+  )
+  expect(
+    contents.debugger.sendCommand.mock.calls.filter(
+      ([method]) => method === 'Page.captureScreenshot',
+    ),
+  ).toEqual([])
 })
 
 test('a size change whose reload never finishes reports an error instead of success', async () => {

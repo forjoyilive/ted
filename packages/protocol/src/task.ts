@@ -272,6 +272,7 @@ export interface Task {
   canResume?: boolean
   wakesOnComment?: true
   checksActive?: true
+  mergeHeld?: string
   runs: TaskRun[]
   tokens?: number
   tabs: ConversationTab[]
@@ -773,6 +774,22 @@ export function trackerName(tracker: string): string {
 
 export function isTrackerGroupAsk(comment: Pick<Comment, 'linearTeam' | 'purpose'>): boolean {
   return comment.linearTeam !== undefined || comment.purpose?.kind === 'tracker-group'
+}
+
+export type AnswerKind = 'choice-only' | 'choice-and-note' | 'open'
+
+export function answerKind(comment: Pick<Comment, 'linearTeam' | 'purpose'>): AnswerKind {
+  if (isTrackerGroupAsk(comment)) return 'choice-only'
+  switch (comment.purpose?.kind) {
+    case 'asana-missing':
+    case 'asana-unfinished':
+      return 'choice-only'
+    case 'memory-kill':
+    case 'cleanup-failure':
+      return 'choice-and-note'
+    default:
+      return 'open'
+  }
 }
 
 export function isTrackerClosedQuestion(comment: Pick<Comment, 'purpose'>): boolean {

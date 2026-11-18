@@ -319,7 +319,9 @@ export function FactoryName({
   return (
     <span className={styles.named}>
       <FactoryIcon factory={factory} size={14} />
-      <span className={styles.namedText}>{factory.name}</span>
+      <span className={styles.namedText} title={factory.name}>
+        {factory.name}
+      </span>
     </span>
   )
 }

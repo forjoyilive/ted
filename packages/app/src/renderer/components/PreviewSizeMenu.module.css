@@ -2,6 +2,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 .custom .width {
   width: 72px;
@@ -9,7 +10,14 @@
   flex: 0 0 auto;
   text-align: right;
 }
+.custom .width[aria-invalid='true'] {
+  border-color: var(--status-failed-fg);
+}
 .unit {
   color: var(--text-tertiary);
+  font-size: var(--text-12);
+}
+.problem {
+  color: var(--status-failed-fg);
   font-size: var(--text-12);
 }

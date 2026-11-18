@@ -8,6 +8,7 @@ import {
   tedVersion,
 } from '@ted/protocol'
 import { shellQuote } from '../node-entry.ts'
+import { protectedFolders } from '../protected-folders.ts'
 import {
   type Agent,
   type AuthCheck,
@@ -34,6 +35,20 @@ const sandbox: Record<PermissionMode, string[]> = {
     'sandbox_workspace_write.network_access=true',
   ],
   bypass: ['sandbox_mode="danger-full-access"', 'approval_policy="never"'],
+}
+
+// A permission profile replaces sandbox_mode; Codex ignores the profile while sandbox_mode is set.
+const protectedProfile = [
+  'default_permissions="ted"',
+  `permissions={ted={extends=":workspace",filesystem={${protectedFolders
+    .map((folder) => `${JSON.stringify(`~/${folder}`)}="deny"`)
+    .join(',')}},network={enabled=true}}}`,
+  'approval_policy="on-request"',
+  'approvals_reviewer="auto_review"',
+]
+
+function sandboxFor(permissions: PermissionMode, platform: NodeJS.Platform): string[] {
+  return permissions === 'auto' && platform === 'darwin' ? protectedProfile : sandbox[permissions]
 }
 
 // Codex still exposes apply_patch without shell tools; read-only with no approvals denies it.
@@ -475,7 +490,11 @@ function parse(line: string): CodexLine | undefined {
   }
 }
 
-export function codexAgent(binary: string, home?: string): Agent {
+export function codexAgent(
+  binary: string,
+  home?: string,
+  platform: NodeJS.Platform = process.platform,
+): Agent {
   const environment = (env: NodeJS.ProcessEnv, billing: Billing): NodeJS.ProcessEnv => {
     const folder = codexHome(home ?? tedHome(env))
     return { ...codexEnvironment(env, billing), CODEX_HOME: folder, CODEX_SQLITE_HOME: folder }
@@ -507,7 +526,7 @@ export function codexAgent(binary: string, home?: string): Agent {
           'app-server',
           ...[
             ...(isolated ? [`sqlite_home=${JSON.stringify(folder)}`] : []),
-            ...(tools === 'none' ? textOnly : sandbox[permissions]),
+            ...(tools === 'none' ? textOnly : sandboxFor(permissions, platform)),
             ...environmentPolicy,
           ].flatMap((c) => ['-c', c]),
         ],

@@ -25,10 +25,11 @@ export function createAgents(options: {
   codexBin?: string
   antigravityBin?: string
   env?: () => NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
 }): Agents {
   const byKind: Record<AgentKind, Agent> = {
-    claude: claudeAgent(options.claudeBin ?? 'claude'),
-    codex: codexAgent(options.codexBin ?? 'codex', options.home),
+    claude: claudeAgent(options.claudeBin ?? 'claude', options.platform),
+    codex: codexAgent(options.codexBin ?? 'codex', options.home, options.platform),
     antigravity: antigravityAgent(options.antigravityBin ?? 'agy'),
   }
   const env = options.env ?? (() => process.env)

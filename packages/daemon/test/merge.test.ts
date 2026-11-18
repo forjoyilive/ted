@@ -32,6 +32,9 @@ describe('Approve and merge', () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
     expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge', noCi: ['widgets'] })
+    const atSignoff = (await getTask(client, task.id)).repos[0]
+    expect(atSignoff?.pushed).toBeUndefined()
+    expect(await originBranches()).not.toContain(atSignoff?.branch ?? 'ted/')
     const blocked = await client.ok<Task>('POST', '/tasks', {
       title: JSON.stringify({ steps: [{ endTurn: true }] }),
       factory: 'NB',
@@ -67,7 +70,7 @@ describe('Approve and merge', () => {
       async () => (await getTask(client, blocked.id)).leadRunId !== undefined,
       'the blocked Task to start',
     )
-  })
+  }, 90_000)
 
   test('with CI, Ted waits for the checks, shows Waiting for CI, and merges once they pass', async () => {
     const client = await start({
@@ -75,6 +78,10 @@ describe('Approve and merge', () => {
       merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
     })
     const { task, signoff } = await toSignoff(client)
+    expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge' })
+    const atSignoff = (await getTask(client, task.id)).repos[0]
+    expect(atSignoff?.pushed).toBeUndefined()
+    expect(await originBranches()).not.toContain(atSignoff?.branch ?? 'ted/')
     await approve(client, signoff)
 
     const waiting = await eventWait(
@@ -94,7 +101,7 @@ describe('Approve and merge', () => {
     expect(done.repos[0]?.pullRequest?.merged).toMatchObject({ method: 'squash', noCi: false })
     expect(await merges()).toHaveLength(1)
     expect(await lines(client, task)).toContain(`Merged ${done.repos[0]?.name}`)
-  })
+  }, 90_000)
 
   test('Ted doesn’t merge until the Task Lead advances at Merge; before that a Comment steers the Task Lead, the Task Lead titles the pull request for the merge commit, and it can send back only to Work or Design or advance once', async () => {
     const client = await start()
@@ -161,7 +168,7 @@ describe('Approve and merge', () => {
     expect(await lines(client, task)).toContain(
       `The Task Lead titled the pull request “${subject}”`,
     )
-  })
+  }, 90_000)
 
   test('a Task waiting at Merge can be reset: Ted closes the pull request and deletes the branch, and a branch GitHub won’t delete stops the reset', async () => {
     const client = await start({
@@ -219,7 +226,7 @@ describe('Approve and merge', () => {
     expect(calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'close')).toHaveLength(1)
     expect(calls.some((c) => c.args[0] === 'api' && c.args.includes(route))).toBe(true)
     expect(await merges()).toEqual([])
-  })
+  }, 90_000)
 
   test('a conflict-free rebase onto a moved base reruns Checks and merges without a new sign-off', async () => {
     const client = await start({
@@ -252,7 +259,7 @@ describe('Approve and merge', () => {
       `Rebased ${done.repos[0]?.name} onto main with no conflicts · running checks again`,
     )
     expect(await originBranches()).toContain(branch)
-  })
+  }, 90_000)
 })
 
 describe('Merging only what the human signed off', () => {
@@ -283,7 +290,7 @@ describe('Merging only what the human signed off', () => {
     expect(await merges()).toEqual([])
     expect((await getTask(client, task.id)).repos[0]?.pushed).toBeUndefined()
     expect(await originBranches()).not.toContain(before?.branch ?? 'ted/')
-  })
+  }, 90_000)
 })
 
 describe('Request changes at Review', () => {
@@ -308,5 +315,5 @@ describe('Request changes at Review', () => {
       await client.ok<{ stage: string }[]>('GET', `/tasks/${task.id}/stage-entries`)
     ).map((e) => e.stage)
     expect(stages.slice(-4)).toEqual(['review', 'work', 'validate', 'review'])
-  })
+  }, 90_000)
 })

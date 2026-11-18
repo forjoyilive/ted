@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { CheckRun } from '@ted/protocol'
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { CheckOutputDialog } from '../src/renderer/components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../src/renderer/components/ChecksRow.tsx'
@@ -75,6 +75,79 @@ test('Check output opens the failed output and tabs switch to another Check', as
   expect(screen.queryByRole('tab', { name: 'Lint' })).toBeNull()
   await user().click(screen.getByRole('button', { name: 'Close' }))
   expect(close).toHaveBeenCalledOnce()
+})
+
+test('Check output follows new lines only while scrolled to the bottom', async () => {
+  const scrolled = new WeakMap<Element, number>()
+  const lineHeight = 20
+  const shownHeight = 100
+  const height = (element: Element) => (element.textContent ?? '').split('\n').length * lineHeight
+  Object.defineProperties(HTMLPreElement.prototype, {
+    clientHeight: { configurable: true, get: () => shownHeight },
+    scrollHeight: {
+      configurable: true,
+      get(this: HTMLPreElement) {
+        return height(this)
+      },
+    },
+    scrollTop: {
+      configurable: true,
+      get(this: HTMLPreElement) {
+        return scrolled.get(this) ?? 0
+      },
+      set(this: HTMLPreElement, value: number) {
+        scrolled.set(this, Math.max(0, Math.min(value, height(this) - shownHeight)))
+      },
+    },
+  })
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  try {
+    let lines = 10
+    const lineText = (count: number) =>
+      Array.from({ length: count }, (_, i) => `line ${i + 1}`).join('\n')
+    bridge({
+      listFailures: () => [],
+      checkOutput: () => ({ text: lineText(lines), log: '/test/check.log' }),
+    })
+    const running: CheckRun = {
+      ...run,
+      checks: run.checks.map((c, i) => (i === 1 ? { ...c, state: 'running' as const } : c)),
+    }
+    const { container } = render(
+      <CheckOutputDialog checkRun={running} position={1} onClose={vi.fn()} />,
+    )
+    const output = () => {
+      const pre = container.querySelector('pre')
+      if (!pre) throw new Error('No output shown')
+      return pre
+    }
+    const grow = async (count: number) => {
+      lines = count
+      act(() => void vi.advanceTimersByTime(1000))
+      await expect.poll(() => output().textContent).toContain(`line ${count}`)
+    }
+
+    await expect.poll(() => output().textContent).toContain('line 10')
+    expect(output().scrollTop).toBe(100)
+
+    await grow(20)
+    expect(output().scrollTop).toBe(300)
+
+    output().scrollTop = 50
+    fireEvent.scroll(output())
+    await grow(30)
+    expect(output().scrollTop).toBe(50)
+
+    output().scrollTop = 490
+    fireEvent.scroll(output())
+    await grow(40)
+    expect(output().scrollTop).toBe(700)
+  } finally {
+    vi.useRealTimers()
+    for (const name of ['clientHeight', 'scrollHeight', 'scrollTop']) {
+      Reflect.deleteProperty(HTMLPreElement.prototype, name)
+    }
+  }
 })
 
 test('blocking findings keep their content in a labelled region', async () => {

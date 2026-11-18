@@ -372,6 +372,33 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
   const adminPage = new URL(admin.url ?? '').href
   await checkRefusedNames(app, panel, adminPage)
+  const screenshotSize = async () => {
+    const shot = await command({ action: 'screenshot' })
+    if (!shot.attachment) throw new Error('Screenshot missing')
+    const png = Buffer.from(
+      (await client.readBrowserCapture(task.id, shot.attachment.hash)).data,
+      'base64',
+    )
+    return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
+  }
+  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
+  await panel.getByRole('button', { name: '← Task Lead' }).click()
+  await expect
+    .poll(() =>
+      app?.evaluate(({ BrowserWindow }, url) => {
+        const children = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []
+        return children.some(
+          (v) =>
+            'webContents' in v &&
+            (v.webContents as import('electron').WebContents).getURL() === url,
+        )
+      }, adminPage),
+    )
+    .toBe(false)
+  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
+  await window.getByRole('tab', { name: 'Apps' }).click()
+  await window.getByRole('button', { name: 'Preview Admin', exact: true }).click()
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   const onAdmin = (script: string) =>
     app?.evaluate(
       async ({ webContents }, { url, script }) =>
@@ -447,6 +474,33 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .poll(() => panel.getByRole('combobox', { name: 'Web App' }).inputValue())
     .toBe('widgets/Web')
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
+  const addressRow = panel.locator('form:has(input[aria-label="App address"])')
+  const addressRowSpread = () =>
+    addressRow.evaluate((form) => {
+      const centers = [...form.querySelectorAll(':scope > *, :scope > span > *')].flatMap((e) => {
+        const r = e.getBoundingClientRect()
+        return r.width > 0 && r.height > 0 ? [r.top + r.height / 2] : []
+      })
+      return Math.max(...centers) - Math.min(...centers)
+    })
+  const widthField = panel.getByLabel('Custom width in pixels')
+  for (const width of [1440, 1280]) {
+    await window.setViewportSize({ width, height: 900 })
+    await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+    await sizeButton.click()
+    await window.getByRole('menuitemradio', { name: /^Custom width/ }).click()
+    await widthField.waitFor()
+    expect(await sizeButton.count()).toBe(0)
+    await expect.poll(addressRowSpread).toBeLessThan(4)
+    await widthField.fill('10')
+    await addressRow.getByRole('button', { name: 'Apply' }).click()
+    await expect.poll(() => addressRow.getByRole('alert').textContent()).toBe('Use 320–3840 px')
+    expect(await widthField.getAttribute('aria-invalid')).toBe('true')
+    await expect.poll(addressRowSpread).toBeLessThan(4)
+    await addressRow.getByRole('button', { name: 'Cancel' }).click()
+    await sizeButton.waitFor()
+    expect(await widthField.count()).toBe(0)
+  }
   await window.setViewportSize({ width: 1100, height: 760 })
   await expect
     .poll(async () =>
