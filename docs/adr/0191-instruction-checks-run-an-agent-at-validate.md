@@ -2,7 +2,7 @@
 
 Status: accepted (TED-556). Changes ADR 0188-the-checks-run-as-validates-first-step-and-every-return-to-work-counts and ADR 0066-factory-settings-sections-and-scratch-worktrees.
 
-A Check was a shell command. Some things a Factory wants checked on every Task need judgment, not a command: whether a change left a doc out of date, for example. TED-553 asked for Checks written as instructions; TED-556 builds them, with an option to fix what they find, and adds a Docs drift Check to this repo’s Workflow.
+A Check was a shell command. Some things a Factory wants checked on every Task need judgment, not a command: whether a change left a doc out of date, for example. TED-553 asked for Checks written as instructions; TED-556 builds them, with an option to fix what they find. This repo’s own Docs drift Check is added in a separate Task once an installed release reads instruction Checks, because the installed `ted` that runs this Factory can’t read the new keys before then.
 
 ## Decision
 
