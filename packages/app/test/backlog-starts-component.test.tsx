@@ -136,7 +136,8 @@ test('Settings → General and the All Tasks header change the same choice', asy
   await user().click(group.getByRole('checkbox', { name: /Kriya Design/ }))
   expect(a.state.settings.backlogStarts).toEqual(on({ groupIds: ['g1'], factoryIds: ['c'] }))
 
-  const nav = screen.getByRole('navigation', { name: 'Sidebar' })
+  await user().click(screen.getByRole('button', { name: /Back/ }))
+  const nav = await screen.findByRole('navigation', { name: 'Sidebar' })
   await user().click(within(nav).getByRole('button', { name: /^All Tasks/ }))
   const header = await screen.findByRole('button', {
     name: 'Backlog starts: Kriya Design, Personal site',
