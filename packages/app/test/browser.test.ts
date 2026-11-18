@@ -23,6 +23,7 @@ import {
   checkModalRace,
   checkOutsideRequests,
   checkRefusedNames,
+  checkWorkerMedia,
   guestWorkerTraffic,
   startGuestWorker,
 } from './browser-probes.ts'
@@ -135,6 +136,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
     command({ action: 'reload' }),
   )
+  await checkWorkerMedia(app, panel, new URL(running.url ?? '').href)
   const snapshot = await command({ action: 'snapshot' })
   expect(snapshot.text).toContain('Browser fixture')
   const field = snapshot.text?.match(/([^\s]+) input Name/)?.[1]
