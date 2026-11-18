@@ -8,7 +8,7 @@ import type {
   Priority,
   StageId,
 } from '@ted/protocol'
-import { emptyLayout, groupSections, groups } from './factory-layout.ts'
+import { arrange, emptyLayout, groupSections, groups, inSidebarOrder } from './factory-layout.ts'
 import { defaultStages, type Stages } from './stage-names.ts'
 import { priorityLabels } from './task-fields.ts'
 
@@ -85,7 +85,15 @@ export function nextSelection<T extends { request: { id: string } }>(
   )
 }
 
-export const inboxGroupings = ['none', 'kind', 'age', 'stage', 'priority', 'factory-group'] as const
+export const inboxGroupings = [
+  'none',
+  'kind',
+  'age',
+  'stage',
+  'priority',
+  'factory',
+  'factory-group',
+] as const
 
 export type InboxGrouping = (typeof inboxGroupings)[number]
 
@@ -95,6 +103,7 @@ export const inboxGroupingLabels: Record<InboxGrouping, string> = {
   age: 'Age',
   stage: 'Stage',
   priority: 'Priority',
+  factory: 'Factory',
   'factory-group': 'Factory group',
 }
 
@@ -167,6 +176,7 @@ export function groupInbox<T extends { grouped: Grouped }>(
   order: InboxOrder = defaultInboxOrder,
   layout: FactoryLayout = emptyLayout,
   stages: Stages = defaultStages,
+  factories: readonly Factory[] = [],
 ): InboxGroup<T>[] {
   const grouped = groupRows(
     order.oldestFirst ? [...newestFirst].reverse() : newestFirst,
@@ -174,6 +184,7 @@ export function groupInbox<T extends { grouped: Grouped }>(
     now,
     layout,
     stages,
+    factories,
   )
   if (!order.groupsReversed) return grouped
   const last = grouped.at(-1)
@@ -186,6 +197,7 @@ function groupRows<T extends { grouped: Grouped }>(
   now: number,
   layout: FactoryLayout,
   stages: Stages,
+  factories: readonly Factory[],
 ): InboxGroup<T>[] {
   if (grouping === 'none') return rows.length ? [{ key: 'all', label: '', rows: [...rows] }] : []
   const pick = (
@@ -197,6 +209,17 @@ function groupRows<T extends { grouped: Grouped }>(
       return matching.length > 0 ? [{ key, label, rows: matching }] : []
     })
   if (grouping === 'kind') return pick(kindHeadings, (row) => row.grouped.kind)
+  if (grouping === 'factory') {
+    const ordered = inSidebarOrder(arrange(factories, layout))
+    const known = new Set(ordered.map((f) => f.id))
+    return pick(
+      [...ordered.map((f) => [f.id, f.name] as const), ['none', 'No Factory'] as const],
+      (row) =>
+        row.grouped.factoryId !== undefined && known.has(row.grouped.factoryId)
+          ? row.grouped.factoryId
+          : 'none',
+    )
+  }
   if (grouping === 'factory-group') {
     const sections = groupSections(layout)
     return pick(
