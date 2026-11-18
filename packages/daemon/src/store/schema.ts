@@ -5426,8 +5426,10 @@ const materializers = counted(
       ],
       'v1.CheckChangeKeyRecorded': ({ checkRunId, position, key }) =>
         checkResults.update({ changeKey: key }).where({ id: `${checkRunId}:${position}` }),
-      'v1.CheckReportMissing': ({ checkRunId, position, reason }) =>
+      'v1.CheckReportMissing': ({ checkRunId, position, reason }) => [
         checkResults.update({ noReport: reason }).where({ id: `${checkRunId}:${position}` }),
+        checkBoundaries.delete().where({ id: `${checkRunId}:start:${position}` }),
+      ],
       'v1.CheckSlotEntered': ({ checkRunId, at }) =>
         checkBoundaries.insert({
           id: `${checkRunId}:entered`,
