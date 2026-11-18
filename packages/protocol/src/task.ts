@@ -272,6 +272,7 @@ export interface Task {
   canResume?: boolean
   wakesOnComment?: true
   checksActive?: true
+  mergeHeld?: string
   runs: TaskRun[]
   tokens?: number
   tabs: ConversationTab[]

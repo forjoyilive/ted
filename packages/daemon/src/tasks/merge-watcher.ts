@@ -129,8 +129,10 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     try {
       await requireObligations(find(taskId), read)
       held.delete(taskId)
+      store.setMergeHeld(taskId, undefined)
     } catch (error) {
       const why = redactSecrets(textOf(error))
+      store.setMergeHeld(taskId, why)
       if (held.get(taskId) !== why) {
         held.set(taskId, why)
         console.error(`${store.getTask(taskId)?.displayId ?? taskId}’s merge is waiting: ${why}`)

@@ -58,6 +58,12 @@
   font-size: var(--text-13);
 }
 
+.mergeHeld {
+  display: block;
+  margin-top: 4px;
+  font-weight: var(--weight-semibold);
+}
+
 .readOnly {
   box-sizing: border-box;
   margin: 0;

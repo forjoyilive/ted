@@ -3815,8 +3815,8 @@ export function createTasks(options: {
     return workflow.settings.stages.merge?.commit_titles !== false
   }
 
-  async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
-    return validation.merge(taskId, resolution)
+  async function mergeChecks(taskId: string): Promise<boolean> {
+    return validation.merge(taskId)
   }
 
   async function mergeSendBack(

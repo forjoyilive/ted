@@ -283,6 +283,18 @@ test('Comment box opens with unsent text, keeps what is typed and empties after 
   expect((box as HTMLTextAreaElement).value).toBe('')
 })
 
+test('the merge-pending note says why the merge is held', async () => {
+  const { CommentBox } = await import('../src/renderer/components/CommentBox.tsx')
+  bridge({})
+  const why = 'Unresolved failure cases hold this Task: 52e989'
+  const held = render(<CommentBox task={task({ commentBox: 'merge-pending', mergeHeld: why })} />)
+  expect(held.container.querySelector('[data-merge-held]')?.textContent).toBe(why)
+  held.unmount()
+  const plain = render(<CommentBox task={task({ commentBox: 'merge-pending' })} />)
+  expect(plain.container.textContent).toContain('The merge is pending.')
+  expect(plain.container.querySelector('[data-merge-held]')).toBeNull()
+})
+
 test('opening a sub-agent from Task details selects its actual Conversation and tab', async () => {
   const a = appState()
   const sub: RunSummary = {
