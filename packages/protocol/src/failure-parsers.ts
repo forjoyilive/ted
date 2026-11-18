@@ -1,11 +1,12 @@
-import type {
-  AddFailureEvidenceRequest,
-  AssessFailureRequest,
-  FailureSource,
-  RecordFailureRequest,
-  RepairSelection,
-  ResolveFailureRequest,
-  VerifyFailureRequest,
+import {
+  type AddFailureEvidenceRequest,
+  type AssessFailureRequest,
+  type FailureSource,
+  failureChoiceKeys,
+  type RecordFailureRequest,
+  type RepairSelection,
+  type ResolveFailureRequest,
+  type VerifyFailureRequest,
 } from './failures.ts'
 import { type Json, type JsonObject, reader, type Untyped } from './parse.ts'
 import { RequestValidationError as HttpError } from './validation.ts'
@@ -98,9 +99,16 @@ export function parseAssessFailureRequest(value: Untyped): AssessFailureRequest 
     ['regression', 'unrelated', 'uncertain'],
     'unknown failure assessment',
   )
+  const choice = read.oneOf(
+    body,
+    'choice',
+    failureChoiceKeys,
+    `choice must be the recommended decision: ${failureChoiceKeys.join(', ')}`,
+  )
   const input: AssessFailureRequest = {
     assessment,
     recommendation: failureString(body, 'recommendation'),
+    choice,
   }
   return input
 }

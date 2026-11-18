@@ -2,6 +2,7 @@ import type { FailureCase } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { waitUntil } from './helpers.ts'
 import { getTask, merges, readGh, setGh, start, useMergeHarness } from './merge-harness.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 import {
   advanceTo,
   begin,
@@ -100,6 +101,7 @@ describe('Autopilot and a Task that changes .ted/', () => {
     )
     await post(`/failures/${finding.id}/assessments`, {
       assessment: 'uncertain',
+      choice: offeredChoice(finding),
       recommendation: 'Retry the transient fixture failure.',
     })
     const asked = await post<FailureCase>(`/failures/${finding.id}/decision`)

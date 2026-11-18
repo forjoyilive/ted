@@ -21,6 +21,7 @@ export function QuestionChoices({
   multiple = false,
   legend = 'Your answer',
   otherLabel = 'Other answer',
+  recommended,
   disabled,
 }: {
   choices: readonly string[]
@@ -30,6 +31,7 @@ export function QuestionChoices({
   multiple?: boolean
   legend?: string
   otherLabel?: string
+  recommended?: string | undefined
   disabled: boolean
 }) {
   const group = useId()
@@ -65,7 +67,11 @@ export function QuestionChoices({
             checked={isSelected(choice)}
             onChange={() => pick(choice)}
           />
-          <ChoiceText choice={choice} className={styles.text} />
+          <ChoiceText
+            choice={choice}
+            className={styles.text}
+            tag={choice === recommended && <span className={styles.tag}>Recommended</span>}
+          />
         </label>
       ))}
       {allowOther && (

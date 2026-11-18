@@ -16,6 +16,7 @@ import { loadRunTokens } from '../../src/run-token.ts'
 import type { openStore } from '../../src/store/index.ts'
 import { api, stubClaudePath, stubCodexPath, waitUntil } from '../helpers.ts'
 import { type Client, ctx, getTask, start } from '../merge-harness.ts'
+import { offeredChoice } from './failure-choice.ts'
 
 export const workGate = ['  work:', '    gate: true']
 export const brief = {
@@ -106,9 +107,10 @@ export async function walk(
       'the failed Check to return the Task to Work',
       60_000,
     )
-  const assess = (value: FailureCase, assessment = 'unrelated') =>
+  const assess = async (value: FailureCase, assessment = 'unrelated') =>
     post<FailureCase>(`/failures/${value.id}/assessments`, {
       assessment,
+      choice: offeredChoice(value, (await getTask(client, task.id)).stage),
       recommendation: 'Evidence shows an unrelated failure. Recommend accepting this execution.',
     })
   const ask = async (value: FailureCase, assessment = 'unrelated') => {

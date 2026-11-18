@@ -8,6 +8,7 @@ import { loadRunTokens } from '../src/run-token.ts'
 import { api, stubClaudePath, waitUntil } from './helpers.ts'
 import { ctx, getTask, readGh, start, toSignoff, useMergeHarness } from './merge-harness.ts'
 import { eventWait } from './support/event-wait.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 import { ManualClock } from './support/manual-clock.ts'
 
 useMergeHarness()
@@ -75,6 +76,7 @@ test('acceptance, capture, obligations and the Gate each reject local verificati
     })
     await post(`/failures/${value.id}/assessments`, {
       assessment: 'unrelated',
+      choice: offeredChoice(value),
       recommendation: 'Accept A',
     })
     const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
@@ -163,6 +165,7 @@ test('acceptance, capture, obligations and the Gate each reject local verificati
     }
     await post(`/failures/${value.id}/assessments`, {
       assessment: 'unrelated',
+      choice: offeredChoice(value),
       recommendation: 'Close before the next scenario',
     })
     const closing = await post<FailureCase>(`/failures/${value.id}/decision`)

@@ -12,6 +12,7 @@ import { expect, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, commitToOrigin, waitUntil } from './helpers.ts'
 import { ctx, getTask, run, start, useMergeHarness } from './merge-harness.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 
 useMergeHarness()
 
@@ -41,6 +42,7 @@ async function setup() {
   const assess = (value: FailureCase) =>
     ok(`/failures/${value.id}/assessments`, {
       assessment: 'unrelated',
+      choice: offeredChoice(value),
       recommendation: 'Accept for this context',
     })
   const ask = async (value: FailureCase) => {

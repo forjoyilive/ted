@@ -2388,6 +2388,7 @@ test.each(['general', 'Validate'])(
     })
     await post(`/failures/${failure.id}/assessments`, {
       assessment: 'unrelated',
+      choice: stage === 'Validate' ? 'accepted' : 'no-longer-applicable',
       recommendation:
         stage === 'Validate' ? 'Accept for this context' : 'No longer applicable to this Task',
     })

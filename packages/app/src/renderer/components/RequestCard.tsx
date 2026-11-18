@@ -19,7 +19,7 @@ import {
   trackerName,
 } from '@ted/protocol/task'
 import { keepMoveChoice, moveChoice, movePlanKey } from '@ted/protocol/task-move'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { type ComponentProps, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter, signOffEnter } from '../composer-keys.ts'
 import {
@@ -69,6 +69,7 @@ import { FactoryPicker } from './FactoryPicker.tsx'
 import {
   FailureRequestDetails,
   RecordedValidationSummary,
+  useRecommendedChoice,
   ValidationSummary,
 } from './FailureDetails.tsx'
 import { FailureRepairForm } from './FailureRepairForm.tsx'
@@ -466,6 +467,23 @@ function isFailure(request: Comment): boolean {
 const failureWords = {
   legend: 'Your decision',
   otherLabel: 'Send a message to the Task Lead',
+}
+
+function Choices({
+  request,
+  failure,
+  ...props
+}: ComponentProps<typeof QuestionChoices> & { request: Comment; failure: boolean }) {
+  return failure ? <FailureChoices request={request} {...props} /> : <QuestionChoices {...props} />
+}
+
+function FailureChoices({
+  request,
+  ...props
+}: ComponentProps<typeof QuestionChoices> & { request: Comment }) {
+  return (
+    <QuestionChoices {...props} {...failureWords} recommended={useRecommendedChoice(request)} />
+  )
 }
 
 function useSending(request: Comment, readOnly: boolean) {
@@ -934,14 +952,15 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
         <SimulatorRequest request={request} readOnly={false} chosen={chosen} onChoose={setPicked} />
       )}
       {questionChoices && (
-        <QuestionChoices
+        <Choices
+          request={request}
+          failure={failure}
           choices={request.choices ?? []}
           multiple={several}
           selection={selection}
           onSelect={setSelection}
           allowOther={kind === 'open'}
           disabled={sending}
-          {...(failure && failureWords)}
         />
       )}
       {boxLabel !== undefined && (
@@ -1409,13 +1428,14 @@ export function RequestCard({
         />
       )}
       {readOnly && hasChoices(request) && (
-        <QuestionChoices
+        <Choices
+          request={request}
+          failure={failure}
           choices={request.choices ?? []}
           selection={undefined}
           onSelect={() => {}}
           allowOther={answerKind(request) === 'open'}
           disabled
-          {...(failure && failureWords)}
         />
       )}
       {below ? (

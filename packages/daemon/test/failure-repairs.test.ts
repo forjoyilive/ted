@@ -24,6 +24,7 @@ import {
   toSignoff,
   useMergeHarness,
 } from './merge-harness.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 import { required, setup } from './support/failure-repairs.ts'
 
 useMergeHarness()
@@ -274,6 +275,7 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
     (
       await lead.call('POST', `${root}/failures/${failure.id}/assessments`, {
         assessment: 'unrelated',
+        choice: offeredChoice(failure),
         recommendation: 'Wait for a separate repair',
       })
     ).status,

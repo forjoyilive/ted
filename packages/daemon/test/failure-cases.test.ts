@@ -15,6 +15,7 @@ import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, commitToOrigin, stubClaudePath, tokenFor, waitUntil } from './helpers.ts'
 import { ctx, getTask, run, start, useMergeHarness } from './merge-harness.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 
 useMergeHarness()
 
@@ -47,6 +48,7 @@ async function setup(workflow?: string[]) {
   const assess = (value: FailureCase) =>
     ok<FailureCase>(`/failures/${value.id}/assessments`, {
       assessment: 'unrelated',
+      choice: offeredChoice(value),
       recommendation: 'Accept for this context',
     })
   const request = async (value: FailureCase) => {
@@ -386,6 +388,7 @@ test('authorization separates lead, sub-agent, own-Task and human operations, an
         await caller.call('POST', `${route}/assessments`, {
           assessment: 'regression',
           recommendation: 'Fix',
+          choice: 'fix',
         })
       ).status,
     ).toBe(403)
@@ -432,6 +435,7 @@ test('authorization separates lead, sub-agent, own-Task and human operations, an
     (
       await sub.call('POST', `${s.root}/failures/${unassessed.id}/assessments`, {
         assessment: 'unrelated',
+        choice: offeredChoice(unassessed),
         recommendation: 'Accept',
       })
     ).status,
@@ -466,6 +470,7 @@ test('outstanding cases and Inbox requests survive restart; a fresh Task Lead re
     (
       await stale.call('POST', `${s.root}/failures/${decision.id}/assessments`, {
         assessment: 'uncertain',
+        choice: offeredChoice(decision),
         recommendation: 'Investigate',
       })
     ).status,
@@ -503,6 +508,7 @@ test('outstanding cases and Inbox requests survive restart; a fresh Task Lead re
     (
       await lead.call('POST', `${s.root}/failures/${value.id}/assessments`, {
         assessment: 'uncertain',
+        choice: offeredChoice(value),
         recommendation: 'Resolve explicitly',
       })
     ).status,
@@ -609,6 +615,7 @@ test('invalidation notices survive health suspension and restart and reach the r
   })
   await post(`/failures/${value.id}/assessments`, {
     assessment: 'unrelated',
+    choice: offeredChoice(value),
     recommendation: 'Accept',
   })
   const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
@@ -705,6 +712,7 @@ test('a failure notice uses steering at the next tool boundary and retains its T
   })
   await post(`/failures/${value.id}/assessments`, {
     assessment: 'unrelated',
+    choice: offeredChoice(value),
     recommendation: 'Accept',
   })
   const asked = await post<FailureCase>(`/failures/${value.id}/decision`)

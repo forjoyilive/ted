@@ -632,6 +632,8 @@ export {
 export type * from './failures.ts'
 export {
   ciFailureLabel,
+  failureChoiceKeys,
+  failureChoiceLabels,
   failureChoices,
   validateFailureChoices,
   validationExecution,

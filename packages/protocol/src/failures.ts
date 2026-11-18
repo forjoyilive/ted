@@ -53,12 +53,25 @@ export interface RecordFailureRequest {
   contextId?: string
 }
 
+export type FailureChoice = ResolveFailureRequest['resolution']
+
+export const failureChoiceKeys: readonly FailureChoice[] = [
+  'accepted',
+  'retry',
+  'fix',
+  'repair',
+  'fixed',
+  'no-longer-applicable',
+]
+
 export interface AssessFailureRequest {
   assessment: 'regression' | 'unrelated' | 'uncertain'
   recommendation: string
+  choice: FailureChoice
 }
 
-export interface FailureAssessment extends AssessFailureRequest {
+export interface FailureAssessment extends Omit<AssessFailureRequest, 'choice'> {
+  choice?: FailureChoice
   id: string
   runId: string
   contextId?: string
@@ -144,6 +157,11 @@ export const validateFailureChoices = {
   accepted: 'Accept this failure',
   repair: 'Wait for a repair Task',
 } as const
+
+export const failureChoiceLabels: Readonly<Record<FailureChoice, string>> = {
+  ...failureChoices,
+  ...validateFailureChoices,
+}
 
 export interface ValidationSnapshot {
   progress?: ValidationProgress

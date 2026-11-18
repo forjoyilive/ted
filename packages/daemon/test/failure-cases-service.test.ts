@@ -1,12 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { FailureCase, FailureContext } from '@ted/protocol'
+import type { FailureCase, FailureChoice, FailureContext } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { afterEach, expect, test, vi } from 'vitest'
 import { RequestError } from '../src/errors.ts'
 import { openStore } from '../src/store/index.ts'
 import { acceptRefusals, createFailureCases, failureText } from '../src/tasks/failure-cases.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 
 const lead = 'run-lead-7f3a'
 const secret = 'abcdefghijklmnopqrstuvwxyz'
@@ -83,6 +84,7 @@ async function setup() {
     service.assess(task, value.id, lead, {
       assessment: 'unrelated',
       recommendation: 'Accept for this context',
+      choice: offeredChoice(value, task.stage),
     })
   const decision = (value: FailureCase) => service.request(task, value.id, lead)
   const request = async (value: FailureCase) => {
@@ -259,7 +261,11 @@ test('rejected evidence and assessments preserve requests; fresh decisions expos
   expect(await refusal(() => s.evidence(first, link, context.id))).toBe(400)
   expect(
     await refusal(() =>
-      s.service.assess(s.task, first.id, lead, { assessment: 'uncertain', recommendation: link }),
+      s.service.assess(s.task, first.id, lead, {
+        assessment: 'uncertain',
+        recommendation: link,
+        choice: 'accepted',
+      }),
     ),
   ).toBe(400)
   expect(s.comment(id)).toBeDefined()
@@ -449,6 +455,34 @@ test('accepting a failure with no tested context says so and tells the Task Lead
   expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
 })
 
+test('asking is refused while the recommended choice is one the card would not offer', async () => {
+  const s = await setup()
+  const value = await s.record()
+  const recommend = (choice: FailureChoice) =>
+    s.service.assess(s.task, value.id, lead, {
+      assessment: 'unrelated',
+      recommendation: 'It fails the same way on main',
+      choice,
+    })
+  await recommend('accepted')
+  const accept = await refusalText(() => s.decision(value))
+  expect(accept).toContain('You recommended Accept this failure, but the card can’t offer it.')
+  expect(accept).toContain('Ted has no record it can verify of what was tested')
+  expect(accept).toContain('The card would offer: Fixed, No longer applicable.')
+  expect(accept).toContain(`ted failure assess ${shortReference(value.id)} --file <json>`)
+  await recommend('repair')
+  expect(await refusalText(() => s.decision(value))).toContain(
+    'Wait for a repair Task is offered only at Validate and Merge.',
+  )
+  expect(s.store.listComments(s.task.id).filter((c) => c.kind === 'question')).toEqual([])
+  await recommend('no-longer-applicable')
+  const asked = await s.decision(value)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)?.choices).toEqual([
+    'Fixed',
+    'No longer applicable',
+  ])
+})
+
 test('stored contexts are compared by what was tested, not by their fingerprint or base tip', async () => {
   const s = await setup()
   const changed = acceptRefusals.changedForGood(false)
@@ -523,6 +557,7 @@ test('short failure, Run and context references preserve canonical evidence and 
   const assessed = await s.service.assess(s.task, shortReference(value.id), lead, {
     assessment: 'unrelated',
     recommendation: 'Accept the recorded failure',
+    choice: offeredChoice(value, s.task.stage),
   })
   expect(assessed.assessments.at(-1)?.contextId).toBe(context.id)
   const asked = await s.service.request(s.task, shortReference(value.id), lead)

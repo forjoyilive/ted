@@ -14,6 +14,7 @@ import { expect } from 'vitest'
 import { loadRunTokens } from '../../src/run-token.ts'
 import { api, waitUntil } from '../helpers.ts'
 import { approve, ctx, getTask, run, start, toSignoff } from '../merge-harness.ts'
+import { offeredChoice } from './failure-choice.ts'
 
 const validateWaitMs = 60_000
 
@@ -107,6 +108,7 @@ async function decide({ client, task, check }: Awaited<ReturnType<typeof begin>>
     }))
   await post(`/failures/${failure.id}/assessments`, {
     assessment: 'unrelated',
+    choice: offeredChoice(failure),
     recommendation: 'Wait for export repair',
   })
   const asked = await post<FailureCase>(`/failures/${failure.id}/decision`)

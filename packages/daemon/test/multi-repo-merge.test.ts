@@ -26,6 +26,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 
 const run = promisify(execFile)
 const gitEnv = {
@@ -307,6 +308,7 @@ test('a repair incorporates every repo before validation and retains all worktre
     (
       await lead.call('POST', `${root}/failures/${failure.id}/assessments`, {
         assessment: 'unrelated',
+        choice: offeredChoice(failure),
         recommendation: 'Wait for the shared repair',
       })
     ).status,

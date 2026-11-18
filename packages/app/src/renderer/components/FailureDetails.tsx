@@ -1,5 +1,11 @@
-import type { CheckRun, FailureCase, ValidationProgress, ValidationSnapshot } from '@ted/protocol'
-import { ciFailureLabel, validationExecution } from '@ted/protocol/failures'
+import type {
+  CheckRun,
+  Comment,
+  FailureCase,
+  ValidationProgress,
+  ValidationSnapshot,
+} from '@ted/protocol'
+import { ciFailureLabel, failureChoiceLabels, validationExecution } from '@ted/protocol/failures'
 import { shortReference } from '@ted/protocol/reference'
 import { useState } from 'react'
 import { useCheckRuns, useFailures, useTasks, useValidationObligations } from '../data.ts'
@@ -222,6 +228,15 @@ function RepairDetails({
       )}
     </>
   )
+}
+
+export function useRecommendedChoice(request: Comment): string | undefined {
+  const failures = useFailures(request.taskId)
+  const failure = failures.find((f) => f.decisions.some((d) => d.commentId === request.id))
+  const asked = failure?.decisions.find((d) => d.commentId === request.id)
+  const choice = failure?.assessments.find((a) => a.id === asked?.assessmentId)?.choice
+  const label = choice && failureChoiceLabels[choice]
+  return label && request.choices?.includes(label) ? label : undefined
 }
 
 export function FailureRequestDetails({

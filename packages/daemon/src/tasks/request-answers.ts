@@ -14,11 +14,11 @@ import type {
 } from '@ted/protocol'
 import {
   archiveChoice,
-  failureChoices,
+  failureChoiceKeys,
+  failureChoiceLabels,
   isTrackerClosedQuestion,
   keepArchiveChoice,
   sizeChoices,
-  validateFailureChoices,
 } from '@ted/protocol'
 import {
   bindsApproval,
@@ -847,9 +847,8 @@ export function createRequestAnswers(
       }
       if (request.action !== 'answer' || request.choice === undefined)
         throw new RequestError(400, 'choose a failure resolution')
-      const choices = { ...failureChoices, ...validateFailureChoices }
-      const resolution = (Object.keys(choices) as (keyof typeof choices)[]).find(
-        (key) => choices[key] === request.choice,
+      const resolution = failureChoiceKeys.find(
+        (key) => failureChoiceLabels[key] === request.choice,
       )
       if (!resolution) throw new RequestError(400, 'choose a failure resolution')
       if (comment.choices && !comment.choices.includes(request.choice))

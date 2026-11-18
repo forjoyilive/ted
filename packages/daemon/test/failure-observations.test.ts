@@ -45,6 +45,7 @@ test.each(['changed', 'unavailable'])(
       await post(`/failures/${id}/assessments`, {
         assessment: 'unrelated',
         recommendation: 'Accept this tested context',
+        choice: 'fixed',
       })
       return post<FailureCase>(`/failures/${id}/decision`)
     }

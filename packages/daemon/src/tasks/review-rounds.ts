@@ -169,7 +169,7 @@ export function workRoundText(input: {
     cause === 'check'
       ? [
           `- A check failed${failure === undefined ? '' : `: failure case ${failure}`}. If this change caused it, fix what the check reports and nothing else.`,
-          `- If the cause is outside this Task, such as a flaky test or a test already broken on the base branch, add evidence with \`ted failure evidence ${id} --file <json>\`, assess it with \`ted failure assess ${id} --file <json>\`, then run \`ted failure ask ${id}\` so the human can accept it.`,
+          `- If the cause is outside this Task, such as a flaky test or a test already broken on the base branch, add evidence with \`ted failure evidence ${id} --file <json>\`, assess it with \`ted failure assess ${id} --file <json>\` and \`"choice":"accepted"\`, then run \`ted failure ask ${id}\` so the human can accept it.`,
           '- Never change code unrelated to this Task to get past a check.',
           checks,
         ].join('\n')

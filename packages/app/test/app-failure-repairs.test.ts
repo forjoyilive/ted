@@ -60,6 +60,7 @@ test.each(['new', 'existing'] as const)(
         await lead.call('POST', `${root}/assessments`, {
           assessment: 'unrelated',
           recommendation: 'Repair the separate test environment.',
+          choice: 'repair',
         })
       ).status,
     ).toBe(200)

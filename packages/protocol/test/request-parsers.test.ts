@@ -336,7 +336,11 @@ for (const source of [
 ] satisfies P.FailureSource[])
   roundTrip(P.parseRecordFailureRequest, { source, evidence: 'Evidence', contextId: 'context' })
 roundTrip(P.parseAddFailureEvidenceRequest, { evidence: 'More evidence', contextId: 'context' })
-roundTrip(P.parseAssessFailureRequest, { assessment: 'regression', recommendation: 'Fix this' })
+roundTrip(P.parseAssessFailureRequest, {
+  assessment: 'regression',
+  recommendation: 'Fix this',
+  choice: 'fix',
+})
 roundTrip(P.parseResolveFailureRequest, {
   requestId: 'request',
   resolution: 'repair',
@@ -438,6 +442,11 @@ rejects(
 )
 rejects(P.parseAddFailureEvidenceRequest, { evidence: '' }, 'nonempty text')
 rejects(P.parseAssessFailureRequest, { assessment: 'other' }, 'unknown failure assessment')
+rejects(
+  P.parseAssessFailureRequest,
+  { assessment: 'unrelated', recommendation: 'Accept it' },
+  'choice must be the recommended decision',
+)
 rejects(P.parseResolveFailureRequest, { resolution: 'other' }, 'unknown failure resolution')
 for (const body of [null, [], 'text', 0])
   rejects(P.parseVerifyFailureRequest, body, 'failure request must be an object')

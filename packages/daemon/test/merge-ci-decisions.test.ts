@@ -21,6 +21,7 @@ import {
   waitForPullRequest,
   waitForStage,
 } from './merge-harness.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 
 useMergeHarness()
 
@@ -84,6 +85,7 @@ async function assess(client: Client, task: Task, failure: FailureCase, assessme
   const agent = await lead(client, task)
   const result = await agent.call('POST', `/tasks/${task.id}/failures/${failure.id}/assessments`, {
     assessment,
+    choice: offeredChoice(failure),
     recommendation:
       assessment === 'regression'
         ? 'Fix this Task and revalidate.'

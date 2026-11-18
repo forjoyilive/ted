@@ -85,7 +85,7 @@ import {
   type FailureCase,
   type FindingSeverity,
   factoryNotifications,
-  failureChoices,
+  failureChoiceLabels,
   firstFactoryNotifications,
   type GitHubWait,
   type LayerKind,
@@ -130,7 +130,6 @@ import {
   type TaskSource,
   type TedStoppedTask,
   type TrackStage,
-  validateFailureChoices,
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
@@ -138,7 +137,6 @@ import { isInteger, isOneOf, type Untyped } from '@ted/protocol/parse'
 import { planTitle as titleFromMessage } from '@ted/protocol/plan'
 import {
   compareStages,
-  handsOff,
   hasClarifyRounds,
   isCleanup,
   mergesHere,
@@ -149,6 +147,7 @@ import { Effect } from 'effect'
 import { totalMemory } from '../busy.ts'
 import { isDiskFullError } from '../disk.ts'
 import { redactSecrets } from '../redact.ts'
+import { offeredFailureChoices } from '../tasks/failure-choices.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
   commentBox,
@@ -4217,21 +4216,12 @@ export async function openStore({
           ...(value.validation && {
             title: `How should we handle the ${value.originalCheck?.name ?? (value.source.kind === 'github-ci' ? 'CI' : 'validation')} failure?`,
           }),
-          choices: [
-            ...Object.values(value.validation ? validateFailureChoices : failureChoices),
-            ...(value.validation && closable
-              ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
-              : []),
-          ].filter(
-            (choice) =>
-              (canAccept || choice !== failureChoices.accepted) &&
-              (!value.validation ||
-                !handsOff(taskRow(value.taskId)?.stage ?? '') ||
-                choice === failureChoices.accepted) &&
-              (choice !== 'Wait for a repair Task' ||
-                validates(taskRow(value.taskId)?.stage ?? '') ||
-                mergesHere(taskRow(value.taskId)?.stage ?? '')),
-          ),
+          choices: offeredFailureChoices(
+            value,
+            taskRow(value.taskId)?.stage ?? '',
+            canAccept,
+            closable,
+          ).map((choice) => failureChoiceLabels[choice]),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },

@@ -1416,6 +1416,7 @@ test('Validate failure decisions display evidence and send the selected action',
           at: createdAt,
           assessment: 'uncertain',
           recommendation: 'Retry the identified verification.',
+          choice: 'retry',
         },
       ],
       decisions: [{ commentId: 'request-1', assessmentId: 'assessment-1' }],
@@ -1438,6 +1439,8 @@ test('Validate failure decisions display evidence and send the selected action',
   expect(screen.getByText(/Accepting covers only this failure/)).toBeTruthy()
   expect(screen.getByText('What failed')).toBeTruthy()
   expect(screen.getByText('Show history · 1 evidence entry')).toBeTruthy()
+  expect(await screen.findByRole('radio', { name: 'Retry Recommended' })).toBeTruthy()
+  expect(screen.getAllByText('Recommended')).toHaveLength(1)
   await user().click(screen.getByRole('radio', { name: 'Accept this failure' }))
   expect(answer).not.toHaveBeenCalled()
   await user().click(screen.getByRole('button', { name: 'Confirm Accept this failure' }))

@@ -60,6 +60,7 @@ test.each(['changed', 'unavailable', 'restored', 'identical'])(
       await service.assess(task, value.id, 'lead', {
         assessment: 'unrelated',
         recommendation: 'Accept A',
+        choice: 'accepted',
       })
       const asked = await service.request(task, value.id, 'lead')
       final = true

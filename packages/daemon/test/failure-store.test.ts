@@ -196,6 +196,7 @@ test('legacy evidence requires a bound assessment and new bindings survive repla
     const fresh = await service.assess(task, legacy.id, 'lead', {
       assessment: 'unrelated',
       recommendation: 'Consider all evidence',
+      choice: 'fixed',
     })
     expect(fresh.assessments.at(-1)?.evidenceCount).toBe(1)
     expect(store.getComment(oldRequest)?.answer?.kind).toBe('withdrawn')
@@ -272,6 +273,7 @@ test('final observation invalidates earlier consent while committing only the ma
       await service.assess(task, value.id, 'lead', {
         assessment: 'unrelated',
         recommendation: 'Accept this context',
+        choice: 'accepted',
       })
       return service.request(task, value.id, 'lead')
     }
@@ -365,6 +367,7 @@ test('CI invalidation is synchronous and delayed hold effects cannot revoke newe
       await service.assess(task, value.id, 'lead', {
         assessment: 'unrelated',
         recommendation: 'Accept A',
+        choice: 'accepted',
       })
       const asked = await service.request(task, value.id, 'lead')
       return service.resolve(task, value.id, {
