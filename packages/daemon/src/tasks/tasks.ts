@@ -2066,22 +2066,41 @@ export function createTasks(options: {
         unfinishedChildren(task.id)
       )
         return []
-      return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
+      return [
+        {
+          id: task.id,
+          kind: 'task' as const,
+          rank: -1,
+          factoryId: task.factoryId,
+          ...(isCleanup(task.stage) && { skipsBusy: true as const }),
+        },
+      ]
     })
+  }
+
+  function cleanupStage(taskId: string): boolean {
+    const task = taskNow(taskId)
+    return task !== undefined && isCleanup(task.stage)
   }
 
   function revivesReady(): QueueEntry[] {
     const paused = store.agentPauses()
-    return leadLifecycle
-      .reviveCandidates()
-      .flatMap(({ taskId, factoryId, agent }) =>
-        agentStartHold(store, agent, taskNow(taskId)?.leadRunId) ||
-        paused[agent] !== undefined ||
-        inFlight.busy(taskId, ['held', 'hierarchy', 'deleting']) ||
-        unfinishedChildren(taskId)
-          ? []
-          : [{ id: taskId, kind: 'task' as const, rank: -1, factoryId }],
-      )
+    return leadLifecycle.reviveCandidates().flatMap(({ taskId, factoryId, agent }) =>
+      agentStartHold(store, agent, taskNow(taskId)?.leadRunId) ||
+      paused[agent] !== undefined ||
+      inFlight.busy(taskId, ['held', 'hierarchy', 'deleting']) ||
+      unfinishedChildren(taskId)
+        ? []
+        : [
+            {
+              id: taskId,
+              kind: 'task' as const,
+              rank: -1,
+              factoryId,
+              ...(cleanupStage(taskId) && { skipsBusy: true as const }),
+            },
+          ],
+    )
   }
 
   let backlogFrom: { version: number; from: ReturnType<typeof backlogStartFactories> } | undefined
