@@ -6,7 +6,7 @@ Find out whether the work does what the Task asks, without breaking anything els
 
 ## Before you start
 
-Ted runs Factory checks as Validate’s first step, one after another, and stops at the first failure. They all passed before these instructions reached you, and the results are at the end of these instructions. A failed check sends the Task back to Work with its output and failure case ID instead, and that return counts toward Validate’s limit. A check the human accepted shows as failed and accepted, not passed. Investigation, retry and a human decision do not count as send-backs.
+Ted runs Factory checks as Validate’s first step, one after another, and stops at the first failure. A check is a command or an instruction that an agent Ted starts carries out; an instruction check that may fix runs before the commands and can commit to the branch, so its commits are part of the change. They all passed before these instructions reached you, and the results are at the end of these instructions. A failed check sends the Task back to Work with its output and failure case ID instead, and that return counts toward Validate’s limit. A check the human accepted shows as failed and accepted, not passed. Investigation, retry and a human decision do not count as send-backs.
 
 Use `ted failure list`, `ted failure show <id>` and `ted failure obligations` to inspect evidence, decisions and remaining checks. Never treat an accepted failure or a not-run check as passed.
 
