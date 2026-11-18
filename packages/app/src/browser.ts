@@ -478,8 +478,11 @@ export function createTaskBrowsers(
       if (!page) return { url: '', text: 'Open a running web App' }
       await valid(taskId, page.app)
       const chosen = sizeFor(taskId, page.app)
+      const history = page.view.webContents.navigationHistory
       return {
         url: page.view.webContents.getURL(),
+        canGoBack: history.canGoBack(),
+        canGoForward: history.canGoForward(),
         text: page.ready ? (page.error ?? 'Ready') : 'Opening…',
         size: previewSizeValue(chosen.size),
         ...(chosen.byAgent && { sizeByAgent: true as const }),

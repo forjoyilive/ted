@@ -41,6 +41,7 @@ function makeContents() {
     }),
     setWindowOpenHandler: vi.fn(),
     getURL: () => 'http://localhost:3000/',
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
     getUserAgent: () => 'Electron desktop',
     reload: vi.fn((): void => {}),
     executeJavaScriptInIsolatedWorld: vi.fn(
@@ -581,6 +582,8 @@ test('a Task whose App is being switched reports Opening until the new page is r
   expect(await controller.state('one')).toEqual({
     url: 'http://localhost:3000/',
     text: 'Ready',
+    canGoBack: false,
+    canGoForward: false,
     size: 'desktop',
     blocked: 0,
   })
@@ -599,6 +602,8 @@ test('a Task whose App is being switched reports Opening until the new page is r
   expect(await controller.state('one')).toEqual({
     url: 'http://localhost:3000/',
     text: 'Ready',
+    canGoBack: false,
+    canGoForward: false,
     size: 'desktop',
     blocked: 0,
   })
