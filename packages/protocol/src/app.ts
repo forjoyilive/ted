@@ -24,6 +24,7 @@ export interface TaskApp {
   removed?: boolean
   waitingFor?: string
   waitingOn?: { displayId: string; app: string }
+  asking?: true
   simulator?: AppSimulator
   confirmOutsideSandbox?: true
   electron?: true
