@@ -44,11 +44,13 @@ export function PreviewSizeMenu({
   const editing = custom !== undefined
   useEffect(() => {
     if (editing) field.current?.select()
-    else if (closing.current) {
-      closing.current = false
-      sizeButton.current?.focus()
-    }
   }, [editing])
+  useEffect(() => {
+    if (editing || disabled || !closing.current) return
+    closing.current = false
+    if (document.activeElement === null || document.activeElement === document.body)
+      sizeButton.current?.focus()
+  }, [editing, disabled])
   const closeCustom = () => {
     closing.current = true
     setProblem(undefined)
