@@ -119,8 +119,8 @@ test('a second SIGTERM ends a daemon whose stop is stuck', async () => {
 
   child.kill('SIGTERM')
   await waitUntil(
-    async () => (await log()).includes('stopping Ted’s daemon: services'),
-    'the stop to reach the store',
+    async () => (await log()).includes('stopping Ted’s daemon: store'),
+    'the stop to reach the store close',
   )
   child.kill('SIGTERM')
 

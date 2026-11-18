@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promise
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { tedPaths } from '@ted/protocol'
+import { scriptLiteral, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { prepareDemo, stopDemo } from '../src/dev/demo.ts'
 import {
@@ -143,8 +143,8 @@ test('stop still ends a lock holder that ignores SIGTERM when the graceful stop 
   skipInsideTedSandbox(context, sandboxReasons.processes)
   await markDemo(folder, { version: demoVersion, complete: true })
   const lock = pathToFileURL(fileURLToPath(new URL('../src/lock.ts', import.meta.url))).href
-  const code = `import { tryLock } from ${JSON.stringify(lock)}
-globalThis.held = tryLock(${JSON.stringify(tedPaths(folder).daemonLock)})
+  const code = `import { tryLock } from ${scriptLiteral(lock)}
+globalThis.held = tryLock(${scriptLiteral(tedPaths(folder).daemonLock)})
 if (!globalThis.held) process.exit(2)
 process.on('SIGTERM', () => {})
 setInterval(() => {}, 1000)
