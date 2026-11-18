@@ -6,7 +6,7 @@ Find out whether the work does what the Task asks, without breaking anything els
 
 ## Before you start
 
-If the Factory has checks, Ted ran them as Validate’s first step, one after another, and they all passed before these instructions reached you; the results are at the end of these instructions. A failed check sends the Task back to Work instead, so you never start with one failing. A check the human accepted shows as failed and accepted, not passed; `ted failure list` and `ted failure show <id>` show it.
+If the Factory has checks, Ted ran them as Validate’s first step, one after another, and they all passed before these instructions reached you; the results are at the end of these instructions. A failed check sends the Task back to Work instead, so you never start with one failing. A check the human accepted shows as failed and accepted, not passed; `ted failure list` and `ted failure show <id>` show it. When you assess a failure case with `ted failure assess <id> --file <json>` and another open Task in this Factory tracks the fix, add `"repairTask":"<Task ID>"` (such as `"repairTask":"TED-639"`) whenever you recommend waiting for it, or recommend Accept because it tracks the fix: the decision then offers Wait for that Task as one choice.
 
 These testing instructions are specific to developing Ted. The Affected tests check and the three-file limit on a Run’s own test runs are this repo’s test tooling; other Factories choose their own commands and Stage instructions. See [Factory validation](../../docs/testing/factory-validation.md) when configuring those choices.
 
