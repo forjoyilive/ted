@@ -8955,6 +8955,7 @@ export function createTasks(options: {
       if (parent) releaseParent(parent.id, wasBlocked)
       hierarchyDone()
     }
+    if (parent && blockersRemoved.has(parent.id)) wakeTask(parent.id)
     wake()
   }
 
