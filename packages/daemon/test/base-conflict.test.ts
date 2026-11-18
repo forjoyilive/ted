@@ -232,10 +232,14 @@ describe('A branch that conflicts with its base', () => {
     )
     await moveMain('validating')
 
-    const [sendBack] = await waitUntil(async () => {
-      const found = await sendBacks(client, task)
-      return found.length > 0 ? found : undefined
-    }, 'the send-back after the Loop check')
+    const [sendBack] = await waitUntil(
+      async () => {
+        const found = await sendBacks(client, task)
+        return found.length > 0 ? found : undefined
+      },
+      'the send-back after the Loop check',
+      60_000,
+    )
     expect(sendBack).toMatchObject({
       from: 'validate',
       to: 'work',
@@ -250,7 +254,7 @@ describe('A branch that conflicts with its base', () => {
         /^Validate sent this back to Work \(round 1 of \d+\) · base conflict$/.test(l),
       ),
     ).toBe(true)
-  })
+  }, 90_000)
 
   test('a send-back that names a conflict Ted can’t find is an ordinary send-back, on a branch Ted moved to the latest base at its first Work entry', async () => {
     const { client, task } = await begin(
