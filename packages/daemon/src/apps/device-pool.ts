@@ -73,9 +73,17 @@ export function createDevicePool(options: {
     return held === undefined || held.key === key
   }
 
+  const notifyWaiters = () => {
+    if (waiters.size === 0) return
+    for (const member of members) member.notify()
+  }
+
   const takeTurn = (holder: TurnHolder) => {
     if (!turnFree(holder.key)) return false
-    if (options.oneAtATime()) turn = { ...holder, at: now() }
+    if (!options.oneAtATime()) return true
+    const changed = turn?.key !== holder.key
+    turn = { ...holder, at: now() }
+    if (changed) notifyWaiters()
     return true
   }
 
@@ -116,16 +124,14 @@ export function createDevicePool(options: {
       if (!waiters.delete(id)) return
       for (const member of members) member.notify()
     },
-    waiters() {
-      const inLine = line.flatMap((id) => waiters.get(id) ?? [])
-      const rest = [...waiters].flatMap(([id, w]) => (line.includes(id) ? [] : [w]))
-      return [...inLine, ...rest]
-    },
+    waiters: () => [...waiters.values()],
     takeTurn,
     startTurn: (holder) => !options.oneAtATime() || (line.length === 0 && takeTurn(holder)),
     turnFree,
     endTurn(key) {
-      if (turn?.key === key) turn = undefined
+      if (turn?.key !== key) return
+      turn = undefined
+      notifyWaiters()
     },
     holder: () => (options.oneAtATime() ? current() : undefined),
   }
