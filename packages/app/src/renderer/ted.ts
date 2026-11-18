@@ -17,6 +17,13 @@ import type { UpdateStatus } from '../updates.ts'
 
 export type TedEvent =
   | { type: 'browser-open'; taskId: string; app: { repo: string; name: string; browser: true } }
+  | {
+      type: 'browser-history'
+      taskId: string
+      app: { repo: string; name: string }
+      canGoBack: boolean
+      canGoForward: boolean
+    }
   | DaemonEvent
   | { type: 'menu-command'; command: MenuCommand }
   | { type: 'connection'; connection: DaemonConnection }
