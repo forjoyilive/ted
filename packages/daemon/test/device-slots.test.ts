@@ -357,6 +357,33 @@ test('Apps that ask the human and Apps in line are listed in the order they aske
   ])
 })
 
+test('listing again puts waiting Apps back without booting them, and leaves out a request that has ended', async () => {
+  const { slots, pool, boots, comments } = setup()
+  await slots.acquire(app('t1'), 'human', {})
+  const asked = await slots.acquire(app('t2'), 'task-lead', { runId: 'r2' })
+  const queued = await slots.acquire(app('t3'), 'automation', {})
+  if (!('waiting' in asked) || !('waiting' in queued)) throw new Error('expected to wait')
+  pool.unwait(asked.waiting)
+  pool.unwait(queued.waiting)
+  expect(slots.slots().waiting).toEqual([])
+
+  slots.list(asked.waiting, app('t2'))
+  slots.list(queued.waiting, app('t3'))
+  slots.list(queued.waiting, app('t3'))
+  expect(slots.slots().waiting).toMatchObject([
+    { taskId: 't2', waitingFor: { kind: 'answer' } },
+    { taskId: 't3', waitingFor: { kind: 'device' } },
+  ])
+  expect(pool.line.filter((ticket) => ticket === queued.waiting)).toHaveLength(1)
+  expect(boots).toEqual(['dev-1'])
+
+  pool.unwait(asked.waiting)
+  const denied = { ...comments.get(asked.waiting), answer: { kind: 'denied' } } as Comment
+  comments.set(asked.waiting, denied)
+  slots.list(asked.waiting, app('t2'))
+  expect(slots.slots().waiting).toMatchObject([{ taskId: 't3' }])
+})
+
 test('with one build at a time off, two Apps start together', async () => {
   const ios = setup({ limit: 2 })
   const android = setup({ pool: ios.pool, android: true })

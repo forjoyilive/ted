@@ -975,7 +975,10 @@ export function createApps(options: AppsOptions): Apps {
       return end('stopped')
     }
     const { task, repo, app } = found
-    if (store.newWorkHold() !== undefined) return 'waiting'
+    if (store.newWorkHold() !== undefined) {
+      devicesFor(app.kind).list(instance.waitingFor, simApp(taskId, task, repo.name, app))
+      return 'waiting'
+    }
     const got = await devicesFor(app.kind).wait(
       instance.waitingFor,
       simApp(taskId, task, repo.name, app),

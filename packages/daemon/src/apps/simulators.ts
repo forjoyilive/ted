@@ -89,6 +89,7 @@ export interface Simulators {
     input: { runId?: string; shutDown?: string; reason?: string },
   ): Promise<{ udid: string } | { waiting: string }>
   wait(commentId: string, app: SimulatorApp): Promise<SimulatorWait>
+  list(commentId: string, app: SimulatorApp): void
   withdraw(commentId: string): void
   withRequest<T>(
     comment: Comment,
@@ -376,6 +377,7 @@ export function createSimulators(options: {
     },
     acquire: deviceSlots.acquire,
     wait: deviceSlots.wait,
+    list: deviceSlots.list,
     withdraw: deviceSlots.withdraw,
     withRequest: deviceSlots.withRequest,
     shutDown(taskId, repo, name) {
