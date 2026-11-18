@@ -94,6 +94,7 @@ interface MergeHold {
 
 const mergeChecksRunning =
   'Ted is running the checks on the code it will merge, because they haven’t run on it yet.'
+const mergeCodeChanged = 'The Task’s code changed while the checks ran, so Ted runs them again.'
 
 export function createValidation(options: ValidationOptions) {
   const { store, failures, find, reportingEnv } = options
@@ -841,7 +842,10 @@ export function createValidation(options: ValidationOptions) {
           return false
         }
       }
-      if (!(await currentCoverage(find(taskId)))) return false
+      if (!(await currentCoverage(find(taskId)))) {
+        if (started) held.why = mergeCodeChanged
+        return false
+      }
       const after = await failures.obligations(find(taskId))
       if (!after.satisfied) held.why = unresolvedHold(after.blockers)
       return after.satisfied
