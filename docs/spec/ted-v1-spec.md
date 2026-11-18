@@ -295,8 +295,10 @@ Rules:
 | `stages.<id>.max_back` | any layer | Limit on send-backs from this Stage (6.7). UI label: **Send-backs**. | KRI-12, KRI-58, KRI-65 |
 | `stages.<id>.based_on` | Factory or Library | Hash of the inherited Stage file an override was copied from (5.5). | KRI-22, KRI-58 |
 | `stages.backlog.enabled` | any layer | The only key Backlog accepts. Backlog is always on: `false` is ignored with a warning. Done takes none. | KRI-15, KRI-58, KRI-411 |
-| `stages.cleanup.enabled` | any layer | `true` turns on Cleanup after Merge (6.15) when at least one step is listed. Default off. Cleanup can’t be in `order` and takes only `enabled`, `effort`, `based_on` and `steps`. | ADR 0148 |
+| `stages.cleanup.enabled` | any layer | `true` turns on Cleanup after Merge (6.15) when at least one step is listed. Default off. Cleanup can’t be in `order` and takes only `enabled`, `effort`, `based_on`, `steps`, `priority` and `skip_busy_hold`. | ADR 0148 |
 | `stages.cleanup.steps` | any layer | List of Cleanup steps, each `{name, instruction}` or `{name, command, timeout?}`: a unique one-line name of at most 80 characters and either the instruction the Task Lead follows or a shell command Ted runs itself (`timeout` like a Check’s, default `10m`). | ADR 0148, ADR 0149 |
+| `stages.<id>.priority` | any layer | Whole number, 0 or more: the queue starts Tasks and Task Lead continuations in higher-ranked Stages first (6.5). Unset: 2 for Cleanup, 1 for Merge, 0 for every other Stage. | ADR 0195 |
+| `stages.<id>.skip_busy_hold` | any layer | `true` lets a Task in this Stage start while the computer is busy (6.5), still within the working-Run limit and the Factory’s cap. Unset: on for Cleanup only. | ADR 0195 |
 | `stages.clarify.depth` | any layer | `auto` (default), `none`, `few`, `grilling`. | KRI-19 |
 | `stages.validate.checks` | Factory | List of Checks (8.1). | KRI-16, KRI-57 |
 | `stages.validate.loop_check` | any layer | Send-back count at which the loop check runs; default `3`; `false` turns it off. | KRI-16 |
@@ -305,7 +307,7 @@ Rules:
 | `stages.work.lead_closes_failures` | any layer | `true` lets the Task Lead close a Failure case it recorded as a Finding outside Validate, with passing evidence through `ted failure verify`. Default `false`: only the human closes it. UI label: **Task Lead closes its own fixed failures**. | ADR 0118 |
 
 - **Defaults:** Sign-offs on Design and Review; Merge on with no Sign-off; every Stage has `max_back: 3` except Validate, which has 8. A custom Stage has no Sign-off, `max_back: 3` and the inherited effort. (KRI-12, KRI-16, KRI-52, KRI-58, TED-441)
-- **Custom Stages** take only `name`, `gate`, `max_back`, `effort`, `enabled` and `based_on`; any other key is an error. Built-in Stages can’t take `name`. (TED-441)
+- **Custom Stages** take only `name`, `gate`, `max_back`, `effort`, `enabled`, `based_on`, `priority` and `skip_busy_hold`; any other key is an error. Built-in Stages can’t take `name`. (TED-441)
 - **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per Provider, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. (KRI-15, KRI-53, KRI-54, KRI-57)
 - An unknown key is a warning, not an error, so a newer file still loads. (KRI-58)
 
@@ -603,7 +605,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
 
 - **Queued** is a status: a started Task waiting at the start of Intake for a free slot, with no Run and no worktree. (KRI-15, KRI-58)
 - **Max working Runs on this machine**, in Settings → Limits, default 6. It always stays on. (KRI-15, ADR 0004)
-- **Wait to start new work when this computer is busy**, in Settings → Limits, on by default. While the 1-minute load average is at or above the number of cores, or less than 10% of memory is available, Ted starts no new Run, sub-agent or agent-requested simulator or emulator unless nothing is working, and Scheduled Checks wait; it starts again once the load is below three quarters of the cores and more than 20% of memory is available. Working Runs carry on, and the limit above is still the most Ted runs. A Task Lead continuing after its Checks or the user’s answer, and a Task in Cleanup, doesn’t wait for the computer, only for the limit: it reads “Queued · 2nd” with its place, and one held in the last 10 minutes goes first (ADR 0184, ADR 0192). A held Task reads “Queued · computer is busy”, and hovering over it says which resource holds and its figure. With no value set, **Max working Runs on this machine** defaults to one per 4 GB of memory, from 2 to 8. (ADR 0166)
+- **Wait to start new work when this computer is busy**, in Settings → Limits, on by default. While the 1-minute load average is at or above the number of cores, or less than 10% of memory is available, Ted starts no new Run, sub-agent or agent-requested simulator or emulator unless nothing is working, and Scheduled Checks wait; it starts again once the load is below three quarters of the cores and more than 20% of memory is available. Working Runs carry on, and the limit above is still the most Ted runs. A Task Lead continuing after its Checks or the user’s answer, and a Task in a Stage with `skip_busy_hold` (Cleanup by default), doesn’t wait for the computer, only for the limit: it reads “Queued · 2nd” with its place, and one held in the last 10 minutes goes first (ADR 0184, ADR 0192, ADR 0195). A held Task reads “Queued · computer is busy”, and hovering over it says which resource holds and its figure. With no value set, **Max working Runs on this machine** defaults to one per 4 GB of memory, from 2 to 8. (ADR 0166)
 - Optional per-Factory `max_working_runs`. A new Run starts only when both limits have room. When a Factory’s cap is full, its Board and List header shows “4 of 4 working”. (KRI-15, KRI-8 coordinator decision 17)
 - **What counts:** working Runs: Task Leads, sub-agents, Automation Runs and active Planning Runs. Runs waiting on the human, a Task Lead waiting only on its sub-agents, Paused Runs, Apps and Checks don’t count. While a new worktree’s `setup` runs, the Task holds its slot. (KRI-15, KRI-19, KRI-18, KRI-54, KRI-60, KRI-58)
 - **The limit gates new starts only:** new Tasks, Resume, new sub-agents, Automation and Planning Runs. A waiting Run that the human answers starts working at once, even if that goes over the limit. (KRI-60)
@@ -612,7 +614,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
   2. waiting sub-agent requests
   3. new Planning Runs
   4. Automation Runs
-  5. Tasks, by Priority (Urgent first), then hand-set rank.
+  5. Tasks, by their Stage’s `priority` (higher first: Cleanup, then Merge, then the rest by default), then Task Lead continuations before new starts, then by Priority (Urgent first), then hand-set rank. (ADR 0195)
 - The queue is shared across all Factories on the machine. A new Task goes to the bottom of its Priority group. Priority is set by hand, copied from Linear, or passed with `--priority`. (KRI-15)
 - Queued Tasks whose Provider is Paused show Paused (with their queue place in the activity line, “Queued · 3rd · resets 15:40”), and Tasks of the other kind move ahead. (KRI-54, KRI-62)
 - The human orders the queue on a Board (one Factory) or in the List sorted Manual (any Factory, including All Tasks). The Working Runs popover is read-only (10.3). (KRI-56)

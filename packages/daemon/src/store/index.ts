@@ -356,7 +356,7 @@ export interface CheckWork {
 }
 
 export interface QueueActivity {
-  taskPlaces?: readonly { id: string; place: number }[]
+  taskPlaces?: readonly { id: string; place: number; skipsBusy?: true }[]
   queuedTasks: readonly string[]
   queuedRuns: readonly string[]
   startingRuns: readonly string[]
@@ -1794,7 +1794,6 @@ export async function openStore({
                 rank,
                 priority: task.priority as Priority,
                 factoryId: task.factoryId,
-                ...(isCleanup(task.stage) && { skipsBusy: true as const }),
               },
             ]
           : []
@@ -2261,14 +2260,14 @@ export async function openStore({
       (comment) => comment.answerHeld && comment.answerQueuedAt !== null,
     )
     const queuedContinuation = pendingMessages.some((message) => message.waitForSlot) || heldAnswer
+    const placed = queueActivity.taskPlaces?.find((entry) => entry.id === row.id)
     const skipsBusy =
-      isCleanup(stage) ||
+      placed?.skipsBusy === true ||
       heldAnswer ||
       pendingMessages.some((message) => message.waitForSlot && message.after !== undefined)
     const place =
       queued || queuedContinuation
-        ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
-          (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0))
+        ? (placed?.place ?? (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0))
         : 0
     const pausedRuns = taskPauses({
       taskId: row.id,
@@ -7554,8 +7553,10 @@ export async function openStore({
     },
     requestSnoozesPending: () => store.query(queryDb(requestSnoozes.select())).length > 0,
     setQueueActivity(value) {
-      const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, entry.place]))
-      const after = new Map(value.taskPlaces?.map((entry) => [entry.id, entry.place]))
+      const placeOf = (entry: { place: number; skipsBusy?: true }) =>
+        `${entry.place}${entry.skipsBusy ? ' skips busy' : ''}`
+      const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
+      const after = new Map(value.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
       queueActivity = value
       const moved = [...new Set([...before.keys(), ...after.keys()])].filter(
         (id) => before.get(id) !== after.get(id),

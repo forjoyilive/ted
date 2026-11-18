@@ -5,6 +5,7 @@ import {
   continuationFlags,
   queueOrder,
   recentContinuationMs,
+  stageQueue,
   startsNow,
 } from '../src/tasks/queue.ts'
 
@@ -15,6 +16,7 @@ describe('queueOrder', () => {
   test('setup, sub-agents, Planning, Coordinators, drafts and Automations come before Tasks', () => {
     const order = queueOrder([
       task('urgent-task', 'urgent', 1),
+      { ...task('cleanup-task', 'none', 2), stageRank: 2 },
       { id: 'automation', kind: 'automation', rank: 1 },
       { id: 'draft', kind: 'automation-draft', rank: 1 },
       { id: 'coordinator', kind: 'coordinator', rank: 1 },
@@ -29,6 +31,7 @@ describe('queueOrder', () => {
       'planning',
       'draft',
       'automation',
+      'cleanup-task',
       'urgent-task',
     ])
   })
@@ -67,13 +70,30 @@ describe('queueOrder', () => {
     ])
   })
 
-  test('a Task in Cleanup that skips the busy hold sorts with the continuations, ahead of new Tasks', () => {
+  test('Stage rank comes first among Tasks, ahead of continuations, recency and Priority', () => {
+    const order = queueOrder([
+      task('new-work-urgent', 'urgent', 0),
+      { ...task('answered-work-urgent', 'urgent', 1), kind: 'continuation', recent: true },
+      { ...task('new-merge-low', 'low', 2), stageRank: 1 },
+      { ...task('answered-merge-none', 'none', 3), kind: 'continuation', stageRank: 1 },
+      { ...task('new-cleanup-none', 'none', 4), stageRank: 2 },
+    ])
+    expect(order.map((entry) => entry.id)).toEqual([
+      'new-cleanup-none',
+      'answered-merge-none',
+      'new-merge-low',
+      'answered-work-urgent',
+      'new-work-urgent',
+    ])
+  })
+
+  test('skipping the busy hold doesn’t move a new Task ahead of continuations', () => {
     const order = queueOrder([
       task('new-urgent', 'urgent', 0),
-      { ...task('cleanup-low', 'low', 5), skipsBusy: true },
-      { ...task('answered-high', 'high', 3), kind: 'continuation' },
+      { ...task('skips-low', 'low', 5), skipsBusy: true },
+      { ...task('answered-low', 'low', 3), kind: 'continuation' },
     ])
-    expect(order.map((entry) => entry.id)).toEqual(['answered-high', 'cleanup-low', 'new-urgent'])
+    expect(order.map((entry) => entry.id)).toEqual(['answered-low', 'new-urgent', 'skips-low'])
   })
 
   test('entries of one class keep their rank order', () => {
@@ -82,6 +102,26 @@ describe('queueOrder', () => {
       { id: 'first', kind: 'automation', rank: 1 },
     ])
     expect(order.map((e) => e.id)).toEqual(['first', 'second'])
+  })
+})
+
+describe('stageQueue', () => {
+  test('Cleanup ranks 2 and skips the busy hold, Merge ranks 1, other Stages 0', () => {
+    expect(stageQueue({}, 'cleanup')).toEqual({ rank: 2, skipsBusy: true })
+    expect(stageQueue({}, 'merge')).toEqual({ rank: 1, skipsBusy: false })
+    expect(stageQueue({}, 'work')).toEqual({ rank: 0, skipsBusy: false })
+    expect(stageQueue({}, 'qa')).toEqual({ rank: 0, skipsBusy: false })
+  })
+
+  test('workflow.yaml’s priority and skip_busy_hold replace the defaults', () => {
+    const stages = {
+      cleanup: { priority: 0, skip_busy_hold: false },
+      merge: { skip_busy_hold: true },
+      work: { priority: 3 },
+    }
+    expect(stageQueue(stages, 'cleanup')).toEqual({ rank: 0, skipsBusy: false })
+    expect(stageQueue(stages, 'merge')).toEqual({ rank: 1, skipsBusy: true })
+    expect(stageQueue(stages, 'work')).toEqual({ rank: 3, skipsBusy: false })
   })
 })
 
