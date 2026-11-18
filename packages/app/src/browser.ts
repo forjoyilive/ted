@@ -292,8 +292,9 @@ export function createTaskBrowsers(
               if (!metrics) return plain()
               const contents = page.view.webContents
               const shot = async () => {
-                const ratio = await script('devicePixelRatio').catch(() => 1)
-                const density = isNumber(ratio) && ratio > 0 ? ratio : 1
+                const density = await script('devicePixelRatio').catch(() => undefined)
+                if (!isNumber(density) || !Number.isFinite(density) || density <= 0)
+                  return undefined
                 // A view that isn’t on screen may not draw a frame for the debugger’s capture;
                 // a capture that stays hidden makes it draw without showing it.
                 void contents

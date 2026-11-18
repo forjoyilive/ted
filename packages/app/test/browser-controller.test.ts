@@ -51,6 +51,7 @@ function makeContents() {
     ),
     executeJavaScriptInIsolatedWorld: vi.fn(
       async (_world: number, scripts: { code: string }[]): Promise<unknown> => {
+        if (scripts[0]?.code === 'devicePixelRatio') return 1
         const prefix = /const ref = "([^"]+)"/.exec(scripts[0]?.code ?? '')?.[1]
         return prefix ? `${prefix}:1 button Try it` : { x: 10, y: 10 }
       },
@@ -943,6 +944,38 @@ test('a phone-sized screenshot that the page can’t draw fails instead of retur
   expect(transport.replies[2]?.error).toBe(
     'Couldn’t capture the page at its preview size; try again',
   )
+})
+
+test('a phone-sized screenshot fails when the page’s pixel ratio can’t be read', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+    electron,
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  await transport.send('size', 'one', 'size', { value: 'mobile' })
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  const script = contents.executeJavaScriptInIsolatedWorld.getMockImplementation()
+  contents.executeJavaScriptInIsolatedWorld.mockImplementation(async (world, scripts) => {
+    if (scripts[0]?.code === 'devicePixelRatio') throw new Error('Execution context was destroyed')
+    return script?.(world, scripts)
+  })
+  await transport.send('shot', 'one', 'screenshot')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(3))
+  expect(transport.replies[2]?.error).toBe(
+    'Couldn’t capture the page at its preview size; try again',
+  )
+  expect(
+    contents.debugger.sendCommand.mock.calls.filter(
+      ([method]) => method === 'Page.captureScreenshot',
+    ),
+  ).toEqual([])
 })
 
 test('a size change whose reload never finishes reports an error instead of success', async () => {
