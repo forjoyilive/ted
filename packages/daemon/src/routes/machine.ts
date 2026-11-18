@@ -366,7 +366,7 @@ export const settingParsers: {
   },
   maxRunningDevices(value) {
     const { min, max } = deviceSlotLimits
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+    if (!isInteger(value) || value < min || value > max) {
       throw new HttpError(400, `maxRunningDevices must be a whole number from ${min} to ${max}`)
     }
     return value
