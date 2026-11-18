@@ -55,7 +55,7 @@ test('a Ted note splits its fenced blocks from the prose', () => {
     text: 'Failure ecfe8a Last 200 lines of its output:',
     rest: [
       { kind: 'block', line: 4, text: 'PASS a\n\nFAIL b' },
-      { kind: 'text', line: 8, text: 'Full output: log.txt' },
+      { kind: 'text', line: 9, text: 'Full output: log.txt' },
     ],
   })
   expect(noteParts('Output:\n````\nholds ```\n````').rest).toEqual([
