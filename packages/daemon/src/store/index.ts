@@ -456,8 +456,10 @@ export interface BlockerLink {
 
 export type AfterBlocking = 'backlog' | 'wait'
 
+export type BlockersCleared = 'merged' | 'removed'
+
 export type StartCause =
-  | { cause: 'factory-setting' | 'snooze' | 'coordinator' | 'automation' }
+  | { cause: 'factory-setting' | 'snooze' | 'coordinator' | 'automation' | 'blockers-removed' }
   | { cause: 'blockers-merged'; blockers: readonly string[] }
 
 export interface RepairApproval {
@@ -971,7 +973,7 @@ export interface TedStore extends TaskHistory {
   setTaskSnooze(taskId: string, until: string | null): Task
   setStartRequested(taskId: string, startRequested: boolean): Task
   waitForBlockers(taskId: string): Task
-  requeueAfterBlockers(taskId: string): Task
+  requeueAfterBlockers(taskId: string, why: BlockersCleared): Task
   taskStoppedByHuman(taskId: string): boolean
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
   resumeTask(
@@ -5034,9 +5036,11 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
-    requeueAfterBlockers(taskId) {
+    requeueAfterBlockers(taskId, why) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
-      commit(events.taskRequeuedAfterBlockers({ taskId, rank, at: new Date().toISOString() }))
+      commit(
+        events.taskRequeuedAfterBlockersV2({ taskId, rank, why, at: new Date().toISOString() }),
+      )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task

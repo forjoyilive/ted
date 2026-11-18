@@ -260,6 +260,7 @@ import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import type { Sandbox, SandboxScope } from '../sandbox.ts'
 import type {
+  BlockersCleared,
   CleanupCommandResult,
   FoundConflict,
   LoopCheck,
@@ -8564,6 +8565,10 @@ export function createTasks(options: {
       return
     }
     if (task.stage === 'backlog') {
+      if (task.startRequested && unmergedBlockers(taskId).length === 0) {
+        wakeTask(taskId, undefined, 'removed')
+        return
+      }
       if (task.startRequested) store.setStartRequested(taskId, false)
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
     } else if (
@@ -8573,7 +8578,27 @@ export function createTasks(options: {
       !liveLead(task) &&
       !task.archived
     )
+      carryOnOrStop(taskId)
+  }
+
+  function needsTheUser(taskId: string): boolean {
+    const task = find(taskId)
+    const status = publicTask(taskId).status?.kind
+    return task.preparation === 'ready' || status === 'failed' || status === 'waiting-on-you'
+  }
+
+  function carryOnOrStop(taskId: string): void {
+    const task = find(taskId)
+    const queued = store.queue().some((entry) => entry.id === taskId)
+    if (
+      unmergedBlockers(taskId).length > 0 ||
+      needsTheUser(taskId) ||
+      !(task.waitsForBlockers || queued)
+    ) {
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
+    } else if (task.waitsForBlockers) {
+      wakeTask(taskId, undefined, 'removed')
+    }
   }
 
   function setParent(ref: string, input: SetTaskParentRequest): Task {
@@ -8683,7 +8708,7 @@ export function createTasks(options: {
     taskId: string,
     caller: Caller,
     blockerId?: string,
-    reason = `was unblocked without merging. ${reopened} Use Resume when ready to reassess the failure.`,
+    reason = `was unblocked without merging. ${reopened} The next Task Lead Run reassesses the failure.`,
   ): void {
     const links = store.blockers(taskId).filter((link) => link.kind === undefined)
     const wasBlocked = links.some((l) => !l.merged)
@@ -8697,14 +8722,14 @@ export function createTasks(options: {
     const current = find(taskId)
     if (caller.kind !== 'run' && wasBlocked && unmergedBlockers(taskId).length === 0) {
       if (current.stage === 'backlog' && current.startRequested) {
-        store.setStartRequested(taskId, false)
+        wakeTask(taskId, undefined, 'removed')
       } else if (
         (current.waitsForBlockers ||
           (current.preparation === 'ready' && store.childrenOf(taskId).length > 0)) &&
         !liveLead(current) &&
         !current.archived
       ) {
-        store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
+        carryOnOrStop(taskId)
       }
     }
   }
@@ -8712,7 +8737,7 @@ export function createTasks(options: {
   function settleDependents(taskId: string, action = 'archived'): void {
     const dependents = store.blockedBy(taskId)
     for (const dependent of dependents) {
-      const reason = `was ${action} without merging. ${reopened} Its blocker was removed. Use Resume when ready to reassess the failure.`
+      const reason = `was ${action} without merging. ${reopened} Its blocker was removed. The next Task Lead Run reassesses the failure.`
       removeBlockers(dependent, { kind: 'app' }, taskId, reason)
     }
     if (action === 'archived') store.recordArchiveUnblocks(taskId, dependents)
@@ -9833,6 +9858,12 @@ export function createTasks(options: {
         why: 'The human resumed this Task after its Task Lead stopped.',
       })
     }
+    if (last?.kind === 'blockers' && last.removed) {
+      return fromTheBrief(task, {
+        heading: 'Picking up after a blocker',
+        why: 'The human removed the blockers this Task waited for, so it carries on without them. If a note from Ted says a repair Task ended without merging, reassess that failure first.',
+      })
+    }
     const merged = store
       .blockers(task.id)
       .filter((b) => b.merged)
@@ -10302,7 +10333,11 @@ export function createTasks(options: {
     for (const id of store.openBlockedTasks()) wakeTask(id, queued)
   }
 
-  function wakeTask(id: string, queued = new Set(store.queue().map((q) => q.id))): void {
+  function wakeTask(
+    id: string,
+    queued = new Set(store.queue().map((q) => q.id)),
+    why: BlockersCleared = 'merged',
+  ): void {
     if (queued.has(id) || inFlight.is(id, 'starting') || inFlight.inHierarchyWork(id)) return
     if (finishingParents.has(id) || unmergedBlockers(id).length > 0) return
     const task = store.getTask(id)
@@ -10330,11 +10365,13 @@ export function createTasks(options: {
         .blockers(id)
         .filter((b) => b.merged)
         .map((b) => b.displayId)
+      const cause: StartCause =
+        why === 'removed' ? { cause: 'blockers-removed' } : { cause: 'blockers-merged', blockers }
       inBackground(`start ${task.displayId}`, async () => {
-        await start(id, {}, { cause: 'blockers-merged', blockers })
+        await start(id, {}, cause)
       })
     } else if (task.waitsForBlockers && !liveLead(task)) {
-      store.requeueAfterBlockers(id)
+      store.requeueAfterBlockers(id, why)
     }
   }
 

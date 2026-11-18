@@ -142,7 +142,7 @@ test('existing repair selection refuses self and cycles, leaves Backlog alone, a
 })
 
 test.each(['archive', 'delete'] as const)(
-  '%s of a repair never passes the failure and records why continuation stopped',
+  '%s of a repair never passes the failure, records why, and the Task carries on to reassess it',
   async (action) => {
     const s = await setup()
     const repair = await s.client.ok<Task>('POST', '/tasks', {
@@ -162,7 +162,7 @@ test.each(['archive', 'delete'] as const)(
       ).deleteTask(repair.id, {})
     }
     const affected = await getTask(s.client, s.current.id)
-    expect(affected.status?.kind).toBe('stopped')
+    expect(affected.status?.kind).not.toBe('stopped')
     expect(affected.stage).toBe('validate')
     expect(affected.blockedBy).toEqual([])
     expect(
@@ -175,7 +175,6 @@ test.each(['archive', 'delete'] as const)(
     expect(brief.text).toContain('needs a decision again')
     expect(brief.text).toContain(repair.displayId)
     if (action === 'delete') return
-    await s.client.ok('POST', `${s.root}/resume`, {})
     const resumed = await waitUntil(async () => {
       const t = await getTask(s.client, s.current.id)
       return t.leadRunId !== s.current.leadRunId &&
@@ -184,7 +183,7 @@ test.each(['archive', 'delete'] as const)(
         !t.checksActive
         ? t
         : undefined
-    }, 'a resumed Task Lead')
+    }, 'a fresh Task Lead without Resume')
     const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
     const lead = api(required(ctx.daemon).port, tokens.issue(required(resumed.leadRunId)))
     const verify = (body: { evidence: string; fixedBy?: string }) =>

@@ -1785,6 +1785,15 @@ export const events = {
     name: 'v1.TaskRequeuedAfterBlockers',
     schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
   }),
+  taskRequeuedAfterBlockersV2: Events.synced({
+    name: 'v2.TaskRequeuedAfterBlockers',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      rank: Schema.Number,
+      why: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   taskPreparationChanged: Events.synced({
     name: 'v1.TaskPreparationChanged',
     schema: Schema.Struct({
@@ -4290,6 +4299,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskWaitingForBlockers': (args) => task(args),
   'v1.TaskRequeuedAfterBlockers': (args) => task(args),
+  'v2.TaskRequeuedAfterBlockers': (args) => task(args, { why: args.why }),
   'v1.TaskPreparationChanged': (args) => task(args, { state: args.state }),
   'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
   'v1.TaskResumed': (args) => task(args),
@@ -4806,6 +4816,10 @@ const materializers = counted(
       'v1.GitHubActivityQueued': ({ taskId, rank, at }) =>
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
       'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
+      ],
+      'v2.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
       ],

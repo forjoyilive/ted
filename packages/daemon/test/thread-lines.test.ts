@@ -112,6 +112,8 @@ describe('event lines', () => {
           entry('v2.TaskBlockerAdded', 1, { blockerId: 'b1', runId: 'r1' }),
           entry('v1.TaskWaitingForBlockers', 2),
           entry('v1.TaskRequeuedAfterBlockers', 3),
+          entry('v2.TaskRequeuedAfterBlockers', 4, { why: 'merged' }),
+          entry('v2.TaskRequeuedAfterBlockers', 5, { why: 'removed' }),
         ],
         ['NB-46'],
       ),
@@ -119,6 +121,8 @@ describe('event lines', () => {
       { tone: 'edit', text: 'Task Lead made this Task wait for NB-46' },
       { tone: 'quiet', text: 'Waiting for NB-46 to merge' },
       { tone: 'run', text: 'Blockers merged · Task queued to carry on' },
+      { tone: 'run', text: 'Blockers merged · Task queued to carry on' },
+      { tone: 'run', text: 'Blockers removed · carrying on' },
     ])
   })
 
