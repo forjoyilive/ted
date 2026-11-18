@@ -88,6 +88,10 @@ export class StaleCoverageError extends RequestError {
   }
 }
 
+interface MergeHold {
+  why?: string
+}
+
 const mergeChecksRunning =
   'Ted is running the checks on the code it will merge, because they haven’t run on it yet.'
 
@@ -690,7 +694,43 @@ export function createValidation(options: ValidationOptions) {
     }
   }
 
+  const mergeHolds = new Map<string, string>()
+  function holdMerge(taskId: string, why: string | undefined): void {
+    const shown = mergeHolds.get(taskId)
+    if (why !== undefined) {
+      mergeHolds.set(taskId, why)
+      store.setMergeHeld(taskId, why)
+      return
+    }
+    mergeHolds.delete(taskId)
+    if (shown !== undefined && store.mergeHeld(taskId) === shown)
+      store.setMergeHeld(taskId, undefined)
+  }
+  const unresolvedHold = (ids: readonly string[]) =>
+    `Unresolved failure cases hold this merge: ${ids.map(shortReference).join(', ')}.`
+  const failedHold = (taskId: string) => {
+    const failureId = store.failures.progress(taskId)?.failureId
+    return failureId === undefined
+      ? 'A check failed on the code Ted will merge.'
+      : `A check failed on the code Ted will merge, so failure case ${shortReference(failureId)} holds the merge until it’s resolved.`
+  }
+
   async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
+    const held: MergeHold = {}
+    let ready = false
+    try {
+      ready = await mergeCheckSteps(taskId, resolution, held)
+    } finally {
+      holdMerge(taskId, ready ? undefined : held.why)
+    }
+    return ready
+  }
+
+  async function mergeCheckSteps(
+    taskId: string,
+    resolution: WorkflowResolution,
+    held: MergeHold,
+  ): Promise<boolean> {
     const task = find(taskId)
     const since = store.listStageEntries(taskId).findLast((e) => mergesHere(e.stage))?.at ?? ''
     if (
@@ -700,14 +740,24 @@ export function createValidation(options: ValidationOptions) {
       (options.isChecking(taskId) || (await currentCoverage(task)))
     )
       return true
-    if (options.isChecking(taskId) || task.stopped || task.archived || task.waitsForBlockers)
+    if (options.isChecking(taskId)) {
+      held.why = mergeChecksRunning
       return false
+    }
+    if (task.waitsForBlockers) {
+      held.why = 'The merge waits for the repair Task to merge first.'
+      return false
+    }
+    if (task.stopped || task.archived) return false
     let reserved = false
     let started: Awaited<ReturnType<typeof beginChecks>>
     let fix: FailureCase | undefined
     try {
       const ready = await options.holding(task, async () => {
-        if (options.isChecking(taskId)) return false
+        if (options.isChecking(taskId)) {
+          held.why = mergeChecksRunning
+          return false
+        }
         const obligations = await failures.obligations(task)
         const covered = await currentCoverage(task, true)
         const progress = store.failures.progress(taskId)
@@ -753,8 +803,14 @@ export function createValidation(options: ValidationOptions) {
           fix = failure
           return false
         }
-        if (covered && !obligations.satisfied && !pendingRepair(find(taskId))) return false
-        if (!pendingRepair(find(taskId)) && !(await resumeFailedCheck(find(taskId)))) return false
+        if (covered && !obligations.satisfied && !pendingRepair(find(taskId))) {
+          held.why = unresolvedHold(obligations.blockers)
+          return false
+        }
+        if (!pendingRepair(find(taskId)) && !(await resumeFailedCheck(find(taskId)))) {
+          held.why = failedHold(taskId)
+          return false
+        }
         options.setChecking(taskId, true)
         reserved = true
         started = await beginChecks(find(taskId), resolution, 'merge')
@@ -767,19 +823,19 @@ export function createValidation(options: ValidationOptions) {
       if (ready) return true
       if (!reserved) return false
       if (started) {
-        store.setMergeHeld(taskId, mergeChecksRunning)
+        holdMerge(taskId, mergeChecksRunning)
         const result = await started.done
         if (result.outcome !== 'passed') {
+          held.why = failedHold(taskId)
           await options.notify(find(taskId))
           return false
         }
       }
-      return (
-        (await currentCoverage(find(taskId))) &&
-        (await failures.obligations(find(taskId))).satisfied
-      )
+      if (!(await currentCoverage(find(taskId)))) return false
+      const after = await failures.obligations(find(taskId))
+      if (!after.satisfied) held.why = unresolvedHold(after.blockers)
+      return after.satisfied
     } finally {
-      if (store.mergeHeld(taskId) === mergeChecksRunning) store.setMergeHeld(taskId, undefined)
       if (reserved) options.setChecking(taskId, false)
     }
   }

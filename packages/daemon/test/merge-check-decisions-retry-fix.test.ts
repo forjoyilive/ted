@@ -162,7 +162,7 @@ test(
 )
 
 test(
-  'checks changed on main while a Task waits in Merge run again, show why, and the Task merges',
+  'checks changed on main while a Task waits in Merge run again; the banner says why it waits, a failure holds the merge, and a passing Retry merges',
   async () => {
     const settings = ['stages:', '  merge:', '    gate: false', '  validate:', '    checks:']
     const client = await start({
@@ -181,14 +181,15 @@ test(
     }, 'the merge to wait for CI')
     expect(await runs(client, task)).toEqual([])
 
-    const release = path.join(ctx.scratch, 'release-added-check')
+    const passes = path.join(ctx.scratch, 'added-check-passes')
+    const fails = path.join(ctx.scratch, 'added-check-fails')
     await commitToOrigin(ctx.scratch, {
       '.ted/workflow.yaml': [
         'version: 1',
         'order: [intake, work, validate, review, merge]',
         ...settings,
         ...checks,
-        `      - { name: Added, run: "while [ ! -e '${release}' ]; do sleep 0.1; done" }`,
+        `      - { name: Added, run: "test -e '${passes}' || { while [ ! -e '${fails}' ]; do sleep 0.1; done; exit 1; }" }`,
         '',
       ].join('\n'),
     })
@@ -198,19 +199,34 @@ test(
       checks: [{ name: 'Required', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
     })
     await waitUntil(async () => (await runs(client, task)).length === 1, 'a Merge check run')
-    const held = await waitUntil(
+    const running = await waitUntil(
       async () => (await getTask(client, task.id)).mergeHeld,
-      'the held reason on the Task',
+      'the checks-running reason on the Task',
     )
-    expect(held).toContain('running the checks')
-    await polls(client)
+    expect(running).toContain('running the checks')
     expect(await merges()).toEqual([])
 
-    await writeFile(release, '')
+    await writeFile(fails, '')
+    const failure = await failed(client, task)
+    const reason = await waitUntil(async () => {
+      const why = (await getTask(client, task.id)).mergeHeld
+      return why?.includes('A check failed') ? why : undefined
+    }, 'the failed-check reason on the Task')
+    expect(reason).toContain(failure.id.slice(0, 6))
+    await polls(client)
+    expect(await merges()).toEqual([])
+    expect((await getTask(client, task.id)).stage).toBe('merge')
+
+    await writeFile(passes, '')
+    const request = await ask(client, task, failure)
+    expect((await resolve(client, task, failure, request, 'retry')).status).toBe(200)
     await waitForStage(client, task, 'done')
     expect(await merges()).toHaveLength(1)
     expect((await runs(client, task)).map((r) => [r.outcome, r.checks.map((c) => c.name)])).toEqual(
-      [['passed', ['Prefix', 'First', 'Later', 'Added']]],
+      [
+        ['failed', ['Prefix', 'First', 'Later', 'Added']],
+        ['passed', ['Added']],
+      ],
     )
     expect((await getTask(client, task.id)).mergeHeld).toBeUndefined()
   },
