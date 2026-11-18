@@ -47,9 +47,18 @@ function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       )
       return
     }
+    const corner = (place: string, colour: string) =>
+      `<div aria-hidden="true" style="position:fixed;${place};width:40px;height:40px;background:${colour}"></div>`
+    const marked = process.env.STUB_APP_EDGE_MARKS === '1'
+    const viewport = marked ? '<meta name="viewport" content="width=device-width">' : ''
+    const edgeMarks = marked
+      ? corner('top:0;right:0', '#0f0') +
+        corner('bottom:0;right:0', '#f0f') +
+        corner('bottom:0;left:0', '#000')
+      : ''
     res.setHeader('content-type', 'text/html')
     res.end(
-      `<!doctype html><title>Browser fixture</title><h1>Project</h1><label>Name <input aria-label="Name"></label><button onclick="document.querySelector('h1').textContent='Clicked'">Try it</button><input type="file"><script>globalThis.rtcAtLoad=typeof RTCPeerConnection;document.cookie='taskSession=yes';</script>`,
+      `<!doctype html><title>Browser fixture</title>${viewport}<h1>Project</h1><label>Name <input aria-label="Name"></label><button onclick="document.querySelector('h1').textContent='Clicked'">Try it</button><input type="file">${edgeMarks}<script>globalThis.rtcAtLoad=typeof RTCPeerConnection;document.cookie='taskSession=yes';</script>`,
     )
     return
   }
