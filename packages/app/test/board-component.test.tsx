@@ -599,7 +599,7 @@ test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s
 
 function trackWidths(template: string, list: number, ch: number): number[] {
   const tokens =
-    template.match(/[a-z-]+\(|\d+(?:\.\d+)?(?:px|ch|%|fr)?|var\(--text-14\)|[-+*,()]/g) ?? []
+    template.match(/var\(--text-14\)|[a-z-]+\(|\d+(?:\.\d+)?(?:px|ch|%|fr)?|[-+*,()]/g) ?? []
   let at = 0
   const next = () => tokens[at++] ?? ''
   const args = (): number[] => {
@@ -696,7 +696,7 @@ test('List Factory column, then Status, gives way so Title keeps about 40 charac
   expect(at(1300).factory).toBe(80)
   expect(at(1300).status).toBeGreaterThan(110)
   expect(at(1300).status).toBeLessThan(176)
-  expect(at(1400)).toMatchObject({ status: 176 })
+  expect(at(1400).status).toBeCloseTo(176, 6)
   expect(at(1400).factory).toBeGreaterThan(80)
   expect(at(1400).factory).toBeLessThan(220)
   expect(at(1400).title).toBeCloseTo(388, 0)
