@@ -544,7 +544,9 @@ export function createFailureCases(options: {
         throw new RequestError(400, 'source must identify a failed or timed-out check on this Task')
       if ((run.trigger === 'merge') !== (source.kind === 'post-rebase-check'))
         throw new RequestError(400, 'Check source does not match its trigger')
-      if (context && context.capturedAt > run.startedAt)
+      const fixedFirst =
+        generated && run.checks.some((c) => c.fix === true && c.instruction !== undefined)
+      if (context && context.capturedAt > run.startedAt && !fixedFirst)
         throw new RequestError(
           409,
           'context must be captured before check execution, not borrowed from the current worktree',
@@ -552,7 +554,10 @@ export function createFailureCases(options: {
       originalCheck = {
         ...check,
         name: generatedFailureText(check.name),
-        command: generatedFailureText(check.command),
+        ...(check.command !== undefined && { command: generatedFailureText(check.command) }),
+        ...(check.instruction !== undefined && {
+          instruction: generatedFailureText(check.instruction),
+        }),
         timeout: generatedFailureText(check.timeout),
       }
     } else if (source.kind === 'finding') {

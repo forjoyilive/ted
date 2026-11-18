@@ -21,13 +21,11 @@ export function failureCaseFindings(value: FailureCase): string {
 
 export function sameCheckPlan(checks: readonly CheckResult[]): string {
   return JSON.stringify(
-    checks.map(({ name, repo, command, timeout, builtIn }) => ({
-      name,
-      repo,
-      command,
-      timeout,
-      builtIn,
-    })),
+    checks.map(({ name, repo, command, timeout, builtIn, instruction, fix, agent, model, effort }) =>
+      instruction === undefined
+        ? { name, repo, command, timeout, builtIn }
+        : { name, instruction, fix, agent, model, effort, timeout },
+    ),
   )
 }
 

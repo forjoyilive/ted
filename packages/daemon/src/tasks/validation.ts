@@ -18,9 +18,15 @@ import { handsOff, mergesHere, stageWith, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
 import type { MemoryWatch } from '../memory-kills.ts'
 import { redactSecrets } from '../redact.ts'
-import type { StoredTask, TedStore } from '../store/index.ts'
+import type { PlannedCheck, StoredTask, TedStore } from '../store/index.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
-import { type CheckRunnerResult, type RunnableCheck, runChecks, summary } from './checks.ts'
+import {
+  type CheckRunnerResult,
+  type InstructionStep,
+  type RunnableCheck,
+  runChecks,
+  summary,
+} from './checks.ts'
 import type { CommandLaunch } from './command.ts'
 import { type createFailureCases, generatedFailureText, sameTested } from './failure-cases.ts'
 import { sameCheckPlan, validationReport } from './validation-report.ts'
@@ -37,6 +43,7 @@ interface ValidationOptions {
     resolution: WorkflowResolution,
     only?: string,
     reads?: WorktreeReads,
+    commandsOnly?: boolean,
   ): Promise<RunnableCheck[]>
   checkSandbox(task: StoredTask): Promise<void>
   prepareLaunch(task: StoredTask): Promise<CommandLaunch>
@@ -55,6 +62,21 @@ interface ValidationOptions {
     taskId: string,
     checkRunId: string,
     killed: NonNullable<CheckRunnerResult['killed']>,
+  ): Promise<'retry' | 'failed' | 'interrupted'>
+  runInstruction(
+    task: StoredTask,
+    input: {
+      checkRunId: string
+      position: number
+      check: PlannedCheck & { instruction: string }
+      mayFix: boolean
+      log: string
+    },
+  ): Promise<InstructionStep & { changed?: boolean }>
+  reportMissing(
+    taskId: string,
+    checkRunId: string,
+    missing: NonNullable<CheckRunnerResult['missing']>,
   ): Promise<'retry' | 'failed' | 'interrupted'>
   takeCheckSlot(taskId: string, checkRunId: string): Promise<(() => void) | undefined>
   checkCpus(): number
@@ -211,7 +233,13 @@ export function createValidation(options: ValidationOptions) {
       (visitStart(task) !== '' &&
         only === undefined &&
         order.indexOf(task.stage as AgentStageId) > order.indexOf(stageWith('validates')))
-    let plan = await options.plan(task, resolution, merging ? undefined : only, reads)
+    let plan = await options.plan(
+      task,
+      resolution,
+      merging ? undefined : only,
+      reads,
+      requested && !tracking,
+    )
     if (plan.length === 0) {
       if (tracking) {
         store.failures.saveProgress({
@@ -318,15 +346,60 @@ export function createValidation(options: ValidationOptions) {
       })
     await store.persisted()
     const done = (async () => {
-      const release = await options.takeCheckSlot(task.id, checkRun.id).catch((error: unknown) => {
-        console.error(
-          redactSecrets(`couldn’t record ${task.displayId}’s check slot: ${String(error)}`),
-        )
-        return undefined
-      })
-      if (release === undefined) {
-        if (!options.signal.aborted) store.finishChecks(checkRun.id, 'interrupted')
-        return { outcome: 'interrupted' as const, notFound: [] }
+      let release: (() => void) | undefined
+      let slotTaken = false
+      const takeSlot = async () => {
+        if (release) return true
+        if (slotTaken) return false
+        slotTaken = true
+        release = await options.takeCheckSlot(task.id, checkRun.id).catch((error: unknown) => {
+          console.error(
+            redactSecrets(`couldn’t record ${task.displayId}’s check slot: ${String(error)}`),
+          )
+          return undefined
+        })
+        return release !== undefined
+      }
+      const releaseSlot = () => {
+        release?.()
+        release = undefined
+      }
+      const mayFix = trigger === 'validate' && validates(task.stage)
+      const refreshCoverage = async () => {
+        if (!tracking) return
+        const fresh = worktreeReads()
+        const local = await coverage(find(task.id), fresh)
+        const context = diagnosing
+          ? await failures.snapshot(find(task.id)).catch(() => undefined)
+          : undefined
+        if (context) contextId = store.failures.capture(context).id
+        const current = store.failures.progress(task.id)
+        if (current?.executions.at(-1)?.runId !== checkRun.id) return
+        const last = current.executions.at(-1)
+        store.failures.saveProgress({
+          ...current,
+          ...(local && { coverage: local }),
+          ...(contextId && { contextId }),
+          executions: [
+            ...current.executions.slice(0, -1),
+            ...(last ? [{ ...last, ...(contextId && { contextId }) }] : []),
+          ],
+        })
+      }
+      const runInstruction = async (
+        position: number,
+        check: PlannedCheck & { instruction: string },
+      ): Promise<InstructionStep> => {
+        const step = await options.runInstruction(find(task.id), {
+          checkRunId: checkRun.id,
+          position,
+          check,
+          mayFix: mayFix && check.fix === true,
+          log: options.checkLog(task, checkRun.id, position),
+        })
+        if (step.kind !== 'interrupted' && step.changed && check.fix === true)
+          await refreshCoverage()
+        return step
       }
       const finishedCheck = (
         position: number,
@@ -368,6 +441,9 @@ export function createValidation(options: ValidationOptions) {
             reportingEnv: (position: number, supported: boolean) =>
               reportingEnv(task, checkRun.id, position, supported),
           }),
+          beforeCommand: takeSlot,
+          beforeInstruction: releaseSlot,
+          runInstruction,
           onStart: (position) => store.checkStarted(checkRun.id, position),
           onFinish: finishedCheck,
         })
@@ -380,6 +456,25 @@ export function createValidation(options: ValidationOptions) {
         for (;;) {
           const ran = await runFrom(from)
           notFound.push(...ran.notFound)
+          if (ran.outcome === 'no-report') {
+            const missing = ran.missing
+            if (!missing) return { outcome: 'interrupted', notFound }
+            store.checkReportMissing(checkRun.id, missing.position, missing.reason)
+            await store.persisted()
+            const next = await options.reportMissing(task.id, checkRun.id, missing)
+            if (next === 'interrupted') return { outcome: 'interrupted', notFound }
+            if (next === 'failed') {
+              const finished = { state: 'failed' as const, durationMs: missing.durationMs }
+              finishedCheck(missing.position, finished)
+              return {
+                outcome: 'failed',
+                failed: { position: missing.position, check: missing.check, ...finished },
+                notFound,
+              }
+            }
+            from = missing.position
+            continue
+          }
           if (ran.outcome !== 'memory') return { ...ran, outcome: ran.outcome, notFound }
           const killed = ran.killed
           if (!killed) return { outcome: 'interrupted', notFound }
@@ -401,7 +496,7 @@ export function createValidation(options: ValidationOptions) {
           console.error(`couldn’t run ${task.displayId}’s checks:`, error)
           return { outcome: 'interrupted' as const, notFound: [] }
         })
-        .finally(release)
+        .finally(releaseSlot)
       if (result.outcome === 'interrupted' && options.signal.aborted) return result
       store.finishChecks(checkRun.id, result.outcome)
       options.reportNotFound(task, result)

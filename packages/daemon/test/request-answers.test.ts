@@ -156,6 +156,10 @@ beforeEach(async () => {
       effects.push('memory-kill')
       return comment
     },
+    answerCheckReport: async (_task, comment) => {
+      effects.push('check-report')
+      return comment
+    },
   }
 })
 afterEach(async () => {
