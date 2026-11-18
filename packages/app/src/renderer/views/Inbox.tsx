@@ -309,7 +309,7 @@ export function Inbox({
         )
         .filter(quiet)
   const stages = useStages()
-  const groups = groupInbox(rows, view.grouping, now, view.order, layout, stages)
+  const groups = groupInbox(rows, view.grouping, now, view.order, layout, stages, factories)
   const ordered = groups.flatMap((group) => group.rows)
   const visible = groups.flatMap((group) => (view.collapsed(group.key) ? [] : group.rows))
   const shownSnoozed = showSnoozed ? snoozedRows : []
