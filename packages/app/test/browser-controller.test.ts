@@ -1069,12 +1069,13 @@ test('a size change whose reload never finishes reports an error instead of succ
   const contents = mocks.views[0]?.webContents
   if (!contents) throw new Error('Missing browser contents')
   contents.reload.mockImplementationOnce(() => {})
+  const pageListeners = contents.listenerCount('did-stop-loading')
   await transport.send('size', 'one', 'size', { value: 'mobile' })
   await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
   expect(transport.replies[1]?.error).toBe(
     'The page didn’t finish loading at its new size; take a snapshot to check it',
   )
-  expect(contents.listenerCount('did-stop-loading')).toBe(0)
+  expect(contents.listenerCount('did-stop-loading')).toBe(pageListeners)
   expect(await controller.state('one')).toMatchObject({ size: 'mobile' })
   await controller.present('one', { x: 0, y: 0, width: 390, height: 844 }, 1)
   expect(window.contentView.addChildView).toHaveBeenCalled()
