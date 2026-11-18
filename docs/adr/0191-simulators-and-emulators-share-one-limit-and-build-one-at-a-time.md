@@ -20,4 +20,4 @@ On 2026-11-17 one Run started an Android emulator App and an iOS simulator App t
 
 - A Factory’s device App script should print `TED_APP_READY` once the app is built, installed and launched; the setup guide says so. Without it the next App waits until the first ends or 15 minutes pass.
 - An agent that runs a device App’s script itself, outside `ted run-app`, is outside every rule here; Ted’s instructions to the Task Lead say to use `ted run-app` and start one at a time.
-- A CPU share for App builds, like `TED_CHECK_CPUS` for Checks (ADR 0171), is TED-581.
+- A CPU share for App builds, like `TED_CHECK_CPUS` for Checks (ADR 0171), is `TED_APP_CPUS` (ADR 0193).

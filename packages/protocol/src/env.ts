@@ -1,6 +1,8 @@
 import { type Edition, edition } from './edition.ts'
 
 export const tedEnvironment: Readonly<Record<string, string | false>> = {
+  TED_APP_CPUS:
+    'Logical cores Ted tells a simulator or emulator App’s build it may use, so a build leaves room for Runs.',
   TED_APP_EXECUTABLE: 'Installed app executable used by the CLI to open Ted.',
   TED_APP_TOKEN: false,
   TED_AUTOMATION: 'Automation context for CLI task creation.',
