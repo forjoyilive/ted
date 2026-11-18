@@ -11603,7 +11603,10 @@ export function createTasks(options: {
         .map(async (r) => {
           const entry = repoEntry(entries, r)
           const baseBranch = entry?.baseBranch ?? (await git.defaultBranch(r.worktree))
-          const changes = await readChanges(reads, r.worktree, `origin/${baseBranch}`)
+          const base = `origin/${baseBranch}`
+          const changes = await (reads === undefined
+            ? git.workingTree(r.worktree, base)
+            : reads.changes(r.worktree, base))
           return {
             repo: r.repo,
             head: changes.head,

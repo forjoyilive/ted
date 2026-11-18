@@ -718,53 +718,20 @@ async function together<T extends readonly unknown[]>(
   return Promise.all(reads)
 }
 
-export async function workingChanges(
+export type WorkingTree = Pick<WorkingChanges, 'head' | 'base' | 'tree' | 'mergeBase'>
+
+type ScratchRun = (args: string[], work?: string) => Promise<string>
+
+export function workingTree(worktree: string, base: string): Promise<WorkingTree> {
+  return inWorkingScratch(worktree, base, async (tested) => tested)
+}
+
+export function workingChanges(
   worktree: string,
   base: string,
   options: { diffs?: readonly string[] | 'all' } = {},
 ): Promise<WorkingChanges> {
-  const [head, baseTip, common] = await together([
-    headCommit(worktree),
-    revParse(worktree, base),
-    git(worktree, ...noHooks, 'rev-parse', '--git-common-dir'),
-  ])
-  const objects = path.join(path.resolve(worktree, common), 'objects')
-  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-working-'))
-  const gitDir = path.join(scratch, 'repo.git')
-  const env = worktreeCommandEnv(
-    {},
-    {
-      GIT_TERMINAL_PROMPT: '0',
-      GIT_OPTIONAL_LOCKS: '0',
-      GIT_DIR: gitDir,
-      GIT_INDEX_FILE: path.join(scratch, 'index'),
-    },
-  )
-  const run = async (args: string[], work?: string): Promise<string> => {
-    try {
-      const { stdout } = await execFileAsync('git', [...readOnly, ...args], {
-        cwd: work ?? scratch,
-        env: work === undefined ? env : { ...env, GIT_WORK_TREE: work },
-        maxBuffer: 64 * 1024 * 1024,
-      })
-      return stdout
-    } catch (error) {
-      const stderr = (error as { stderr?: string }).stderr?.trim()
-      throw new GitError(redactSecrets(`git ${args[0]} failed${stderr ? `: ${stderr}` : ''}`))
-    }
-  }
-  try {
-    await run(['init', '--bare', '--quiet', gitDir])
-    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
-    const writeTree = async () => {
-      await run(['read-tree', head])
-      await run(['-c', 'core.bare=false', 'add', '--all', '--', '.'], worktree)
-      return (await run(['write-tree'])).trim()
-    }
-    const [tree, mergeBase] = await together([
-      writeTree(),
-      run(['merge-base', head, baseTip]).then((out) => out.trim()),
-    ])
+  return inWorkingScratch(worktree, base, async ({ head, base: baseTip, tree, mergeBase }, run) => {
     const numstat = async (to: string) =>
       new Map(
         parseNumstat(await run(['diff', ...diffFlags, '--numstat', '-z', mergeBase, to, '--'])).map(
@@ -817,6 +784,57 @@ export async function workingChanges(
       })
     }
     return { head, base: baseTip, tree, mergeBase, files, diffs }
+  })
+}
+
+async function inWorkingScratch<T>(
+  worktree: string,
+  base: string,
+  read: (tested: WorkingTree, run: ScratchRun) => Promise<T>,
+): Promise<T> {
+  const [head, baseTip, common] = await together([
+    headCommit(worktree),
+    revParse(worktree, base),
+    git(worktree, ...noHooks, 'rev-parse', '--git-common-dir'),
+  ])
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-working-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const env = worktreeCommandEnv(
+    {},
+    {
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_OPTIONAL_LOCKS: '0',
+      GIT_DIR: gitDir,
+      GIT_INDEX_FILE: path.join(scratch, 'index'),
+    },
+  )
+  const run = async (args: string[], work?: string): Promise<string> => {
+    try {
+      const { stdout } = await execFileAsync('git', [...readOnly, ...args], {
+        cwd: work ?? scratch,
+        env: work === undefined ? env : { ...env, GIT_WORK_TREE: work },
+        maxBuffer: 64 * 1024 * 1024,
+      })
+      return stdout
+    } catch (error) {
+      const stderr = (error as { stderr?: string }).stderr?.trim()
+      throw new GitError(redactSecrets(`git ${args[0]} failed${stderr ? `: ${stderr}` : ''}`))
+    }
+  }
+  try {
+    await run(['init', '--bare', '--quiet', gitDir])
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    const writeTree = async () => {
+      await run(['read-tree', head])
+      await run(['-c', 'core.bare=false', 'add', '--all', '--', '.'], worktree)
+      return (await run(['write-tree'])).trim()
+    }
+    const [tree, mergeBase] = await together([
+      writeTree(),
+      run(['merge-base', head, baseTip]).then((out) => out.trim()),
+    ])
+    return await read({ head, base: baseTip, tree, mergeBase }, run)
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
