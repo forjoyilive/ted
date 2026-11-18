@@ -1007,6 +1007,7 @@ export function createTasks(options: {
   }
   const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const finishingParents = new Set<string>()
+  const blockersRemoved = new Set<string>()
   const parentsChecked = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
@@ -8566,7 +8567,7 @@ export function createTasks(options: {
     }
     if (task.stage === 'backlog') {
       if (task.startRequested && unmergedBlockers(taskId).length === 0) {
-        wakeTask(taskId, undefined, 'removed')
+        wakeAfterRemoval(taskId)
         return
       }
       if (task.startRequested) store.setStartRequested(taskId, false)
@@ -8579,6 +8580,11 @@ export function createTasks(options: {
       !task.archived
     )
       carryOnOrStop(taskId)
+  }
+
+  function wakeAfterRemoval(taskId: string): void {
+    blockersRemoved.add(taskId)
+    wakeTask(taskId)
   }
 
   function needsTheUser(taskId: string): boolean {
@@ -8597,7 +8603,7 @@ export function createTasks(options: {
     ) {
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
     } else if (task.waitsForBlockers) {
-      wakeTask(taskId, undefined, 'removed')
+      wakeAfterRemoval(taskId)
     }
   }
 
@@ -8722,7 +8728,7 @@ export function createTasks(options: {
     const current = find(taskId)
     if (caller.kind !== 'run' && wasBlocked && unmergedBlockers(taskId).length === 0) {
       if (current.stage === 'backlog' && current.startRequested) {
-        wakeTask(taskId, undefined, 'removed')
+        wakeAfterRemoval(taskId)
       } else if (
         (current.waitsForBlockers ||
           (current.preparation === 'ready' && store.childrenOf(taskId).length > 0)) &&
@@ -10333,15 +10339,19 @@ export function createTasks(options: {
     for (const id of store.openBlockedTasks()) wakeTask(id, queued)
   }
 
-  function wakeTask(
-    id: string,
-    queued = new Set(store.queue().map((q) => q.id)),
-    why: BlockersCleared = 'merged',
-  ): void {
+  function wakeTask(id: string, queued = new Set(store.queue().map((q) => q.id))): void {
     if (queued.has(id) || inFlight.is(id, 'starting') || inFlight.inHierarchyWork(id)) return
-    if (finishingParents.has(id) || unmergedBlockers(id).length > 0) return
+    if (finishingParents.has(id)) return
+    if (unmergedBlockers(id).length > 0) {
+      blockersRemoved.delete(id)
+      return
+    }
     const task = store.getTask(id)
-    if (!task || task.archived || task.stopped || task.stage === 'done') return
+    if (!task || task.archived || task.stopped || task.stage === 'done') {
+      blockersRemoved.delete(id)
+      return
+    }
+    const why: BlockersCleared = blockersRemoved.has(id) ? 'removed' : 'merged'
     const wakes =
       (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) ||
       (task.waitsForBlockers && !liveLead(task))
@@ -10367,10 +10377,12 @@ export function createTasks(options: {
         .map((b) => b.displayId)
       const cause: StartCause =
         why === 'removed' ? { cause: 'blockers-removed' } : { cause: 'blockers-merged', blockers }
+      blockersRemoved.delete(id)
       inBackground(`start ${task.displayId}`, async () => {
         await start(id, {}, cause)
       })
     } else if (task.waitsForBlockers && !liveLead(task)) {
+      blockersRemoved.delete(id)
       store.requeueAfterBlockers(id, why)
     }
   }

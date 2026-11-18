@@ -855,15 +855,16 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   await client.ok('POST', `/tasks/${deletionParent.id}/start`)
   await app.deleteTask(deletionChild.id)
   expect(await app.taskHierarchy(deletionParent.id)).toMatchObject({ childIds: [] })
-  expect((await getTask(client, deletionParent.id)).runs).toEqual([])
-  await client.ok('POST', `/tasks/${deletionParent.id}/start`)
   const restarted = await waitFor(
     client,
     deletionParent,
     (task) => task.runs[0]?.state === 'idle',
-    'to start only on the explicit request',
+    'to start once its last child is deleted',
   )
   expect(restarted.status?.kind).not.toBe('stopped')
+  expect(await startLines(client, deletionParent)).toEqual([
+    'Started because its blockers were removed',
+  ])
 
   const family = await create(client, 'Family')
   const kid = await create(client, 'Kid')
