@@ -88,6 +88,7 @@ export function isOutsideHost(hostname: string): boolean {
 
 const outsideTypes = new Set(['image', 'font', 'media'])
 const signInHost = 'ted-guest-proxy.invalid'
+export const guestSignInUrl = `http://${signInHost}/`
 
 export function isOutsideMedia(address: string, resourceType: string): boolean {
   if (!outsideTypes.has(resourceType)) return false
@@ -323,7 +324,7 @@ export function guestProxyRules(
       signIn: () =>
         new Promise<void>((resolve) => {
           const request = electronNet.request({
-            url: `http://${signInHost}/`,
+            url: guestSignInUrl,
             session: contents.session,
             useSessionCookies: false,
           })

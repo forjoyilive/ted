@@ -120,6 +120,9 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       throw error
     })
   const command = (request: BrowserRequest) => client.browserCommand(task.id, request)
+  await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
+    command({ action: 'reload' }),
+  )
   const snapshot = await command({ action: 'snapshot' })
   expect(snapshot.text).toContain('Browser fixture')
   const field = snapshot.text?.match(/([^\s]+) input Name/)?.[1]
@@ -181,9 +184,6 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     ),
   ).toEqual([true, true])
   await checkOutsideRequests(app, panel, new URL(running.url ?? '').href)
-  await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
-    command({ action: 'reload' }),
-  )
   expect(
     await app.evaluate(async ({ webContents }, url) => {
       return webContents
@@ -371,6 +371,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .toBe('Preview size: Mobile · 390 × 844')
   await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
   const adminPage = new URL(admin.url ?? '').href
+  await checkRefusedNames(app, panel, adminPage)
   const onAdmin = (script: string) =>
     app?.evaluate(
       async ({ webContents }, { url, script }) =>

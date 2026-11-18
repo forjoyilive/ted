@@ -6,7 +6,7 @@ import {
   scriptLiteral,
 } from '@ted/protocol'
 import type { Session, WebContents, WebPreferences } from 'electron'
-import { type GuestProxyRules, isOutsideMedia } from './browser-proxy.ts'
+import { type GuestProxyRules, guestSignInUrl, isOutsideMedia } from './browser-proxy.ts'
 
 export interface GuestHost {
   contents: WebContents
@@ -201,13 +201,14 @@ export async function openGuest(
       proxyBypassRules: `<-loopback>,${origin},${origin.replace(/^http/, 'ws')}`,
     })
     check()
-    await route?.signIn()
-    check()
     ses.webRequest.onBeforeRequest((details, callback) => {
+      if (details.webContentsId === undefined && details.url === guestSignInUrl) return callback({})
       const pass = allowed(details.url) || isOutsideMedia(details.url, details.resourceType)
       if (!pass && /^(https?|wss?):/.test(details.url)) page.blocked++
       callback({ cancel: !pass })
     })
+    await route?.signIn()
+    check()
     await contents.debugger.sendCommand('Page.enable')
     check()
     await contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {

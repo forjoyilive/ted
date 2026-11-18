@@ -303,7 +303,7 @@ export async function checkRefusedNames(
   app: ElectronApplication,
   panel: import('playwright').Locator,
   url: string,
-  reload: () => Promise<object>,
+  reload?: () => Promise<object>,
 ) {
   const guestScript = (script: string) =>
     app.evaluate(
@@ -314,15 +314,17 @@ export async function checkRefusedNames(
       },
       { url, script },
     )
-  await guestScript('globalThis.beforeReload = true')
-  await reload()
-  await expect
-    .poll(() =>
-      guestScript(`!globalThis.beforeReload && document.readyState === 'complete'`).catch(
-        () => false,
-      ),
-    )
-    .toBe(true)
+  if (reload) {
+    await guestScript('globalThis.beforeReload = true')
+    await reload()
+    await expect
+      .poll(() =>
+        guestScript(`!globalThis.beforeReload && document.readyState === 'complete'`).catch(
+          () => false,
+        ),
+      )
+      .toBe(true)
+  }
   await expect.poll(() => panel.textContent()).not.toContain('Blocked')
   const images = ['http://private.example/art.png', 'https://private.example/art.png']
     .map(scriptLiteral)
