@@ -715,6 +715,20 @@ export function createValidation(options: ValidationOptions) {
       : `A check failed on the code Ted will merge, so failure case ${shortReference(failureId)} holds the merge until it’s resolved.`
   }
 
+  const coveredFor = new Map<string, string>()
+  async function stillCovered(task: StoredTask): Promise<boolean> {
+    const resolution = await options.workflow(task)
+    const inputs = JSON.stringify([
+      resolution.workflow.settings.stages.validate?.checks ?? [],
+      store.failures.progress(task.id) ?? null,
+    ])
+    if (coveredFor.get(task.id) === inputs) return true
+    coveredFor.delete(task.id)
+    if (!(await currentCoverage(task))) return false
+    coveredFor.set(task.id, inputs)
+    return true
+  }
+
   async function mergeChecks(taskId: string): Promise<boolean> {
     const held: MergeHold = {}
     let ready = false
@@ -733,7 +747,7 @@ export function createValidation(options: ValidationOptions) {
       store.latestRebase(taskId, since) === undefined &&
       !pendingRepair(task) &&
       !mergeChecksStarted(task) &&
-      (options.isChecking(taskId) || (await currentCoverage(task)))
+      (options.isChecking(taskId) || (await stillCovered(task)))
     )
       return true
     if (options.isChecking(taskId)) {
