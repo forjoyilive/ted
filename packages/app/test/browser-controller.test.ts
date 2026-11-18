@@ -41,7 +41,7 @@ function makeContents() {
     }),
     setWindowOpenHandler: vi.fn(),
     getURL: () => 'http://localhost:3000/',
-    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false, clear: vi.fn() },
     getUserAgent: () => 'Electron desktop',
     reload: vi.fn((): void => {}),
     executeJavaScriptInIsolatedWorld: vi.fn(

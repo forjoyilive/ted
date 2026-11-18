@@ -436,6 +436,10 @@ export function TaskBrowserView({
 
 function idleText(app: TaskApp | undefined): string {
   if (app?.state === 'starting' || app?.state === 'waiting') return `Starting ${app.name}…`
-  if (app?.state === 'failed' && app.problem) return app.problem
+  if (app?.state === 'failed' || app?.state === 'exited') {
+    if (app.problem) return app.problem
+    const how = app.signal ? `with ${app.signal}` : `with code ${app.exitCode ?? 'unknown'}`
+    return `${app.name} stopped ${how}. Check the App log, then use ▶ in Apps.`
+  }
   return 'This App isn’t running. Use ▶ in Apps, then open preview.'
 }
