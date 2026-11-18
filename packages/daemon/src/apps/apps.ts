@@ -468,6 +468,7 @@ export function createApps(options: AppsOptions): Apps {
       ...(state === 'waiting' &&
         instance?.waitingFor !== undefined && { waitingFor: instance.waitingFor }),
       ...(waitingOn !== undefined && { waitingOn }),
+      ...(waiter?.asking === true && { asking: true }),
       ...(simulator !== undefined && { simulator }),
       ...(app.electron && { electron: true }),
       ...(app.preview !== undefined && { preview: app.preview }),

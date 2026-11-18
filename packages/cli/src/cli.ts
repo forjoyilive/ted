@@ -84,6 +84,7 @@ import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/executi
 import { type Json, parseJson } from '@ted/protocol/parse'
 import { matchReference, shortReference } from '@ted/protocol/reference'
 import { isCleanup } from '@ted/protocol/stage'
+import { appWaitLine } from './app-wait.ts'
 import { asanaImportedText, asanaIntakeText, asanaTreeText } from './asana.ts'
 import { AutomationUsageError, automationCommand } from './automation.ts'
 import {
@@ -696,13 +697,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       })
       let said: string | undefined
       const sayWhy = () => {
-        if (app.state !== 'waiting') return
-        const why =
-          app.waitingOn !== undefined
-            ? `Waiting for ${printable(app.waitingOn.displayId)}’s ${printable(app.waitingOn.app)} to finish building…`
-            : owner.what === 'this Run'
-              ? `Waiting for ${app.kind === 'android-emulator' ? 'an emulator' : 'a simulator'} slot to free up…`
-              : 'Every simulator and emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…'
+        const line = appWaitLine(app, owner.what === 'this Run')
+        if (line === undefined) return
+        const why = printable(line)
         if (why !== said) console.error(why)
         said = why
       }

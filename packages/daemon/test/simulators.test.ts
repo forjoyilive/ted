@@ -547,6 +547,12 @@ describe('iOS simulator Apps', () => {
     )
     const request = await simulatorRequest(client, second)
     const nb1 = request.simulator?.booted.find((b) => b.displayId === 'NB-1')
+    await waitForApp(
+      client,
+      second,
+      (a) => a.asking === true,
+      'NB-3’s iPhone to wait for the answer',
+    )
 
     await client.ok('POST', `/comments/${request.id}/answer`, {
       action: 'approve',
@@ -562,6 +568,7 @@ describe('iOS simulator Apps', () => {
       state: 'waiting',
       waitingOn: { displayId: 'NB-2', app: 'Watch' },
     })
+    expect(waiting.asking).toBeUndefined()
 
     const building = 'Waiting for NB-2’s Watch to finish building…'
     await waitUntil(
