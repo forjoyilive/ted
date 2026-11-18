@@ -559,7 +559,7 @@ export interface SubAgentRequest {
   at: string
 }
 
-export type ReviewerPurpose = 'review' | 'loop-check' | 'instruction-check'
+export type ReviewerPurpose = 'review' | 'loop-check' | 'instruction-check' | 'run-now-check'
 
 export interface Reviewer {
   runId: string

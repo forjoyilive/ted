@@ -228,7 +228,8 @@ describe('Approve and merge', () => {
     expect(await merges()).toEqual([])
   }, 90_000)
 
-  test('a conflict-free rebase onto a moved base reruns Checks and merges without a new sign-off', async () => {
+  test('a conflict-free rebase onto a moved base reruns Checks and merges without a new sign-off; a passed instruction Check isn’t run again, because the Task’s changes stay the same', async () => {
+    const review = JSON.stringify({ steps: [{ say: 'Fine.\nResult: pass' }, { endTurn: true }] })
     const client = await start({
       merge: { mergeState: 'BEHIND' },
       workflow: [
@@ -236,6 +237,7 @@ describe('Approve and merge', () => {
         '  validate:',
         '    checks:',
         '      - { name: Tests, run: "test -f work.txt" }',
+        `      - { name: Review, agent: claude, instruction: '${review}' }`,
       ],
     })
     const { task, signoff } = await toSignoff(client, {
@@ -252,7 +254,15 @@ describe('Approve and merge', () => {
     expect(merge?.at(-1)).toBe(rebased)
     expect(done.repos[0]?.pushed?.commit).toBe(rebased)
     const checkRuns = await client.ok<CheckRun[]>('GET', `/tasks/${task.id}/check-runs`)
-    expect(checkRuns.filter((r) => r.trigger === 'merge').map((r) => r.outcome)).toEqual(['passed'])
+    const atMerge = checkRuns.filter((r) => r.trigger === 'merge')
+    expect(atMerge.map((r) => r.outcome)).toEqual(['passed'])
+    expect(atMerge[0]?.checks.find((c) => c.name === 'Review')).toMatchObject({
+      state: 'passed',
+      notRerun: true,
+    })
+    expect(
+      (await lines(client, task)).filter((l) => l.startsWith('Sub-agent “Check · Review” started')),
+    ).toHaveLength(1)
     const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
     expect(comments.filter((c) => c.kind === 'signoff')).toHaveLength(1)
     expect(await lines(client, task)).toContain(
