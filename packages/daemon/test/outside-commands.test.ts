@@ -425,6 +425,19 @@ test('a local folder that is behind is updated before the command runs, and one 
     target: await latest(),
     behind: 1,
   })
+  await commitToOrigin(scratch, { 'scripts/next.ts': 'next\n' })
+  const moved = await app.call(
+    'POST',
+    `/coordinator-chats/${first.id}/requests/${card.id}/outside-command`,
+    { run: true, always: true },
+  )
+  expect(moved.status).toBe(409)
+  expect(JSON.stringify(moved.body)).toContain('since this card was shown')
+  expect(await git('rev-parse', 'HEAD')).toBe(behindBy)
+  expect((await asked(first.id)).outsideCommand?.localFolder?.check).toMatchObject({
+    target: await latest(),
+    behind: 2,
+  })
   await ok('POST', `/coordinator-chats/${first.id}/requests/${card.id}/outside-command`, {
     run: true,
     always: true,

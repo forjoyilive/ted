@@ -61,6 +61,7 @@ import {
   behindText,
   heldAfterFailedUpdate,
   localFolderAction,
+  localFolderCardAction,
   shortCommit,
 } from '@ted/protocol/local-folder'
 import { mergesHere } from '@ted/protocol/stage'
@@ -2696,10 +2697,23 @@ export function createCoordinators(options: {
             409,
             `\`${ask.name}\` changed since this card was shown (${shown}); don’t run it, and ask the chat to request it again`,
           )
+        const now = localFolderAction(plan.local, plan.folder).kind
+        const shownAction = ask.localFolder
+          ? localFolderCardAction(ask.localFolder, ask.folder).kind
+          : 'run'
+        const sameTarget = ask.localFolder?.check.target === plan.local.target
         if (
-          localFolderAction(plan.local, plan.folder).kind === 'update' &&
-          ask.localFolder?.updateFailed === undefined
+          (now === 'update' && (shownAction !== 'update' || !sameTarget)) ||
+          (now === 'hold' && shownAction === 'update')
         ) {
+          store.chats.outsideFolderChecked(asked.id, { check: plan.local })
+          await store.persisted()
+          throw new RequestError(
+            409,
+            `${plan.folder} changed on GitHub or on this Mac since this card was shown. The card now shows what Ted found; nothing ran. Click again to go ahead.`,
+          )
+        }
+        if (now === 'update') {
           plan = await outside.update(chat, plan)
           if (plan.updateFailed !== undefined) {
             store.chats.outsideFolderChecked(asked.id, {
