@@ -20,7 +20,7 @@ export interface DevicePool {
   join(member: PoolMember): void
   live(): BootedSimulator[]
   liveCount(): number
-  fresh(): Promise<void>
+  fresh(caller: PoolMember): Promise<void>
   find(slotId: string): BootedSimulator | undefined
   shutDownFor(slotId: string, forTask: string): Promise<string>
   changed(): void
@@ -76,8 +76,11 @@ export function createDevicePool(options: {
     },
     live,
     liveCount: () => live().length,
-    async fresh() {
-      for (const member of members) await member.fresh()
+    async fresh(caller) {
+      for (const member of members) {
+        if (member === caller) await member.fresh()
+        else await member.fresh().catch(() => undefined)
+      }
     },
     find: (slotId) => live().find((b) => b.udid === slotId),
     shutDownFor(slotId, forTask) {

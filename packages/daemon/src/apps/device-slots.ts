@@ -13,7 +13,7 @@ import type {
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { TedStore } from '../store/index.ts'
-import type { DevicePool, TurnHolder } from './device-pool.ts'
+import type { DevicePool, PoolMember, TurnHolder } from './device-pool.ts'
 
 export interface SimulatorApp {
   taskId: string
@@ -218,9 +218,11 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
 
   const recordAt = (slotId: string) => liveRecords().find((r) => driver.slotId(r) === slotId)
 
-  pool.join({
+  const member: PoolMember = {
     live: ownLive,
-    fresh,
+    async fresh() {
+      if (supported && records.size > 0) await fresh()
+    },
     owns: (slotId) => recordAt(slotId) !== undefined,
     async shutDownFor(slotId, forTask) {
       const target = recordAt(slotId)
@@ -231,7 +233,8 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       return owner
     },
     notify,
-  })
+  }
+  pool.join(member)
 
   async function ensure(app: SimulatorApp): Promise<R> {
     const existing = recordOf(app.taskId, app.repo, app.name)
@@ -348,7 +351,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       !pool.turnFree(holderOf(app).key)
     if (blocked()) return { state: 'pending' }
     return serial(async () => {
-      await pool.fresh()
+      await pool.fresh(member)
       if (blocked()) return { state: 'pending' } as const
       if (!humanTickets.has(ticket) && (await heldBusy(record))) {
         return { state: 'pending' } as const
@@ -371,7 +374,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     return serial(async () => {
       await driver.check(app.factoryId)
       const record = await ensure(app)
-      await pool.fresh()
+      await pool.fresh(member)
       const queued = () => {
         const ticket = `${lineTicket}${randomUUID()}`
         line.push(ticket)
@@ -452,7 +455,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     if (liveCount() >= limit() || !pool.turnFree(holderOf(app).key)) return { state: 'pending' }
     return serial(async () => {
       if (store.getComment(commentId)?.answer) return { state: 'pending' } as const
-      await pool.fresh()
+      await pool.fresh(member)
       if (liveCount() >= limit() && !isLive(record)) return { state: 'pending' } as const
       if (await heldBusy(record)) return { state: 'pending' } as const
       if (!pool.takeTurn(holderOf(app))) return { state: 'pending' } as const
@@ -498,7 +501,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
         },
         async hasRoom() {
           const record = requester()
-          await pool.fresh()
+          await pool.fresh(member)
           return isLive(record) || liveCount() < limit()
         },
         async boot() {

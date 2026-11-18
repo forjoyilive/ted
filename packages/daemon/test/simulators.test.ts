@@ -858,7 +858,7 @@ describe('iOS simulator Apps', () => {
     expect(await iPhone(client, task)).toBeUndefined()
     expect(await client.ok<SimulatorSlots>('GET', '/simulators')).toEqual({
       supported: false,
-      limit: 3,
+      limit: 2,
       booted: [],
     })
     expect(await stubCalls()).toEqual([])
