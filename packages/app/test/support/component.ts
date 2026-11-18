@@ -25,6 +25,7 @@ export function bridge(given: Record<string, Handler>) {
     tedStops: () => [],
     listTasks: () => [],
     listFactories: () => [],
+    factoryLayout: () => ({ items: [] }),
     guides: () => [],
     memoryUse: () => ({
       daemon: { bytes: 900 * 1024 ** 2, heapBytes: 0, externalBytes: 0 },
