@@ -25,7 +25,7 @@ Do not run the full test suite unless asked to or unless strictly necessary.
    - Something that can’t be checked this way, such as a native dialog, is a note saying what the human should look at, not a reason to wait.
    - For a change in `packages/daemon`, `packages/cli` or `packages/protocol`, run the changed `ted` commands with `env -u TED_RUN_CAPABILITY -u TED_RUN_TOKEN -u TED_RUN -u TED_TASK -u TED_PLAN TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>` and paste the output into your note. Keep Task-control commands such as `ted comment`, `ted checks` and `ted outcome` in the normal Run environment.
    - Before you report, stop everything you started for this: quit Ted Dev, and end the daemon you started with this `TED_HOME` (`kill $(node -p 'require("./node_modules/.cache/ted-home/daemon.json").pid')`) and any process you left running from the worktree. Ted ends what is left when the Task’s worktree is removed, but a daemon left running keeps writing backups and holding memory until then.
-8. Sort every finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Post a short note listing what you ran and what you found, with the notes.
+8. Sort every finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). In the first round, a finding about this Task’s own change that takes a few lines to fix, such as a duplicated line, a missing sentence in a Stage file or a label that differs from the Design brief, is blocking: fixing it now costs less than a separate Task. Post a short note listing what you ran and what you found, with the notes.
 
 ## Done when
 
