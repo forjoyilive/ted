@@ -22,6 +22,7 @@ import {
   checkInFlightNavigation,
   checkModalRace,
   checkOutsideRequests,
+  checkRefusedNames,
   guestWorkerTraffic,
   startGuestWorker,
 } from './browser-probes.ts'
@@ -61,6 +62,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     TED_CLAUDE_BIN: stubClaude,
     TED_HIDDEN_WINDOW: '1',
     TED_IDLE_EXIT_MS: '30000',
+    TED_BROWSER_HOSTS: 'private.example=10.0.0.1',
   }
   const originDir = path.join(home, 'origin')
   const origin = await makeOriginRepo(originDir)
@@ -179,6 +181,9 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     ),
   ).toEqual([true, true])
   await checkOutsideRequests(app, panel, new URL(running.url ?? '').href)
+  await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
+    command({ action: 'reload' }),
+  )
   expect(
     await app.evaluate(async ({ webContents }, url) => {
       return webContents

@@ -6,7 +6,7 @@ import {
   scriptLiteral,
 } from '@ted/protocol'
 import type { Session, WebContents, WebPreferences } from 'electron'
-import { isOutsideMedia } from './browser-proxy.ts'
+import { type GuestProxyRules, isOutsideMedia } from './browser-proxy.ts'
 
 export interface GuestHost {
   contents: WebContents
@@ -95,7 +95,7 @@ export async function openGuest(
   appUrl: string,
   options: {
     check(): void
-    proxy?(): Promise<string>
+    proxy?: GuestProxyRules
     host(webPreferences: WebPreferences): GuestHost
     created?(page: GuestPage): void
     beforeLoad?(page: GuestPage): Promise<void>
@@ -194,7 +194,9 @@ export async function openGuest(
     })
     check()
     // WebTransport bypasses webRequest but refuses proxied connections.
-    const proxyRules = options.proxy ? await options.proxy() : 'socks5://127.0.0.1:9'
+    const proxyRules = options.proxy
+      ? await options.proxy(contents, () => page.blocked++)
+      : 'socks5://127.0.0.1:9'
     check()
     await ses.setProxy({
       proxyRules,

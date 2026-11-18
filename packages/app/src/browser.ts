@@ -20,6 +20,7 @@ import {
   type PageResult,
   runOnPage,
 } from './browser-page.ts'
+import type { GuestProxyRules } from './browser-proxy.ts'
 import { applyEmulation, type PreviewEmulation, previewEmulation } from './preview-emulation.ts'
 
 type Page = GuestPage & {
@@ -79,7 +80,7 @@ export function createTaskBrowsers(
   onSelect: (taskId: string, app: TaskApp) => void,
   electron: BrowserViews,
   timing: { captureMs?: number; reloadMs?: number } = {},
-  proxy?: () => Promise<string>,
+  proxy?: GuestProxyRules,
 ) {
   const pages = new Map<string, Page>()
   const sessions = new Map<string, { session: Session; apps: Map<string, TaskApp> }>()

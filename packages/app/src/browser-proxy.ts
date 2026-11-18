@@ -10,7 +10,7 @@ import {
 } from 'node:http'
 import { type AddressInfo, BlockList, connect, isIP, isIPv4, type Socket } from 'node:net'
 import type { Duplex } from 'node:stream'
-import type { App, AuthInfo } from 'electron'
+import type { App, AuthInfo, WebContents } from 'electron'
 
 const local = new BlockList()
 for (const [address, prefix] of [
@@ -103,10 +103,29 @@ export function isOutsideMedia(address: string, resourceType: string): boolean {
   }
 }
 
-export interface GuestProxy {
-  port: number
+export function fixedHosts(value: string): (hostname: string) => Promise<LookupAddress[]> {
+  const hosts = new Map(
+    value.split(',').map((entry) => {
+      const [name = '', address = ''] = entry.split('=')
+      return [name.trim().toLowerCase(), address.trim()] as const
+    }),
+  )
+  return async (hostname) => {
+    const address = hosts.get(hostname.toLowerCase())
+    const family = address ? isIP(address) : 0
+    return address && family ? [{ address, family }] : []
+  }
+}
+
+export interface GuestLogin {
   username: string
   password: string
+  release(): void
+}
+
+export interface GuestProxy {
+  port: number
+  admit(refused: () => void): GuestLogin
   close(): Promise<void>
 }
 
@@ -116,9 +135,7 @@ export interface GuestProxyOptions {
 }
 
 export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<GuestProxy> {
-  const username = 'ted'
-  const password = randomBytes(24).toString('hex')
-  const expected = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
+  const logins = new Map<string, () => void>()
   const resolve = options.lookup ?? ((hostname) => lookup(hostname, { all: true }))
   const open = options.connect ?? ((port, address) => connect(port, address))
   const publicAddress = async (hostname: string) => {
@@ -128,8 +145,10 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
     if (addresses.length === 0 || !addresses.every(isPublicAddress)) return undefined
     return addresses.find(isIPv4) ?? addresses[0]
   }
-  const authorized = (message: IncomingMessage) =>
-    message.headers['proxy-authorization'] === expected
+  const authorized = (message: IncomingMessage) => {
+    const header = message.headers['proxy-authorization']
+    return header === undefined ? undefined : logins.get(header)
+  }
   const challenge =
     'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Ted"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'
   const server = createServer((incoming: IncomingMessage, outgoing: ServerResponse) => {
@@ -137,7 +156,8 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
       if (!outgoing.headersSent) outgoing.writeHead(status, { 'content-length': 0 })
       outgoing.end()
     }
-    if (!authorized(incoming)) {
+    const refused = authorized(incoming)
+    if (!refused) {
       outgoing.writeHead(407, { 'proxy-authenticate': 'Basic realm="Ted"', 'content-length': 0 })
       outgoing.end()
       return
@@ -159,7 +179,10 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
     }
     void publicAddress(target.hostname).then(
       (address) => {
-        if (!address) return refuse(403)
+        if (!address) {
+          refused()
+          return refuse(403)
+        }
         const headers: IncomingHttpHeaders = { ...incoming.headers, host: target.host }
         delete headers['proxy-authorization']
         delete headers['proxy-connection']
@@ -184,7 +207,8 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
   })
   server.on('connect', (incoming: IncomingMessage, client: Duplex, head: Buffer) => {
     client.on('error', () => client.destroy())
-    if (!authorized(incoming)) {
+    const refused = authorized(incoming)
+    if (!refused) {
       client.end(challenge)
       return
     }
@@ -206,6 +230,7 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
     void publicAddress(target.hostname).then(
       (address) => {
         if (!address) {
+          refused()
           client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
           return
         }
@@ -234,8 +259,13 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
   const { port } = server.address() as AddressInfo
   return {
     port,
-    username,
-    password,
+    admit(onRefused) {
+      const username = 'ted'
+      const password = randomBytes(24).toString('hex')
+      const header = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
+      logins.set(header, onRefused)
+      return { username, password, release: () => logins.delete(header) }
+    },
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections()
@@ -244,16 +274,24 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
   }
 }
 
-export function guestProxyRules(electronApp: Pick<App, 'on'>): () => Promise<string> {
+export type GuestProxyRules = (contents: WebContents, refused: () => void) => Promise<string>
+
+export function guestProxyRules(
+  electronApp: Pick<App, 'on'>,
+  options: GuestProxyOptions = {},
+): GuestProxyRules {
   let started: Promise<GuestProxy> | undefined
-  return async () => {
-    started ??= startGuestProxy().then(
+  const logins = new WeakMap<WebContents, GuestLogin>()
+  return async (contents, refused) => {
+    started ??= startGuestProxy(options).then(
       (proxy) => {
-        electronApp.on('login', (event, _contents, _details, authInfo: AuthInfo, callback) => {
+        electronApp.on('login', (event, asking, _details, authInfo: AuthInfo, callback) => {
           if (!authInfo.isProxy || authInfo.host !== '127.0.0.1' || authInfo.port !== proxy.port)
             return
           event.preventDefault()
-          callback(proxy.username, proxy.password)
+          const login = asking ? logins.get(asking) : undefined
+          if (login) callback(login.username, login.password)
+          else callback()
         })
         return proxy
       },
@@ -262,6 +300,11 @@ export function guestProxyRules(electronApp: Pick<App, 'on'>): () => Promise<str
         throw error
       },
     )
-    return `http://127.0.0.1:${(await started).port}`
+    const proxy = await started
+    logins.get(contents)?.release()
+    const login = proxy.admit(refused)
+    logins.set(contents, login)
+    contents.once('destroyed', () => login.release())
+    return `http://127.0.0.1:${proxy.port}`
   }
 }
