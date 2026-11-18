@@ -127,7 +127,7 @@ export interface GuestLogin {
 
 export interface GuestProxy {
   port: number
-  admit(refused: () => void): GuestLogin
+  admit(started: () => () => void): GuestLogin
   close(): Promise<void>
 }
 
@@ -137,7 +137,7 @@ export interface GuestProxyOptions {
 }
 
 export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<GuestProxy> {
-  const logins = new Map<string, { refused(): void }>()
+  const logins = new Map<string, { started(): () => void }>()
   const resolve = options.lookup ?? ((hostname) => lookup(hostname, { all: true }))
   const open = options.connect ?? ((port, address) => connect(port, address))
   const publicAddress = async (hostname: string) => {
@@ -180,10 +180,11 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
     ) {
       return refuse(403)
     }
+    const refused = login.started()
     void publicAddress(target.hostname).then(
       (address) => {
         if (!address) {
-          login.refused()
+          refused()
           return refuse(403)
         }
         const headers: IncomingHttpHeaders = { ...incoming.headers, host: target.host }
@@ -230,10 +231,11 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
       client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
       return
     }
+    const refused = login.started()
     void publicAddress(target.hostname).then(
       (address) => {
         if (!address) {
-          login.refused()
+          refused()
           client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
           return
         }
@@ -262,11 +264,11 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
   const { port } = server.address() as AddressInfo
   return {
     port,
-    admit(onRefused) {
+    admit(started) {
       const username = 'ted'
       const password = randomBytes(24).toString('hex')
       const header = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
-      logins.set(header, { refused: onRefused })
+      logins.set(header, { started })
       return { username, password, release: () => logins.delete(header) }
     },
     close: () =>
@@ -284,7 +286,7 @@ export interface GuestProxyRoute {
 
 export type GuestProxyRules = (
   contents: WebContents,
-  refused: () => void,
+  blockedRequest: () => () => void,
 ) => Promise<GuestProxyRoute>
 
 // Chromium never asks for proxy credentials for a page's images, fonts or media; it only reuses
@@ -296,7 +298,7 @@ export function guestProxyRules(
 ): GuestProxyRules {
   let started: Promise<GuestProxy> | undefined
   const logins = new WeakMap<WebContents, GuestLogin>()
-  return async (contents, refused) => {
+  return async (contents, blockedRequest) => {
     started ??= startGuestProxy(options).then(
       (proxy) => {
         electronApp.on('login', (event, asking, _details, authInfo: AuthInfo, callback) => {
@@ -316,7 +318,7 @@ export function guestProxyRules(
     )
     const proxy = await started
     logins.get(contents)?.release()
-    const login = proxy.admit(refused)
+    const login = proxy.admit(blockedRequest)
     logins.set(contents, login)
     contents.once('destroyed', () => login.release())
     return {

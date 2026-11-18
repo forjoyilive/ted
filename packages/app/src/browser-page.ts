@@ -161,6 +161,15 @@ export async function openGuest(
     driver: webContentsDriver(host.contents),
   }
   options.created?.(page)
+  let shown = {}
+  let counting = true
+  const blockedRequest = () => {
+    if (!counting) return () => {}
+    const made = shown
+    return () => {
+      if (made === shown) page.blocked++
+    }
+  }
   const contents = page.contents
   contents.setWindowOpenHandler(() => ({ action: 'deny' }))
   contents.on('select-client-certificate', (event, _url, _certificates, callback) => {
@@ -185,10 +194,17 @@ export async function openGuest(
   contents.on('did-start-navigation', (event) => {
     if (!event.isMainFrame) return
     page.revision = randomUUID()
-    if (!event.isSameDocument) page.blocked = 0
+    if (event.isSameDocument) return
+    page.blocked = 0
+    shown = {}
+    counting = false
   })
   contents.on('did-navigate', () => {
     page.revision = randomUUID()
+    counting = true
+  })
+  contents.on('did-stop-loading', () => {
+    counting = true
   })
   contents.on('did-navigate-in-page', () => {
     page.revision = randomUUID()
@@ -225,7 +241,7 @@ export async function openGuest(
     })
     check()
     // WebTransport bypasses webRequest but refuses proxied connections.
-    const route = options.proxy ? await options.proxy(contents, () => page.blocked++) : undefined
+    const route = options.proxy ? await options.proxy(contents, blockedRequest) : undefined
     check()
     await ses.setProxy({
       proxyRules: route?.rules ?? 'socks5://127.0.0.1:9',
@@ -235,7 +251,7 @@ export async function openGuest(
     ses.webRequest.onBeforeRequest((details, callback) => {
       if (details.webContentsId === undefined && details.url === guestSignInUrl) return callback({})
       const pass = allowed(details.url) || isOutsideMedia(details.url, details.resourceType)
-      if (!pass && /^(https?|wss?):/.test(details.url)) page.blocked++
+      if (!pass && /^(https?|wss?):/.test(details.url)) blockedRequest()()
       callback({ cancel: !pass })
     })
     await route?.signIn()
