@@ -2208,9 +2208,8 @@ export async function openStore({
     const repos = reads
       .repos(row.id)
       .map((repo) => toTaskRepo(repo, reads.pullRequest(repo.id).at(0)))
-    const unmerged = blockerLinks(row.id, reads).filter(
-      (b) => !b.merged && !b.satisfied && b.kind !== 'asana',
-    )
+    const open = blockerLinks(row.id, reads).filter((b) => !b.merged && !b.satisfied)
+    const unmerged = open.filter((b) => b.kind !== 'asana')
     const waitingOn = unmerged.map((b) => b.displayId)
     const firstEnded = unmerged[0]?.ended
     const visit = mergesHere(stage) ? history.mergeHistory(row.id) : undefined
@@ -2478,6 +2477,7 @@ export async function openStore({
       ...(stageEffort !== null && { stageEffort: stageEffort as Effort }),
       pendingLeadMessages: pendingMessages,
       blockedBy,
+      ...(open.length > 0 && { openBlockers: open.map((b) => b.displayId) }),
       ...(parentId !== undefined && { parentId }),
       childIds: reads.children(row.id).map((child) => child.taskId),
       waitsForBlockers,

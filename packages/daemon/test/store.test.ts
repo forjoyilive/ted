@@ -846,9 +846,11 @@ describe('TedStore', () => {
       const byId = (id: string) => list.find((t) => t.id === id)
       expect(byId(blocked.id)).toMatchObject({
         blockedBy: [blocker.id, merged.id, gone.id],
+        openBlockers: ['DEV-1', 'DEV-3'],
         markers: [{ kind: 'blocked-by', by: 'DEV-1' }],
         attachments: [file],
       })
+      expect(byId(working.id)?.openBlockers).toBeUndefined()
       expect(byId(working.id)).toMatchObject({
         leadRunId: 'lead',
         runs: [{ id: 'lead' }, { id: 'sub', name: 'Reviewer', paused: 'Usage limit' }],
