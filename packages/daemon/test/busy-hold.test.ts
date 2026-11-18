@@ -95,9 +95,9 @@ const waitForLead = (client: Client, task: Task) =>
 
 const slotsOf = (client: Client) => client.ok<RunSlots>('GET', '/slots')
 
-test('while this computer is busy a second Task stays queued, and starts once the load falls and memory recovers with no other event', async () => {
+test('while this computer is busy a second Task stays queued, and starts once the CPU calms and memory recovers with no other event', async () => {
   const client = await startWithStub()
-  ratio = 2.004
+  ratio = 0.952
   const a = await startTask(client, workingUntil(never()))
   expect(a.leadRunId).toBeDefined()
 
@@ -105,32 +105,36 @@ test('while this computer is busy a second Task stays queued, and starts once th
 
   expect(b.leadRunId).toBeUndefined()
   expect(b.status).toEqual({ kind: 'queued', place: 1 })
+  await waitUntil(
+    async () => (await slotsOf(client)).busy?.cpuHeld,
+    'the second high CPU reading to start the hold',
+  )
   expect(await slotsOf(client)).toMatchObject({
     limit: 6,
     working: 1,
     queued: 1,
-    busy: { loadRatio: 2 },
+    busy: { cpuInUse: 0.95, cpuHeld: true },
   })
   await sleep(300)
   expect((await getTask(client, b.id)).leadRunId).toBeUndefined()
   expect((await getTask(client, a.id)).runs[0]?.state).toBe('working')
 
-  ratio = 0.9
+  ratio = 0.8
   await sleep(300)
   expect((await getTask(client, b.id)).leadRunId).toBeUndefined()
-  expect((await slotsOf(client)).busy).toEqual({ loadRatio: 0.9 })
+  expect((await slotsOf(client)).busy).toMatchObject({ cpuInUse: 0.8, cpuHeld: true })
 
   ratio = 0.5
   memory = 0.05
-  await waitUntil(
-    async () => (await slotsOf(client)).busy?.memoryAvailable === 0.05 || undefined,
-    'the hold to move from load to memory',
-  )
+  await waitUntil(async () => {
+    const busy = (await slotsOf(client)).busy
+    return (busy?.memoryHeld && busy.cpuHeld === undefined) || undefined
+  }, 'the hold to move from CPU to memory')
   expect((await getTask(client, b.id)).status).toEqual({ kind: 'queued', place: 1 })
   memory = 0.15
   await sleep(300)
   expect((await getTask(client, b.id)).leadRunId).toBeUndefined()
-  expect((await slotsOf(client)).busy).toEqual({ memoryAvailable: 0.15 })
+  expect((await slotsOf(client)).busy).toMatchObject({ memoryInUse: 0.85, memoryHeld: true })
 
   client.events.length = 0
   memory = 0.5
@@ -151,7 +155,7 @@ test('a subscribed client hears slots-changed when the hold starts', async () =>
   await startTask(client, workingUntil(never()))
   const b = await startTask(client, workingUntil(never()))
   await waitForLead(client, b)
-  ratio = 1.5
+  ratio = 0.95
 
   const c = await startTask(client, 'C')
 
@@ -217,7 +221,7 @@ test('a waiting Task Lead’s first sub-agent still starts while this computer i
 
   expect(handedOff.runs.map((r) => r.name)).toEqual(['Task Lead', 'First'])
   const slots = await slotsOf(client)
-  expect(slots).toMatchObject({ limit: 6, working: 2, queued: 1, busy: { loadRatio: 3 } })
+  expect(slots).toMatchObject({ limit: 6, working: 2, queued: 1 })
   expect(slots.queue).toEqual([
     expect.objectContaining({ kind: 'sub-agent', name: 'Second', taskId: task.id }),
   ])
@@ -259,7 +263,7 @@ test('an answered Task Lead skips the busy hold but still waits for the working-
   })
 
   await waitUntil(
-    async () => (await slotsOf(client)).busy?.loadRatio === 3 || undefined,
+    async () => (await slotsOf(client)).busy?.cpuHeld,
     'the hold, read once the answered Task Lead waits',
   )
   expect((await getTask(client, lead.id)).status).toEqual({

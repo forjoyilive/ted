@@ -69,6 +69,8 @@
   --status-neutral-bg: light-dark(#efeee9, #2c2c2a);
   --status-success-fg: light-dark(#1f794c, #5cc38a);
   --status-success-bg: light-dark(#e6f2eb, #1c3326);
+  --status-caution-fg: light-dark(#7d5b00, #e8c25a);
+  --meter-caution: light-dark(#d9a400, #e3b341);
 
   --event-created: light-dark(#2d8456, #4fb57f);
   --event-run: light-dark(#4d59cf, #6e7aea);

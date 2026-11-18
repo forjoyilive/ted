@@ -3,7 +3,15 @@ import { devicesLine } from '@ted/protocol'
 import { noChecks } from '@ted/protocol/slots'
 import { describe, expect, test } from 'vitest'
 import { appStatusLine, needsSlot, previewChoice } from '../src/renderer/apps.ts'
-import { busyDetail, nowLine, runsLine } from '../src/renderer/slots.ts'
+import {
+  busyDetail,
+  busyMeters,
+  busyReason,
+  checkedAgo,
+  nowLine,
+  runsLine,
+  waitedFor,
+} from '../src/renderer/slots.ts'
 
 const task = (preview?: { url: string; label: string }) =>
   ({
@@ -255,7 +263,17 @@ test('the sidebar names slot usage and its limit, including above-limit and queu
   expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 of 6 slots in use')
   expect(runsLine({ ...slots, working: 0 })).toBe('0 of 6 slots in use · 1 queued')
   expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 of 6 slots in use')
-  expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toBe('7 of 6 slots in use · 1 queued')
+  expect(
+    runsLine({
+      ...slots,
+      busy: {
+        cpuInUse: 0.95,
+        cpuHeld: true,
+        since: '2026-01-01T00:00:00.000Z',
+        checkedAt: '2026-01-01T00:00:00.000Z',
+      } as const,
+    }),
+  ).toBe('7 of 6 slots in use · 1 queued')
 })
 
 test('the sidebar counts running and waiting Checks beside the agents', () => {
@@ -267,7 +285,12 @@ test('the sidebar counts running and waiting Checks beside the agents', () => {
     queue: [],
     factories: [],
     checks: { ...noChecks, running: 3, waiting: 1 },
-    busy: { loadRatio: 1.4 },
+    busy: {
+      cpuInUse: 0.95,
+      cpuHeld: true,
+      since: '2026-01-01T00:00:00.000Z',
+      checkedAt: '2026-01-01T00:00:00.000Z',
+    } as const,
   }
   expect(runsLine(slots)).toBe('1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued')
   expect(nowLine(slots)).toBe(
@@ -282,11 +305,47 @@ test('the sidebar counts running and waiting Checks beside the agents', () => {
   )
 })
 
-test('hovering a busy hold names each resource that holds, with its figure and marks', () => {
-  expect(busyDetail({ memoryAvailable: 0.07, loadRatio: 1.3 })).toBe(
+const hold = {
+  cpuInUse: 0.81,
+  memoryInUse: 0.84,
+  cpuHeld: true,
+  since: '2026-01-01T10:00:00.000Z',
+  checkedAt: '2026-01-01T10:04:30.000Z',
+} as const
+
+test('a busy hold’s text names each resource that holds, with its figure and marks', () => {
+  expect(busyDetail({ ...hold, memoryInUse: 0.93, memoryHeld: true })).toBe(
     [
-      'Memory available: 7% · waits below 10%, starts again above 20%',
-      'CPU load: 1.30 per core · waits at 1, starts again below 0.75',
+      'CPU: 81% in use · waits above 90%, starts again below 75%',
+      'Memory: 93% in use · waits above 90%, starts again below 80%',
     ].join('\n'),
   )
+  expect(busyDetail(hold)).toBe('CPU: 81% in use · waits above 90%, starts again below 75%')
+})
+
+test('the busy card colours each figure by the marks it has passed and says what holds', () => {
+  expect(busyMeters(hold)).toMatchObject([
+    { name: 'CPU', zone: 'close', held: true, rule: 'Starts again below 75%' },
+    { name: 'Memory', zone: 'close', held: false, rule: 'Close · waits above 90%' },
+  ])
+  expect(busyMeters({ ...hold, cpuInUse: 0.95, memoryInUse: 0.5 })).toMatchObject([
+    { zone: 'over' },
+    { zone: 'fine', rule: 'Fine · waits above 90%' },
+  ])
+  expect(
+    busyMeters({ since: hold.since, checkedAt: hold.checkedAt, memoryHeld: true })[0],
+  ).toMatchObject({ zone: 'fine' })
+  expect(busyReason(hold)).toBe('The CPU is busy.')
+  expect(busyReason({ since: hold.since, checkedAt: hold.checkedAt, memoryHeld: true })).toBe(
+    'Memory is nearly full.',
+  )
+  expect(busyReason({ ...hold, memoryHeld: true })).toBe(
+    'CPU and memory are both past their marks.',
+  )
+  const at = (iso: string) => Date.parse(iso)
+  expect(waitedFor(hold.since, at('2026-01-01T10:00:40Z'))).toBe('under a minute')
+  expect(waitedFor(hold.since, at('2026-01-01T10:02:10Z'))).toBe('2 min')
+  expect(waitedFor(hold.since, at('2026-01-01T11:05:00Z'))).toBe('1 h 5 min')
+  expect(checkedAgo(hold.checkedAt, at('2026-01-01T10:04:36Z'))).toBe('6 s ago')
+  expect(checkedAgo(hold.checkedAt, at('2026-01-01T10:06:40Z'))).toBe('2 min ago')
 })

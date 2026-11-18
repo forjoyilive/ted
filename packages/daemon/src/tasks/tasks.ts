@@ -222,7 +222,7 @@ import { confirmAsanaProject, listAsanaProjects } from '../asana/projects.ts'
 import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../asana/tree.ts'
 import { maxTasksPerFiring } from '../automations/check-failures.ts'
 import type { Banners } from '../banners.ts'
-import { type Busy, createBusyHold } from '../busy.ts'
+import { type Busy, busyCheckEveryMs, createBusyHold } from '../busy.ts'
 import type { InstructionTries } from '../check-tries.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
@@ -1152,7 +1152,12 @@ export function createTasks(options: {
     env: () => options.env?.() ?? process.env,
     lowPriority: () => store.settings().lowPriorityWork,
   })
-  const busy = options.busy ?? createBusyHold({ on: () => store.settings().waitWhenBusy })
+  const busy =
+    options.busy ??
+    createBusyHold({
+      on: () => store.settings().waitWhenBusy,
+      ...(options.busyCheckEveryMs !== undefined && { confirmMs: options.busyCheckEveryMs }),
+    })
   const memory =
     options.memory ??
     createMemoryWatch({
@@ -1451,6 +1456,7 @@ export function createTasks(options: {
   let shownSlots = ''
   let publishedSlots: RunSlots | undefined
   let heldBusy: BusyHold | undefined
+  let busyPending = false
   let busyTimer: NodeJS.Timeout | undefined
   const autoStartFailures = new Set<string>()
   let backlogVersion = 0
@@ -1858,7 +1864,7 @@ export function createTasks(options: {
         candidates,
         holders.map((h) => h.task.id),
       ),
-      busy: heldBusy !== undefined,
+      busy: heldBusy !== undefined || busyPending,
     }
     return { use, holders, others, candidates }
   }
@@ -2192,10 +2198,13 @@ export function createTasks(options: {
   async function checkBusy(waiting: boolean): Promise<void> {
     const held = waiting ? await busy.check() : undefined
     heldBusy = held
-    if (held && !busyTimer) {
-      busyTimer = setInterval(() => void pump(), options.busyCheckEveryMs ?? 15_000)
-      busyTimer.unref()
-    } else if (!held) stopBusyTimer()
+    busyPending = waiting && busy.pending()
+    if (waiting && store.settings().waitWhenBusy) {
+      if (!busyTimer) {
+        busyTimer = setInterval(() => void pump(), options.busyCheckEveryMs ?? busyCheckEveryMs)
+        busyTimer.unref()
+      }
+    } else stopBusyTimer()
     store.holdWhenBusy(held)
   }
 

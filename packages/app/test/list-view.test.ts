@@ -398,8 +398,33 @@ describe('selection', () => {
     expect(
       startSplit(slots({ factories: [{ factoryId: 'nb', cap: 3, working: 2 }] }), three),
     ).toEqual({ now: 1, wait: 2 })
-    expect(startSplit(slots({ busy: { loadRatio: 2 } }), three)).toEqual({ now: 0, wait: 3 })
-    expect(startSplit(slots({ working: 0, busy: { memoryAvailable: 0.05 } }), three)).toEqual({
+    expect(
+      startSplit(
+        slots({
+          busy: {
+            cpuInUse: 0.95,
+            cpuHeld: true,
+            since: '2026-01-01T00:00:00.000Z',
+            checkedAt: '2026-01-01T00:00:00.000Z',
+          } as const,
+        }),
+        three,
+      ),
+    ).toEqual({ now: 0, wait: 3 })
+    expect(
+      startSplit(
+        slots({
+          working: 0,
+          busy: {
+            memoryInUse: 0.93,
+            memoryHeld: true,
+            since: '2026-01-01T00:00:00.000Z',
+            checkedAt: '2026-01-01T00:00:00.000Z',
+          } as const,
+        }),
+        three,
+      ),
+    ).toEqual({
       now: 1,
       wait: 2,
     })

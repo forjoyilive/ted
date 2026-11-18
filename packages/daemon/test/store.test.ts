@@ -220,7 +220,12 @@ describe('TedStore', () => {
       store.subscribe((event) => {
         if (event.type === 'task-updated') seen.push(event.task)
       })
-      store.holdWhenBusy({ loadRatio: 2 })
+      store.holdWhenBusy({
+        cpuInUse: 0.95,
+        cpuHeld: true,
+        since: '2026-01-01T00:00:00.000Z',
+        checkedAt: '2026-01-01T00:00:00.000Z',
+      })
       expect(seen.map((task) => task.id).sort()).toEqual([queued.id, reviewing.id].sort())
       expect(seen.find((task) => task.id === queued.id)?.status).toMatchObject({
         kind: 'queued',

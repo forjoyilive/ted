@@ -306,6 +306,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.load?.memoryAvailable !== undefined && {
           memoryAvailable: options.load.memoryAvailable,
         }),
+        ...(options.load?.checkEveryMs !== undefined && { confirmMs: options.load.checkEveryMs }),
       })
       const memory = createMemoryWatch({
         read: () => busy.memory(),

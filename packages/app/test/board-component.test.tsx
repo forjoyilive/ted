@@ -775,7 +775,12 @@ test('the Stage lists reload for a requested Factory, even before its first list
 
 test('a queued Task shows its place whether or not the busy hold stops it', async () => {
   api()
-  const busy = { loadRatio: 2 }
+  const busy = {
+    cpuInUse: 0.95,
+    cpuHeld: true,
+    since: '2026-01-01T00:00:00.000Z',
+    checkedAt: '2026-01-01T00:00:00.000Z',
+  } as const
   const skips = taskStatus({
     stage: 'work',
     runs: ['idle'],

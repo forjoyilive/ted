@@ -288,8 +288,11 @@ describe('Automation Prompt drafting', () => {
     await expect
       .poll(async () => (await client.call('GET', '/activity')).body as Activity)
       .toMatchObject({ runs: { active: 2, queued: 1 } })
+    await expect
+      .poll(async () => ((await client.call('GET', '/slots')).body as RunSlots).busy?.cpuHeld)
+      .toBe(true)
     const slots = (await client.call('GET', '/slots')).body as RunSlots
-    expect(slots).toMatchObject({ working: 2, busy: { loadRatio: 2 } })
+    expect(slots).toMatchObject({ working: 2, busy: { cpuHeld: true } })
     expect(slots.holders.filter((h) => h.kind === 'automation-draft').map((h) => h.runId)).toEqual(
       expect.arrayContaining([first.id, second.id]),
     )

@@ -79,9 +79,31 @@ describe('a Comment on a Task whose Task Lead ended', () => {
     expect(commentDelivery(at({ leadLive: true }))).toBe('starting')
     expect(commentDelivery(at({ queue: { place: 2 } }))).toBe('queued')
     expect(commentDelivery(at({ queue: { hold: 'claude is off.' } }))).toBeUndefined()
-    expect(commentDelivery(at({ queue: { place: 1 }, busy: { loadRatio: 2 } }))).toBeUndefined()
     expect(
-      commentDelivery(at({ queue: { place: 1, skipsBusy: true }, busy: { loadRatio: 2 } })),
+      commentDelivery(
+        at({
+          queue: { place: 1 },
+          busy: {
+            cpuInUse: 0.95,
+            cpuHeld: true,
+            since: '2026-01-01T00:00:00.000Z',
+            checkedAt: '2026-01-01T00:00:00.000Z',
+          },
+        }),
+      ),
+    ).toBeUndefined()
+    expect(
+      commentDelivery(
+        at({
+          queue: { place: 1, skipsBusy: true },
+          busy: {
+            cpuInUse: 0.95,
+            cpuHeld: true,
+            since: '2026-01-01T00:00:00.000Z',
+            checkedAt: '2026-01-01T00:00:00.000Z',
+          },
+        }),
+      ),
     ).toBe('queued')
     expect(commentDelivery(at({ queue: { place: 1 }, paused: 'Usage limit' }))).toBe('paused')
     expect(commentDelivery(at({ interrupted: true, openRequests: 1 }))).toBeUndefined()
@@ -224,7 +246,12 @@ describe('taskStatus', () => {
       kind: 'queued',
       hold: 'disk full',
     })
-    const busy = { memoryAvailable: 0.07 }
+    const busy = {
+      memoryInUse: 0.93,
+      memoryHeld: true,
+      since: '2026-01-01T00:00:00.000Z',
+      checkedAt: '2026-01-01T00:00:00.000Z',
+    } as const
     expect(taskStatus(at({ stage: 'intake', queue: { place: 2 }, busy }))).toEqual({
       kind: 'queued',
       place: 2,

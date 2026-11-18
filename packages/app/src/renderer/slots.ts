@@ -2,17 +2,69 @@ import type { BusyHold, DeviceWait, RunSlots, SimulatorSlots, Task } from '@ted/
 import { busyHold, busyMarks, isChat } from '@ted/protocol/slots'
 import { plural } from './words.ts'
 
-const percent = (share: number) => `${Math.round(share * 100)}%`
+export const percent = (share: number) => `${Math.round(share * 100)}%`
+
+export type BusyZone = 'fine' | 'close' | 'over'
+
+export interface BusyMeter {
+  name: 'CPU' | 'Memory'
+  inUse: number | undefined
+  holdAbove: number
+  resumeBelow: number
+  held: boolean
+  zone: BusyZone
+  rule: string
+}
+
+export function busyMeters(busy: BusyHold): BusyMeter[] {
+  const meter = (
+    name: BusyMeter['name'],
+    inUse: number | undefined,
+    marks: { holdAbove: number; resumeBelow: number },
+    held: boolean,
+  ): BusyMeter => {
+    const zone: BusyZone =
+      inUse === undefined || inUse < marks.resumeBelow
+        ? 'fine'
+        : inUse > marks.holdAbove
+          ? 'over'
+          : 'close'
+    const rule = held
+      ? `Starts again below ${percent(marks.resumeBelow)}`
+      : `${zone === 'close' ? 'Close' : 'Fine'} · waits above ${percent(marks.holdAbove)}`
+    return { name, inUse, ...marks, held, zone, rule }
+  }
+  return [
+    meter('CPU', busy.cpuInUse, busyMarks.cpu, busy.cpuHeld === true),
+    meter('Memory', busy.memoryInUse, busyMarks.memory, busy.memoryHeld === true),
+  ]
+}
+
+export function busyReason(busy: BusyHold): string {
+  if (busy.cpuHeld && busy.memoryHeld) return 'CPU and memory are both past their marks.'
+  return busy.cpuHeld ? 'The CPU is busy.' : 'Memory is nearly full.'
+}
+
+export function waitedFor(since: string, now: number): string {
+  const minutes = Math.floor((now - Date.parse(since)) / 60_000)
+  if (!(minutes >= 1)) return 'under a minute'
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`
+}
+
+export function checkedAgo(checkedAt: string, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - Date.parse(checkedAt)) / 1000))
+  return seconds < 60 ? `${seconds} s ago` : `${Math.floor(seconds / 60)} min ago`
+}
 
 export function busyDetail(busy: BusyHold): string {
-  const { load, memory } = busyMarks
-  return [
-    busy.memoryAvailable !== undefined &&
-      `Memory available: ${percent(busy.memoryAvailable)} · waits below ${percent(memory.holdBelow)}, starts again above ${percent(memory.resumeAbove)}`,
-    busy.loadRatio !== undefined &&
-      `CPU load: ${busy.loadRatio.toFixed(2)} per core · waits at ${load.holdAt}, starts again below ${load.resumeBelow}`,
-  ]
-    .filter((line) => line !== false)
+  return busyMeters(busy)
+    .filter((meter) => meter.held)
+    .map(
+      ({ name, inUse, holdAbove, resumeBelow }) =>
+        `${name}: ${inUse === undefined ? 'unknown' : percent(inUse)} in use · waits above ${percent(holdAbove)}, starts again below ${percent(resumeBelow)}`,
+    )
     .join('\n')
 }
 

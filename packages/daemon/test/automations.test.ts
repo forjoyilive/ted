@@ -1024,8 +1024,11 @@ describe('Automations', () => {
       async () => (await detail(client, automation.id)).automation.now?.kind === 'working',
       'the firing to start despite the occupied slot',
     )
+    await expect
+      .poll(async () => (await client.ok<RunSlots>('GET', '/slots')).busy?.cpuHeld)
+      .toBe(true)
     const slots = await client.ok<RunSlots>('GET', '/slots')
-    expect(slots).toMatchObject({ working: 2, busy: { loadRatio: 2 } })
+    expect(slots).toMatchObject({ working: 2, busy: { cpuHeld: true } })
     expect(slots.queue.map((q) => q.kind)).toEqual(['task'])
     expect(slots.holders.map((h) => h.kind)).toContain('automation')
     const tasks = await client.ok<Task[]>('GET', '/tasks')
