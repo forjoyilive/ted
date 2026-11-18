@@ -88,6 +88,9 @@ export class StaleCoverageError extends RequestError {
   }
 }
 
+const mergeChecksRunning =
+  'Ted is running the checks on the code it will merge, because they haven’t run on it yet.'
+
 export function createValidation(options: ValidationOptions) {
   const { store, failures, find, reportingEnv } = options
   const visitStart = (task: Task) => {
@@ -764,6 +767,7 @@ export function createValidation(options: ValidationOptions) {
       if (ready) return true
       if (!reserved) return false
       if (started) {
+        store.setMergeHeld(taskId, mergeChecksRunning)
         const result = await started.done
         if (result.outcome !== 'passed') {
           await options.notify(find(taskId))
@@ -775,6 +779,7 @@ export function createValidation(options: ValidationOptions) {
         (await failures.obligations(find(taskId))).satisfied
       )
     } finally {
+      if (store.mergeHeld(taskId) === mergeChecksRunning) store.setMergeHeld(taskId, undefined)
       if (reserved) options.setChecking(taskId, false)
     }
   }

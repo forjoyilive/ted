@@ -197,11 +197,12 @@ test(
       mergeState: 'CLEAN',
       checks: [{ name: 'Required', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
     })
-    const held = await waitUntil(async () => {
-      const t = await getTask(client, task.id)
-      return t.mergeHeld !== undefined && (await runs(client, task)).length === 1 ? t : undefined
-    }, 'a Merge check run and the held reason')
-    expect(held.mergeHeld).toContain('running the checks')
+    await waitUntil(async () => (await runs(client, task)).length === 1, 'a Merge check run')
+    const held = await waitUntil(
+      async () => (await getTask(client, task.id)).mergeHeld,
+      'the held reason on the Task',
+    )
+    expect(held).toContain('running the checks')
     await polls(client)
     expect(await merges()).toEqual([])
 

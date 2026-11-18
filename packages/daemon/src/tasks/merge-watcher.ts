@@ -74,9 +74,6 @@ export interface MergeWatcherOptions {
   port: MergePort
 }
 
-const checksRunning =
-  'Ted is running the checks on the code it will merge, because they haven’t run on it yet.'
-
 export function createMergeWatcher(options: MergeWatcherOptions) {
   const { store, clock, ciStuckMs, port } = options
   const {
@@ -492,11 +489,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
             return adoptRebase(task, target, step.head)
         }
       }
-      if (!(await mergeChecks(taskId, resolution))) {
-        if (store.getTask(taskId)?.checksActive) store.setMergeHeld(taskId, checksRunning)
-        return 'wait'
-      }
-      if (store.mergeHeld(taskId) === checksRunning) store.setMergeHeld(taskId, undefined)
+      if (!(await mergeChecks(taskId, resolution))) return 'wait'
       const current = find(taskId)
       if (mergeMode(store, current, (await port.resolve(current)).workflow) !== mode) return 'busy'
     }
