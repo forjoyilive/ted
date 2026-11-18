@@ -44,7 +44,7 @@ import { DetailsSection } from '../components/DetailsSection.tsx'
 import { DetailsTabs } from '../components/DetailsTabs.tsx'
 import { AllChanges, CommitView, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { DropOverlay } from '../components/DropOverlay.tsx'
-import { EventLine, Findings } from '../components/EventLine.tsx'
+import { EventLine, Findings, OutputBlock } from '../components/EventLine.tsx'
 import { FactoryName } from '../components/FactoryIcon.tsx'
 import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
@@ -110,6 +110,7 @@ import {
   middlePaneStep,
   type ShownFile,
 } from '../middle-pane.ts'
+import { noteParts } from '../note-parts.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, headline, requestLabel, useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
@@ -815,13 +816,13 @@ export function TaskThread({
     }
     const { comment } = item
     if (comment.kind === 'note' && comment.author.kind === 'ted') {
+      const { text, blocks } = noteParts(comment.body)
       return (
-        <EventLine
-          key={comment.id}
-          tone="quiet"
-          text={comment.body.replace(/\s+/g, ' ')}
-          at={comment.createdAt}
-        />
+        <EventLine key={comment.id} tone="quiet" text={text} at={comment.createdAt}>
+          {blocks.map((block) => (
+            <OutputBlock key={block.line} text={block.text} />
+          ))}
+        </EventLine>
       )
     }
     if (comment.kind === 'note') {
