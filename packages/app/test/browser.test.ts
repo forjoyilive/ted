@@ -366,6 +366,33 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .toBe('Preview size: Mobile · 390 × 844')
   await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
   const adminPage = new URL(admin.url ?? '').href
+  const screenshotSize = async () => {
+    const shot = await command({ action: 'screenshot' })
+    if (!shot.attachment) throw new Error('Screenshot missing')
+    const png = Buffer.from(
+      (await client.readBrowserCapture(task.id, shot.attachment.hash)).data,
+      'base64',
+    )
+    return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
+  }
+  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
+  await panel.getByRole('button', { name: '← Task Lead' }).click()
+  await expect
+    .poll(() =>
+      app?.evaluate(({ BrowserWindow }, url) => {
+        const children = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []
+        return children.some(
+          (v) =>
+            'webContents' in v &&
+            (v.webContents as import('electron').WebContents).getURL() === url,
+        )
+      }, adminPage),
+    )
+    .toBe(false)
+  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
+  await window.getByRole('tab', { name: 'Apps' }).click()
+  await window.getByRole('button', { name: 'Preview Admin', exact: true }).click()
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   const onAdmin = (script: string) =>
     app?.evaluate(
       async ({ webContents }, { url, script }) =>

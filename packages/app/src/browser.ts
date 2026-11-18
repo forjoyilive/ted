@@ -11,7 +11,7 @@ import {
   type TaskApp,
 } from '@ted/protocol'
 import { isLoopbackUrl } from '@ted/protocol/app'
-import { isString } from '@ted/protocol/parse'
+import { isNumber, isString } from '@ted/protocol/parse'
 import type { BrowserWindow, Session, WebContentsView } from 'electron'
 import {
   closeGuest,
@@ -284,16 +284,36 @@ export function createTaskBrowsers(
         },
         created: (guest) => {
           const page: Page = Object.assign(guest, { app, view: view as WebContentsView })
-          const plain = page.driver.capture
+          const { capture: plain, script } = page.driver
           page.driver = {
             ...page.driver,
             capture: async () => {
-              if (!page.emulation?.metrics) return plain()
-              // A view that isn’t on screen may never draw a frame for the debugger’s capture.
+              const metrics = page.emulation?.metrics
+              if (!metrics) return plain()
+              const contents = page.view.webContents
+              const shot = async () => {
+                const density = await script('devicePixelRatio').catch(() => undefined)
+                if (!isNumber(density) || !Number.isFinite(density) || density <= 0)
+                  return undefined
+                // A view that isn’t on screen may not draw a frame for the debugger’s capture;
+                // a capture that stays hidden makes it draw without showing it.
+                void contents
+                  .capturePage(undefined, { stayHidden: true, stayAwake: true })
+                  .catch(() => undefined)
+                const { data } = await contents.debugger.sendCommand('Page.captureScreenshot', {
+                  format: 'png',
+                  clip: {
+                    x: 0,
+                    y: 0,
+                    width: metrics.width,
+                    height: metrics.height,
+                    scale: 1 / density,
+                  },
+                })
+                return isString(data) ? data : undefined
+              }
               const data = await Promise.race([
-                page.view.webContents.debugger
-                  .sendCommand('Page.captureScreenshot', { format: 'png' })
-                  .then(({ data }) => (isString(data) ? data : undefined)),
+                shot(),
                 new Promise<undefined>((resolve) =>
                   AbortSignal.timeout(timing.captureMs ?? 5_000).addEventListener('abort', () =>
                     resolve(undefined),
@@ -301,9 +321,7 @@ export function createTaskBrowsers(
                 ),
               ])
               if (data === undefined)
-                throw new Error(
-                  'Couldn’t capture the page at its preview size; open its preview and try again',
-                )
+                throw new Error('Couldn’t capture the page at its preview size; try again')
               return new Uint8Array(Buffer.from(data, 'base64'))
             },
           }
