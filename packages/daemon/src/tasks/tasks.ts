@@ -7577,7 +7577,7 @@ export function createTasks(options: {
         const request = askAboutLoop(task, workflow, {
           to,
           findings,
-          title: `Back to Work ${timesText(count)}, the limit`,
+          title: `Validate sent this Task back to Work ${timesText(count)}, its limit`,
           intro:
             workflow.settings.stages.validate?.loop_check === false
               ? ''
@@ -8138,9 +8138,9 @@ export function createTasks(options: {
       to: check.to,
       findings: check.findings,
       title: atLimit
-        ? `Back to Work ${returns}, the limit`
+        ? `Validate sent this Task back to Work ${returns}, its limit`
         : looping
-          ? `Back to Work ${returns} with the same problem`
+          ? `Validate sent this Task back to Work ${returns} without getting closer to done`
           : `Back to Work ${returns}, and Ted couldn’t check progress`,
       intro: looping
         ? `Ted’s Loop check found that the rounds keep repeating the same problem. ${reason} If you keep going, add guidance that breaks the pattern.`

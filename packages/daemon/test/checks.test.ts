@@ -265,7 +265,7 @@ describe('Checks at Validate entry', () => {
     const question = await open()
     expect(question).toMatchObject({
       author: { kind: 'ted' },
-      title: 'Back to Work 1 time, the limit',
+      title: 'Validate sent this Task back to Work 1 time, its limit',
       choices: ['Keep going', 'Stop the Task'],
       purpose: { kind: 'send-back' },
     })
