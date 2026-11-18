@@ -124,6 +124,8 @@ export function factoryColumnWidth(names: readonly string[]): string {
 
 export const listColumnGap = '16px'
 const statusMin = '176px'
+const statusFloor = '110px'
+const factoryFloor = '80px'
 const titleRoom = '40ch'
 
 export function listGrid(
@@ -139,24 +141,26 @@ export function listGrid(
         : c === 'factory'
           ? factoryColumnWidth(factoryNames)
           : columnWidths[c]
-  const status = (others: readonly (ListColumn | 'queue')[]) => {
-    if (!others.includes('title')) return `minmax(${statusMin}, ${columnWidths.status})`
-    const taken = [
-      '4px',
-      '24px',
-      ...others.map((c) => (c === 'title' ? titleRoom : width(c))),
-      '4px',
-    ]
-    const room = `calc(100% - ${taken.join(' - ')} - ${taken.length} * ${listColumnGap})`
-    return `minmax(${statusMin}, min(${columnWidths.status}, ${room}))`
-  }
-  const others = columns.filter((c) => c !== 'status')
-  return [
+  const edges = (widths: string[]) => ['4px', '24px', ...widths, '4px'].join(' ')
+  if (!columns.includes('title'))
+    return edges(
+      columns.map((c) =>
+        c === 'status' ? `minmax(${statusMin}, ${columnWidths.status})` : width(c),
+      ),
+    )
+  const fixed = [
     '4px',
     '24px',
-    ...columns.map((c) => (c === 'status' ? status(others) : width(c))),
+    ...columns.flatMap((c) =>
+      c === 'title' ? [titleRoom] : c === 'factory' || c === 'status' ? [] : [width(c)],
+    ),
     '4px',
-  ].join(' ')
+  ]
+  const room = `calc(100% - ${fixed.join(' - ')} - ${columns.length + 2} * ${listColumnGap})`
+  const factory = `clamp(${factoryFloor}, ${columns.includes('status') ? `calc(${room} - ${statusMin})` : room}, ${factoryColumnWidth(factoryNames)})`
+  const statusRoom = columns.includes('factory') ? `calc(${room} - ${factory})` : room
+  const status = `minmax(${statusFloor}, min(${columnWidths.status}, ${statusRoom}))`
+  return edges(columns.map((c) => (c === 'status' ? status : c === 'factory' ? factory : width(c))))
 }
 
 const sortHints: Partial<Record<ListSort, string>> = { manual: 'Priority, then rank' }
