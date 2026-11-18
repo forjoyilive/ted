@@ -837,7 +837,7 @@ describe('checking a layer', () => {
       'error .ted/workflow.yaml 7 21 `stages.clarify.depth` must be one of auto, none, few, grilling',
       'error .ted/workflow.yaml 9 15 `stages.validate.max_back` must be a whole number, 0 or more',
       'error .ted/workflow.yaml 10 17 `stages.validate.loop_check` must be a whole number above 0, or false',
-      'error .ted/workflow.yaml 11 14 each check needs a `run` command',
+      'error .ted/workflow.yaml 11 14 each check needs a `run` command or an `instruction`',
       'error .ted/workflow.yaml 12 23 `stages.review.based_on` must be text',
     ])
   })
@@ -1091,6 +1091,124 @@ describe('shared layers', () => {
     expect(sameFiles(files, { ...files, 'notes.md': '' })).toBe(false)
     expect(sameFiles(files, { 'workflow.yaml': 'version: 1\n', 'notes.md': null })).toBe(false)
     expect(sameFiles({}, {})).toBe(true)
+  })
+})
+
+describe('instruction Checks', () => {
+  const checks = (lines: string[]) => {
+    const layer = factory({
+      'workflow.yaml': ['stages:', '  validate:', '    checks:', ...lines, ''].join('\n'),
+    })
+    return {
+      messages: layer.problems.map((p) => p.message),
+      checks: layer.settings?.stages.validate?.checks,
+    }
+  }
+
+  test('an instruction Check takes fix, timeout, agent, model and effort', () => {
+    expect(
+      checks([
+        '      - name: Docs drift',
+        '        instruction: |',
+        '          Check the docs.',
+        '          Fix what is out of date.',
+        '        fix: true',
+        '        timeout: 30m',
+        '        agent: same',
+        '        model: opus',
+        '        effort: high',
+        '      - { name: Tests, run: pnpm test, timeout: 5m }',
+      ]),
+    ).toEqual({
+      messages: [],
+      checks: [
+        {
+          name: 'Docs drift',
+          instruction: 'Check the docs.\nFix what is out of date.\n',
+          fix: true,
+          timeout: '30m',
+          agent: 'same',
+          model: 'opus',
+          effort: 'high',
+        },
+        { name: 'Tests', run: 'pnpm test', timeout: '5m' },
+      ],
+    })
+  })
+
+  test('a Check is refused with both run and instruction, neither, repo on an instruction, or fix, agent, model or effort on a command', () => {
+    const refused = (line: string) => checks([`      - ${line}`]).messages
+    expect(refused('{ name: A, run: x, instruction: y }')).toEqual([
+      'a check has a `run` command or an `instruction`, not both',
+    ])
+    expect(refused('{ name: A }')).toEqual(['each check needs a `run` command or an `instruction`'])
+    expect(refused('{ name: A, instruction: y, repo: ted }')).toEqual([
+      'an instruction check runs across all the Task’s repos, so it takes no `repo`',
+    ])
+    expect(refused('{ name: A, run: x, fix: true }')).toEqual([
+      'only an instruction check takes `fix`',
+    ])
+    expect(refused('{ name: A, run: x, agent: claude }')).toEqual([
+      'only an instruction check takes `agent`',
+    ])
+    expect(refused('{ name: A, run: x, effort: low }')).toEqual([
+      'only an instruction check takes `effort`',
+    ])
+    expect(refused('{ name: A, instruction: y, fix: yes }')).toEqual([
+      'a check’s `fix` must be true or false',
+    ])
+    expect(refused('{ name: A, instruction: y, agent: gemini }')).toEqual([
+      'a check’s `agent` must be codex, claude, antigravity or same',
+    ])
+    expect(refused('{ name: A, instruction: y, timeout: soon }')).toEqual([
+      '`timeout` must be a duration such as 30s, 15m or 1h',
+    ])
+  })
+
+  test('a settings save writes instruction Checks after the commands, and a save of only the commands keeps them', () => {
+    const instruction = {
+      name: 'Docs drift',
+      instruction: 'Check the docs.\nFix what is out of date.',
+      fix: true,
+      agent: 'claude',
+      effort: 'high' as const,
+    }
+    const text = applyChanges(
+      'version: 1\n',
+      {
+        checks: [{ name: 'Tests', run: 'pnpm test' }],
+        instructionChecks: [instruction, { name: 'Review', instruction: 'Look again.' }],
+      },
+      [],
+    )
+    const saved = factory({ 'workflow.yaml': text })
+    expect(saved.problems).toEqual([])
+    expect(saved.settings?.stages.validate?.checks).toEqual([
+      { name: 'Tests', run: 'pnpm test' },
+      { ...instruction, instruction: 'Check the docs.\nFix what is out of date.' },
+      { name: 'Review', instruction: 'Look again.' },
+    ])
+
+    const commandsOnly = applyChanges(
+      text,
+      { checks: [{ was: 0, name: 'Tests', run: 'pnpm test --run', timeout: '5m' }] },
+      [],
+    )
+    expect(factory({ 'workflow.yaml': commandsOnly }).settings?.stages.validate?.checks).toEqual([
+      { name: 'Tests', run: 'pnpm test --run', timeout: '5m' },
+      { ...instruction, instruction: 'Check the docs.\nFix what is out of date.' },
+      { name: 'Review', instruction: 'Look again.' },
+    ])
+
+    const edited = applyChanges(
+      commandsOnly,
+      { instructionChecks: [{ was: 2, name: 'Review', instruction: 'Look again.', fix: true }] },
+      [],
+    )
+    expect(factory({ 'workflow.yaml': edited }).settings?.stages.validate?.checks).toEqual([
+      { name: 'Tests', run: 'pnpm test --run', timeout: '5m' },
+      { name: 'Review', instruction: 'Look again.', fix: true },
+    ])
   })
 })
 

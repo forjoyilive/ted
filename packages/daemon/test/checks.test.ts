@@ -314,6 +314,236 @@ describe('Checks at Validate entry', () => {
   }, 180_000)
 })
 
+const yamlText = (text: string) => `'${text.replaceAll("'", "''")}'`
+
+const instructionCheck = (name: string, agentSteps: string, extra: string[] = []) =>
+  [
+    `      - name: ${name}`,
+    `        instruction: ${yamlText(agentSteps)}`,
+    '        agent: claude',
+    ...extra.map((line) => `        ${line}`),
+  ].join('\n')
+
+const commit = (file: string, message: string) => [
+  'sh',
+  '-c',
+  `echo x > ${file} && git add ${file} && (git -c user.name=Stub -c user.email=stub@example.com commit -qm '${message}' || true)`,
+]
+
+const committingLead = () =>
+  steps({ everyMessage: [{ run: commit('work.txt', 'Work') }, advance] }, advance)
+
+const finished = (client: Client, task: Task) =>
+  waitUntil(
+    async () => (await getTask(client, task.id))?.stage === 'done' || undefined,
+    'the Task to finish',
+    90_000,
+  )
+
+describe('Instruction Checks at Validate', () => {
+  test('a fixing instruction Check runs before the commands and commits its fix; the commands run once on the fixed code, the report-only one runs after them, and the report lists the commit', async () => {
+    await workflow(
+      [
+        '      - { name: Tests, run: "test -e fixed.txt && echo ok" }',
+        instructionCheck(
+          'Review',
+          steps({ say: 'Nothing wrong.\nResult: pass' }, { endTurn: true }),
+        ),
+        instructionCheck(
+          'Docs drift',
+          steps(
+            { run: commit('fixed.txt', 'Fix the docs') },
+            { say: 'Fixed the docs.\nResult: pass' },
+            { endTurn: true },
+          ),
+          ['fix: true'],
+        ),
+      ].join('\n'),
+    )
+    const client = await startTed()
+    const task = await startTask(client, committingLead())
+    await finished(client, task)
+
+    const [run, ...more] = await checkRuns(client, task)
+    expect(more).toEqual([])
+    expect(states(run)).toEqual([
+      ['Docs drift', 'passed'],
+      ['Tests', 'passed'],
+      ['Review', 'passed'],
+    ])
+    expect(run?.checks[0]).toMatchObject({ fix: true, agent: 'claude' })
+    expect(run?.checks[0]?.instruction).toContain('Fix the docs')
+    expect(run?.checks[0]?.command).toBeUndefined()
+    const report = await client.ok<{ text: string }>(
+      'GET',
+      `/check-runs/${run?.id}/checks/0/output`,
+    )
+    expect(report.text).toMatch(/^The agent committed:\n- widgets: [0-9a-f]+ Fix the docs\n/)
+    expect(report.text).toContain('Fixed the docs.\nResult: pass')
+    const messages = await leadMessages(client, task)
+    expect(
+      messages.some((m) =>
+        m.includes('✓ Docs drift (instruction)\n✓ Tests\n✓ Review (instruction)'),
+      ),
+    ).toBe(true)
+  }, 120_000)
+
+  test('a passed instruction Check isn’t rerun while the Task’s changes stay the same, and a failed command still returns the Task to Work', async () => {
+    const flag = 'stub-failed-once'
+    await workflow(
+      [
+        `      - { name: Tests, run: "if [ -e '${flag}' ]; then echo ok; else touch '${flag}'; exit 1; fi" }`,
+        instructionCheck(
+          'Docs drift',
+          steps({ say: 'The docs are current.\nResult: pass' }, { endTurn: true }),
+          ['fix: true'],
+        ),
+      ].join('\n'),
+    )
+    const client = await startTed()
+    const task = await startTask(client, committingLead())
+    await finished(client, task)
+
+    const [first, second, ...more] = await checkRuns(client, task)
+    expect(more).toEqual([])
+    expect(states(first)).toEqual([
+      ['Docs drift', 'passed'],
+      ['Tests', 'failed'],
+    ])
+    expect(first?.checks[0]?.notRerun).toBeUndefined()
+    expect(states(second)).toEqual([
+      ['Docs drift', 'passed'],
+      ['Tests', 'passed'],
+    ])
+    expect(second?.checks[0]?.notRerun).toBe(true)
+    const started = (await threadEvents(client, task)).filter((e) =>
+      e.text.startsWith('Sub-agent “Check · Docs drift” started'),
+    )
+    expect(started).toHaveLength(1)
+    expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toMatchObject([
+      { cause: 'check', checkRunId: first?.id },
+    ])
+  }, 120_000)
+
+  test('a report-only instruction Check that changes files fails, and its report is the Findings the Task returns to Work with', async () => {
+    await workflow(
+      instructionCheck(
+        'Stray',
+        steps(
+          { run: ['sh', '-c', 'echo y > stray.txt'] },
+          { say: 'I looked.\nResult: pass' },
+          { endTurn: true },
+        ),
+      ),
+    )
+    const client = await startTed()
+    const task = await startTask(client, committingLead())
+    await finished(client, task)
+
+    const [first, second, ...more] = await checkRuns(client, task)
+    expect(more).toEqual([])
+    expect(states(first)).toEqual([['Stray', 'failed']])
+    expect(states(second)).toEqual([['Stray', 'passed']])
+    expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toMatchObject([
+      { cause: 'check', counted: true, checkRunId: first?.id },
+    ])
+    const [failure] = await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)
+    expect(failure?.source).toMatchObject({ kind: 'factory-check', checkRunId: first?.id })
+    const back = (await leadMessages(client, task)).find((m) =>
+      m.includes('# Send-back 1 of 5 from Validate'),
+    )
+    expect(back).toContain('The instruction check “Stray” failed.')
+    expect(back).toContain('The agent changed files.')
+    expect(back).toContain('I looked.\nResult: pass')
+  }, 120_000)
+
+  test('an instruction Check with no report asks the user: Try again starts a new agent, Count it as failed is a failed Check; Run now runs one on a chosen Task without a failure case', async () => {
+    await workflow(
+      instructionCheck('Silent', steps({ say: 'I looked around.' }, { endTurn: true })),
+    )
+    const client = await startTed()
+    const task = await startTask(client, committingLead())
+    const question = (n: number) =>
+      waitUntil(
+        async () => {
+          const asked = (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).filter(
+            (c) => c.purpose?.kind === 'check-report',
+          )
+          return asked.length >= n && asked[n - 1]?.answer === undefined ? asked[n - 1] : undefined
+        },
+        `no-report question ${n}`,
+        60_000,
+      )
+
+    const first = await question(1)
+    expect(first).toMatchObject({
+      author: { kind: 'ted' },
+      title: 'An instruction check didn’t report: Silent',
+      choices: ['Try again', 'Count it as failed'],
+    })
+    expect(first?.body).toContain(
+      'The instruction check “Silent” has no report: it ended without a result line.',
+    )
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
+
+    expect(
+      await client.ok<{ id: string }[]>('GET', `/factories/${task.factoryId}/checks/try/tasks`),
+    ).toMatchObject([{ id: task.id, displayId: task.displayId }])
+    await client.ok('POST', `/factories/${task.factoryId}/checks/try`, {
+      name: 'Quick look',
+      instruction: steps({ say: 'Fine.\nResult: pass' }, { endTurn: true }),
+      agent: 'claude',
+      taskId: task.id,
+    })
+    const tried = await waitUntil(
+      async () =>
+        (
+          await client.ok<{ tries: { name: string; state: string }[] }>(
+            'GET',
+            `/factories/${task.factoryId}/settings`,
+          )
+        ).tries.find((t) => t.name === 'Quick look' && t.state !== 'running'),
+      'the Run now try to finish',
+      60_000,
+    )
+    expect(tried).toMatchObject({
+      state: 'passed',
+      instruction: true,
+      taskId: task.id,
+      taskDisplayId: task.displayId,
+    })
+    const output = await client.ok<{ text: string }>(
+      'GET',
+      `/factories/${task.factoryId}/checks/try/output?name=Quick%20look`,
+    )
+    expect(output.text).toContain('Fine.\nResult: pass')
+    expect(await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).toEqual([])
+
+    await client.ok('POST', `/comments/${first?.id}/answer`, {
+      action: 'answer',
+      choice: 'Try again',
+    })
+    const second = await question(2)
+    expect((await checkRuns(client, task)).map((r) => r.finishedAt)).toEqual([undefined])
+    await client.ok('POST', `/comments/${second?.id}/answer`, {
+      action: 'answer',
+      choice: 'Count it as failed',
+    })
+    const [failed] = await finishedRuns(client, task, 1)
+    expect(failed?.outcome).toBe('failed')
+    expect(failed?.checks[0]).toMatchObject({
+      state: 'failed',
+      noReport: 'it ended without a result line',
+    })
+    expect(
+      await waitUntil(async () => {
+        const backs = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
+        return backs.length > 0 ? backs : undefined
+      }, 'the return to Work'),
+    ).toMatchObject([{ cause: 'check', checkRunId: failed?.id }])
+  }, 180_000)
+})
+
 describe('Checks killed for lack of memory', () => {
   test('a Check killed while memory is low isn’t a failure and runs again once memory frees up; a second kill asks the user, and Count it as failed is a failed Check that returns the Task to Work', async () => {
     await workflow(
@@ -1041,6 +1271,8 @@ describe('ted checks', () => {
         '      - { name: Typecheck, run: "echo typed" }',
         '      - { name: Tests, run: "echo broken; exit 2" }',
         '      - { name: Lint, run: "echo linted" }',
+        '      - { name: Docs drift, instruction: "Check the docs.", fix: true }',
+        '      - { name: Review, instruction: "Look again." }',
       ].join('\n'),
     )
     const client = await startTed()
@@ -1078,6 +1310,9 @@ describe('ted checks', () => {
     expect(results[2]?.stdout).toContain('exit code 2')
     expect(results[2]?.stdout).toContain('broken')
     expect(results[2]?.stdout).toContain('– Lint · not run')
+    expect(results[2]?.stdout).toContain(
+      'Instruction Checks run at Validate. Ted starts an agent for each one; one that may fix runs before the commands, the others after them:\n\n- Docs drift (may fix)\n  Check the docs.\n\n- Review\n  Look again.',
+    )
     expect(results[3]?.code).toBe(0)
     expect(results[3]?.stdout).toContain('✓ Typecheck')
     expect((await getTask(client, task.id))?.stage).toBe('work')
