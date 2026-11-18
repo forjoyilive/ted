@@ -32,11 +32,11 @@ The configured Checks are `pnpm typecheck` and `pnpm lint`. Agents run only the 
 
 ## Review
 
-Manual code and security review checked assignment atomicity, idempotency, persistence before local starts, legacy pinning and deletion. Identifiers are not credentials, no assignment mutation route was added, and no remote paths, listeners or authentication changes were introduced. The assignment receipt is stored once, in the immutable assignment record. See ADR 0105 for the future disconnect and revocation contract and its explicit implementation limits. The Workflow’s Validate review remains separate from this Work-stage review.
+Manual code and security review checked assignment atomicity, idempotency, persistence before local starts, legacy pinning and deletion. Identifiers are not credentials, no assignment mutation route was added, and no remote paths, listeners or authentication changes were introduced. The assignment receipt is stored once, in the immutable assignment record. The Workflow’s Validate review remains separate from this Work-stage review.
 
 ## Merge and review checkpoint
 
-Fetched base: `20b46312b54313550f6f71af219aab607eb69e21`. The merge retains Task history, side chats, command-launch consent and Stage effort selection. The ownership ADR is now 0105 because the base added its own ADR 0104.
+Fetched base: `20b46312b54313550f6f71af219aab607eb69e21`. The merge retains Task history, side chats, command-launch consent and Stage effort selection.
 
 The independent reviewer found that sub-agents of an already-live legacy Task Lead could start before an explicit assignment was persisted. The fix adds the same Tasks-owned persistence barrier before sub-agent worktree preparation and launch, with cancellation checks after the await. `sub-agent-execution.test.ts` exercises a legacy Task through TedStore and SubAgents, observes the assignment on disk before both side effects, and prevents both when persistence fails.
 

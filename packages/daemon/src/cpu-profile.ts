@@ -136,7 +136,7 @@ interface Watched {
   paused?: boolean
 }
 
-// ADR 0124: when the daemon’s thread stops answering, a worker thread profiles it until it
+// When the daemon’s thread stops answering, a worker thread profiles it until it
 // answers again, and a stall of `stallMs` or more is saved. Nothing runs while the daemon
 // is healthy: keeping the profiler on all the time made CPU-bound work several times slower.
 function watchStalls(home: string, options: StallProfiles) {

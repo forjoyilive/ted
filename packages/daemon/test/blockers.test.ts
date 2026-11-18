@@ -844,6 +844,25 @@ test('parent events survive replay and keep hierarchy dependency effects separat
   }
 })
 
+test('archiving clears the blockers-removed mark, so an unarchived Task wakes as merged', async () => {
+  const directory = path.join(scratch, 'archive-mark-store')
+  let store = await openStore({ directory })
+  try {
+    const task = await store.createTask({ title: 'Waiting' })
+    store.setBlockersRemoved(task.id, true)
+    store.archiveTask(task.id)
+    expect(store.blockersRemoved(task.id)).toBe(false)
+    await store.close()
+    store = await openStore({ directory })
+    expect(store.blockersRemoved(task.id)).toBe(false)
+    store.unarchiveTask(task.id, { queue: false, waitForBlockers: false })
+    expect(store.blockersRemoved(task.id)).toBe(false)
+    expect(store.openBlockedTasks()).not.toContain(task.id)
+  } finally {
+    await store.close()
+  }
+})
+
 test('hierarchy API persists nested links, refuses stale and cyclic edits, and confirms archive and deletion effects', async () => {
   let client = await startTed()
   let app = await hierarchyApp()

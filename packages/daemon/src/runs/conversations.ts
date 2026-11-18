@@ -348,7 +348,7 @@ export function createConversations(options: {
 
   const steering = options.steering
 
-  // ADR 0126: a Run’s output is deleted a while after its Task is done, so what it used is
+  // A Run’s output is deleted a while after its Task is done, so what it used is
   // saved when it ends. After the commit that ended it, not inside it.
   const saveUse = (run: Run) => {
     try {

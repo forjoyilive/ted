@@ -6,4 +6,4 @@ This is Ted’s own copy. Change it when Ted’s rules need it; there is no plan
 
 - Formatted with Biome and its imports sorted (layout only).
 
-`oxlint.config.ts` at the repo root registers `index.ts`. `effect/index.ts` is copied but not registered (ADR 0174). The `*.test.ts` files are upstream’s rule tests; Vitest doesn’t pick them up, and each runs with `node <file>`.
+`oxlint.config.ts` at the repo root registers `index.ts`. `effect/index.ts` is copied but not registered: Ted uses Effect only where LiveStore needs it. The `*.test.ts` files are upstream’s rule tests; Vitest doesn’t pick them up, and each runs with `node <file>`.
