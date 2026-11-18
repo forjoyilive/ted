@@ -150,10 +150,16 @@ async function demoLockHolders(home: string): Promise<number[]> {
   return (await lockHolders(...all)).filter((pid) => pid > 1 && pid !== process.pid)
 }
 
+export class DemoAppRunningError extends Error {
+  constructor() {
+    super('Quit the demo app first.')
+  }
+}
+
 export async function stopDemo(home: string): Promise<void> {
   const known = await checkDemoHome(home)
   if (!known) throw new Error(`There is no demo in ${home}.`)
-  if (await demoAppRunning(home)) throw new Error('Quit the demo app first.')
+  if (await demoAppRunning(home)) throw new DemoAppRunningError()
   const before = await demoPids(home)
   if ((await demoLockHolders(home)).length === 0) return markQuit(home)
   try {
