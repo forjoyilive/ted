@@ -433,9 +433,9 @@ test('a local folder that is behind is updated before the command runs, and one 
     async () => (await ran()).includes(`${await latest()}|release build 1.2.3`) || undefined,
     'the build in the updated folder',
   )
-  await said(first.id, 'Ted updated the local folder from')
   expect(await git('rev-parse', 'HEAD')).toBe(await latest())
   await writeFile(path.join(scratch, 'built'), '')
+  await said(first.id, 'Ted updated the local folder from')
 
   await commitToOrigin(scratch, { 'scripts/release.ts': 'build publish\n' })
   await writeFile(path.join(local, 'README.md'), 'edited\n')
@@ -471,10 +471,10 @@ test('a local folder that is behind is updated before the command runs, and one 
     async () => (await ran()).includes(`${kept}|release build 1.2.4`) || undefined,
     'the build in the untouched folder',
   )
-  await said(second.id, 'Ted couldn’t update it because 1 file has uncommitted changes')
   expect(await git('rev-parse', 'HEAD')).toBe(kept)
   expect(await readFile(path.join(folder, 'README.md'), 'utf8')).toBe('edited\n')
   await writeFile(path.join(scratch, 'second'), '')
+  await said(second.id, 'Ted couldn’t update it because 1 file has uncommitted changes')
 }, 120_000)
 
 test('an Agent draft can’t give Run outside commands; only the user adds it in settings', () => {

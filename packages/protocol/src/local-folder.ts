@@ -205,7 +205,7 @@ export function localFolderAgentNote(state: LocalFolderState, folder: string): s
       lines.push(
         `The local folder is on the branch ${check.branch}, which matches its copy on GitHub${(check.behindMain ?? 0) > 0 ? ` and is ${count(check.behindMain ?? 0, 'commit')} behind ${check.main}` : ''}.`,
       )
-    if ((check.uncommitted ?? 0) > 0)
+    if ((check.uncommitted ?? 0) > 0 && action.kind !== 'hold')
       lines.push(
         `The local folder has uncommitted changes in ${count(check.uncommitted ?? 0, 'file')}.`,
       )
