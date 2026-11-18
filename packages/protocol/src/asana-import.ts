@@ -1,3 +1,4 @@
+import { isString } from './parse.ts'
 import { type Priority, priorities } from './task.ts'
 import { trimEndOf, urlTrailingPunctuation } from './trim.ts'
 import { bodyObject, RequestValidationError } from './validation.ts'
@@ -89,6 +90,7 @@ export interface AsanaImportPreview {
 
 export interface AsanaImportRequest {
   url: string
+  title?: string
   factory?: string
   priority?: Priority
   start?: boolean
@@ -110,6 +112,10 @@ export function parseAsanaImportRequest(value: unknown): AsanaImportRequest {
   if (typeof body.url !== 'string' || parseAsanaTaskUrl(body.url) === undefined) {
     throw new RequestValidationError(400, 'url must be an Asana task URL')
   }
+  if (body.title !== undefined && !isString(body.title)) {
+    throw new RequestValidationError(400, 'title must be text')
+  }
+  const title = isString(body.title) ? body.title.trim() : ''
   if (body.factory !== undefined && (typeof body.factory !== 'string' || body.factory === '')) {
     throw new RequestValidationError(400, 'factory must be a Factory key')
   }
@@ -129,6 +135,7 @@ export function parseAsanaImportRequest(value: unknown): AsanaImportRequest {
   }
   return {
     url: body.url.trim(),
+    ...(title !== '' && { title }),
     ...(body.factory !== undefined && { factory: body.factory as string }),
     ...(body.priority !== undefined && { priority: body.priority as Priority }),
     ...(body.start !== undefined && { start: body.start as boolean }),

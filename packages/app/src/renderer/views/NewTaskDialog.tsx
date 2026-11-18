@@ -362,14 +362,24 @@ function NewTaskForm({
     setAsana({ url: asanaUrl })
     ted.previewAsanaImport({ url: asanaUrl, factory: chosenKey }).then(
       (preview) => {
-        if (ticket === asanaTickets.current) setAsana({ url: asanaUrl, preview })
+        if (ticket !== asanaTickets.current || !mounted.current) return
+        setAsana({ url: asanaUrl, preview })
+        const name = preview.root.name.trim()
+        if (name === '') return
+        session.update((current) => ({
+          title:
+            current.title.trim() === '' || current.title === current.filled.title
+              ? name
+              : current.title,
+          filled: { ...current.filled, title: name },
+        }))
       },
       (failure: unknown) => {
         if (ticket === asanaTickets.current)
           setAsana({ url: asanaUrl, error: `Couldn’t read Asana: ${readableError(failure)}` })
       },
     )
-  }, [asanaUrl, chosenKey])
+  }, [asanaUrl, chosenKey, session])
   const asanaReady =
     asana === undefined ||
     (asana.preview !== undefined &&
@@ -490,6 +500,7 @@ function NewTaskForm({
       if (asana?.preview) {
         await ted.importAsana({
           url: asana.url,
+          ...(title.trim() !== '' && { title: title.trim() }),
           factory: chosenFactory.key,
           priority,
           start,

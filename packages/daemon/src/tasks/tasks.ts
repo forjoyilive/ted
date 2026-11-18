@@ -5793,7 +5793,7 @@ export function createTasks(options: {
       tasks: plan.creates.map(({ node, parent }) => ({
         key: node.gid,
         ...(parent && { parent: ref(parent) }),
-        title: node.name,
+        title: (node.gid === tree.rootGid && input.title) || node.name,
         description: node.notes ?? '',
         priority: input.priority ?? 'none',
         lead,
@@ -12178,6 +12178,7 @@ export function createTasks(options: {
       const imported = await importAsana(
         {
           url: sourceUrl,
+          ...(title?.trim() && { title: title.trim() }),
           ...(key !== undefined && { factory: key }),
           ...(fields.priority !== undefined && { priority: fields.priority }),
           ...(startNow !== undefined && { start: startNow }),
