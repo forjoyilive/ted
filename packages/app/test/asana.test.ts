@@ -102,6 +102,7 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
     .poll(() => preview.textContent())
     .toContain('3 Tasks: 1 assigned to you, 1 to others, 1 unassigned')
   expect(await preview.getByRole('listitem').count()).toBe(4)
+  await expect.poll(() => newTask.getByLabel('Title').inputValue()).toBe('Checkout redesign')
   expect(await preview.getByLabel('Sync these Tasks with Asana').isChecked()).toBe(true)
   expect(await preview.textContent()).toContain('Ted comments on each Asana task')
   await newTask.getByLabel('Start now').uncheck()
@@ -128,6 +129,8 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
     .getByLabel('Sync these Tasks with Asana')
   await syncBox.waitFor()
   expect(await syncBox.isChecked()).toBe(true)
+  await expect.poll(() => declining.getByLabel('Title').inputValue()).toBe('Gift cards')
+  await declining.getByLabel('Title').fill('Gift cards, renamed')
   await syncBox.uncheck()
   expect(await declining.getByRole('region', { name: 'Asana import' }).textContent()).toContain(
     'The new Tasks won’t update Asana',
@@ -139,6 +142,7 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
     ['506', '507'].includes(t.source?.asana?.gid ?? ''),
   )
   expect(declined.map((t) => t.asanaSync?.state)).toEqual(['not-allowed', 'not-allowed'])
+  expect(declined.map((t) => t.title).sort()).toEqual(['Card balance', 'Gift cards, renamed'])
   stub.setPageSize(1)
   stub.setWorkspaces([
     { gid: '2', name: 'Elsewhere' },
@@ -190,7 +194,18 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
   stub.setPageSize(2)
   expect(root?.asanaSync).toMatchObject({ state: 'waiting-merge' })
   stub.setTasks([{ gid: '505', name: 'Tax line' }])
-  await ted('task', 'create', '--factory', 'NB', '--source', 'https://app.asana.com/0/0/505')
+  await ted(
+    'task',
+    'create',
+    '--factory',
+    'NB',
+    '--source',
+    'https://app.asana.com/0/0/505',
+    'Tax line from the terminal',
+  )
+  expect((await client.listTasks()).find((t) => t.source?.asana?.gid === '505')?.title).toBe(
+    'Tax line from the terminal',
+  )
   await openAllTasks(window)
   const fromCli = window.locator('tr[data-task="NB-6"]')
   await fromCli.click()

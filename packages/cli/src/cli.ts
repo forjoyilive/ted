@@ -1658,6 +1658,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (asanaImport && followUp === undefined) {
         const request = {
           url: source,
+          ...(title !== '' && { title }),
           ...(factory !== undefined && { factory }),
           ...(start !== undefined && { start }),
         }

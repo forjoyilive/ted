@@ -348,8 +348,15 @@ test('a tree over the limit is refused whole, and a completed root still imports
     taskSync: true,
   })
   expect(fromCli.status).toBe(201)
-  await client.importAsana({ url: 'https://app.asana.com/0/0/920', factory: 'NB', taskSync: false })
+  await client.importAsana({
+    url: 'https://app.asana.com/0/0/920',
+    title: 'Named in Ted',
+    factory: 'NB',
+    taskSync: false,
+  })
   let byGid = tasksIn(await client.listTasks()).byGid
+  expect(byGid('950')?.title).toBe('From the terminal')
+  expect(byGid('920')?.title).toBe('Named in Ted')
   expect(byGid('950')?.asanaSync).toMatchObject({ state: 'not-allowed' })
   expect(byGid('920')?.asanaSync).toMatchObject({ state: 'not-allowed' })
   const declined = (await client.listComments(byGid('920')?.id ?? '')).find((c) => c.asanaMissing)
@@ -360,6 +367,8 @@ test('a tree over the limit is refused whole, and a completed root still imports
   await client.answerRequest(declined?.id ?? '', { action: 'answer', choice: 'Retry' })
   byGid = tasksIn(await client.listTasks()).byGid
   expect(byGid('921')?.parentId).toBe(byGid('920')?.id)
+  expect(byGid('921')?.title).toBe('Hidden for now')
+  expect(byGid('920')?.title).toBe('Named in Ted')
   expect(byGid('921')?.asanaSync).toMatchObject({ state: 'not-allowed' })
   const ids = ['920', '921', '950'].map((gid) => byGid(gid)?.id ?? '')
   await daemon?.stop()
