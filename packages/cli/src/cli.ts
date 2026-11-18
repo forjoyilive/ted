@@ -1890,18 +1890,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
         throw new UsageError('Run demo seeding from a local terminal, outside a Run.')
       const started = Date.now()
-      const { demoHome, demoEnvironment, seedDemoFromCli } = await import('@ted/daemon/demo')
+      const { demoHome, seedDemoFromCli } = await import('@ted/daemon/demo')
       const demo = runtime.home ?? demoHome(env)
-      const prepared = demoEnvironment(demo, env)
-      const original = { ...process.env }
-      try {
-        for (const key of Object.keys(process.env)) delete process.env[key]
-        Object.assign(process.env, prepared)
-        await seedDemoFromCli(demo, options.reset)
-      } finally {
-        for (const key of Object.keys(process.env)) delete process.env[key]
-        Object.assign(process.env, original)
-      }
+      await seedDemoFromCli(demo, options.reset)
       console.log(`Demo ready in ${demo} (${Date.now() - started} ms)`)
     },
     showMemory: async () => {
