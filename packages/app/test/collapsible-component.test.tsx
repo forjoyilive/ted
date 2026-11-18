@@ -45,21 +45,50 @@ test('failure output keeps its line breaks in a monospace block', () => {
 test('a Ted note splits its fenced blocks from the prose', () => {
   expect(noteParts('Failure ecfe8a\n\nThe Task stays\nin Merge.')).toEqual({
     text: 'Failure ecfe8a The Task stays in Merge.',
-    blocks: [],
+    rest: [],
   })
   expect(
     noteParts(
       'Failure ecfe8a\n\nLast 200 lines of its output:\n\n```\nPASS a\n\nFAIL b\n```\n\nFull output: log.txt',
     ),
   ).toEqual({
-    text: 'Failure ecfe8a Last 200 lines of its output: Full output: log.txt',
-    blocks: [{ line: 4, text: 'PASS a\n\nFAIL b' }],
+    text: 'Failure ecfe8a Last 200 lines of its output:',
+    rest: [
+      { kind: 'block', line: 4, text: 'PASS a\n\nFAIL b' },
+      { kind: 'text', line: 8, text: 'Full output: log.txt' },
+    ],
   })
-  expect(noteParts('Output:\n````\nholds ```\n````').blocks).toEqual([
-    { line: 1, text: 'holds ```' },
+  expect(noteParts('Output:\n````\nholds ```\n````').rest).toEqual([
+    { kind: 'block', line: 1, text: 'holds ```' },
   ])
-  expect(noteParts('Output:\n```\nnever closed\n').blocks).toEqual([
-    { line: 1, text: 'never closed' },
+  expect(noteParts('Output:\n```\nnever closed\n').rest).toEqual([
+    { kind: 'block', line: 1, text: 'never closed' },
   ])
-  expect(noteParts('Empty:\n```\n```').blocks).toEqual([])
+  expect(noteParts('Empty:\n```\n```').rest).toEqual([])
+  expect(noteParts('```\nfirst\n```\nafter').text).toBe('')
+})
+
+test('each label stays beside its own block', () => {
+  const body = [
+    'Failure 1a2b3c',
+    '1. The instruction check “Docs” failed.',
+    'Its instruction, from the Factory:',
+    '```',
+    'Read the docs.',
+    '```',
+    'The agent’s report:',
+    '```',
+    'Docs are stale.',
+    '```',
+    'Full report: report.md',
+  ].join('\n')
+  expect(noteParts(body)).toEqual({
+    text: 'Failure 1a2b3c 1. The instruction check “Docs” failed. Its instruction, from the Factory:',
+    rest: [
+      { kind: 'block', line: 3, text: 'Read the docs.' },
+      { kind: 'text', line: 6, text: 'The agent’s report:' },
+      { kind: 'block', line: 7, text: 'Docs are stale.' },
+      { kind: 'text', line: 10, text: 'Full report: report.md' },
+    ],
+  })
 })

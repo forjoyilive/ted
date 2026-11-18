@@ -56,3 +56,11 @@ export function OutputBlock({ text }: { text: string }) {
     </section>
   )
 }
+
+export function NoteText({ text }: { text: string }) {
+  return (
+    <p className={styles.noteText}>
+      <ReferenceText text={text} />
+    </p>
+  )
+}

@@ -44,7 +44,7 @@ import { DetailsSection } from '../components/DetailsSection.tsx'
 import { DetailsTabs } from '../components/DetailsTabs.tsx'
 import { AllChanges, CommitView, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { DropOverlay } from '../components/DropOverlay.tsx'
-import { EventLine, Findings, OutputBlock } from '../components/EventLine.tsx'
+import { EventLine, Findings, NoteText, OutputBlock } from '../components/EventLine.tsx'
 import { FactoryName } from '../components/FactoryIcon.tsx'
 import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
@@ -816,12 +816,16 @@ export function TaskThread({
     }
     const { comment } = item
     if (comment.kind === 'note' && comment.author.kind === 'ted') {
-      const { text, blocks } = noteParts(comment.body)
+      const { text, rest } = noteParts(comment.body)
       return (
         <EventLine key={comment.id} tone="quiet" text={text} at={comment.createdAt}>
-          {blocks.map((block) => (
-            <OutputBlock key={block.line} text={block.text} />
-          ))}
+          {rest.map((piece) =>
+            piece.kind === 'block' ? (
+              <OutputBlock key={piece.line} text={piece.text} />
+            ) : (
+              <NoteText key={piece.line} text={piece.text} />
+            ),
+          )}
         </EventLine>
       )
     }

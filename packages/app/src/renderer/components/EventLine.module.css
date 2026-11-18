@@ -60,6 +60,14 @@
   overflow-wrap: anywhere;
 }
 
+.noteText {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+  line-height: var(--leading-18);
+  overflow-wrap: anywhere;
+}
+
 .time {
   flex-shrink: 0;
   color: var(--text-caption);
