@@ -3378,6 +3378,11 @@ export function createTasks(options: {
       })
       await prs.publish(pullRequestTask(current), targets)
       recordSignOff(taskId)
+      const published = find(taskId).repos.filter((r) => targets.some((t) => t.name === r.name))
+      if (published.some((r) => r.pushFailed)) return
+      mergeUrgent.add(taskId)
+      mergeWaits.get(taskId)?.abort()
+      if (inFlight.is(taskId, 'merging')) watch?.kick()
     }
     const next = (pullRequestQueue.get(taskId) ?? Promise.resolve()).then(work)
     const settled = next.catch(() => undefined)
