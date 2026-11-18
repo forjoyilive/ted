@@ -799,7 +799,14 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   await block(client, child, leaf)
   await app.archiveTask(leaf.id)
   expect((await getTask(client, child.id)).blockedBy).toEqual([])
-  expect((await getTask(client, child.id)).runs).toEqual([])
+  await waitFor(client, child, (t) => t.leadRunId !== undefined, 'to carry on once unblocked')
+  await client.ok('POST', `/tasks/${child.id}/stop`)
+  await waitFor(
+    client,
+    child,
+    (t) => t.status?.kind === 'stopped' && t.runs.length === 0,
+    'to stop by hand',
+  )
   expect((await getTask(client, leaf.id)).parentId).toBe(child.id)
   await app.unarchiveTask(leaf.id)
   expect((await getTask(client, child.id)).markers).toEqual(
@@ -1181,9 +1188,8 @@ test('a queued parent is held before launch; Coordinator edits share app safety 
   expect((await getTask(client, parent.id)).status?.kind).toBe('blocked')
   expect((await getTask(client, parent.id)).runs).toEqual([])
   await app.archiveTask(child.id)
-  expect((await getTask(client, parent.id)).status?.kind).toBe('stopped')
+  expect((await getTask(client, parent.id)).status?.kind).toBe('queued')
   await app.unarchiveTask(child.id)
-  await client.ok('POST', `/tasks/${parent.id}/resume`, {})
   expect((await getTask(client, parent.id)).runs).toEqual([])
   const newParent = await create(client, 'New parent')
   await expect(parentOf(app, newParent, holder)).rejects.toThrow('Stop the parent')
