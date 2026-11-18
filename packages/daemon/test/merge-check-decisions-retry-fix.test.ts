@@ -1,17 +1,30 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { expect, test } from 'vitest'
-import { waitUntil } from './helpers.ts'
-import { approve, getTask, merges, run, useMergeHarness, waitForStage } from './merge-harness.ts'
+import { commitToOrigin, waitUntil } from './helpers.ts'
+import {
+  approve,
+  ctx,
+  getTask,
+  merges,
+  run,
+  setGh,
+  start,
+  toSignoff,
+  useMergeHarness,
+  waitForStage,
+} from './merge-harness.ts'
 import {
   ask,
   assess,
   cases,
+  checks,
   comments,
   failed,
   lead,
   long,
   obligations,
+  polls,
   rebased,
   resolve,
   runs,
@@ -144,6 +157,61 @@ test(
     await waitForStage(client, task, 'work')
     expect(await client.ok('GET', `/tasks/${task.id}/send-backs`)).toHaveLength(1)
     expect(await merges()).toEqual([])
+  },
+  long,
+)
+
+test(
+  'checks changed on main while a Task waits in Merge run again, show why, and the Task merges',
+  async () => {
+    const settings = ['stages:', '  merge:', '    gate: false', '  validate:', '    checks:']
+    const client = await start({
+      files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
+      merge: {
+        mergeState: 'BLOCKED',
+        checks: [{ name: 'Required', status: 'IN_PROGRESS', required: true }],
+      },
+      workflow: [...settings, ...checks],
+    })
+    const { task, signoff } = await toSignoff(client)
+    await approve(client, signoff)
+    await waitUntil(async () => {
+      const t = await getTask(client, task.id)
+      return t.stage === 'merge' && t.repos[0]?.pullRequest?.waiting === 'ci'
+    }, 'the merge to wait for CI')
+    expect(await runs(client, task)).toEqual([])
+
+    const release = path.join(ctx.scratch, 'release-added-check')
+    await commitToOrigin(ctx.scratch, {
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate, review, merge]',
+        ...settings,
+        ...checks,
+        `      - { name: Added, run: "while [ ! -e '${release}' ]; do sleep 0.1; done" }`,
+        '',
+      ].join('\n'),
+    })
+    await client.ok('GET', `/factories/${task.factoryId}/settings?refresh=first`)
+    await setGh({
+      mergeState: 'CLEAN',
+      checks: [{ name: 'Required', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
+    })
+    const held = await waitUntil(async () => {
+      const t = await getTask(client, task.id)
+      return t.mergeHeld !== undefined && (await runs(client, task)).length === 1 ? t : undefined
+    }, 'a Merge check run and the held reason')
+    expect(held.mergeHeld).toContain('running the checks')
+    await polls(client)
+    expect(await merges()).toEqual([])
+
+    await writeFile(release, '')
+    await waitForStage(client, task, 'done')
+    expect(await merges()).toHaveLength(1)
+    expect((await runs(client, task)).map((r) => [r.outcome, r.checks.map((c) => c.name)])).toEqual(
+      [['passed', ['Prefix', 'First', 'Later', 'Added']]],
+    )
+    expect((await getTask(client, task.id)).mergeHeld).toBeUndefined()
   },
   long,
 )

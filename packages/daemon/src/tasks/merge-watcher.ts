@@ -74,6 +74,9 @@ export interface MergeWatcherOptions {
   port: MergePort
 }
 
+const checksRunning =
+  'Ted is running the checks on the code it will merge, because they haven’t run on it yet.'
+
 export function createMergeWatcher(options: MergeWatcherOptions) {
   const { store, clock, ciStuckMs, port } = options
   const {
@@ -129,8 +132,10 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     try {
       await requireObligations(find(taskId), read)
       held.delete(taskId)
+      store.setMergeHeld(taskId, undefined)
     } catch (error) {
       const why = redactSecrets(textOf(error))
+      store.setMergeHeld(taskId, why)
       if (held.get(taskId) !== why) {
         held.set(taskId, why)
         console.error(`${store.getTask(taskId)?.displayId ?? taskId}’s merge is waiting: ${why}`)
@@ -487,7 +492,11 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
             return adoptRebase(task, target, step.head)
         }
       }
-      if (!(await mergeChecks(taskId, resolution))) return 'wait'
+      if (!(await mergeChecks(taskId, resolution))) {
+        if (store.getTask(taskId)?.checksActive) store.setMergeHeld(taskId, checksRunning)
+        return 'wait'
+      }
+      if (store.mergeHeld(taskId) === checksRunning) store.setMergeHeld(taskId, undefined)
       const current = find(taskId)
       if (mergeMode(store, current, (await port.resolve(current)).workflow) !== mode) return 'busy'
     }

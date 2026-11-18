@@ -693,7 +693,8 @@ export function createValidation(options: ValidationOptions) {
     if (
       store.latestRebase(taskId, since) === undefined &&
       !pendingRepair(task) &&
-      !mergeChecksStarted(task)
+      !mergeChecksStarted(task) &&
+      (options.isChecking(taskId) || (await currentCoverage(task)))
     )
       return true
     if (options.isChecking(taskId) || task.stopped || task.archived || task.waitsForBlockers)

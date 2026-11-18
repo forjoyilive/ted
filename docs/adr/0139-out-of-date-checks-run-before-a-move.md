@@ -13,3 +13,7 @@ Before a Task moves past Validate, `requireCoverage` in `packages/daemon/src/tas
 ## Tests
 
 `status.test.ts` covers the activity line, `request-answers.test.ts` an approval while the Checks are out of date, `validate-coverage.test.ts` advancing with a changed plan, changed code and a failing Check, and `merge-gate-after-approval.test.ts` Mark done after the Check plan changed on the default branch.
+
+## The merge watcher runs them too (TED-576)
+
+A Task signed off and waiting in Merge could stop for good when another Task changed the Factory’s Checks on the default branch. The merge watcher’s obligations refused with `StaleCoverageError` on every cycle, nothing started the Checks, and the only sign was a daemon log line. Now `mergeChecks` in `validation.ts` also starts a `merge` Check run when `currentCoverage` is false, through the same path as after a rebase. A pass lets the merge go on, and a failure becomes a `post-rebase-check` failure case with the usual diagnosis and send-back. While the watcher holds a merge, it keeps the reason in memory (`setMergeHeld` in the store, `mergeHeld` on the Task) and the app shows it under “The merge is pending”. `merge-check-decisions-retry-fix.test.ts` covers Checks changed on main during Merge, and `chat-component.test.tsx` the reason in the Comment box.
