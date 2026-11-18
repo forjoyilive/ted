@@ -95,7 +95,10 @@ const youTubeDomains = [
   'ytimg.com',
   'ggpht.com',
 ]
-const youTubeScripts = ['https://www.google.com/js/th/']
+const youTubeExtras = [
+  { prefix: 'https://www.google.com/js/th/', type: 'script' },
+  { prefix: 'https://jnn-pa.googleapis.com/', type: 'xhr' },
+]
 const signInHost = 'ted-guest-proxy.invalid'
 export const guestSignInUrl = `http://${signInHost}/`
 
@@ -122,7 +125,9 @@ export function isOutsideRequest(address: string, resourceType: string, method: 
   if (!url) return false
   if (outsideTypes.has(resourceType)) return true
   if (resourceType === 'xhr' && readMethods.has(method)) return true
-  if (resourceType === 'script' && youTubeScripts.some((prefix) => url.href.startsWith(prefix)))
+  if (
+    youTubeExtras.some(({ prefix, type }) => type === resourceType && url.href.startsWith(prefix))
+  )
     return true
   return isYouTube(address) && resourceType !== 'mainFrame' && resourceType !== 'webSocket'
 }

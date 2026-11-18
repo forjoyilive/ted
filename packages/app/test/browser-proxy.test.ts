@@ -119,6 +119,11 @@ test('YouTube’s hosts load anything but a top-level page or a socket, over HTT
   expect(isOutsideRequest('https://www.google.com/js/th/abc.js', 'script', 'GET')).toBe(true)
   expect(isOutsideRequest('https://www.google.com/js/other.js', 'script', 'GET')).toBe(false)
   expect(isOutsideRequest('https://www.google.com/js/th/abc.js', 'subFrame', 'GET')).toBe(false)
+  const check = 'https://jnn-pa.googleapis.com/$rpc/google.internal.waa.v1.Waa/GenerateIT'
+  expect(isOutsideRequest(check, 'xhr', 'POST')).toBe(true)
+  expect(isOutsideRequest(check, 'subFrame', 'GET')).toBe(false)
+  expect(isOutsideRequest('https://other.googleapis.com/x', 'xhr', 'POST')).toBe(false)
+  expect(isOutsideRequest('http://jnn-pa.googleapis.com/x', 'xhr', 'POST')).toBe(false)
 })
 
 interface Seen {
