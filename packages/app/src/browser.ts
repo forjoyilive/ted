@@ -297,6 +297,12 @@ export function createTaskBrowsers(
                 const density = await script('devicePixelRatio').catch(() => undefined)
                 if (!isNumber(density) || !Number.isFinite(density) || density <= 0)
                   return undefined
+                // Chromium lays out a page without a viewport meta tag wider than a mobile frame
+                // and zooms it out to fit; the capture’s clip is in unzoomed page pixels.
+                const zoom = await script('visualViewport ? visualViewport.scale : 1').catch(
+                  () => undefined,
+                )
+                if (!isNumber(zoom) || !Number.isFinite(zoom) || zoom <= 0) return undefined
                 // A view that isn’t on screen may not draw a frame for the debugger’s capture;
                 // a capture that stays hidden makes it draw without showing it.
                 void contents
@@ -307,9 +313,9 @@ export function createTaskBrowsers(
                   clip: {
                     x: 0,
                     y: 0,
-                    width: metrics.width,
-                    height: metrics.height,
-                    scale: 1 / density,
+                    width: metrics.width / zoom,
+                    height: metrics.height / zoom,
+                    scale: zoom / density,
                   },
                 })
                 return isString(data) ? data : undefined

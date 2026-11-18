@@ -421,6 +421,22 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     bottomLeft: '000',
   }
   expect(await screenshot()).toEqual(mobileShot)
+  const unscaledPage = new URL('?no-viewport', adminPage).href
+  await command({ action: 'navigate', value: unscaledPage })
+  await expect
+    .poll(() =>
+      app?.evaluate(
+        async ({ webContents }, url) =>
+          webContents
+            .getAllWebContents()
+            .find((c) => c.getURL() === url)
+            ?.executeJavaScript('({ width: innerWidth, scale: visualViewport.scale < 1 })'),
+        unscaledPage,
+      ),
+    )
+    .toEqual({ width: 980, scale: true })
+  expect(await screenshot()).toEqual(mobileShot)
+  await command({ action: 'navigate', value: adminPage })
   const adminAttached = () =>
     app?.evaluate(({ BrowserWindow }, url) => {
       const children = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []

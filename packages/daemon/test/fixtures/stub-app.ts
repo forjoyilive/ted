@@ -70,7 +70,10 @@ function handle(req: http.IncomingMessage, res: http.ServerResponse) {
     const corner = (place: string, colour: string) =>
       `<div aria-hidden="true" style="position:fixed;${place};width:40px;height:40px;background:${colour}"></div>`
     const marked = process.env.STUB_APP_EDGE_MARKS === '1'
-    const viewport = marked ? '<meta name="viewport" content="width=device-width">' : ''
+    const viewport =
+      marked && !url.searchParams.has('no-viewport')
+        ? '<meta name="viewport" content="width=device-width">'
+        : ''
     const edgeMarks = marked
       ? corner('top:0;right:0', '#0f0') +
         corner('bottom:0;right:0', '#f0f') +
