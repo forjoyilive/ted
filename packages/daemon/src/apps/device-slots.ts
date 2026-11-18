@@ -533,7 +533,15 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       return
     }
     const comment = store.getComment(commentId)
-    if (comment) pool.wait(commentId, waiterOf(app, comment.answer === undefined))
+    if (!comment) return
+    const answer = comment.answer
+    if (answer === undefined) {
+      pool.wait(commentId, waiterOf(app, true))
+      return
+    }
+    const freed =
+      answer.kind === 'approved' || (answer.kind === 'withdrawn' && 'slotFreed' in answer)
+    if (freed) pool.wait(commentId, waiterOf(app, false))
   }
 
   function withdraw(commentId: string): void {
