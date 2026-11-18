@@ -206,6 +206,52 @@ describe('A branch that conflicts with its base', () => {
     ).toBe(true)
   })
 
+  test('sent back after a Loop check finds the rounds converging, keeps its cause', async () => {
+    const findings = scratchFile('converging.md')
+    await writeFile(
+      findings,
+      `${JSON.stringify({ steps: [{ say: 'Verdict: converging' }, { endTurn: true }] })}\n`,
+    )
+    const { client, task } = await begin(
+      [
+        `elif [ ! -e '${scratchFile('worked')}' ]; then`,
+        work(),
+        'ted outcome advance',
+        `elif [ ! -e '${scratchFile('sent-back')}' ]; then`,
+        `touch '${scratchFile('validating')}'`,
+        waitForMain(),
+        `ted outcome advance > '${scratchFile('refused.out')}' 2>&1`,
+        `ted outcome back --to work --cause base-conflict --findings '${findings}' && touch '${scratchFile('sent-back')}'`,
+        `elif [ ! -e '${scratchFile('resolved')}' ]; then`,
+        resolve(),
+        `touch '${scratchFile('resolved')}'`,
+        'ted outcome advance',
+      ],
+      [],
+      ['stages:', '  validate:', '    max_back: 5', '    loop_check: 1'],
+    )
+    await moveMain('validating')
+
+    const [sendBack] = await waitUntil(async () => {
+      const found = await sendBacks(client, task)
+      return found.length > 0 ? found : undefined
+    }, 'the send-back after the Loop check')
+    expect(sendBack).toMatchObject({
+      from: 'validate',
+      to: 'work',
+      counted: true,
+      round: 1,
+      cause: 'base-conflict',
+    })
+    const thread = await lines(client, task)
+    expect(thread.some((l) => l.startsWith('Loop check: converging'))).toBe(true)
+    expect(
+      thread.some((l) =>
+        /^Validate sent this back to Work \(round 1 of \d+\) · base conflict$/.test(l),
+      ),
+    ).toBe(true)
+  })
+
   test('a send-back that names a conflict Ted can’t find is an ordinary send-back, on a branch Ted moved to the latest base at its first Work entry', async () => {
     const { client, task } = await begin(
       [

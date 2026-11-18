@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from 'vitest'
 import { openStore } from '../src/store/index.ts'
+import { editEventlog, makeTempHome, pretendStateSchemaChanged } from './helpers.ts'
 
 test('base conflicts are kept per Task, survive a reopen and go when the Task is deleted', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'ted-base-conflicts-'))
@@ -84,5 +85,44 @@ test('a held send-back and a Loop check keep a base-conflict cause through a reo
   } finally {
     await store.close()
     await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('a held send-back and a Loop check from v1 events load with no cause', async () => {
+  const temporary = await makeTempHome()
+  const directory = path.join(temporary.home, 'store')
+  let store = await openStore({ directory })
+  try {
+    const task = await store.createTask({ title: 'Old events' })
+    const held = { taskId: task.id, to: 'work', findings: 'Conflicts with main.' } as const
+    store.askAboutSendBack({
+      ...held,
+      commentId: 'old-ask',
+      from: 'validate',
+      loop: true,
+      cause: 'base-conflict',
+    })
+    store.startLoopCheck({ ...held, runId: 'old-run', round: 2, cause: 'base-conflict' })
+    await store.persisted()
+    await store.close()
+    await editEventlog(
+      temporary.home,
+      `UPDATE eventlog SET name = 'v1.SendBackAsked', argsJson = json_remove(argsJson, '$.cause')
+         WHERE name = 'v2.SendBackAsked';
+       UPDATE eventlog SET name = 'v1.LoopCheckStarted', argsJson = json_remove(argsJson, '$.cause')
+         WHERE name = 'v2.LoopCheckStarted';`,
+    )
+    await pretendStateSchemaChanged(temporary.home)
+    store = await openStore({ directory })
+
+    const ask = store.sendBackAsk('old-ask')
+    expect(ask).toMatchObject({ taskId: task.id, from: 'validate', loop: true })
+    expect(ask).not.toHaveProperty('cause')
+    const checks = store.loopChecks(task.id)
+    expect(checks).toMatchObject([{ runId: 'old-run', round: 2 }])
+    expect(checks[0]).not.toHaveProperty('cause')
+  } finally {
+    await store.close()
+    await temporary.cleanup()
   }
 })
