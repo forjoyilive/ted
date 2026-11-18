@@ -117,7 +117,7 @@ test('reset still refuses a live daemon', async () => {
   expect(await readdir(folder)).toContain('daemon.json')
 })
 
-test('seeding uses the demo stubs whatever the caller’s environment says', async () => {
+test('withDemoEnvironment uses the demo stubs and then restores the caller’s environment', async () => {
   const before = { ...process.env }
   process.env.TED_CODEX_BIN = '/usr/local/bin/codex'
   process.env.TED_CLAUDE_BIN = '/usr/local/bin/claude'
