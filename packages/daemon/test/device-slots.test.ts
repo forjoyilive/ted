@@ -431,3 +431,22 @@ test('when a build turn runs out its build stops counting, even if it launched a
   expect(pool.building('t1/ios')).toBe(false)
   expect(pool.beginBuild('t2/ios')).toBe(1)
 })
+
+test('a restored build turn keeps its original start, so it runs out on time and the newest build holds it', () => {
+  let at = 10_000
+  const pool = createDevicePool({
+    limit: () => 2,
+    oneAtATime: () => true,
+    turnMs: 1000,
+    now: () => at,
+  })
+  pool.restoreTurn({ key: 't1/ios', displayId: 'NB-1', app: 'iPhone' }, 9_200)
+  pool.restoreTurn({ key: 't2/ios', displayId: 'NB-2', app: 'iPhone' }, 9_500)
+  pool.restoreTurn({ key: 't3/ios', displayId: 'NB-3', app: 'iPhone' }, 8_000)
+  expect(pool.holder()).toMatchObject({ key: 't2/ios' })
+  expect(pool.building('t3/ios')).toBe(false)
+  expect(pool.turnFree('t4/ios')).toBe(false)
+  at = 10_500
+  expect(pool.holder()).toBeUndefined()
+  expect(pool.turnFree('t4/ios')).toBe(true)
+})

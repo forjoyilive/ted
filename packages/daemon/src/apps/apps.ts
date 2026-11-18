@@ -175,6 +175,7 @@ interface Instance {
   waitingFor?: string
   readyAt?: string
   builtAt?: string
+  readyFrom?: number
   ended?: {
     at: string
     how: 'stopped' | 'exited' | 'failed'
@@ -734,6 +735,7 @@ export function createApps(options: AppsOptions): Apps {
       const electron = app.electron === true && port !== undefined
       const electronVars = electron ? electronEnv(port, by, scope !== undefined) : {}
       const driven = electron && by !== 'human'
+      const logFrom = readyFrom.get(key)
       const cpus = () =>
         checkCpus(os.availableParallelism(), pool.beginBuild(key), store.settings().checkCpuPercent)
       const launchVars = isDeviceApp(app) ? { ...extra, TED_APP_CPUS: String(cpus()) } : extra
@@ -773,6 +775,7 @@ export function createApps(options: AppsOptions): Apps {
         startedAt: new Date().toISOString(),
         startedBy: by,
         ...(sandboxed.shell !== undefined && { sandboxed: true }),
+        ...(logFrom !== undefined && { readyFrom: logFrom }),
       }
       try {
         await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -1242,6 +1245,7 @@ export function createApps(options: AppsOptions): Apps {
   }
 
   void (async () => {
+    const reattach: { taskId: string; key: string; dir: string }[] = []
     for (const taskId of safeDirs(appsDir)) {
       if (!options.keep(taskId)) {
         await stopAll(taskId).catch(() => undefined)
@@ -1255,12 +1259,20 @@ export function createApps(options: AppsOptions): Apps {
         for (const appSlug of safeDirs(path.join(root, repoName))) {
           const dir = path.join(root, repoName, appSlug)
           const instance = await readInstance(dir)
-          if (instance && !instance.ended) {
-            watch(taskId, keyOf(taskId, repoName, instance.name), dir)
+          if (!instance || instance.ended) continue
+          const key = keyOf(taskId, repoName, instance.name)
+          if (isDeviceApp(instance) && instance.waitingFor === undefined && !instance.builtAt) {
+            readyFrom.set(key, instance.readyFrom ?? 0)
+            pool.restoreTurn(
+              { key, displayId: store.getTask(taskId)?.displayId ?? taskId, app: instance.name },
+              Date.parse(instance.startedAt),
+            )
           }
+          reattach.push({ taskId, key, dir })
         }
       }
     }
+    for (const { taskId, key, dir } of reattach) watch(taskId, key, dir)
     for (const taskId of emus.taskIds()) {
       if (!options.keep(taskId)) await emus.remove(taskId).catch(() => undefined)
     }
