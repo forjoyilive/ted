@@ -715,22 +715,18 @@ export function createValidation(options: ValidationOptions) {
       : `A check failed on the code Ted will merge, so failure case ${shortReference(failureId)} holds the merge until it’s resolved.`
   }
 
-  async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
+  async function mergeChecks(taskId: string): Promise<boolean> {
     const held: MergeHold = {}
     let ready = false
     try {
-      ready = await mergeCheckSteps(taskId, resolution, held)
+      ready = await mergeCheckSteps(taskId, held)
     } finally {
       holdMerge(taskId, ready ? undefined : held.why)
     }
     return ready
   }
 
-  async function mergeCheckSteps(
-    taskId: string,
-    resolution: WorkflowResolution,
-    held: MergeHold,
-  ): Promise<boolean> {
+  async function mergeCheckSteps(taskId: string, held: MergeHold): Promise<boolean> {
     const task = find(taskId)
     const since = store.listStageEntries(taskId).findLast((e) => mergesHere(e.stage))?.at ?? ''
     if (
@@ -813,7 +809,7 @@ export function createValidation(options: ValidationOptions) {
         }
         options.setChecking(taskId, true)
         reserved = true
-        started = await beginChecks(find(taskId), resolution, 'merge')
+        started = await beginChecks(find(taskId), await options.workflow(find(taskId)), 'merge')
         return false
       })
       if (fix) {
