@@ -379,10 +379,19 @@
   flex-direction: column;
   gap: 2px;
   min-height: 0;
-  margin-block: -2px;
+  margin-block: -2px 4px;
   padding-block: 2px;
   overflow-x: hidden;
   overflow-y: auto;
+  border-block: 1px solid transparent;
+}
+
+.moreAbove {
+  border-top-color: var(--border-subtle);
+}
+
+.moreBelow {
+  border-bottom-color: var(--border-subtle);
 }
 
 .spacer {
