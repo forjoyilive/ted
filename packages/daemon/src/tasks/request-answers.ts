@@ -5,7 +5,9 @@ import type {
   Attachment,
   Comment,
   CommentAnswer,
+  FailureCase,
   PullRequestCiMode,
+  ResolveFailureRequest,
   Run,
   SaveSettingsResult,
   SendBack,
@@ -17,6 +19,7 @@ import {
   failureChoices,
   isTrackerClosedQuestion,
   keepArchiveChoice,
+  namedRepairChoice,
   sizeChoices,
   validateFailureChoices,
 } from '@ted/protocol'
@@ -65,6 +68,11 @@ export interface RequestAnswerPort {
   holding<T>(task: Task, work: () => Promise<T>): Promise<T>
   holdingSignoff<T>(task: Task, work: () => Promise<T>): Promise<T>
   failures: Pick<ReturnType<typeof createFailureCases>, 'findDecision' | 'resolve'>
+  waitForRepair(
+    taskId: string,
+    failureId: string,
+    input: ResolveFailureRequest,
+  ): Promise<FailureCase>
   humanComment(
     task: StoredTask,
     text: string,
@@ -847,6 +855,20 @@ export function createRequestAnswers(
       }
       if (request.action !== 'answer' || request.choice === undefined)
         throw new RequestError(400, 'choose a failure resolution')
+      const named = failure.decisions.find((d) => d.commentId === id)?.repairTask
+      if (named && request.choice === namedRepairChoice(named.displayId)) {
+        if (comment.choices && !comment.choices.includes(request.choice))
+          throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
+        await port.waitForRepair(task.id, failure.id, {
+          requestId: id,
+          resolution: 'repair',
+          repair: { kind: 'existing', taskId: named.id },
+          ...(request.text?.trim() && { reason: request.text.trim() }),
+        })
+        const answered = store.getComment(id)
+        if (!answered) throw new RequestError(404, `no comment ${id}`)
+        return answered
+      }
       const choices = { ...failureChoices, ...validateFailureChoices }
       const resolution = (Object.keys(choices) as (keyof typeof choices)[]).find(
         (key) => choices[key] === request.choice,

@@ -1460,6 +1460,68 @@ test('Validate failure decisions display evidence and send the selected action',
   expect(screen.queryByRole('radio', { name: 'Accept this failure' })).toBeNull()
 })
 
+test('a repair Task the Task Lead named is its own decision choice and shows on the card', async () => {
+  const { answer, handle } = requestApi()
+  const openTask = vi.fn<(id: string) => void>()
+  handle('listTasks', () => [
+    task(),
+    task({ id: 'repair-1', displayId: 'NB-2', number: 2, title: 'Fix the restart test' }),
+  ])
+  handle('listFailures', () => [
+    {
+      id: 'failure-1',
+      taskId: 'NB-1',
+      validation: true,
+      source: { kind: 'finding', runId: 'run-1', finding: 'Restart test' },
+      recordedBy: 'run-1',
+      provenance: 'task-lead-reported',
+      evidence: 'Fails the same way on main.',
+      createdAt,
+      contextId: 'context-1',
+      additions: [],
+      invalidations: [],
+      resolutions: [],
+      assessments: [
+        {
+          id: 'assessment-1',
+          runId: 'run-1',
+          at: createdAt,
+          assessment: 'unrelated',
+          recommendation: 'Wait for NB-2, which fixes the restart test.',
+          repairTask: 'repair-1',
+        },
+      ],
+      decisions: [
+        {
+          commentId: 'request-1',
+          assessmentId: 'assessment-1',
+          repairTask: { id: 'repair-1', displayId: 'NB-2', title: 'Fix the restart test' },
+        },
+      ],
+    },
+  ])
+  render(
+    <RequestCard
+      request={comment({
+        id: 'request-1',
+        kind: 'question',
+        choices: ['Retry', 'Fix in this Task', 'Wait for NB-2', 'Wait for a repair Task'],
+      })}
+      task={task()}
+      onOpenTask={openTask}
+    />,
+  )
+  await user().click(await screen.findByRole('button', { name: 'NB-2 · Fix the restart test' }))
+  expect(openTask).toHaveBeenCalledWith('repair-1')
+  await user().click(screen.getByRole('radio', { name: 'Wait for NB-2' }))
+  expect(await screen.findByText(/waits for NB-2 · Fix the restart test to merge/)).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Confirm Wait for NB-2' }))
+  expect(answer).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ action: 'answer', choice: 'Wait for NB-2' }),
+  )
+})
+
 test('historical failure request keeps its own assessment and decision', async () => {
   bridge({
     simulators: () => ({ supported: false }),
