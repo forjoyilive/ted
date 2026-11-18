@@ -333,10 +333,13 @@ const commit = (file: string, message: string) => [
 const committingLead = () =>
   steps({ everyMessage: [{ run: commit('work.txt', 'Work') }, advance] }, advance)
 
-const finished = (client: Client, task: Task) =>
+const passedValidate = (client: Client, task: Task) =>
   waitUntil(
-    async () => (await getTask(client, task.id))?.stage === 'done' || undefined,
-    'the Task to finish',
+    async () => {
+      const stage = (await getTask(client, task.id))?.stage
+      return stage === 'merge' || stage === 'done' || undefined
+    },
+    'the Task to pass Validate',
     90_000,
   )
 
@@ -362,7 +365,7 @@ describe('Instruction Checks at Validate', () => {
     )
     const client = await startTed()
     const task = await startTask(client, committingLead())
-    await finished(client, task)
+    await passedValidate(client, task)
 
     const [run, ...more] = await checkRuns(client, task)
     expect(more).toEqual([])
@@ -402,7 +405,7 @@ describe('Instruction Checks at Validate', () => {
     )
     const client = await startTed()
     const task = await startTask(client, committingLead())
-    await finished(client, task)
+    await passedValidate(client, task)
 
     const [first, second, ...more] = await checkRuns(client, task)
     expect(more).toEqual([])
@@ -438,7 +441,7 @@ describe('Instruction Checks at Validate', () => {
     )
     const client = await startTed()
     const task = await startTask(client, committingLead())
-    await finished(client, task)
+    await passedValidate(client, task)
 
     const [first, second, ...more] = await checkRuns(client, task)
     expect(more).toEqual([])
