@@ -4803,6 +4803,7 @@ export async function openStore({
       commit(
         ...guideEnd,
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
+        ...blockersRemovedUsed(taskId, at),
         why === undefined
           ? events.taskArchivedV2({ taskId, closing, branches, at })
           : events.taskArchivedV3({ taskId, closing, branches, why, at }),

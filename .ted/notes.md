@@ -24,7 +24,7 @@ One repo, `forjoyilive/ted`: a pnpm workspace on Node 24.
 
 - Issues: Linear, team Kriya Design (`KRI`), project Ted.
 - Designs: the Figma file named in `AGENTS.md`.
-- Spec and decisions: `docs/spec/` and `docs/adr/`.
+- Decisions: the area files in `docs/agents/`.
 
 ## House style
 
