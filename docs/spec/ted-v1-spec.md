@@ -687,7 +687,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 ### 6.12 Work
 
 - Builds on the Task’s branch, with tests, and sub-agents for parallel pieces where useful. Agents only commit; Ted pushes (9.1). (KRI-12, KRI-58)
-- Work can run `ted checks [--name <Check>]` before it hands off. Results go back to the agent, and the thread gets one event line (“Work ran Checks: ✓ Typecheck ✗ Tests”). (KRI-16, KRI-60)
+- Work doesn’t run the Factory’s Checks: `ted checks` is refused in Work, and Ted runs the Checks as Validate’s first step. The Task Lead checks its work with the repo’s quick commands, such as its type check and linter (ADR 0193-ted-checks-is-refused-in-work). (KRI-16, KRI-60)
 - CI failures, review comments and merge conflicts from GitHub go to the Task Lead’s open Run, or to a fresh Run started from the brief. (KRI-20)
 
 ### 6.13 Split it
@@ -875,7 +875,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 | `ted task done` | At Merge, move the Task to Done once GitHub shows every pull request merged. Only the Task’s current Task Lead. | ADR 0140 |
 | `ted task repos set`, `add`, `remove <name>` | Set the Task’s Repos. | KRI-58 |
 | `ted task propose --file <file>` | Post a Task proposal (Split it, planning chats). | KRI-60 |
-| `ted checks [--name <Check>]` | Run the Factory’s Checks now. | KRI-16, KRI-60 |
+| `ted checks [--name <Check>]` | Run the Factory’s Checks now; refused in Work. | KRI-16, KRI-60 |
 | `ted run-app` | Start an App or reuse the running instance. | KRI-18 |
 | `ted app screenshot <app>` / `ted app record <app> --start` or `--stop` | Capture or record the simulator; saves a file to the Task. | KRI-18 |
 | `ted workflow check [<path>]` | Validate `workflow.yaml` and Stage files. | KRI-58 |
