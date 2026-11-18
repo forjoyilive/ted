@@ -2502,6 +2502,7 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
       'stages:',
       '  validate:',
       '    max_back: 1',
+      '    p1_only_from: false',
       '',
     ].join('\n'),
   )

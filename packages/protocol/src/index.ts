@@ -625,6 +625,7 @@ export {
 export {
   parseAddFailureEvidenceRequest,
   parseAssessFailureRequest,
+  parseChooseFailureFixRequest,
   parseRecordFailureRequest,
   parseResolveFailureRequest,
   parseVerifyFailureRequest,

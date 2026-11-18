@@ -124,6 +124,14 @@ export interface FailureCase {
     repos: { repo: string; head: string; onto: string }[]
   }[]
   invalidations: { requestId: string; reason: string; at: string }[]
+  leadFixes?: LeadFix[]
+}
+
+export interface LeadFix {
+  assessmentId: string
+  reason: string
+  runId: string
+  at: string
 }
 
 export interface ValidationObligations {
@@ -175,6 +183,10 @@ export function validationExecution(progress: ValidationProgress, position: numb
 export interface AddFailureEvidenceRequest {
   evidence: string
   contextId?: string
+}
+
+export interface ChooseFailureFixRequest {
+  reason: string
 }
 
 export interface VerifyFailureRequest {

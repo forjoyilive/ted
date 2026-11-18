@@ -1044,6 +1044,13 @@ export class DaemonClient {
       { evidence, ...(fixedBy !== undefined && { fixedBy }) },
     )
   }
+  chooseFailureFix(ref: string, id: string, reason: string): Promise<FailureCase> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/lead-fix`,
+      { reason },
+    )
+  }
   requestFailureDecision(ref: string, id: string): Promise<FailureCase> {
     return this.#request(
       'POST',

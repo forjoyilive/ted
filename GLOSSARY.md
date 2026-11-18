@@ -89,7 +89,7 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command or an instruction a Factory lists for Validate, which Ted runs itself as Validate’s first step, every time a Task enters Validate. A command Check passes when the command exits cleanly; an Instruction Check passes when its agent reports a pass. A failure is a return to Work: the Task Lead in Work fixes it, or asks the human to accept it when the cause is outside the Task. The machine runs the command Checks of only so many Tasks at once; the others wait their turn.
+A command or an instruction a Factory lists for Validate, which Ted runs itself as Validate’s first step, every time a Task enters Validate. A command Check passes when the command exits cleanly; an Instruction Check passes when its agent reports a pass. A failure is a return to Work: the Task Lead fixes it there, including a small, clear fix outside the Task’s own change, or creates a repair Task when the fix is too big. It asks the user when the fix changes what the Task delivers, needs something only the user has, or two attempts have failed. The machine runs the command Checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Instruction Check**:
@@ -109,7 +109,7 @@ The highest severity of a finding: the change loses or corrupts data, opens a se
 _Avoid_: Critical, blocker, severity 1
 
 **Failure case**:
-A record of one failure, its evidence, the Task Lead’s assessment and the human’s decision. Accepting a failure case allows that failure in its tested context; the original result stays failed.
+A record of one failure, its evidence, the Task Lead’s assessment and any choice to fix it or decision by the user. Only the user can accept a failure case, allowing that failure in its tested context; the original result stays failed.
 _Avoid_: Passed failure, ignored check
 
 **Factory setup**:
@@ -236,7 +236,7 @@ _Avoid_: Worker, helper, child agent
 The sub-agent that reviews a Task’s diff at Validate with no Work context. Ted picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round Ted limits it to the earlier findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
-A sub-agent Ted starts itself at Validate’s third return to Work to read the rounds of findings and say whether they are converging or looping.
+A sub-agent Ted starts itself at Validate’s fifth return to Work (by default; `stages.validate.loop_check`) to read the rounds of findings and say whether they are converging or looping.
 
 **Run**:
 One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when Ted starts it until it is stopped. Ted may restart the Provider underneath it, for example onto a new Provider version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.

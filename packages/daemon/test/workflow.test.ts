@@ -82,15 +82,16 @@ describe('Ted defaults', () => {
     expect(settings.stages.review?.gate).toBe(true)
     expect(settings.stages.merge).toMatchObject({ enabled: true, gate: false })
     expect(settings.stages.work?.max_back).toBe(3)
+    expect(settings.stages.work?.lead_closes_failures).toBe(true)
     expect(settings.stages.validate?.max_back).toBe(8)
-    expect(settings.stages.validate?.loop_check).toBe(3)
+    expect(settings.stages.validate?.loop_check).toBe(5)
+    expect(settings.stages.validate?.p1_only_from).toBe(2)
     expect(settings.stages.clarify?.depth).toBe('auto')
   })
 
-  test('leave P1-only rounds and other sub-agents in Validate off', async () => {
+  test('leave other sub-agents in Validate off', async () => {
     const { settings } = resolveWorkflow([await defaults()])
 
-    expect(settings.stages.validate?.p1_only_from).toBeUndefined()
     expect(settings.stages.validate?.sub_agents).toBeUndefined()
   })
 })
@@ -137,7 +138,7 @@ describe('layers', () => {
 
     expect(settings.stages.validate).toMatchObject({
       max_back: 8,
-      loop_check: 3,
+      loop_check: 5,
       p1_only_from: false,
       sub_agents: true,
     })

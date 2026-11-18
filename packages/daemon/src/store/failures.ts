@@ -11,6 +11,7 @@ export type FailureChange =
   | 'requested'
   | 'resolved'
   | 'invalidated'
+  | 'fix-chosen'
 
 export function failureEvent(value: FailureCase, kind: FailureChange) {
   const input = {
@@ -36,6 +37,8 @@ export function failureEvent(value: FailureCase, kind: FailureChange) {
       return events.failureResolved(input)
     case 'invalidated':
       return events.failureAcceptanceInvalidated(input)
+    case 'fix-chosen':
+      return events.failureFixChosen(input)
   }
 }
 
@@ -103,6 +106,7 @@ export function createFailureStore({
         requested: 'decisions',
         resolved: 'resolutions',
         invalidated: 'invalidations',
+        'fix-chosen': 'leadFixes',
       } as const
       for (const field of Object.values(changed)) {
         const old = previous[field] ?? []

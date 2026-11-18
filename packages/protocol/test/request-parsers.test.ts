@@ -620,6 +620,14 @@ test('Validate failure requests preserve all category, action and verification f
   })
 })
 
+test('the Task Lead’s fix choice parser reads its reason and refuses a missing one', () => {
+  expect(P.parseChooseFailureFixRequest({ reason: ' Flaky timing in the test ' })).toEqual({
+    reason: 'Flaky timing in the test',
+  })
+  expect(() => P.parseChooseFailureFixRequest({ reason: '' })).toThrow('nonempty text')
+  expect(() => P.parseChooseFailureFixRequest([])).toThrow('failure request must be an object')
+})
+
 test('Validate failure parsers reject unknown categories and empty verification evidence', () => {
   expect(() =>
     P.parseRecordFailureRequest({

@@ -460,7 +460,15 @@ export type AfterBlocking = 'backlog' | 'wait'
 export type BlockersCleared = 'merged' | 'removed'
 
 export type StartCause =
-  | { cause: 'factory-setting' | 'snooze' | 'coordinator' | 'automation' | 'blockers-removed' }
+  | {
+      cause:
+        | 'factory-setting'
+        | 'snooze'
+        | 'coordinator'
+        | 'automation'
+        | 'blockers-removed'
+        | 'task-lead-child'
+    }
   | { cause: 'blockers-merged'; blockers: readonly string[] }
 
 export interface RepairApproval {
