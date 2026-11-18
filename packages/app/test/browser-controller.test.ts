@@ -582,6 +582,7 @@ test('a Task whose App is being switched reports Opening until the new page is r
     url: 'http://localhost:3000/',
     text: 'Ready',
     size: 'desktop',
+    blocked: 0,
   })
   let release: (() => void) | undefined
   mocks.sessions[0]?.clearStorageData.mockImplementationOnce(
