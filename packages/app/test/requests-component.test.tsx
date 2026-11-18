@@ -1108,6 +1108,48 @@ test('an Inbox row shows its Task’s or chat’s title large, with the request�
   })
 })
 
+test('the Inbox priority mark and the item’s menu change the Task’s priority without opening it', async () => {
+  const props = inboxProps()
+  const api = bridge({ setPriority: () => undefined })
+  const item = { task: task(), request: comment({ id: 'c1', body: 'A question?' }) }
+  const view = render(<Inbox {...props} items={[item]} />)
+  const u = user()
+  const mark = () => screen.getByRole('button', { name: /^Priority: .*Change priority of NB-1$/ })
+  const pick = async (name: string) => {
+    const menu = await screen.findByRole('menu', { name: 'Priority' })
+    await u.click(within(menu).getByRole('menuitemradio', { name: new RegExp(name) }))
+    await waitFor(() => expect(screen.queryByRole('menu', { name: 'Priority' })).toBeNull())
+  }
+
+  await u.click(mark())
+  await pick('High')
+  expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'high')
+
+  view.rerender(<Inbox {...props} items={[{ ...item, task: task({ priority: 'high' }) }]} />)
+  expect(mark().getAttribute('aria-label')).toBe('Priority: High. Change priority of NB-1')
+  fireEvent.contextMenu(mark())
+  expect(screen.queryByRole('menu', { name: /^NB-1 · / })).toBeNull()
+  await pick('Urgent')
+  expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'urgent')
+
+  fireEvent.contextMenu(screen.getByRole('button', { name: /A question\?/ }))
+  const itemMenu = await screen.findByRole('menu', { name: /^NB-1 · / })
+  await u.click(within(itemMenu).getByRole('menuitem', { name: 'Priority' }))
+  await pick('Low')
+  expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'low')
+  expect(props.onOpen).not.toHaveBeenCalled()
+
+  view.rerender(
+    <Inbox
+      {...props}
+      items={[
+        { ...item, task: task({ archived: { at: createdAt, ended: { kind: 'never-started' } } }) },
+      ]}
+    />,
+  )
+  expect(screen.queryByRole('button', { name: /^Priority: / })).toBeNull()
+})
+
 test('Filter holds Group by, the order choices, the Factory chips and Answered; headings count, collapse and are remembered', async () => {
   const props = inboxProps()
   const question = {
@@ -1135,7 +1177,7 @@ test('Filter holds Group by, the order choices, the Factory chips and Answered; 
     const headlines = () =>
       [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
     const headings = () =>
-      [...view.container.querySelectorAll('ul [aria-expanded]')].map((el) => [
+      [...view.container.querySelectorAll('ul > li > button[aria-expanded]')].map((el) => [
         el.textContent,
         el.getAttribute('aria-expanded'),
       ])
@@ -1181,7 +1223,7 @@ test('Filter holds Group by, the order choices, the Factory chips and Answered; 
     view.unmount()
     render(<Inbox {...all} />)
     const again = () =>
-      [...document.querySelectorAll('ul [aria-expanded]')].map((el) => [
+      [...document.querySelectorAll('ul > li > button[aria-expanded]')].map((el) => [
         el.textContent,
         el.getAttribute('aria-expanded'),
       ])
@@ -2367,6 +2409,7 @@ test('Inbox right-click offers request actions, then Task or plan actions, and n
     'Snooze…',
     'Copy message text',
     'Stop Task',
+    'Priority ›',
     'Copy Task ID',
     'Archive…',
     'Delete…',
