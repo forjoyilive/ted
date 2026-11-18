@@ -63,6 +63,7 @@ import {
   localFolderAction,
   localFolderCardAction,
   shortCommit,
+  updateFailure,
 } from '@ted/protocol/local-folder'
 import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
@@ -2731,7 +2732,7 @@ export function createCoordinators(options: {
             await store.persisted()
             throw new RequestError(
               409,
-              `Ted couldn’t update ${plan.folder}: ${plan.updateFailed}. Nothing ran.`,
+              `Ted couldn’t update ${plan.folder}: ${updateFailure(plan.updateFailed).reason}. Nothing ran.`,
             )
           }
         }
