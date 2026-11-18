@@ -32,6 +32,9 @@ describe('Approve and merge', () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
     expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge', noCi: ['widgets'] })
+    const atSignoff = (await getTask(client, task.id)).repos[0]
+    expect(atSignoff?.pushed).toBeUndefined()
+    expect(await originBranches()).not.toContain(atSignoff?.branch ?? 'ted/')
     const blocked = await client.ok<Task>('POST', '/tasks', {
       title: JSON.stringify({ steps: [{ endTurn: true }] }),
       factory: 'NB',
@@ -75,6 +78,10 @@ describe('Approve and merge', () => {
       merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
     })
     const { task, signoff } = await toSignoff(client)
+    expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge' })
+    const atSignoff = (await getTask(client, task.id)).repos[0]
+    expect(atSignoff?.pushed).toBeUndefined()
+    expect(await originBranches()).not.toContain(atSignoff?.branch ?? 'ted/')
     await approve(client, signoff)
 
     const waiting = await eventWait(
