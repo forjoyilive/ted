@@ -475,17 +475,26 @@ export function createApps(options: AppsOptions): Apps {
     }
   }
 
-  async function find(
-    taskId: string,
+  function declared(
+    task: AppTask,
     ref: AppRef,
-  ): Promise<{ task: AppTask; repo: AppRepo; app: AppDeclaration }> {
-    const task = await options.task(taskId)
+  ): { task: AppTask; repo: AppRepo; app: AppDeclaration } | undefined {
     const wanted = slug(ref.name.trim())
     for (const repo of task.repos) {
       if (ref.repo !== undefined && ref.repo !== repo.name) continue
       const app = repo.apps.find((a) => slug(a.name) === wanted)
       if (app) return { task, repo, app }
     }
+    return undefined
+  }
+
+  async function find(
+    taskId: string,
+    ref: AppRef,
+  ): Promise<{ task: AppTask; repo: AppRepo; app: AppDeclaration }> {
+    const task = await options.task(taskId)
+    const found = declared(task, ref)
+    if (found) return found
     const names = task.repos.flatMap((r) => r.apps.map((a) => a.name))
     if (task.repos.length === 0) {
       throw new RequestError(409, `${task.displayId} has no worktree yet, so no App can run`)
@@ -951,25 +960,36 @@ export function createApps(options: AppsOptions): Apps {
     instance: Instance & { waitingFor: string },
   ): Promise<'waiting' | 'launched' | 'ended'> {
     await restored
-    const found = await find(taskId, { repo: instance.repo, name: instance.name }).catch(
-      () => undefined,
-    )
+    const key = keyOf(taskId, instance.repo, instance.name)
     const end = async (how: 'stopped' | 'failed', problem?: string) => {
-      instance.ended = {
-        at: new Date().toISOString(),
-        how,
-        ...(problem !== undefined && { problem }),
-      }
-      await writeInstance(dir, instance)
-      if (problem !== undefined) {
-        thread.appStartFailed({ taskId, repo: instance.repo, name: instance.name, problem })
-      }
-      changed(taskId)
-      return 'ended' as const
+      // stopHost holds this key's turn while it awaits the follower, so waiting for the turn here
+      // could deadlock; try again on the next poll instead.
+      if (busy.has(key)) return 'waiting' as const
+      return serial(key, async () => {
+        const current = await readInstance(dir)
+        if (!current || current.ended) return 'ended' as const
+        if (current.waitingFor !== instance.waitingFor) return 'waiting' as const
+        current.ended = {
+          at: new Date().toISOString(),
+          how,
+          ...(problem !== undefined && { problem }),
+        }
+        await writeInstance(dir, current)
+        if (problem !== undefined) {
+          thread.appStartFailed({ taskId, repo: instance.repo, name: instance.name, problem })
+        }
+        changed(taskId)
+        return 'ended' as const
+      })
     }
+    const looked = await options.task(taskId).catch((error: Error) => error)
+    const taskGone = looked instanceof RequestError && looked.status === 404
+    if (looked instanceof Error && !taskGone) return 'waiting'
+    const found = looked instanceof Error ? undefined : declared(looked, instance)
     if (!found) {
-      devicesFor(instance.kind).withdraw(instance.waitingFor)
-      return end('stopped')
+      const ended = await end('stopped')
+      if (ended === 'ended') devicesFor(instance.kind).withdraw(instance.waitingFor)
+      return ended
     }
     const { task, repo, app } = found
     if (closed) return 'waiting'
