@@ -1,5 +1,5 @@
 // @ts-check
-// Plain JavaScript: Electron's sandboxed preload loader doesn't strip TypeScript types (ADR 0011).
+// Plain JavaScript: Electron's sandboxed preload loader doesn't strip TypeScript types.
 const { contextBridge, ipcRenderer } = require('electron')
 
 /** @type {import('./renderer/ted.ts').TedBridge} */
