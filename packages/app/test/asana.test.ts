@@ -105,6 +105,9 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
   await expect.poll(() => newTask.getByLabel('Title').inputValue()).toBe('Checkout redesign')
   expect(await preview.getByLabel('Sync these Tasks with Asana').isChecked()).toBe(true)
   expect(await preview.textContent()).toContain('Ted comments on each Asana task')
+  expect(await preview.textContent()).toContain(
+    'Title names the parent Task; the Tasks under it keep their Asana names.',
+  )
   await newTask.getByLabel('Start now').uncheck()
   await newTask.getByRole('button', { name: 'Create 3 Tasks' }).click()
   await newTask.waitFor({ state: 'detached' })
