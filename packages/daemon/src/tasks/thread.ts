@@ -41,7 +41,7 @@ const planEndLines: Record<string, string> = {
 }
 
 export const nudgeMessage =
-  'Continue. If you need the human to decide or do something, ask with `ted outcome ask "<question>"`; a plain `ted comment` doesn’t wait for them, so Ted will ask them why you stopped.'
+  'Continue. If you need the human to decide or do something, ask with `ted outcome ask "<question>"`; a plain `ted comment` doesn’t wait for them. If you can’t go on, end your reply with one line that starts `Stuck because:` and says why; Ted shows that line to the human.'
 
 const agentNames: Record<string, string> = {
   claude: 'Claude',

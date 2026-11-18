@@ -2427,7 +2427,7 @@ test.each(['general', 'Validate'])(
 )
 
 test('answer gives a choice on Ted’s idle question, and refuses free text alone', async () => {
-  const s = await setup(undefined, undefined, 100)
+  const s = await setup(undefined, undefined, 20)
   const { task } = await s.led(
     { say: 'Templates are wired in.' },
     { endTurn: true },
@@ -2437,7 +2437,10 @@ test('answer gives a choice on Ted’s idle question, and refuses free text alon
     async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),
     'Ted to ask about the idle Task Lead',
   )
-  expect(idle).toMatchObject({ author: { kind: 'ted' }, choices: ['Nudge again'] })
+  expect(idle).toMatchObject({
+    author: { kind: 'ted' },
+    choices: ['Nudge again', 'Restart from the brief'],
+  })
   const { run } = await s.start()
 
   const list = unpack<{
@@ -2451,9 +2454,9 @@ test('answer gives a choice on Ted’s idle question, and refuses free text alon
       kind: 'question',
       askedBy: 'ted',
       stage: idle.stage,
-      title: 'The Task Lead stopped without saying why',
+      title: 'The Task Lead is stuck',
       text: idle.body,
-      choices: ['Nudge again'],
+      choices: ['Nudge again', 'Restart from the brief'],
       createdAt: idle.createdAt,
       coordinatorMayAnswer: 'with a choice',
     },
@@ -2479,7 +2482,7 @@ test('answer gives a choice on Ted’s idle question, and refuses free text alon
   expect(nudged.status).toBe(200)
   const receipt = nudged.body as CoordinatorReceipt
   expect(receipt.text).toContain(
-    `Answered ${task.displayId}’s question “The Task Lead stopped without saying why” with “Nudge again” · was `,
+    `Answered ${task.displayId}’s question “The Task Lead is stuck” with “Nudge again” · was `,
   )
   expect(receipt.text).toContain(' · now ')
   expect((await s.comments(task.id)).find((c) => c.id === idle.id)?.answer).toMatchObject({

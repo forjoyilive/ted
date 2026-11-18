@@ -1225,23 +1225,23 @@ test('answered rounds distinguish recommended and changed responses', () => {
   ])
 })
 
-test('idle ask quotes the last response and sends Nudge again', async () => {
+test('idle ask shows the reason and sends Restart from the brief', async () => {
   const { answer } = requestApi()
   render(
     <RequestCard
       task={task()}
       request={comment({
-        body: 'The Task Lead stopped without saying why\n\n> I’ll check the empty template next.',
-        choices: ['Nudge again'],
+        body: 'The fixture has no empty template.\n\nIt stopped again after 3 nudges without asking you anything.',
+        choices: ['Nudge again', 'Restart from the brief'],
       })}
     />,
   )
-  expect(screen.getByText('The Task Lead stopped without saying why')).toBeTruthy()
-  expect(screen.getByText('I’ll check the empty template next.')).toBeTruthy()
-  await user().click(screen.getByRole('radio', { name: 'Nudge again' }))
+  expect(screen.getByText('The fixture has no empty template.')).toBeTruthy()
+  expect(screen.getByRole('radio', { name: 'Nudge again' })).toBeTruthy()
+  await user().click(screen.getByRole('radio', { name: 'Restart from the brief' }))
   expect(answer).not.toHaveBeenCalled()
   await user().click(screen.getByRole('button', { name: 'Send' }))
-  expect(answer).toHaveBeenCalledWith('c1', { action: 'answer', choice: 'Nudge again' })
+  expect(answer).toHaveBeenCalledWith('c1', { action: 'answer', choice: 'Restart from the brief' })
 })
 
 test('empty Inbox opens New Task and Show answered opens the empty Answered view', async () => {

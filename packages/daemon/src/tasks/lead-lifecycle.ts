@@ -222,7 +222,9 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       if (restartAsked.has(taskId) || task.leadRestartPending) {
         if (lead.agent !== run.agent) {
           if (store.newWorkHold() !== undefined) return
-          if (!(await freshLead(task, run, lead.agent))) return
+          const note = (unread: readonly RunMessage[]) =>
+            agentChangeNote(task, run, lead.agent, unread)
+          if (!(await freshLead(task, run, lead.agent, note))) return
           restartAsked.delete(taskId)
           interruptedForRestart.delete(run.id)
           return
@@ -301,19 +303,67 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     }
   }
 
-  async function freshLead(task: StoredTask, run: Run, agent: AgentKind): Promise<boolean> {
+  async function freshLead(
+    task: StoredTask,
+    run: Run,
+    agent: AgentKind,
+    note: (unread: readonly RunMessage[]) => Promise<string>,
+  ): Promise<boolean> {
     if (!task.repos.some((r) => !r.removed)) throw new Error(`${task.displayId} has no worktree`)
     if (!(await health.ready(agent))) return false
     const resolution = await workflow(find(task.id))
     const env = leadEnv(task, entries(task, resolution))
     const unread = store.runMessages(run.id).filter((message) => message.queued === true)
-    const pickUp = await agentChangeNote(task, run, agent, unread)
+    const pickUp = await note(unread)
     await runs.stop(run.id)
     await launch(task, resolution, env, undefined, { pickUp })
     if (find(task.id).leadRunId === run.id) return true
     for (const message of unread) store.deleteRunMessage(run.id, message.id)
     await store.persisted()
     return true
+  }
+
+  async function restartFromBrief(
+    taskId: string,
+    note: (unread: readonly RunMessage[]) => Promise<string>,
+    starting: () => void,
+  ): Promise<void> {
+    const task = find(taskId)
+    const run = liveLead(task)
+    const agent = effectiveLead(task)?.agent ?? run?.agent
+    const refusal = () => {
+      const now = find(taskId)
+      const live = liveLead(now)
+      if (now.stopped || now.archived || !live || live.id !== run?.id || !agent)
+        return `${now.displayId} has no running Task Lead to restart`
+      if (live.state === 'working') return `${now.displayId}’s Task Lead is working again`
+      if (applying.has(taskId)) return `${now.displayId}’s Task Lead is already restarting`
+      return (
+        agentStartHold(store, agent, agent === live.agent ? live.id : undefined) ??
+        (store.newWorkHold() !== undefined ? 'Ted isn’t starting new work right now' : undefined)
+      )
+    }
+    const before = refusal()
+    if (before !== undefined || !run || !agent)
+      throw new RequestError(409, before ?? `${task.displayId} has no running Task Lead to restart`)
+    if (!(await health.ready(agent)))
+      throw new RequestError(
+        409,
+        `${agentShortNames[agent]} isn’t ready. Check Settings → Providers.`,
+      )
+    const after = refusal()
+    if (after !== undefined) throw new RequestError(409, after)
+    applying.add(taskId)
+    try {
+      starting()
+      if (!(await freshLead(find(taskId), run, agent, note)))
+        throw new RequestError(
+          409,
+          `${agentShortNames[agent]} isn’t ready. Check Settings → Providers.`,
+        )
+    } finally {
+      applying.delete(taskId)
+    }
   }
 
   async function restartNow(taskId: string): Promise<void> {
@@ -786,6 +836,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     prepare,
     applyLead,
     restartNow,
+    restartFromBrief,
     acknowledgeLeadMessages,
     interruptedSetups,
     pendingRevive: (taskId: string) => pendingRevive(taskId) !== undefined,

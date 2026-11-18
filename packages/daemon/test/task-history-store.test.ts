@@ -185,16 +185,18 @@ test('failure history preserves resume failures for explanation but excludes the
   expect(store.failureHistory(id, initial).recent).toEqual([])
 })
 
-test('nudge history is isolated by Run and Task', async () => {
-  expect(store.latestNudge(id, 'one')).toBeUndefined()
+test('nudge counts are isolated by Run and Task and start after the given time', async () => {
+  expect(store.nudgesSince(id, 'one', '')).toBe(0)
   store.leadNudged(id, 'one')
-  const first = new Date().toISOString()
   vi.setSystemTime(initial + 1000)
+  const second = new Date().toISOString()
+  store.leadNudged(id, 'one')
   store.leadNudged(id, 'two')
   const other = (await store.createTask({ title: 'Other' })).id
   store.leadNudged(other, 'one')
-  expect(store.latestNudge(id, 'one')).toBe(first)
-  expect(store.latestNudge(id, 'two')).toBe(new Date().toISOString())
+  expect(store.nudgesSince(id, 'one', '')).toBe(2)
+  expect(store.nudgesSince(id, 'one', second)).toBe(1)
+  expect(store.nudgesSince(id, 'two', '')).toBe(1)
 })
 
 test('Gate approval bindings select their commit and Task', async () => {

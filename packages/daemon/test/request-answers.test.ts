@@ -9,6 +9,7 @@ import {
   sizeChoices,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { RequestError } from '../src/errors.ts'
 import { type NewComment, openStore, type TedStore } from '../src/store/index.ts'
 import { answerMessage } from '../src/tasks/answer-message.ts'
 import { linearConnector, linearRecords } from '../src/tasks/linear-sync.ts'
@@ -127,6 +128,10 @@ beforeEach(async () => {
     wake: () => {},
     sendNudge: async () => {
       effects.push('nudged')
+    },
+    restartFromBrief: async (_task, asked, answer) => {
+      answer()
+      effects.push(`restarted:${asked.body}`)
     },
     useDefaultModel: async () => {
       effects.push('default-model')
@@ -347,6 +352,31 @@ test('the stored idle purpose nudges its current Lead', async () => {
     choice: 'Nudge again',
   })
   expect(effects).toEqual(['nudged'])
+})
+
+test('the stored idle purpose restarts from the brief after recording the answer', async () => {
+  const comment = post(
+    { kind: 'idle-run' },
+    { body: 'The fixture repo is missing.', choices: ['Nudge again', 'Restart from the brief'] },
+  )
+  await answer(comment, { action: 'answer', choice: 'Restart from the brief' })
+  expect(effects).toEqual(['restarted:The fixture repo is missing.'])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Restart from the brief',
+  })
+})
+
+test('a refused Restart from the brief leaves the idle question open', async () => {
+  port.restartFromBrief = async () => {
+    throw new RequestError(409, 'Ted isn’t starting new work right now')
+  }
+  const comment = post({ kind: 'idle-run' }, { choices: ['Nudge again', 'Restart from the brief'] })
+  await expect(
+    answer(comment, { action: 'answer', choice: 'Restart from the brief' }),
+  ).rejects.toThrow('Ted isn’t starting new work right now')
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(store.listOpenRequests().map((c) => c.id)).toContain(comment.id)
 })
 
 test('a sign-off approves only after checking obligations and advances, without sending drafts', async () => {
