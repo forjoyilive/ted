@@ -5,7 +5,6 @@ import {
   dashboardRanges,
   factoryNotifications,
   parseAddFactoryRequest,
-  parseAutoStartBacklogRequest,
   parseCheckRepoRequest,
   parseCheckTryRequest,
   parseCreateFactoryRequest,
@@ -169,13 +168,6 @@ export const factoryRoutes: Route[] = [
           githubIntakeScopes: { ...scopes, ...(body.scope && { [id]: body.scope }) },
         }),
       ]
-    },
-  }),
-  jsonRoute(parseAutoStartBacklogRequest, {
-    method: 'PUT',
-    path: /^\/factories\/([^/]+)\/auto-start-backlog$/,
-    async handle({ body, params: [id = ''] }, { factories }) {
-      return [200, await factories.setAutoStartBacklog(id, body.enabled)]
     },
   }),
   {

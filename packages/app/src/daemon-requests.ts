@@ -186,7 +186,7 @@ export const forwardedRequests = [
   'saveLibrary',
   'drift',
   'mergeInherited',
-  'setFactoryAutoStartBacklog',
+  'setBacklogStarts',
   'renameFactory',
   'setFactoryIcon',
   'reorderFactories',

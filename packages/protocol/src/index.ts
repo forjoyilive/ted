@@ -184,6 +184,16 @@ export {
   type TaskAutopilot,
 } from './autopilot.ts'
 export {
+  type BacklogStarts,
+  backlogStartFactories,
+  noBacklogStarts,
+  parseSetBacklogStartsRequest,
+  type SetBacklogStartsRequest,
+  sameBacklogStarts,
+  startsFromBacklog,
+  withoutGroups,
+} from './backlog-starts.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerActionInput,
@@ -484,7 +494,6 @@ export {
   type SaveExportResult,
 } from './export.ts'
 export type {
-  AutoStartBacklogRequest,
   SetRepoFolderRequest,
   StopCheckTryRequest,
 } from './factory.ts'
@@ -529,7 +538,6 @@ export type {
 } from './factory-icon.ts'
 export {
   parseAddFactoryRequest,
-  parseAutoStartBacklogRequest,
   parseCheckRepoRequest,
   parseCheckTryRequest,
   parseCreateFactoryRequest,

@@ -15,7 +15,7 @@ async function formReady() {
 }
 
 async function newTask(
-  options: { tasks?: Task[]; parentId?: string; autoStartBacklog?: boolean } = {},
+  options: { tasks?: Task[]; parentId?: string; startsAutomatically?: boolean } = {},
 ) {
   const created = vi.fn(() => task())
   const settings = vi.fn((changes: unknown) => changes)
@@ -28,7 +28,8 @@ async function newTask(
   const close = vi.fn()
   render(
     <NewTaskDialog
-      factories={[factory({ autoStartBacklog: options.autoStartBacklog ?? false })]}
+      factories={[factory()]}
+      startsAutomatically={() => options.startsAutomatically ?? false}
       tasks={options.tasks ?? []}
       factoryId="f1"
       {...(options.parentId !== undefined && { parentId: options.parentId })}
@@ -93,11 +94,13 @@ test('New Task sends an explicit title and starts by default', async () => {
   )
 })
 
-test('Start now unchecked says the Task will start when the Factory starts Backlog Tasks automatically', async () => {
-  await newTask({ autoStartBacklog: true })
+test('Start now unchecked says the Task will start when Ted starts Backlog Tasks from the Factory', async () => {
+  await newTask({ startsAutomatically: true })
   await user().click(screen.getByLabelText('Start now'))
   expect(
-    screen.getByText('Starts when a slot is free: this Factory starts Backlog Tasks automatically'),
+    screen.getByText(
+      'Starts when a slot is free: Ted starts Backlog Tasks from this Factory automatically',
+    ),
   ).toBeTruthy()
   expect(screen.queryByText('Waits in Backlog until you start it')).toBeNull()
 })

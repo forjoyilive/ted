@@ -22,6 +22,7 @@
     "./integrations": "./src/integrations.ts",
     "./linear": "./src/linear.ts",
     "./settings": "./src/settings.ts",
+    "./backlog-starts": "./src/backlog-starts.ts",
     "./factory": "./src/factory.ts",
     "./factory-icon": "./src/factory-icon.ts",
     "./github-setup": "./src/github-setup.ts",

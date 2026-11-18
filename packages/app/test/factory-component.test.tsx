@@ -155,15 +155,10 @@ test('connected Linear and Asana show their pickers only when a choice needs the
   expect(asana.queryByRole('button', { name: 'Save' })).toBeNull()
 })
 
-test('automatic Backlog starting saves immediately without the repository Save dialog', async () => {
-  const save = vi.fn(() => factory({ autoStartBacklog: true }))
-  const api = open({ setFactoryAutoStartBacklog: save })
-  const toggle = await screen.findByRole('switch', { name: 'Start Backlog Tasks automatically' })
-  expect(toggle.getAttribute('aria-checked')).toBe('false')
-  await user().click(toggle)
-  expect(api.request).toHaveBeenCalledWith('setFactoryAutoStartBacklog', 'f1', true)
-  expect(toggle.getAttribute('aria-checked')).toBe('true')
-  expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
+test('General has no switch for automatic Backlog starts; Settings → General holds it', async () => {
+  open()
+  expect(await screen.findByRole('region', { name: 'General' })).toBeTruthy()
+  expect(screen.queryByRole('switch', { name: 'Start Backlog Tasks automatically' })).toBeNull()
 })
 
 test('the Icon picker saves a coloured symbol or an emoji at once and refuses an SVG upload', async () => {
@@ -201,21 +196,6 @@ test('the Icon picker saves a coloured symbol or an emoji at once and refuses an
   fireEvent.change(picker.getByLabelText('Image file'), { target: { files: [svg] } })
   expect((await picker.findByRole('alert')).textContent).toBe('Choose a PNG, JPEG, WebP or GIF.')
   expect(api.request.mock.calls.filter(([name]) => name === 'setFactoryIcon')).toHaveLength(2)
-})
-
-test('automatic Backlog starting disables during save and keeps its value on error', async () => {
-  const pending = deferred<never>()
-  open({ setFactoryAutoStartBacklog: () => pending.promise })
-  const toggle = (await screen.findByRole('switch', {
-    name: 'Start Backlog Tasks automatically',
-  })) as HTMLButtonElement
-  await user().click(toggle)
-  expect(toggle.disabled).toBe(true)
-  expect(toggle.getAttribute('aria-checked')).toBe('false')
-  await act(async () => pending.reject(new Error('Couldn’t save the Factory option')))
-  expect(screen.getByRole('alert').textContent).toBe('Couldn’t save the Factory option')
-  expect(toggle.disabled).toBe(false)
-  expect(toggle.getAttribute('aria-checked')).toBe('false')
 })
 
 test('Workflow and notes stay staged across pages while confirmed permissions save locally', async () => {

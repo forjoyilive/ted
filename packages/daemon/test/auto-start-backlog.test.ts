@@ -2,9 +2,12 @@ import { mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
+  type BacklogStarts,
   DaemonClient,
   type DaemonEvent,
   type Factory,
+  type MachineSettings,
+  noBacklogStarts,
   type RunSlots,
   readDaemonInfo,
   type Task,
@@ -63,9 +66,24 @@ async function start(options: Partial<Parameters<typeof startDaemon>[0]> = {}) {
   const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
   return { client, factory }
 }
-const route = (factory: Factory) => `/factories/${factory.id}/auto-start-backlog`
-const enable = (client: Client, factory: Factory, enabled = true) =>
-  client.ok<Factory>('PUT', route(factory), { enabled })
+const enable = async (client: Client, factory: Factory, enabled = true) => {
+  const { backlogStarts } = await client.ok<MachineSettings>('GET', '/settings')
+  const others = backlogStarts.factoryIds.filter((id) => id !== factory.id)
+  const factoryIds = enabled ? [...others, factory.id] : others
+  return client.ok<MachineSettings>('PUT', '/backlog-starts', {
+    ...backlogStarts,
+    enabled: factoryIds.length > 0 || backlogStarts.groupIds.length > 0,
+    factoryIds,
+  })
+}
+const choose = (client: Client, starts: Partial<BacklogStarts>) =>
+  client.ok<MachineSettings>('PUT', '/backlog-starts', {
+    enabled: true,
+    all: false,
+    groupIds: [],
+    factoryIds: [],
+    ...starts,
+  })
 const steps = (...steps: unknown[]) => JSON.stringify({ steps })
 const working = (file: string) => steps({ waitFor: file }, { endTurn: true })
 const create = (client: Client, fields: Partial<Task> = {}) =>
@@ -89,44 +107,61 @@ const lead = (client: Client, task: Task) =>
 const slots = (client: Client) => client.ok<RunSlots>('GET', '/slots')
 
 describe('automatic Backlog starts', () => {
-  test('defaults off, validates requests, refuses non-app callers and persists the setting', async () => {
+  test('defaults off, validates requests, refuses non-app callers, follows groups and persists the setting', async () => {
     let { client, factory } = await start()
-    expect(factory.autoStartBacklog).toBe(false)
+    expect((await client.ok<MachineSettings>('GET', '/settings')).backlogStarts).toEqual(
+      noBacklogStarts,
+    )
     const task = await create(client)
     expect((await get(client, task)).stage).toBe('backlog')
-    for (const enabled of [null, 'true', 1, undefined]) {
-      expect((await client.call('PUT', route(factory), { enabled })).status).toBe(400)
+    for (const body of [
+      null,
+      { enabled: 'true', all: false, groupIds: [], factoryIds: [] },
+      { enabled: true, all: false, groupIds: [], factoryIds: ['missing'] },
+      { enabled: true, all: false, groupIds: ['missing'], factoryIds: [] },
+    ]) {
+      expect((await client.call('PUT', '/backlog-starts', body)).status).toBe(400)
     }
     expect(
-      (await client.call('PUT', '/factories/missing/auto-start-backlog', { enabled: true })).status,
-    ).toBe(404)
+      (await client.call('PATCH', '/settings', { backlogStarts: { ...noBacklogStarts } })).status,
+    ).toBe(400)
     const fileClient = api(daemon?.port ?? 0, await tokenFor(home))
     const token = (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1')
     const runClient = api(daemon?.port ?? 0, token)
+    const body = { enabled: true, all: false, groupIds: [], factoryIds: [factory.id] }
     for (const caller of [fileClient, runClient]) {
-      expect((await caller.call('PUT', route(factory), { enabled: true })).status).toBe(403)
+      expect((await caller.call('PUT', '/backlog-starts', body)).status).toBe(403)
     }
     await client.ok('POST', `/tasks/${task.id}/archive`)
+    const group = { id: 'clients', name: 'Clients', factoryIds: [factory.id] }
+    await client.ok('PUT', '/factories/layout', { items: [{ group }] })
     const info = await readDaemonInfo(home)
     if (!info) throw new Error('no daemon info')
     const events: DaemonEvent[] = []
     const subscription = await new DaemonClient(info).subscribe((event) => events.push(event))
     try {
-      expect((await enable(client, factory)).autoStartBacklog).toBe(true)
+      expect((await choose(client, { groupIds: ['clients'] })).backlogStarts).toEqual({
+        ...noBacklogStarts,
+        enabled: true,
+        groupIds: ['clients'],
+      })
       await waitUntil(
         () =>
           events.some(
-            (event) => event.type === 'factory-updated' && event.factory.autoStartBacklog,
+            (event) => event.type === 'settings-changed' && event.settings.backlogStarts.enabled,
           ),
-        'Factory update',
+        'settings change',
       )
     } finally {
       subscription.close()
     }
+    await client.ok('PUT', '/factories/layout', { items: [{ factoryId: factory.id }] })
+    const ungrouped = { ...noBacklogStarts, enabled: true, factoryIds: [factory.id] }
+    expect((await client.ok<MachineSettings>('GET', '/settings')).backlogStarts).toEqual(ungrouped)
     await daemon?.stop()
     daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
     client = clientNow()
-    expect((await client.ok<Factory[]>('GET', '/factories'))[0]?.autoStartBacklog).toBe(true)
+    expect((await client.ok<MachineSettings>('GET', '/settings')).backlogStarts).toEqual(ungrouped)
   })
 
   test('fills immediately, honors the machine cap, refills on waiting, stops filling when disabled, and Autopilot alone starts nothing', async () => {
@@ -267,7 +302,7 @@ describe('automatic Backlog starts', () => {
     expect(await slots(client)).toMatchObject({ working: 3, queued: 0 })
   })
 
-  test('two Factories share the machine cap without duplicate starts', async () => {
+  test('two Factories in a chosen group share the machine cap without duplicate starts', async () => {
     const otherScratch = path.join(scratch, 'other')
     const otherOrigin = await makeOriginRepo(otherScratch)
     const renamed = path.join(otherScratch, 'acme', 'other.git')
@@ -282,7 +317,10 @@ describe('automatic Backlog starts', () => {
     })
     await enable(client, factory)
     await lead(client, a)
-    await enable(client, other)
+    await client.ok('PUT', '/factories/layout', {
+      items: [{ group: { id: 'both', name: 'Both', factoryIds: [factory.id, other.id] } }],
+    })
+    await choose(client, { groupIds: ['both'] })
     expect((await get(client, b)).stage).toBe('backlog')
     await client.ok('POST', `/tasks/${a.id}/stop`)
     expect((await lead(client, b)).runs).toHaveLength(1)

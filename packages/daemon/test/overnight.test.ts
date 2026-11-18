@@ -214,13 +214,23 @@ describe('Autopilot', () => {
     const { client, factory } = await start()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1, overnightMode: true })
     const a = await create(client)
-    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: true,
+      all: false,
+      groupIds: [],
+      factoryIds: [factory.id],
+    })
     await lead(client, a)
     await client.ok('PATCH', '/settings', { overnightMode: false })
     const b = await create(client)
     await client.ok('POST', `/tasks/${a.id}/stop`)
     await lead(client, b)
-    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: false })
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: false,
+      all: false,
+      groupIds: [],
+      factoryIds: [],
+    })
     const explicit = await create(client)
     expect((await get(client, explicit)).autopilot).toEqual({ choice: 'inherit', enabled: false })
     await client.ok('PUT', `/tasks/${explicit.id}/autopilot`, { choice: 'on' })
