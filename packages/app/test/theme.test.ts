@@ -273,6 +273,7 @@ describe('button heights', () => {
       ['views/Inbox.module.css', 'snooze', small],
       ['components/Markdown.module.css', 'copy', small],
       ['components/FactoryIconPicker.module.css', 'button', regular],
+      ['components/Sidebar.module.css', 'busy', regular, 'grows'],
     ]
 
     for (const [file, name, height, grows] of buttons) {
