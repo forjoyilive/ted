@@ -89,7 +89,7 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command or an instruction a Factory lists for Validate, which Ted runs itself as Validate’s first step, every time a Task enters Validate. A command Check passes when the command exits cleanly; an Instruction Check passes when its agent reports a pass. A failure is a return to Work: the Task Lead in Work fixes it, or asks the human to accept it when the cause is outside the Task. The machine runs the command Checks of only so many Tasks at once; the others wait their turn.
+A command or an instruction a Factory lists for Validate, which Ted runs itself as Validate’s first step, every time a Task enters Validate. A command Check passes when the command exits cleanly; an Instruction Check passes when its agent reports a pass. A failure is a return to Work: the Task Lead fixes it there, including a small, clear fix outside the Task’s own change, or creates a repair Task when the fix is too big. It asks the user when the fix changes what the Task delivers, needs something only the user has, or two attempts have failed. The machine runs the command Checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Instruction Check**:
