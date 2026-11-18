@@ -395,8 +395,17 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await addTarget('touchend')
   await app.evaluate(({ webContents }, url) => {
     const page = webContents.getAllWebContents().find((c) => c.getURL() === url)
-    page?.sendInputEvent({ type: 'mouseDown', x: 5, y: 5, button: 'left', clickCount: 1 })
-    page?.sendInputEvent({ type: 'mouseUp', x: 5, y: 5, button: 'left', clickCount: 1 })
+    // sendInputEvent skips Chromium's touch emulation; a mouse event sent this way never answers.
+    for (const type of ['mousePressed', 'mouseReleased'])
+      void page?.debugger
+        .sendCommand('Input.dispatchMouseEvent', {
+          type,
+          x: 5,
+          y: 5,
+          button: 'left',
+          clickCount: 1,
+        })
+        .catch(() => {})
   }, adminPage)
   await expect.poll(() => onAdmin('globalThis.hits')).toBe(1)
   await clickTargetAsAgent()
@@ -407,6 +416,8 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await sizeButton.click()
   await window.getByRole('menuitemradio', { name: /^Desktop/ }).click()
   await expect.poll(adminScreen).toMatchObject({ touch: 0, phone: false })
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
+  await expect.poll(() => onAdmin('document.readyState')).toBe('complete')
   await addTarget('click')
   await clickTargetAsAgent()
   await expect.poll(() => onAdmin('globalThis.hits')).toBe(1)
