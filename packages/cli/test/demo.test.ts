@@ -29,12 +29,18 @@ const env = () => ({
 test('lists demo seeding in help', async () => {
   const result = await exec(process.execPath, [cli, 'help'], { env: env() })
   expect(result.stdout).toContain('ted dev seed [--reset]')
+  expect(result.stdout).toContain('ted dev stop')
   expect(await readdir(home)).toEqual([])
 })
 
 test('refuses Run callers before starting a daemon or preparing files', async () => {
   await expect(
     exec(process.execPath, [cli, 'dev', 'seed'], {
+      env: { ...env(), TED_RUN_CAPABILITY: 'not-a-real-token' },
+    }),
+  ).rejects.toMatchObject({ stderr: expect.stringContaining('outside a Run') })
+  await expect(
+    exec(process.execPath, [cli, 'dev', 'stop'], {
       env: { ...env(), TED_RUN_CAPABILITY: 'not-a-real-token' },
     }),
   ).rejects.toMatchObject({ stderr: expect.stringContaining('outside a Run') })

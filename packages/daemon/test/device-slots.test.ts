@@ -47,6 +47,7 @@ function setup(
     pool?: DevicePool
     android?: boolean
     oneAtATime?: boolean
+    beforeBoot?: () => Promise<void>
   } = {},
 ) {
   const pool =
@@ -87,6 +88,7 @@ function setup(
     },
     refreshLive: async () => false,
     async boot(record) {
+      await options.beforeBoot?.()
       boots.push(record.id)
       live.add(record.id)
     },
@@ -307,6 +309,42 @@ test('one App builds at a time across kinds, and the next goes when the turn end
   expect(again).toHaveProperty('waiting')
 })
 
+test('a place in line withdrawn while its device boots is not granted and leaves the next App in line', async () => {
+  let paused = false
+  let booting: () => void = () => undefined
+  let resume: () => void = () => undefined
+  const started = new Promise<void>((resolve) => {
+    booting = resolve
+  })
+  const { slots, pool, live } = setup({
+    oneAtATime: true,
+    beforeBoot: () =>
+      paused
+        ? new Promise<void>((resolve) => {
+            resume = resolve
+            booting()
+          })
+        : Promise.resolve(),
+  })
+  await slots.acquire(app('t1'), 'human', {})
+  const first = await slots.acquire(app('t2'), 'automation', {})
+  const second = await slots.acquire(app('t3'), 'automation', {})
+  if (!('waiting' in first) || !('waiting' in second)) throw new Error('expected to wait')
+  pool.endTurn('t1/widgets/ios')
+  live.delete('dev-1')
+
+  paused = true
+  const granting = slots.wait(first.waiting, app('t2'))
+  await started
+  slots.withdraw(first.waiting)
+  resume()
+
+  expect(await granting).toEqual({ state: 'gone' })
+  expect(pool.line).toEqual([second.waiting])
+  expect(pool.holder()).toBeUndefined()
+  expect(slots.slots().waiting).toMatchObject([{ taskId: 't3' }])
+})
+
 test('the waiting list says what each App waits for and updates when the build turn ends', async () => {
   const { slots, pool, events } = setup({ oneAtATime: true })
   await slots.acquire(app('t1'), 'human', {})
@@ -323,6 +361,24 @@ test('the waiting list says what each App waits for and updates when the build t
 
   slots.withdraw(queued.waiting)
   expect(slots.slots().waiting).toEqual([])
+})
+
+test('a withdrawn place in line stays out when a late follower lists or waits with it, so the next App still gets the slot', async () => {
+  const { slots, pool, live } = setup()
+  await slots.acquire(app('t1'), 'human', {})
+  const stopped = await slots.acquire(app('t2'), 'automation', {})
+  if (!('waiting' in stopped)) throw new Error('expected to wait')
+  slots.withdraw(stopped.waiting)
+
+  slots.list(stopped.waiting, app('t2'))
+  expect(await slots.wait(stopped.waiting, app('t2'))).toEqual({ state: 'gone' })
+  expect(slots.slots().waiting).toEqual([])
+  expect(pool.line).toEqual([])
+
+  const again = await slots.acquire(app('t2'), 'automation', {})
+  if (!('waiting' in again)) throw new Error('expected to wait')
+  live.delete('dev-1')
+  expect(await slots.wait(again.waiting, app('t2'))).toEqual({ state: 'granted', udid: 'dev-2' })
 })
 
 test('a build turn that runs out updates what the waiting App waits for', async () => {
@@ -430,4 +486,23 @@ test('when a build turn runs out its build stops counting, even if it launched a
   expect(pool.takeTurn({ key: 't2/ios', displayId: 'NB-2', app: 'iPhone' })).toBe(true)
   expect(pool.building('t1/ios')).toBe(false)
   expect(pool.beginBuild('t2/ios')).toBe(1)
+})
+
+test('a restored build turn keeps its original start, so it runs out on time and the newest build holds it', () => {
+  let at = 10_000
+  const pool = createDevicePool({
+    limit: () => 2,
+    oneAtATime: () => true,
+    turnMs: 1000,
+    now: () => at,
+  })
+  pool.restoreTurn({ key: 't1/ios', displayId: 'NB-1', app: 'iPhone' }, 9_200)
+  pool.restoreTurn({ key: 't2/ios', displayId: 'NB-2', app: 'iPhone' }, 9_500)
+  pool.restoreTurn({ key: 't3/ios', displayId: 'NB-3', app: 'iPhone' }, 8_000)
+  expect(pool.holder()).toMatchObject({ key: 't2/ios' })
+  expect(pool.building('t3/ios')).toBe(false)
+  expect(pool.turnFree('t4/ios')).toBe(false)
+  at = 10_500
+  expect(pool.holder()).toBeUndefined()
+  expect(pool.turnFree('t4/ios')).toBe(true)
 })

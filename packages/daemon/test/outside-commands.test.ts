@@ -13,6 +13,7 @@ import {
   type WaitingRequest,
 } from '@ted/protocol'
 import type { ResolvedAgent } from '@ted/protocol/agent-files'
+import { localFolderLine, notedNotRepository, repoShortName } from '@ted/protocol/local-folder'
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { planDraft } from '../src/chats/agent-drafts.ts'
@@ -248,6 +249,33 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
       ) || undefined,
     'the publish result to reach the chat',
   )
+  const notRepo = 'isn’t a git repository'
+  const ranItems = await items(first.id)
+  const commands = ranItems.flatMap((item) =>
+    item.kind === 'command' && item.outside
+      ? [{ ...item.outside, id: item.id, name: item.name }]
+      : [],
+  )
+  expect(commands.map((c) => [c.name, c.folder])).toEqual([
+    ['build', folder],
+    ['publish', folder],
+  ])
+  const noted = notedNotRepository(commands)
+  const chatLines = commands.map(
+    (c) => c.local && localFolderLine(c.local, repoShortName(c.folder), noted.has(c.id))?.text,
+  )
+  expect(chatLines[0]).toContain(notRepo)
+  expect(chatLines[1]).toBeUndefined()
+  const toAgent = (name: string) =>
+    ranItems.find(
+      (item) =>
+        item.kind !== 'agent' &&
+        'text' in item &&
+        item.text.includes(`Ted ran the outside command \`${name}\``),
+    )
+  expect(JSON.stringify(toAgent('build'))).toContain(notRepo)
+  expect(toAgent('publish')).toBeDefined()
+  expect(JSON.stringify(toAgent('publish'))).not.toContain(notRepo)
   const allowed = await ok<OutsideCommandAllowance[]>(
     'GET',
     `/factories/${factory.id}/outside-command-allowances`,
@@ -517,7 +545,10 @@ test('a local folder that is behind is updated before the command runs, one with
   expect(await git('rev-parse', 'HEAD')).toBe(kept)
   expect(await readFile(path.join(folder, 'clash.txt'), 'utf8')).toBe('mine\n')
   await writeFile(path.join(scratch, 'third'), '')
-  await said(third.id, 'Ted couldn’t update it because Ted’s update failed')
+  await said(
+    third.id,
+    'Ted couldn’t update it because untracked files in the folder would be overwritten (clash.txt)',
+  )
 }, 180_000)
 
 test('an Agent draft can’t give Run outside commands; only the user adds it in settings', () => {

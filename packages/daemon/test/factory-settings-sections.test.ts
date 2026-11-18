@@ -172,7 +172,7 @@ describe('Factory settings: Workflow', () => {
     expect(row('design')).toMatchObject({ enabled: true, gate: true, maxBack: 3, from: 'ted' })
     expect(row('clarify')).toMatchObject({ depth: 'auto' })
     expect(row('validate')).toMatchObject({
-      maxBack: 5,
+      maxBack: 8,
       from: 'factory',
       factoryFile: '# Validate here\n',
     })
@@ -227,7 +227,7 @@ describe('Factory settings: Workflow', () => {
     expect(yaml).toMatch(/commit_titles: false/)
     expect(yaml).toContain('- { name: Typecheck, run: npm run typecheck }')
     const on = await client.settings()
-    expect(validate(on)).toMatchObject({ p1OnlyFrom: 3, subAgents: true, maxBack: 5 })
+    expect(validate(on)).toMatchObject({ p1OnlyFrom: 3, subAgents: true, maxBack: 8 })
     expect(view.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
     expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
     expect(view.stages.find((s) => s.id === 'merge')).toMatchObject({ commitTitles: true })

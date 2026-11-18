@@ -101,6 +101,38 @@ test('the update leaves the folder alone when its branch or tracked files change
   expect(await git(local, 'status', '--porcelain')).toBe('M README.md')
 })
 
+async function duringFetch(command: string): Promise<void> {
+  const script = path.join(scratch, 'upload-pack.sh')
+  await writeFile(
+    script,
+    `#!/bin/sh\ncd '${local}' || exit 1\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE\n${command} || exit 1\nexec git-upload-pack "$@"\n`,
+    { mode: 0o755 },
+  )
+  await git(local, 'config', 'remote.origin.uploadpack', script)
+}
+
+test('the update leaves the folder alone when its branch or tracked files change while Ted fetches', async () => {
+  await pushed('a.txt', 'a\n')
+  const before = await git(local, 'rev-parse', 'HEAD')
+
+  const switched = await checkFolder({ folder: local, clone })
+  await duringFetch('git checkout --quiet -b feature')
+  await expect(updateFolder(local, switched, clone)).rejects.toThrow(
+    'the folder changed while Ted fetched, so Ted left it alone',
+  )
+  expect(await git(local, 'branch', '--show-current')).toBe('feature')
+  expect(await git(local, 'rev-parse', 'feature')).toBe(before)
+  await git(local, 'checkout', '--quiet', 'main')
+
+  const edited = await checkFolder({ folder: local, clone })
+  await duringFetch('echo edited > README.md')
+  await expect(updateFolder(local, edited, clone)).rejects.toThrow(
+    'the folder changed while Ted fetched, so Ted left it alone',
+  )
+  expect(await git(local, 'rev-parse', 'HEAD')).toBe(before)
+  expect(await git(local, 'status', '--porcelain')).toBe('M README.md')
+})
+
 test('uncommitted changes, own commits, other branches and a non-repo folder are reported without touching the folder', async () => {
   await pushed('b.txt', 'b\n')
   await writeFile(path.join(local, 'README.md'), 'edited\n')

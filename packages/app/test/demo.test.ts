@@ -1,11 +1,18 @@
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { demoEnvironment, seedDemoFromCli, verifyDemo } from '@ted/daemon/demo'
+import { demoEnvironment, seedDemoFromCli, stopDemoFromCli, verifyDemo } from '@ted/daemon/demo'
 import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron } from 'playwright'
 import { afterEach, expect, test, vi } from 'vitest'
-import { killAppHosts, killRunHosts, stopDaemonIn } from '../../daemon/test/helpers.ts'
+import {
+  appHostStarts,
+  hostRecords,
+  isAlive,
+  killAppHosts,
+  killRunHosts,
+  stopDaemonIn,
+} from '../../daemon/test/helpers.ts'
 import { installedElectron } from '../scripts/electron-path.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
@@ -33,14 +40,23 @@ test('opens the populated demo and reuses it when reopened', async () => {
   await mkdir(parent, { recursive: true })
   home = await mkdtemp(path.join(parent, 'demo-app-'))
   const env = { ...demoEnvironment(home), TED_HIDDEN_WINDOW: '1' }
-  for (const key of Object.keys(process.env)) delete process.env[key]
-  Object.assign(process.env, env)
+  const elsewhere = await mkdtemp(path.join(parent, 'demo-elsewhere-'))
+  Object.assign(process.env, {
+    TED_HOME: elsewhere,
+    TED_CLAUDE_BIN: path.join(elsewhere, 'missing-claude'),
+    TED_CODEX_BIN: path.join(elsewhere, 'missing-codex'),
+    TED_GH_BIN: path.join(elsewhere, 'missing-gh'),
+  })
+  const callerEnv = { ...process.env }
   await buildRenderer()
   const taskReads = vi.spyOn(DaemonClient.prototype, 'listTasks')
   const conversationReads = vi.spyOn(DaemonClient.prototype, 'getRun')
   const planReads = vi.spyOn(DaemonClient.prototype, 'getPlan')
   const automationReads = vi.spyOn(DaemonClient.prototype, 'getAutomation')
   await seedDemoFromCli(home)
+  expect(process.env).toEqual(callerEnv)
+  expect(await readdir(elsewhere)).toEqual([])
+  await rm(elsewhere, { recursive: true })
   expect(taskReads.mock.calls.length).toBeLessThan(100)
   expect(conversationReads.mock.calls.length).toBeLessThan(100)
   expect(planReads.mock.calls.length).toBeLessThan(30)
@@ -60,6 +76,10 @@ test('opens the populated demo and reuses it when reopened', async () => {
   let nav = window.getByRole('navigation', { name: 'Sidebar' })
   await nav.waitFor({ timeout: 180_000 })
   await nav.getByRole('button', { name: 'Garden', exact: true }).click()
+  const gardenViews = nav
+    .getByRole('article', { name: 'Garden', exact: true })
+    .getByRole('button', { name: 'Views', exact: true })
+  if ((await gardenViews.getAttribute('aria-expanded')) !== 'true') await gardenViews.click()
   await nav.getByRole('button', { name: 'Task views' }).click()
   await nav.getByRole('button', { name: 'Board', exact: true }).click()
   await window
@@ -82,4 +102,20 @@ test('opens the populated demo and reuses it when reopened', async () => {
   expect(info).toBeDefined()
   if (info) await verifyDemo(new DaemonClient(info, info.token))
   expect((await seedDemoFromCli(home)).tasks).toEqual(manifest.tasks)
+  await closeApp(app)
+  app = undefined
+  const pids = [info?.pid ?? 0]
+  for (const run of await readdir(path.join(home, 'runs'))) {
+    for (const record of await hostRecords(home, run)) {
+      if (record.t === 'start') pids.push(Number(record.hostPid), Number(record.agentPid))
+    }
+  }
+  const appStarts = await appHostStarts(home)
+  expect(appStarts.length).toBeGreaterThan(0)
+  for (const start of appStarts) pids.push(start.hostPid, start.pid ?? 0)
+  expect(pids.filter((pid) => pid > 1 && isAlive(pid)).length).toBeGreaterThan(0)
+  await stopDemoFromCli(home)
+  expect(await readDaemonInfo(home)).toBeUndefined()
+  expect(pids.filter((pid) => pid > 1 && isAlive(pid))).toEqual([])
+  expect(JSON.parse(await readFile(path.join(home, 'demo.json'), 'utf8')).complete).toBe(false)
 }, 240_000)

@@ -1,9 +1,14 @@
 import path from 'node:path'
-import type { LocalFolderCheck, LocalFolderUpdate } from '@ted/protocol/local-folder'
+import {
+  type LocalFolderCheck,
+  type LocalFolderUpdate,
+  notRepositoryProblem,
+} from '@ted/protocol/local-folder'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
 
 const fetchTimeoutMs = 60_000
+const maxFailureLength = 2000
 
 const dependencyFiles = new Set([
   'package.json',
@@ -38,7 +43,7 @@ export async function checkFolder(input: {
   try {
     local = await git.folderHead(input.folder)
   } catch {
-    return { checked: false, problem: 'the folder isn’t a git repository with a commit' }
+    return { checked: false, problem: notRepositoryProblem }
   }
   try {
     await git.fetch(input.clone, fetchTimeoutMs)
@@ -117,7 +122,8 @@ export async function updateFolder(
       target,
     )
   } catch (error) {
-    throw new Error(firstLine(error instanceof Error ? error.message : String(error)))
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(redactSecrets(message.slice(0, maxFailureLength)))
   }
   const changed = await git.changedFileNames([await git.cloneObjects(clone)], head, target)
   const dependencies = changed.filter((file) => dependencyFiles.has(path.basename(file)))

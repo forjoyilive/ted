@@ -701,6 +701,7 @@ describe('custom Stages', () => {
         '',
       ].join('\n'),
       {
+        '.gitignore': 'stub-*\n',
         '.ted/stages/security.md': '# Security\n\nLook for secrets in the change.\n',
         '.ted/stages/release-notes.md': `# Release notes\n\n${steps(
           { run: ['ted', 'outcome', 'back', '--to', 'work', '--findings', findings] },

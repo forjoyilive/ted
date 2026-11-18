@@ -88,7 +88,7 @@ import {
   windowTitle,
 } from './background.ts'
 import { createTaskBrowsers } from './browser.ts'
-import { fixedHosts, guestProxyRules } from './browser-proxy.ts'
+import { fixedHosts, guestProxyRules, type HeldLookups, heldLookups } from './browser-proxy.ts'
 import type { CustomHandlers, CustomRequests } from './custom-requests.ts'
 import { getAutomation, taskBrief } from './daemon-adapters.ts'
 import { forwardDaemonRequest, isForwardedRequest } from './daemon-requests.ts'
@@ -425,6 +425,10 @@ let settings: MachineSettings = defaultMachineSettings
 const testSentryDsn = app.isPackaged ? undefined : tedEnv('TED_SENTRY_DSN')
 const forcedErrors = tedEnv('TED_FORCE_ERROR')?.split(',') ?? []
 const browserHosts = tedEnv('TED_BROWSER_HOSTS')
+declare global {
+  var tedHeldLookups: HeldLookups | undefined
+}
+if (browserHosts) globalThis.tedHeldLookups = heldLookups()
 
 function crashReports(part: 'main' | 'renderer'): ReportCrash {
   return crashReporter({
@@ -959,6 +963,7 @@ async function quitCompletely(): Promise<void> {
   }
   window?.hide()
   if (edition === 'dev' && tedEnv('TED_DEMO') === '1') {
+    await markQuit(tedHome()).catch(console.error)
     await supervisor?.handOver({ maxWaitMs: 0 }).catch((error: unknown) => console.error(error))
   } else {
     await markQuit(tedHome()).catch((error: unknown) => console.error('quit mark:', error))
@@ -1216,16 +1221,29 @@ async function start(): Promise<void> {
   taskBrowsers = createTaskBrowsers(
     () => window,
     () => supervised.client,
-    (taskId, app) => {
-      sendToRenderer({
-        type: 'browser-open',
-        taskId,
-        app: { repo: app.repo, name: app.name, browser: true },
-      })
+    (notice) => {
+      if (notice.type === 'select')
+        sendToRenderer({
+          type: 'browser-open',
+          taskId: notice.taskId,
+          app: { repo: notice.app.repo, name: notice.app.name, browser: true },
+        })
+      else
+        sendToRenderer({
+          type: 'browser-history',
+          taskId: notice.taskId,
+          app: { repo: notice.app.repo, name: notice.app.name },
+          canGoBack: notice.canGoBack,
+          canGoForward: notice.canGoForward,
+        })
     },
     { session, WebContentsView },
     {},
-    guestProxyRules(app, net, browserHosts ? { lookup: fixedHosts(browserHosts) } : {}),
+    guestProxyRules(
+      app,
+      net,
+      browserHosts ? { lookup: fixedHosts(browserHosts, globalThis.tedHeldLookups) } : {},
+    ),
   )
   servePrototypes((file) => supervised.client.readAttachment(file))
   traceStartup('initial-state-start')

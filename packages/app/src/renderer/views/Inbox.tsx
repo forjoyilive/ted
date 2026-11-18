@@ -26,6 +26,7 @@ import { FactoryName } from '../components/FactoryIcon.tsx'
 import { Help } from '../components/Help.tsx'
 import { BellOffIcon, ChevronIcon, ClockIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { PriorityButton, priorityMenuItems } from '../components/PriorityMenu.tsx'
 import { ListPane } from '../components/ResizableSidebar.tsx'
 import { TaskDialog, type TaskDialogKind } from '../components/TaskActions.tsx'
 import type { ConfirmationRequest } from '../data.ts'
@@ -124,6 +125,7 @@ export function Inbox({
     ...(!task.archived && task.preparation === 'ready'
       ? [{ label: 'Stop Task', action: () => ted.stopTask(task.id) }]
       : []),
+    ...(task.archived ? [] : [{ label: 'Priority', items: priorityMenuItems(task) }]),
     {
       label: 'Copy Task ID',
       action: () => navigator.clipboard.writeText(task.displayId),
@@ -331,6 +333,13 @@ export function Inbox({
       <span className={styles.until}>Returns {snoozeTime(at)}</span>
     )
   }
+  const priority = (row: (typeof allRows)[number]) =>
+    row.kind === 'task' &&
+    !row.item.task.archived && (
+      <span className={styles.priority}>
+        <PriorityButton task={row.item.task} />
+      </span>
+    )
   const rowButton = (row: (typeof allRows)[number], old = false) => {
     const ageClass = old ? `${styles.age} ${styles.old}` : styles.age
     if (row.kind === 'plan') {
@@ -371,7 +380,9 @@ export function Inbox({
       const { request, task } = item
       const where = [
         task.displayId,
-        task.title,
+        <span key="headline" data-headline>
+          {headline(request)}
+        </span>,
         stages.name(request.stage ?? task.stage, task.factoryId),
         ...factoryPart(task.factoryId),
       ]
@@ -385,14 +396,18 @@ export function Inbox({
           aria-current={request.id === selected ? 'true' : undefined}
           {...requestMenu(
             request.id,
-            `${task.displayId} · ${headline(request)}`,
+            `${task.displayId} · ${task.title}`,
             request.body || request.title || '',
             taskActions(task),
           )}
           onClick={() => onOpen(item)}
         >
           <span className={styles.top}>
-            <PriorityIcon priority={task.priority} />
+            {task.archived ? (
+              <PriorityIcon priority={task.priority} />
+            ) : (
+              <span className={styles.prioritySlot} />
+            )}
             <span className={request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind}>
               {requestLabel(request)}
             </span>
@@ -400,10 +415,10 @@ export function Inbox({
             <span className={ageClass}>{age(request.answer?.at ?? request.createdAt, now)}</span>
           </span>
           <span
-            data-headline
+            data-title
             className={unread ? `${styles.headline} ${styles.unread}` : styles.headline}
           >
-            {headline(request)}
+            {task.title}
           </span>
           <span className={styles.where}>{joined(where)}</span>
           {until(row.request.id)}
@@ -414,7 +429,9 @@ export function Inbox({
       const confirmation = row.item
       const where = [
         confirmation.agentName,
-        confirmation.chatTitle,
+        <span key="headline" data-headline>
+          {confirmation.headline}
+        </span>,
         ...factoryPart(confirmation.factoryId),
       ]
       const kind = confirmation.requestKind
@@ -440,8 +457,8 @@ export function Inbox({
             {mark(confirmation.factoryId)}
             <span className={ageClass}>{age(confirmation.createdAt, now)}</span>
           </span>
-          <span data-headline className={`${styles.headline} ${styles.unread}`}>
-            {confirmation.headline}
+          <span data-title className={`${styles.headline} ${styles.unread}`}>
+            {confirmation.chatTitle}
           </span>
           <span className={styles.where}>{joined(where)}</span>
           {until(row.request.id)}
@@ -698,6 +715,7 @@ export function Inbox({
                     group.rows.map((row) => (
                       <li key={row.request.id} className={styles.item}>
                         {rowButton(row, group.old === true && !showAnswered)}
+                        {priority(row)}
                         {!showAnswered && (
                           <button
                             type="button"
@@ -733,6 +751,7 @@ export function Inbox({
               snoozedRows.map((row) => (
                 <li key={row.request.id} className={`${styles.item} ${styles.snoozedItem}`}>
                   {rowButton(row)}
+                  {priority(row)}
                   <div className={styles.rowActions}>
                     <Button
                       size="small"

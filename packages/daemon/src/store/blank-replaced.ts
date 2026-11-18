@@ -12,7 +12,7 @@ export interface BlankOptions {
   beforeVerify?: (copy: string) => void | Promise<void>
 }
 
-// ADR 0158: each kind’s text field, what it becomes, and the field that matches it to the later
+// Each kind’s text field, what it becomes, and the field that matches it to the later
 // event replacing it.
 // The three JSON fields become `{}` because a `v2.CoordinatorChanged` between two
 // `v1.CoordinatorChanged` events parses the row.

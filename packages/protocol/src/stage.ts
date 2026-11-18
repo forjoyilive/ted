@@ -122,6 +122,13 @@ export const bindsApproval = (id: string): boolean => stageTraits(id).bindsAppro
 export const mergesHere = (id: string): boolean => stageTraits(id).merges
 export const isCleanup = (id: string): boolean => stageTraits(id).cleanup
 
+export function defaultStagePriority(id: string): number {
+  if (isCleanup(id)) return 2
+  return mergesHere(id) ? 1 : 0
+}
+
+export const skipsBusyHoldByDefault = (id: string): boolean => isCleanup(id)
+
 function place(id: string, order: readonly string[]): [number, number] {
   if (isBuiltInStage(id)) return [builtInStageOrder.indexOf(id), 0]
   const at = order.indexOf(id)

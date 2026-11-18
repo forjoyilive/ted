@@ -102,6 +102,9 @@ export function OutsideCommandCard({
             data-local-folder={status.tone}
           >
             {status.text}
+            {status.detail !== undefined && (
+              <span className={styles.detail} data-git-said>{`Git said: ${status.detail}`}</span>
+            )}
             {status.fix !== undefined && <span className={styles.fix}>{status.fix}</span>}
           </p>
         )}

@@ -9,7 +9,7 @@ import type {
   TaskChanges,
   ValidationProgress,
 } from '@ted/protocol'
-import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
+import { failureChoices, namedRepairChoice, validateFailureChoices } from '@ted/protocol/failures'
 import {
   answerKind,
   archiveChoice,
@@ -27,6 +27,7 @@ import {
   useComments,
   useEmulators,
   useFactories,
+  useFailures,
   useSimulators,
   useTasks,
   useThreadEvents,
@@ -799,6 +800,28 @@ function TaskNames({ heading, tasks }: { heading: string; tasks: readonly Task[]
   )
 }
 
+function NamedRepairNote({
+  task,
+  requestId,
+  choice,
+}: {
+  task: Task
+  requestId: string
+  choice: string
+}) {
+  const named = useFailures(task.id)
+    .flatMap((f) => f.decisions)
+    .find((d) => d.commentId === requestId)?.repairTask
+  if (!named || choice !== namedRepairChoice(named.displayId)) return null
+  return (
+    <p className={styles.caption}>
+      {task.displayId} keeps its Stage and worktree and waits for {named.displayId} · {named.title}{' '}
+      to merge. Then Ted takes in the repair and runs fresh validation. {named.displayId} keeps its
+      current state.
+    </p>
+  )
+}
+
 function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const repairFormId = useId()
   const boxId = useId()
@@ -995,6 +1018,9 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
       )}
       {needsReason && (
         <p className={styles.caption}>A reason is required. Confirming closes this failure.</p>
+      )}
+      {failureChoice && selectedChoice?.startsWith('Wait for ') && !repairing && (
+        <NamedRepairNote task={task} requestId={request.id} choice={selectedChoice} />
       )}
       {failureChoice && other && (
         <p className={styles.caption}>

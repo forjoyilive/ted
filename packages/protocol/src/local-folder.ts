@@ -32,7 +32,26 @@ export interface LocalFolderState {
 export type LocalFolderAction =
   | { kind: 'run' }
   | { kind: 'update' }
-  | { kind: 'hold'; reason: string; fix: string }
+  | { kind: 'hold'; reason: string; fix: string; detail?: string }
+
+export const notRepositoryProblem = 'the folder isn’t a git repository with a commit'
+
+export function isNotRepository(check: LocalFolderCheck): boolean {
+  return !check.checked && check.problem === notRepositoryProblem
+}
+
+export function notedNotRepository(
+  runs: readonly { id: string; folder: string; local?: LocalFolderState | undefined }[],
+): Set<string> {
+  const noted = new Set<string>()
+  const repeated = new Set<string>()
+  for (const run of runs) {
+    if (!run.local || !isNotRepository(run.local.check)) continue
+    if (noted.has(run.folder)) repeated.add(run.id)
+    else noted.add(run.folder)
+  }
+  return repeated
+}
 
 export function shortCommit(commit: string): string {
   return commit.slice(0, 7)
@@ -68,11 +87,56 @@ export function localFolderAction(check: LocalFolderCheck, folder: string): Loca
   return { kind: 'update' }
 }
 
+function fileList(lines: readonly string[], from: number): string {
+  const files: string[] = []
+  for (const line of lines.slice(from + 1)) {
+    if (!/^\s/.test(line) || line.trim() === '') break
+    files.push(line.trim())
+  }
+  if (files.length === 0) return ''
+  const shown =
+    files.length > 3
+      ? `${files.slice(0, 3).join(', ')} and ${files.length - 3} more`
+      : files.join(', ')
+  return ` (${shown})`
+}
+
+export interface UpdateFailure {
+  reason: string
+  detail?: string
+}
+
+export function updateFailure(raw: string): UpdateFailure {
+  const gitSaid = /^git [a-z-]+ failed(?:: ([\s\S]*))?$/.exec(raw)
+  if (!gitSaid) return { reason: raw }
+  const said = (gitSaid[1] ?? '').trim()
+  const detail = said === '' ? undefined : said.replace(/\s+/g, ' ')
+  const lines = said.split('\n')
+  const at = (pattern: RegExp) => lines.findIndex((line) => pattern.test(line))
+  const untracked = at(/untracked working tree files would be (overwritten|removed)/i)
+  const changed = at(/local changes to the following files would be overwritten/i)
+  const reason =
+    untracked >= 0
+      ? `untracked files in the folder would be overwritten${fileList(lines, untracked)}`
+      : changed >= 0
+        ? `uncommitted changes in the folder would be overwritten${fileList(lines, changed)}`
+        : /not possible to fast-forward|diverging branches/i.test(said)
+          ? 'the folder’s branch has moved away from GitHub’s, so it can’t be fast-forwarded'
+          : /index\.lock|another git process/i.test(said)
+            ? 'another git process is using the folder'
+            : raw.startsWith('git fetch failed')
+              ? 'Ted couldn’t fetch from GitHub into the folder'
+              : 'git couldn’t update the folder'
+  return { reason, ...(detail !== undefined && { detail }) }
+}
+
 export function heldAfterFailedUpdate(problem: string, folder: string): LocalFolderAction {
+  const { reason, detail } = updateFailure(problem)
   return {
     kind: 'hold',
-    reason: `Ted’s update failed: ${problem}`,
+    reason,
     fix: `Update ${folder} yourself, then ask the Agent to run it again.`,
+    ...(detail !== undefined && { detail }),
   }
 }
 
@@ -84,7 +148,8 @@ export function behindText(check: LocalFolderCheck): string {
   return `${count(check.behind ?? 0, 'commit')} behind ${check.against ?? 'GitHub'}`
 }
 
-function noteSentences(check: LocalFolderCheck, name: string): string[] {
+function noteSentences(check: LocalFolderCheck, name: string, noted: boolean): string[] {
+  if (noted && isNotRepository(check)) return []
   if (!check.checked)
     return [`Ted couldn’t check your local ${name} against GitHub: ${check.problem ?? 'unknown'}.`]
   const notes: string[] = []
@@ -135,7 +200,7 @@ export function localFolderCardText(
   state: LocalFolderState,
   folder: string,
   name: string,
-): { tone: 'ok' | 'warn' | 'plain'; text: string; fix?: string } | undefined {
+): { tone: 'ok' | 'warn' | 'plain'; text: string; fix?: string; detail?: string } | undefined {
   const { check } = state
   const action = localFolderCardAction(state, folder)
   if (action.kind === 'update')
@@ -148,15 +213,17 @@ export function localFolderCardText(
       tone: 'warn',
       text: `${behindText(check)}, and Ted can’t update it: ${action.reason}.`,
       fix: action.fix,
+      ...(action.detail !== undefined && { detail: action.detail }),
     }
-  const notes = noteSentences(check, name)
+  const notes = noteSentences(check, name, false)
   return notes.length === 0 ? undefined : { tone: 'plain', text: notes.join(' ') }
 }
 
 export function localFolderLine(
   state: LocalFolderState,
   name: string,
-): { tone: 'ok' | 'warn' | 'plain'; text: string } | undefined {
+  noted = false,
+): { tone: 'ok' | 'warn' | 'plain'; text: string; detail?: string } | undefined {
   const { check, update } = state
   if (update) {
     const copy = copyNote(check)
@@ -165,17 +232,24 @@ export function localFolderLine(
       text: `Ted updated your local ${name} from ${shortCommit(update.from)} to ${shortCommit(update.to)} (${count(update.commits, 'commit')}) before running.${dependencyText(update)}${copy ? ` ${copy}` : ''}`,
     }
   }
-  if (state.updateFailed !== undefined)
+  if (state.updateFailed !== undefined) {
+    const { reason, detail } = updateFailure(state.updateFailed)
     return {
       tone: 'warn',
-      text: `Your local ${name} is ${behindText(check)}, and Ted’s update failed: ${state.updateFailed}.`,
+      text: `Your local ${name} is ${behindText(check)}, and Ted’s update failed: ${reason}.`,
+      ...(detail !== undefined && { detail }),
     }
-  const notes = noteSentences(check, name)
+  }
+  const notes = noteSentences(check, name, noted)
   if (notes.length === 0) return undefined
   return { tone: (check.behind ?? 0) > 0 ? 'warn' : 'plain', text: notes.join(' ') }
 }
 
-export function localFolderAgentNote(state: LocalFolderState, folder: string): string | undefined {
+export function localFolderAgentNote(
+  state: LocalFolderState,
+  folder: string,
+  noted = false,
+): string | undefined {
   const { check, update } = state
   const lines: string[] = []
   if (update) {
@@ -183,9 +257,10 @@ export function localFolderAgentNote(state: LocalFolderState, folder: string): s
       `Ted updated the local folder from ${shortCommit(update.from)} to ${shortCommit(update.to)} (it was ${behindText(check)}) before running your command.${dependencyText(update)}`,
     )
   } else if (!check.checked) {
-    lines.push(
-      `Ted couldn’t check the local folder against GitHub (${check.problem ?? 'unknown'}), so it may be out of date.`,
-    )
+    if (!(noted && isNotRepository(check)))
+      lines.push(
+        `Ted couldn’t check the local folder against GitHub (${check.problem ?? 'unknown'}), so it may be out of date.`,
+      )
   } else {
     const action =
       state.updateFailed !== undefined
@@ -193,7 +268,7 @@ export function localFolderAgentNote(state: LocalFolderState, folder: string): s
         : localFolderAction(check, folder)
     if (action.kind === 'hold')
       lines.push(
-        `The local folder is ${behindText(check)}, and Ted couldn’t update it because ${action.reason}. If the command failed, the older code there may be why, not your command. Don’t change the command; tell the user.`,
+        `The local folder is ${behindText(check)}, and Ted couldn’t update it because ${action.reason}${action.detail !== undefined ? ` (git said: ${action.detail})` : ''}. If the command failed, the older code there may be why, not your command. Don’t change the command; tell the user.`,
       )
     else if (check.offGitHub)
       lines.push(`The local folder is on the branch ${check.branch}, which isn’t on GitHub.`)

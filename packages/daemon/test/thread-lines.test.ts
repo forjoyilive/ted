@@ -139,7 +139,7 @@ describe('event lines', () => {
     ])
   })
 
-  test('a Run now agent on the Task leaves no line, and a Validate instruction Check’s agent does', () => {
+  test('a Run now agent on the Task leaves no line, even beside a Validate Check of the same name, and a Validate instruction Check’s agent does', () => {
     const sub = (minute: number, runId: string) =>
       entry('v5.RunStarted', minute, {
         runId,
@@ -149,7 +149,7 @@ describe('event lines', () => {
         parentRunId: 'lead',
         name: 'Check · Docs drift',
       })
-    const log = [sub(2, 'validate'), sub(5, 'try'), sub(6, 'explore')]
+    const log = [sub(2, 'validate'), sub(2, 'now'), sub(5, 'try'), sub(6, 'explore')]
     const checkRuns: Pick<CheckRun, 'checks' | 'startedAt' | 'finishedAt'>[] = [
       {
         startedAt: at(1),
@@ -161,10 +161,11 @@ describe('event lines', () => {
     ]
     const runNow = runNowAgents(
       log,
-      (runId) => (runId === 'explore' ? undefined : 'instruction-check'),
+      (runId) =>
+        runId === 'explore' ? undefined : runId === 'now' ? 'run-now-check' : 'instruction-check',
       checkRuns,
     )
-    expect([...runNow]).toEqual(['try'])
+    expect([...runNow]).toEqual(['now', 'try'])
     expect(
       threadEvents('t1', log, {
         comments: [],

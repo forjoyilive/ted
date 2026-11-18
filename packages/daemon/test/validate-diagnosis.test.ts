@@ -226,6 +226,30 @@ test(
 )
 
 test(
+  'Accept this failure on a failed instruction Check moves the Task on',
+  async () => {
+    const review = JSON.stringify({
+      steps: [{ say: 'The label is missing.\nResult: fail' }, { endTurn: true }],
+    })
+    const s = await setup([
+      `      - { name: Review, agent: claude, fix: true, instruction: '${review}' }`,
+      '      - { name: Lint, run: "echo linted" }',
+    ])
+    expect(s.one.source).toMatchObject({ kind: 'factory-check' })
+    expect(s.one.evidence).toContain('The label is missing.')
+    expect(states(await s.runs())).toEqual([['Review failed', 'Lint not-run']])
+    await s.accept()
+    await s.validated()
+    expect(states(await s.runs())).toEqual([['Review failed', 'Lint not-run'], ['Lint passed']])
+    expect((await s.cases())[0]?.resolutions.at(-1)?.resolution).toBe('accepted')
+    await s.post('/outcome', { outcome: 'advance' })
+    expect((await getTask(s.client, s.task.id)).stage).toBe('review')
+    expect(await s.backs()).toHaveLength(1)
+  },
+  long,
+)
+
+test(
   'a Workflow without earlier Work refuses Fix and retains the decision',
   async () => {
     const s = await setup(undefined, 'intake, validate, work, review')

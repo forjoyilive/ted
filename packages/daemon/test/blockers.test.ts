@@ -24,6 +24,7 @@ import { openStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
+  hostsStarted,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -383,6 +384,28 @@ describe('starting when the blocker merges', () => {
     expect(stays.markers).toEqual([])
   })
 
+  test('a removal recorded before a restart still starts the Task as removed, not merged', async () => {
+    let client = await startTed()
+    const blocker = await create(client, 'Never started')
+    const task = await create(client, steps({ endTurn: true }), {
+      start: true,
+      blockedBy: [blocker.id],
+    })
+    await daemon?.stop()
+    daemon = undefined
+    const store = await openStore({ directory: tedPaths(home).store })
+    try {
+      store.removeBlocker(task.id, blocker.id)
+      store.setBlockersRemoved(task.id, true)
+    } finally {
+      await store.close()
+    }
+
+    client = await openTed()
+    await waitFor(client, task, (t) => t.leadRunId !== undefined, 'to start after the restart')
+    expect(await startLines(client, task)).toEqual(['Started because its blockers were removed'])
+  })
+
   test('starting a blocked Backlog Task by hand waits for the blocker', async () => {
     const client = await startTed()
     const gate = path.join(scratch, 'gate')
@@ -398,8 +421,8 @@ describe('starting when the blocker merges', () => {
     expect(await startLines(client, task)).toEqual([`Started because ${blocker.displayId} merged`])
   })
 
-  test('removing remaining blockers mid-flow carries on from the brief; a Task stopped by hand stays stopped', async () => {
-    const client = await startTed()
+  test('removing remaining blockers mid-flow carries on from the brief; a Task stopped by hand, a Failed Task and a Task waiting on the human stay put', async () => {
+    let client = await startTed()
     const gate = path.join(scratch, 'gate')
     const briefFile = path.join(scratch, 'brief.md')
     await writeFile(
@@ -424,6 +447,17 @@ describe('starting when the blocker merges', () => {
       { start: true },
     )
     const stoppedByHand = await create(client, steps({ endTurn: true }), { start: true })
+    const waitForBlocker = { run: ['ted', 'task', 'block', '--by', blocker.displayId] }
+    const asking = await create(
+      client,
+      steps(
+        waitForBlocker,
+        { run: ['ted', 'comment', '--choice', 'Yes', '--choice', 'No', 'Keep the old parser?'] },
+        { endTurn: true },
+      ),
+      { start: true },
+    )
+    const failing = await create(client, steps(waitForBlocker, { endTurn: true }), { start: true })
     const first = await waitFor(
       client,
       task,
@@ -472,7 +506,61 @@ describe('starting when the blocker merges', () => {
     await client.ok('DELETE', `/tasks/${stoppedByHand.id}/blockers/${other.displayId}`)
     const stillStopped = await getTask(client, stoppedByHand.id)
     expect(stillStopped).toMatchObject({ blockedBy: [], runs: [], status: { kind: 'stopped' } })
-  })
+
+    const waitingOnYou = await waitFor(
+      client,
+      asking,
+      (t) =>
+        t.status?.kind === 'waiting-on-you' &&
+        t.runs.length === 0 &&
+        t.statuses.includes('blocked'),
+      'to wait for the human and its blocker',
+    )
+    await client.ok('DELETE', `/tasks/${asking.id}/blockers`)
+    const stillAsking = await getTask(client, asking.id)
+    expect(stillAsking).toMatchObject({
+      blockedBy: [],
+      runs: [],
+      status: { kind: 'waiting-on-you' },
+      leadRunId: waitingOnYou.leadRunId,
+    })
+    expect(stillAsking.statuses).toContain('stopped')
+    expect(stillAsking.statuses).not.toContain('queued')
+
+    const waiting = await waitFor(
+      client,
+      failing,
+      (t) => t.status?.kind === 'blocked' && t.runs.length === 0,
+      'to wait for its blocker',
+    )
+    await hostsStarted(home)
+    await daemon?.stop()
+    daemon = undefined
+    const store = await openStore({ directory: tedPaths(home).store })
+    try {
+      store.leadFailed({
+        taskId: failing.id,
+        runId: waiting.leadRunId ?? '',
+        reason: 'exited with code 1',
+        recovery: 'failed',
+        resumeFailed: false,
+      })
+    } finally {
+      await store.close()
+    }
+    client = await openTed()
+    expect((await getTask(client, failing.id)).status?.kind).toBe('failed')
+    await client.ok('DELETE', `/tasks/${failing.id}/blockers`)
+    const stillFailed = await getTask(client, failing.id)
+    expect(stillFailed).toMatchObject({
+      blockedBy: [],
+      runs: [],
+      status: { kind: 'failed' },
+      leadRunId: waiting.leadRunId,
+    })
+    expect(stillFailed.statuses).toContain('stopped')
+    expect(stillFailed.statuses).not.toContain('queued')
+  }, 90_000)
 
   test('a blocker in another Factory works', async () => {
     const client = await startTed()
@@ -727,6 +815,15 @@ test('parent events survive replay and keep hierarchy dependency effects separat
     store.setStartRequested(parent.id, true)
     expect(store.getTask(parent.id)).toMatchObject({ stopped: false, startRequested: true })
     expect(store.queue()).toEqual([])
+    store.setBlockersRemoved(parent.id, true)
+    await store.close()
+    store = await openStore({ directory })
+    expect(store.blockersRemoved(parent.id)).toBe(true)
+    expect(store.openBlockedTasks()).toContain(parent.id)
+    store.queueTask(parent.id, 'intake', { cause: { cause: 'blockers-removed' } })
+    expect(store.blockersRemoved(parent.id)).toBe(false)
+    expect(store.getTask(parent.id)).toMatchObject({ startRequested: false })
+    store.dequeue(parent.id)
     await store.close()
     store = await openStore({ directory })
     expect(store.getTask(child.id)).toMatchObject({ parentId: parent.id })
@@ -742,6 +839,25 @@ test('parent events survive replay and keep hierarchy dependency effects separat
     store = await openStore({ directory })
     expect(store.getTask(child.id)).toBeDefined()
     expect(store.parentOf(child.id)).toBeUndefined()
+  } finally {
+    await store.close()
+  }
+})
+
+test('archiving clears the blockers-removed mark, so an unarchived Task wakes as merged', async () => {
+  const directory = path.join(scratch, 'archive-mark-store')
+  let store = await openStore({ directory })
+  try {
+    const task = await store.createTask({ title: 'Waiting' })
+    store.setBlockersRemoved(task.id, true)
+    store.archiveTask(task.id)
+    expect(store.blockersRemoved(task.id)).toBe(false)
+    await store.close()
+    store = await openStore({ directory })
+    expect(store.blockersRemoved(task.id)).toBe(false)
+    store.unarchiveTask(task.id, { queue: false, waitForBlockers: false })
+    expect(store.blockersRemoved(task.id)).toBe(false)
+    expect(store.openBlockedTasks()).not.toContain(task.id)
   } finally {
     await store.close()
   }

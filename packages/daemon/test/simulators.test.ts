@@ -305,7 +305,7 @@ describe('iOS simulator Apps', () => {
     )
   })
 
-  test('one simulator App builds at a time: the next waits until the first prints TED_APP_READY, and stays listed as waiting across a restart while new work is held', async () => {
+  test('one simulator App builds at a time: the next waits until the first prints TED_APP_READY, stays listed as waiting across a restart while new work is held, and still waits for that build after the restart', async () => {
     let free = 500e9
     const disk = { freeBytes: async () => free, checkEveryMs: 20 }
     const first = await start({}, disk)
@@ -341,10 +341,27 @@ describe('iOS simulator Apps', () => {
       const { waiting } = await client.ok<SimulatorSlots>('GET', '/simulators')
       return waiting.length > 0 ? waiting : undefined
     }, 'the waiting Watch App to be listed after the restart')
-    expect(listed).toMatchObject([{ taskId: task.id, displayId: 'NB-1', app: 'Watch' }])
+    expect(listed).toMatchObject([
+      {
+        taskId: task.id,
+        displayId: 'NB-1',
+        app: 'Watch',
+        waitingFor: { kind: 'build', displayId: 'NB-1', app: 'iPhone' },
+      },
+    ])
     expect((await apps(client, task)).find((a) => a.name === 'Watch')?.state).toBe('waiting')
 
     free = 500e9
+    await client.ok('POST', `/tasks/${task.id}/apps/stop`, { name: 'Watch' })
+    const again = await waitUntil(async () => {
+      const res = await client.call('POST', `/tasks/${task.id}/apps/start`, { name: 'Watch' })
+      return res.status < 300 ? (res.body as TaskApp) : undefined
+    }, 'the Watch App to start again once the disk has space')
+    expect(again).toMatchObject({
+      state: 'waiting',
+      waitingOn: { displayId: 'NB-1', app: 'iPhone' },
+    })
+    expect((await iPhone(client, task))?.builtAt).toBeUndefined()
     await writeFile(built, '')
     await waitUntil(
       async () =>

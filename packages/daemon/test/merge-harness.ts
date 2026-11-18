@@ -270,6 +270,7 @@ export async function toSignoff(
   client: Client,
   extra: Record<string, unknown> = {},
   clock?: ManualClock,
+  pollMs = 100,
 ) {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: leadSteps(client),
@@ -277,15 +278,20 @@ export async function toSignoff(
     ...extra,
   })
   await client.ok('POST', `/tasks/${task.id}/start`)
-  return { task, signoff: await reviewSignoff(client, task.id, clock) }
+  return { task, signoff: await reviewSignoff(client, task.id, clock, pollMs) }
 }
 
-export async function reviewSignoff(client: Client, taskId: string, clock?: ManualClock) {
+export async function reviewSignoff(
+  client: Client,
+  taskId: string,
+  clock?: ManualClock,
+  pollMs = 100,
+) {
   const item = await waitUntil(
     async () => {
       const items = await client.ok<InboxItem[]>('GET', '/inbox')
       const item = items.find((i) => i.request.kind === 'signoff' && i.task.id === taskId)
-      if (!item && clock?.pending.includes(100)) clock.advance(100)
+      if (!item && clock?.pending.includes(pollMs)) clock.advance(pollMs)
       return item
     },
     'the Review sign-off',

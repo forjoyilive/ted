@@ -105,7 +105,29 @@ export function isOutsideMedia(address: string, resourceType: string): boolean {
   }
 }
 
-export function fixedHosts(value: string): (hostname: string) => Promise<LookupAddress[]> {
+export interface HeldLookups {
+  readonly waiting: readonly string[]
+  hold(hostname: string): Promise<void>
+  release(): void
+}
+
+export function heldLookups(): HeldLookups {
+  const waiting: { hostname: string; resume(): void }[] = []
+  return {
+    get waiting() {
+      return waiting.map((entry) => entry.hostname)
+    },
+    hold: (hostname) => new Promise((resume) => waiting.push({ hostname, resume })),
+    release() {
+      for (const entry of waiting.splice(0)) entry.resume()
+    },
+  }
+}
+
+export function fixedHosts(
+  value: string,
+  held?: HeldLookups,
+): (hostname: string) => Promise<LookupAddress[]> {
   const hosts = new Map(
     value.split(',').map((entry) => {
       const [name = '', address = ''] = entry.split('=')
@@ -113,7 +135,12 @@ export function fixedHosts(value: string): (hostname: string) => Promise<LookupA
     }),
   )
   return async (hostname) => {
-    const address = hosts.get(hostname.toLowerCase())
+    const name = hostname.toLowerCase()
+    const address = hosts.get(name)
+    if (address === 'held' && held) {
+      await held.hold(name)
+      return []
+    }
     const family = address ? isIP(address) : 0
     return address && family ? [{ address, family }] : []
   }

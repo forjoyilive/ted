@@ -14,7 +14,7 @@ import {
   type WorkflowProblem,
 } from '@ted/protocol'
 import { builtInAgentIds } from '@ted/protocol/agent-files'
-import { isOneOf } from '@ted/protocol/parse'
+import { isBoolean, isInteger, isOneOf } from '@ted/protocol/parse'
 import {
   handsOff,
   hasClarifyRounds,
@@ -110,6 +110,8 @@ export interface StageSettings {
   lead_closes_failures?: boolean
   commit_titles?: boolean
   steps?: CleanupStep[]
+  priority?: number
+  skip_busy_hold?: boolean
 }
 
 export interface WorktreeCommand {
@@ -174,8 +176,17 @@ export function inheritedFrom(below: readonly CheckedLayer[]): InheritedStages {
 }
 
 const allStageIds: readonly string[] = ['backlog', ...agentStageIds, 'done']
-const cleanupKeys = ['enabled', 'effort', 'based_on', 'steps']
-const customKeys = ['name', 'gate', 'max_back', 'effort', 'enabled', 'based_on']
+const cleanupKeys = ['enabled', 'effort', 'based_on', 'steps', 'priority', 'skip_busy_hold']
+const customKeys = [
+  'name',
+  'gate',
+  'max_back',
+  'effort',
+  'enabled',
+  'based_on',
+  'priority',
+  'skip_busy_hold',
+]
 export const maxStepName = maxCleanupStepName
 const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 const depths = ['auto', 'none', 'few', 'grilling']
@@ -555,6 +566,19 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             if (!wholeNumber(node, 0)) error(node, `\`${path}\` must be a whole number, 0 or more`)
             else stage.max_back = scalar(node) as number
             break
+          case 'priority': {
+            const value = scalar(node)
+            if (!isInteger(value) || value < 0) {
+              error(node, `\`${path}\` must be a whole number, 0 or more`)
+            } else stage.priority = value
+            break
+          }
+          case 'skip_busy_hold': {
+            const value = scalar(node)
+            if (!isBoolean(value)) error(node, `\`${path}\` must be true or false`)
+            else stage.skip_busy_hold = value
+            break
+          }
           case 'based_on':
             if (!isText(node)) error(node, `\`${path}\` must be text`)
             else stage.based_on = scalar(node) as string

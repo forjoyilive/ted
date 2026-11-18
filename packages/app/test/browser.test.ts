@@ -19,6 +19,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import {
   checkGuestNetwork,
+  checkHeldRefusal,
   checkInFlightNavigation,
   checkModalRace,
   checkOutsideRequests,
@@ -63,7 +64,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     TED_CLAUDE_BIN: stubClaude,
     TED_HIDDEN_WINDOW: '1',
     TED_IDLE_EXIT_MS: '30000',
-    TED_BROWSER_HOSTS: 'private.example=10.0.0.1',
+    TED_BROWSER_HOSTS: 'private.example=10.0.0.1,held.example=held',
   }
   const originDir = path.join(home, 'origin')
   const origin = await makeOriginRepo(originDir)
@@ -135,6 +136,19 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
     command({ action: 'reload' }),
+  )
+  await checkHeldRefusal(
+    app,
+    panel,
+    new URL(running.url ?? '').href,
+    (value) => command({ action: 'navigate', value }),
+    () =>
+      window.evaluate(
+        async (id) =>
+          ((await globalThis.window.ted.request('browserState', id)) as { blocked?: number })
+            .blocked,
+        task.id,
+      ),
   )
   await checkWorkerMedia(app, panel, new URL(running.url ?? '').href)
   const snapshot = await command({ action: 'snapshot' })

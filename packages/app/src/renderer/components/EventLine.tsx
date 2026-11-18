@@ -1,6 +1,7 @@
 import type { ThreadEventTone } from '@ted/protocol'
 import type { ReactNode } from 'react'
 import { ago, useNow } from '../requests.ts'
+import { Collapsible } from './Collapsible.tsx'
 import styles from './EventLine.module.css'
 import { ReferenceText } from './References.tsx'
 
@@ -41,7 +42,25 @@ export function Findings({ text }: { text: string }) {
   return (
     <section className={styles.findings} aria-label="Blocking findings">
       <h3 className={styles.findingsHeading}>Blocking findings</h3>
-      <p className={styles.findingsText}>{text}</p>
+      <Collapsible className={styles.findingsText}>{text}</Collapsible>
     </section>
+  )
+}
+
+export function OutputBlock({ text }: { text: string }) {
+  return (
+    <section className={styles.output} aria-label="Output" data-chat-wide>
+      <Collapsible className={styles.outputText}>
+        <pre>{text}</pre>
+      </Collapsible>
+    </section>
+  )
+}
+
+export function NoteText({ text }: { text: string }) {
+  return (
+    <p className={styles.noteText}>
+      <ReferenceText text={text} />
+    </p>
   )
 }

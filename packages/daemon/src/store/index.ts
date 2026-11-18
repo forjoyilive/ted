@@ -96,6 +96,7 @@ import {
   type MachineSettings,
   type MemoryKillAsk,
   type MergeMethod,
+  namedRepairChoice,
   noBacklogStarts,
   type PermissionMode,
   type Priority,
@@ -356,7 +357,7 @@ export interface CheckWork {
 }
 
 export interface QueueActivity {
-  taskPlaces?: readonly { id: string; place: number }[]
+  taskPlaces?: readonly { id: string; place: number; skipsBusy?: true }[]
   queuedTasks: readonly string[]
   queuedRuns: readonly string[]
   startingRuns: readonly string[]
@@ -559,7 +560,7 @@ export interface SubAgentRequest {
   at: string
 }
 
-export type ReviewerPurpose = 'review' | 'loop-check' | 'instruction-check'
+export type ReviewerPurpose = 'review' | 'loop-check' | 'instruction-check' | 'run-now-check'
 
 export interface Reviewer {
   runId: string
@@ -973,6 +974,8 @@ export interface TedStore extends TaskHistory {
   setTaskSnooze(taskId: string, until: string | null): Task
   setStartRequested(taskId: string, startRequested: boolean): Task
   waitForBlockers(taskId: string): Task
+  blockersRemoved(taskId: string): boolean
+  setBlockersRemoved(taskId: string, removed: boolean): void
   requeueAfterBlockers(taskId: string, why: BlockersCleared): Task
   taskStoppedByHuman(taskId: string): boolean
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
@@ -1792,7 +1795,6 @@ export async function openStore({
                 rank,
                 priority: task.priority as Priority,
                 factoryId: task.factoryId,
-                ...(isCleanup(task.stage) && { skipsBusy: true as const }),
               },
             ]
           : []
@@ -1901,6 +1903,11 @@ export async function openStore({
   const startRequestUsed = (taskId: string, at: string) =>
     taskRow(taskId)?.startRequested
       ? [events.taskStartRequestChanged({ taskId, startRequested: false, at })]
+      : []
+
+  const blockersRemovedUsed = (taskId: string, at: string) =>
+    taskRow(taskId)?.blockersRemoved
+      ? [events.taskBlockersRemovedChanged({ taskId, removed: false, at })]
       : []
 
   const startCause = (taskId: string, cause: StartCause | undefined, at: string) =>
@@ -2254,14 +2261,14 @@ export async function openStore({
       (comment) => comment.answerHeld && comment.answerQueuedAt !== null,
     )
     const queuedContinuation = pendingMessages.some((message) => message.waitForSlot) || heldAnswer
+    const placed = queueActivity.taskPlaces?.find((entry) => entry.id === row.id)
     const skipsBusy =
-      isCleanup(stage) ||
+      placed?.skipsBusy === true ||
       heldAnswer ||
       pendingMessages.some((message) => message.waitForSlot && message.after !== undefined)
     const place =
       queued || queuedContinuation
-        ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
-          (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0))
+        ? (placed?.place ?? (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0))
         : 0
     const pausedRuns = taskPauses({
       taskId: row.id,
@@ -4105,7 +4112,11 @@ export async function openStore({
           id: request.requestId,
           answer: JSON.stringify({
             kind: 'answered',
-            choice: 'Wait for a repair Task',
+            choice:
+              failure.decisions.find((d) => d.commentId === request.requestId)?.repairTask?.id ===
+                repair.id && request.repair?.kind === 'existing'
+                ? namedRepairChoice(repair.displayId)
+                : failureChoices.repair,
             text: [`Waiting for ${repair.displayId}: ${repair.title}`, request.reason]
               .filter(Boolean)
               .join('\n\n'),
@@ -4202,6 +4213,22 @@ export async function openStore({
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
+      const stage = taskRow(value.taskId)?.stage ?? ''
+      const repairOffered = validates(stage) || mergesHere(stage)
+      const namedRow = assessment.repairTask ? taskRow(assessment.repairTask) : undefined
+      const named =
+        repairOffered &&
+        namedRow &&
+        namedRow.factoryId === taskRow(value.taskId)?.factoryId &&
+        namedRow.archivedAt === null &&
+        namedRow.stage !== 'done'
+          ? toTask(namedRow)
+          : undefined
+      const repairTask = named && {
+        id: named.id,
+        displayId: named.displayId,
+        title: named.title,
+      }
       const { id, event, attached } = commentPosted(
         {
           taskId: value.taskId,
@@ -4215,16 +4242,18 @@ export async function openStore({
             ...(value.validation && closable
               ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
               : []),
-          ].filter(
-            (choice) =>
-              (canAccept || choice !== failureChoices.accepted) &&
-              (!value.validation ||
-                !handsOff(taskRow(value.taskId)?.stage ?? '') ||
-                choice === failureChoices.accepted) &&
-              (choice !== 'Wait for a repair Task' ||
-                validates(taskRow(value.taskId)?.stage ?? '') ||
-                mergesHere(taskRow(value.taskId)?.stage ?? '')),
-          ),
+          ]
+            .filter(
+              (choice) =>
+                (canAccept || choice !== failureChoices.accepted) &&
+                (!value.validation || !handsOff(stage) || choice === failureChoices.accepted) &&
+                (choice !== failureChoices.repair || repairOffered),
+            )
+            .flatMap((choice) =>
+              choice === failureChoices.repair && repairTask
+                ? [namedRepairChoice(repairTask.displayId), choice]
+                : [choice],
+            ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },
@@ -4239,6 +4268,7 @@ export async function openStore({
             commentId: id,
             assessmentId: assessment.id,
             ...(assessment.contextId && { contextId: assessment.contextId }),
+            ...(repairTask && { repairTask }),
           },
         ],
       }
@@ -4667,6 +4697,7 @@ export async function openStore({
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         ...(taskRow(taskId)?.stoppedAt !== null ? [events.taskResumed({ taskId, rank, at })] : []),
         ...startRequestUsed(taskId, at),
+        ...blockersRemovedUsed(taskId, at),
         ...(kept == null ? [events.taskRanked({ taskId, rank, at })] : []),
         events.taskQueued({ taskId, stage, rank, at }),
         ...startCause(taskId, options?.cause, at),
@@ -4717,6 +4748,7 @@ export async function openStore({
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         ...startRequestUsed(taskId, at),
+        ...blockersRemovedUsed(taskId, at),
         events.taskRanked({ taskId, rank, at }),
         events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
         ...startCause(taskId, options?.cause, at),
@@ -4795,6 +4827,7 @@ export async function openStore({
       commit(
         ...guideEnd,
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
+        ...blockersRemovedUsed(taskId, at),
         why === undefined
           ? events.taskArchivedV2({ taskId, closing, branches, at })
           : events.taskArchivedV3({ taskId, closing, branches, why, at }),
@@ -4963,6 +4996,7 @@ export async function openStore({
         ...new Set([
           ...store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId),
           ...store.query(queryDb(taskParents.orderBy('taskId', 'asc'))).map((row) => row.parentId),
+          ...store.query(queryDb(tasks.where({ blockersRemoved: true }))).map((row) => row.id),
           ...store
             .query(queryDb(comments.where({ answer: null })))
             .filter((row) => row.asanaMissing !== null)
@@ -5068,10 +5102,20 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    blockersRemoved(taskId) {
+      return taskRow(taskId)?.blockersRemoved ?? false
+    },
+    setBlockersRemoved(taskId, removed) {
+      const row = taskRow(taskId)
+      if (!row || row.blockersRemoved === removed) return
+      commit(events.taskBlockersRemovedChanged({ taskId, removed, at: new Date().toISOString() }))
+    },
     requeueAfterBlockers(taskId, why) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
+      const at = new Date().toISOString()
       commit(
-        events.taskRequeuedAfterBlockersV2({ taskId, rank, why, at: new Date().toISOString() }),
+        events.taskRequeuedAfterBlockersV2({ taskId, rank, why, at }),
+        ...blockersRemovedUsed(taskId, at),
       )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
@@ -7534,8 +7578,10 @@ export async function openStore({
     },
     requestSnoozesPending: () => store.query(queryDb(requestSnoozes.select())).length > 0,
     setQueueActivity(value) {
-      const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, entry.place]))
-      const after = new Map(value.taskPlaces?.map((entry) => [entry.id, entry.place]))
+      const placeOf = (entry: { place: number; skipsBusy?: true }) =>
+        `${entry.place}${entry.skipsBusy ? ' skips busy' : ''}`
+      const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
+      const after = new Map(value.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
       queueActivity = value
       const moved = [...new Set([...before.keys(), ...after.keys()])].filter(
         (id) => before.get(id) !== after.get(id),
