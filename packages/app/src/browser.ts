@@ -402,12 +402,16 @@ export function createTaskBrowsers(
         throw new Error('The browser connection changed; inspect the page before retrying')
       if (Date.now() >= command.expiresAt) throw new Error('Browser command expired')
     }
+    const release = () => {
+      if (running.get(command.taskId) === controller) running.delete(command.taskId)
+    }
     let timer: ReturnType<typeof setTimeout> | undefined
     const canceled = new Promise<never>((_resolve, reject) => {
       controller.signal.addEventListener(
         'abort',
         () => {
-          close(command.taskId, false)
+          const holder = running.get(command.taskId)
+          if (!holder || holder === controller) close(command.taskId, false)
           reject(new Error('Browser command canceled or expired; inspect the page before retrying'))
         },
         { once: true },
@@ -417,6 +421,7 @@ export function createTaskBrowsers(
     try {
       const { capture, ...result } = await Promise.race([execute(command, check), canceled])
       check()
+      release()
       await Promise.race([
         capture
           ? client.uploadBrowserCapture(owner, command.id, capture)
@@ -434,7 +439,7 @@ export function createTaskBrowsers(
         .catch(() => undefined)
     } finally {
       clearTimeout(timer)
-      if (running.get(command.taskId) === controller) running.delete(command.taskId)
+      release()
       commands.delete(command.id)
       if (command.runId) runTasks.delete(command.runId)
     }

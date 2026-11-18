@@ -261,6 +261,34 @@ test('broker cancellation reaches a held executor before native input can resume
   ).toBe(false)
 })
 
+test('a command sent as soon as the previous one returns runs while that reply is still in flight', async () => {
+  const broker = createBrowserBroker()
+  brokers.push(broker)
+  const held: (() => void)[] = []
+  const stub: Pick<DaemonClient, 'browserApp' | 'pollBrowser' | 'replyBrowser'> = {
+    browserApp: async () => app,
+    pollBrowser: async (owner: string) => broker.poll(owner),
+    replyBrowser: async (owner: string, id: string, reply: BrowserReply) => {
+      broker.reply(owner, id, reply)
+      await new Promise<void>((resolve) => held.push(resolve))
+    },
+  }
+  const client = stub as DaemonClient
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => client,
+    vi.fn(),
+    electron,
+  )
+  controllers.push(controller)
+  await broker.request({ taskId: 'one', app, request: { action: 'open' } })
+  const second = await broker.request({ taskId: 'one', app, request: { action: 'snapshot' } })
+  expect(second.text).toContain('Try it')
+  expect(held).toHaveLength(2)
+  expect(mocks.views[0]?.webContents.close).not.toHaveBeenCalled()
+  for (const resolve of held) resolve()
+})
+
 test('a new client resumes polling while an idle Task retains its page and session', async () => {
   const first = bridge()
   let client = first.client
