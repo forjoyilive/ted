@@ -283,7 +283,7 @@ async function populateScenarios(
     }, `idle Task Lead for ${task.displayId}`)
   }
   const scriptCounts = new Map<string, number>()
-  async function steps(task: Task, list: unknown[], wait = true) {
+  async function steps(task: Task, list: unknown[], wait = true, label = 'script') {
     const run = await lead(task)
     const folder = path.join(home, 'inputs', 'runs', run)
     const count = (scriptCounts.get(run) ?? 0) + 1
@@ -320,7 +320,11 @@ async function populateScenarios(
       `script on ${task.displayId}`,
       advanceWaitMs,
     )
-    return demoScriptResults(await readFile(path.join(folder, `${n}.result.json`), 'utf8'))
+    const results = demoScriptResults(await readFile(path.join(folder, `${n}.result.json`), 'utf8'))
+    const failed = results.find((result) => result.code !== 0)
+    if (failed)
+      throw new Error(`Demo ${label} failed on ${task.displayId}: ${failed.step}: ${failed.stderr}`)
+    return results
   }
   async function checksSettled(task: Task) {
     await until(
@@ -359,10 +363,8 @@ async function populateScenarios(
     )
   }
   async function checkedSteps(task: Task, list: unknown[], label: string) {
-    const results = await steps(task, list)
+    const results = await steps(task, list, true, label)
     if (!results) throw new Error(`Demo command did not complete on ${task.displayId}.`)
-    const failed = results.find((result) => result.code !== 0)
-    if (failed) throw new Error(`Demo command failed: ${label}: ${failed.step}: ${failed.stderr}`)
   }
   async function atMerge(task: Task) {
     await until(

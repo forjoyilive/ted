@@ -481,10 +481,15 @@ async function runDemoScript(script: string, content: string) {
   })
   demoResults = []
   interrupted = false
-  for (const step of stepsIn(content)) {
+  const steps = stepsIn(content)
+  for (const step of steps) {
     if (interrupted) break
     await runStep(step)
   }
+  if (steps.length === 0)
+    demoResults.push({ step: 'script', code: 1, stderr: 'The script has no steps.' })
+  if (interrupted)
+    demoResults.push({ step: 'script', code: 1, stderr: 'The script was interrupted.' })
   writeDemoResults(script)
   emit({ type: 'system', subtype: 'demo_script_done', script })
   if (interrupted) {
