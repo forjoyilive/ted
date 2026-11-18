@@ -217,6 +217,26 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
   expect(screen.queryByRole('toolbar', { name: 'Selected Tasks' })).toBeNull()
 })
 
+test('Shift-click on a checkbox selects the range from the last chosen Task', async () => {
+  await list()
+  const order = ids()
+  expect(order).toHaveLength(3)
+  const [first, middle, last] = order
+  const box = (id: string | null | undefined) =>
+    screen.getByRole('checkbox', { name: `Select ${id}` })
+  const checked = () => order.map((id) => box(id).matches(':checked'))
+  fireEvent.click(box(last))
+  fireEvent.click(box(first), { shiftKey: true })
+  expect(checked()).toEqual([true, true, true])
+  expect(
+    within(screen.getByRole('toolbar', { name: 'Selected Tasks' })).getByText('3 selected'),
+  ).toBeTruthy()
+  fireEvent.click(box(middle))
+  expect(checked()).toEqual([true, false, true])
+  fireEvent.click(box(last), { shiftKey: true })
+  expect(checked()).toEqual([false, true, true])
+})
+
 test('Show empty groups is saved per List and includes groups emptied by search', async () => {
   const a = await list()
   const u = user()
