@@ -800,6 +800,22 @@ function TaskNames({ heading, tasks }: { heading: string; tasks: readonly Task[]
   )
 }
 
+function useNamedRepair(task: Task, requestId: string) {
+  const stages = useStages()
+  const tasks = useTasks()
+  const named = useFailures(task.id)
+    .flatMap((f) => f.decisions)
+    .find((d) => d.commentId === requestId)?.repairTask
+  if (!named) return undefined
+  const live = tasks.find((t) => t.id === named.id)
+  const state = live
+    ? live.archived
+      ? 'Archived'
+      : stages.name(live.stage, live.factoryId)
+    : undefined
+  return { ...named, choice: namedRepairChoice(named.displayId), state }
+}
+
 function NamedRepairNote({
   task,
   requestId,
@@ -809,16 +825,34 @@ function NamedRepairNote({
   requestId: string
   choice: string
 }) {
-  const named = useFailures(task.id)
-    .flatMap((f) => f.decisions)
-    .find((d) => d.commentId === requestId)?.repairTask
-  if (!named || choice !== namedRepairChoice(named.displayId)) return null
+  const named = useNamedRepair(task, requestId)
+  if (!named || choice !== named.choice) return null
   return (
     <p className={styles.caption}>
       {task.displayId} keeps its Stage and worktree and waits for {named.displayId} · {named.title}{' '}
       to merge. Then Ted takes in the repair and runs fresh validation. {named.displayId} keeps its
       current state.
     </p>
+  )
+}
+
+function NamedRepairTag({
+  task,
+  requestId,
+  choice,
+}: {
+  task: Task
+  requestId: string
+  choice: string
+}) {
+  const named = useNamedRepair(task, requestId)
+  if (!named || choice !== named.choice) return null
+  return (
+    <span className={styles.choiceTag}>
+      {'· '}
+      {named.title}
+      {named.state !== undefined && ` · ${named.state}`}
+    </span>
   )
 }
 
@@ -964,6 +998,13 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
           onSelect={setSelection}
           allowOther={kind === 'open'}
           disabled={sending}
+          tagOf={(choice) =>
+            failure &&
+            choice.startsWith('Wait for ') &&
+            choice !== 'Wait for a repair Task' && (
+              <NamedRepairTag task={task} requestId={request.id} choice={choice} />
+            )
+          }
           {...(failure && failureWords)}
         />
       )}
