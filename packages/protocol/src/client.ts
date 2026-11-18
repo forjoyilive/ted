@@ -139,6 +139,7 @@ import type {
   CheckTry,
   CheckTryOutput,
   CheckTryRequest,
+  CheckTryTask,
   DriftCounts,
   FactorySettingsChanges,
   FactorySettingsView,
@@ -1875,6 +1876,10 @@ export class DaemonClient {
 
   tryCheck(factoryId: string, request: CheckTryRequest): Promise<CheckTry> {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try`, request)
+  }
+
+  checkTryTasks(factoryId: string): Promise<CheckTryTask[]> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/checks/try/tasks`)
   }
 
   stopCheckTry(factoryId: string, name: string): Promise<void> {
