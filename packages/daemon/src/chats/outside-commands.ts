@@ -8,6 +8,7 @@ import {
   type LocalFolderCheck,
   type LocalFolderUpdate,
   localFolderAgentNote,
+  notedNotRepository,
 } from '@ted/protocol/local-folder'
 import {
   outsideArgv,
@@ -199,7 +200,19 @@ export function createOutsideCommands(options: {
             plan.shown,
             describe(state, exitCode),
             output,
-            localFolderAgentNote(local, plan.folder),
+            localFolderAgentNote(
+              local,
+              plan.folder,
+              notedNotRepository(
+                store.chats
+                  .commands(chat.runId)
+                  .flatMap((ran) =>
+                    ran.outside
+                      ? [{ id: ran.id, folder: ran.outside.folder, local: ran.outside.local }]
+                      : [],
+                  ),
+              ).has(job.id),
+            ),
           ),
         )
         .catch((error: Error) => {

@@ -517,7 +517,10 @@ test('a local folder that is behind is updated before the command runs, one with
   expect(await git('rev-parse', 'HEAD')).toBe(kept)
   expect(await readFile(path.join(folder, 'clash.txt'), 'utf8')).toBe('mine\n')
   await writeFile(path.join(scratch, 'third'), '')
-  await said(third.id, 'Ted couldn’t update it because Ted’s update failed')
+  await said(
+    third.id,
+    'Ted couldn’t update it because untracked files in the folder would be overwritten (clash.txt)',
+  )
 }, 180_000)
 
 test('an Agent draft can’t give Run outside commands; only the user adds it in settings', () => {

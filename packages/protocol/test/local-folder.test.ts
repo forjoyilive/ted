@@ -5,7 +5,10 @@ import {
   localFolderAgentNote,
   localFolderCardText,
   localFolderLine,
+  notedNotRepository,
+  notRepositoryProblem,
   parseLocalFolderState,
+  updateFailure,
 } from '../src/local-folder.ts'
 
 const folder = '/Users/me/Apps/ted'
@@ -50,13 +53,17 @@ test('the card, the chat line and the Agent are told the same thing', () => {
   })
   expect(
     localFolderCardText(
-      { check: behind, updateFailed: 'Not possible to fast-forward' },
+      {
+        check: behind,
+        updateFailed: 'git merge failed: fatal: Not possible to fast-forward, aborting.',
+      },
       folder,
       'ted',
     ),
   ).toMatchObject({
     tone: 'warn',
-    text: '168 commits behind main, and Ted can’t update it: Ted’s update failed: Not possible to fast-forward.',
+    text: '168 commits behind main, and Ted can’t update it: the folder’s branch has moved away from GitHub’s, so it can’t be fast-forwarded.',
+    detail: 'fatal: Not possible to fast-forward, aborting.',
   })
   expect(localFolderCardText({ check: { ...current } }, folder, 'ted')).toBe(undefined)
   expect(localFolderLine({ check: { ...current, ahead: 2, copyBehind: 20 } }, 'ted')).toEqual({
@@ -109,4 +116,71 @@ test('a stored folder state is read back field by field and bad values are dropp
   ).toEqual({ check: { checked: true } })
   expect(parseLocalFolderState({ check: { behind: 3 } })).toBe(undefined)
   expect(parseLocalFolderState('nope')).toBe(undefined)
+})
+
+test('a failed update is told in plain words, with git’s own text kept as detail', () => {
+  const untracked =
+    'git merge failed: error: The following untracked working tree files would be overwritten by merge:\n\tclash.txt\nPlease move or remove them before you merge.\nAborting'
+  expect(updateFailure(untracked)).toEqual({
+    reason: 'untracked files in the folder would be overwritten (clash.txt)',
+    detail:
+      'error: The following untracked working tree files would be overwritten by merge: clash.txt Please move or remove them before you merge. Aborting',
+  })
+  expect(
+    updateFailure(
+      'git merge failed: error: Your local changes to the following files would be overwritten by merge:\n\ta.ts\n\tb.ts\n\tc.ts\n\td.ts\nAborting',
+    ).reason,
+  ).toBe('uncommitted changes in the folder would be overwritten (a.ts, b.ts, c.ts and 1 more)')
+  expect(
+    updateFailure(
+      'git merge failed: error: The following untracked working tree files would be overwritten by merge:',
+    ).reason,
+  ).toBe('untracked files in the folder would be overwritten')
+  expect(
+    updateFailure("git merge failed: fatal: Unable to create '/x/.git/index.lock': File exists.")
+      .reason,
+  ).toBe('another git process is using the folder')
+  expect(updateFailure('git fetch failed: fatal: unable to access').reason).toBe(
+    'Ted couldn’t fetch from GitHub into the folder',
+  )
+  expect(updateFailure('git merge failed: something new')).toEqual({
+    reason: 'git couldn’t update the folder',
+    detail: 'something new',
+  })
+  expect(updateFailure('the folder changed while Ted fetched, so Ted left it alone')).toEqual({
+    reason: 'the folder changed while Ted fetched, so Ted left it alone',
+  })
+  const state = { check: behind, updateFailed: untracked }
+  expect(localFolderLine(state, 'ted')).toMatchObject({
+    tone: 'warn',
+    text: 'Your local ted is 168 commits behind main, and Ted’s update failed: untracked files in the folder would be overwritten (clash.txt).',
+    detail: expect.stringContaining('clash.txt'),
+  })
+  expect(localFolderAgentNote(state, folder)).toContain(
+    'Ted couldn’t update it because untracked files in the folder would be overwritten (clash.txt) (git said: error: The following untracked working tree files',
+  )
+})
+
+test('a folder that isn’t a git repo is noted once per folder in a chat', () => {
+  const notRepo = { check: { checked: false, problem: notRepositoryProblem } }
+  const noNetwork = { check: { checked: false, problem: 'no network' } }
+  expect(
+    notedNotRepository([
+      { id: 'a', folder: '/x', local: notRepo },
+      { id: 'b', folder: '/y', local: notRepo },
+      { id: 'c', folder: '/x', local: notRepo },
+      { id: 'd', folder: '/x', local: noNetwork },
+      { id: 'e', folder: '/x' },
+    ]),
+  ).toEqual(new Set(['c']))
+  expect(localFolderLine(notRepo, 'ted')).toMatchObject({
+    text: 'Ted couldn’t check your local ted against GitHub: the folder isn’t a git repository with a commit.',
+  })
+  expect(localFolderLine(notRepo, 'ted', true)).toBe(undefined)
+  expect(localFolderLine(noNetwork, 'ted', true)).toMatchObject({
+    text: 'Ted couldn’t check your local ted against GitHub: no network.',
+  })
+  expect(localFolderAgentNote(notRepo, folder)).toContain('isn’t a git repository')
+  expect(localFolderAgentNote(notRepo, folder, true)).toBe(undefined)
+  expect(localFolderAgentNote(noNetwork, folder, true)).toContain('no network')
 })

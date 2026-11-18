@@ -10,6 +10,8 @@ An outside command runs in the repo’s local folder, whatever commit that folde
 
 **The user and the Agent learn the same thing.** The card names the gap and its button reads Update and run when Ted will update. The chat line names the update, with the old and new commit and any changed dependency files, or the note. Ted runs no install. The message to the Agent starts with the same fact before the command output, and tells it not to change a command that failed in an old folder.
 
+**Plain reasons, said once (TED-635).** A failed update is stored with git’s whole message (redacted, at most 2,000 characters). `updateFailure` turns it into a plain reason for the card, the chat line and the Agent (untracked files or uncommitted changes that would be overwritten, with up to three file names; a branch that can’t be fast-forwarded; a locked repo; a failed fetch; otherwise “git couldn’t update the folder”), and git’s text shows beneath as Git said. A folder that isn’t a git repository is noted on the first chat line and Agent message for that folder in a chat Run; `notedNotRepository` leaves it out of later ones. Other reasons Ted couldn’t check still show each time, because they can change between runs. The card still says it, since each card is a separate decision.
+
 **New events, not new fields.** The check shown on a card is `v1.ChatOutsideFolderChecked` (the `outsideFolder` column on `chatRequests`, committed again when an update at Run fails); the check and update of a run are `v1.ChatOutsideFolderRan` (the `outsideFolder` column on `chatCommands`). Both are read through `parseLocalFolderState`. `v1.ChatOutsideCommandAsked` and `v1.ChatOutsideCommandRan` keep their shipped content.
 
 ## Considered Options

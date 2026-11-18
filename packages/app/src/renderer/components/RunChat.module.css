@@ -498,6 +498,14 @@
   overflow-wrap: anywhere;
 }
 
+.localFolderDetail {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+}
+
 .localFolder.ok {
   background: var(--status-success-bg);
   color: var(--status-success-fg);
