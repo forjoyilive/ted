@@ -723,6 +723,13 @@ export interface HeldRun {
   taskId: string
   agent: AgentKind
   sessionId?: string
+  pickUp?: string
+  carried?: CarriedMessages
+}
+
+export interface CarriedMessages {
+  runId: string
+  messageIds: readonly string[]
 }
 
 export interface TedStore extends TaskHistory {
@@ -7567,16 +7574,25 @@ export async function openStore({
       noteActivity()
     },
     agentPauses: pauses,
-    holdTaskRun({ taskId, agent, sessionId }) {
+    holdTaskRun({ taskId, agent, sessionId, pickUp, carried }) {
       const current = heldRow(taskId)
-      if (current && current.agent === agent && (current.sessionId ?? undefined) === sessionId) {
+      if (
+        current &&
+        current.agent === agent &&
+        (current.sessionId ?? undefined) === sessionId &&
+        (current.pickUp ?? undefined) === pickUp &&
+        (current.carriedRunId ?? undefined) === carried?.runId &&
+        (current.carriedMessageIds ?? []).join('\n') === (carried?.messageIds ?? []).join('\n')
+      ) {
         return
       }
       commit(
-        events.taskRunHeld({
+        events.taskRunHeldV2({
           taskId,
           agent,
           sessionId: sessionId ?? null,
+          pickUp: pickUp ?? null,
+          carried: carried ? { runId: carried.runId, messageIds: [...carried.messageIds] } : null,
           at: new Date().toISOString(),
         }),
       )
@@ -7594,6 +7610,10 @@ export async function openStore({
         taskId: row.taskId,
         agent: row.agent as AgentKind,
         ...(row.sessionId !== null && { sessionId: row.sessionId }),
+        ...(row.pickUp !== null && { pickUp: row.pickUp }),
+        ...(row.carriedRunId !== null && {
+          carried: { runId: row.carriedRunId, messageIds: row.carriedMessageIds ?? [] },
+        }),
       })),
     pausedRunCount: (agent) =>
       store.query(queryDb(runRows.where({ agent }))).filter((r) => r.state !== 'finished').length +

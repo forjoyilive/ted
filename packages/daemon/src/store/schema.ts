@@ -965,6 +965,9 @@ export const heldRuns = State.SQLite.table({
     agent: State.SQLite.text(),
     sessionId: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
+    pickUp: State.SQLite.text({ nullable: true }),
+    carriedRunId: State.SQLite.text({ nullable: true }),
+    carriedMessageIds: State.SQLite.json({ schema: Schema.Array(Schema.String), nullable: true }),
   },
 })
 
@@ -3207,6 +3210,19 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskRunHeldV2: Events.synced({
+    name: 'v2.TaskRunHeld',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      agent: Schema.String,
+      sessionId: Schema.NullOr(Schema.String),
+      pickUp: Schema.NullOr(Schema.String),
+      carried: Schema.NullOr(
+        Schema.Struct({ runId: Schema.String, messageIds: Schema.Array(Schema.String) }),
+      ),
+      at: Schema.String,
+    }),
+  }),
   taskRunReleased: Events.synced({
     name: 'v1.TaskRunReleased',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
@@ -4477,6 +4493,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       teardownOutcome: args.teardownOutcome,
     }),
   'v1.TaskRunHeld': (args) => task(args, { agent: args.agent }),
+  'v2.TaskRunHeld': (args) => task(args, { agent: args.agent }),
   'v1.AppStarted': (args) =>
     task(args, {
       repo: args.repo,
@@ -5901,6 +5918,14 @@ const materializers = counted(
         agentPauses.insert({ agent, reason, since: at }).onConflict('agent', 'replace'),
       'v1.AgentResumed': ({ agent }) => agentPauses.delete().where({ agent }),
       'v1.TaskRunHeld': (held) => heldRuns.insert(held).onConflict('taskId', 'replace'),
+      'v2.TaskRunHeld': ({ carried, ...held }) =>
+        heldRuns
+          .insert({
+            ...held,
+            carriedRunId: carried?.runId ?? null,
+            carriedMessageIds: carried?.messageIds ?? null,
+          })
+          .onConflict('taskId', 'replace'),
       'v1.TaskRunReleased': ({ taskId }) => heldRuns.delete().where({ taskId }),
       'v1.CommentsDelivered': ({ ids, runId, at }) =>
         ids.map((id) => comments.update({ deliveredRunId: runId, deliveredAt: at }).where({ id })),

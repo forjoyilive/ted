@@ -112,6 +112,30 @@ describe('TedStore', () => {
     }
   })
 
+  test('a held replacement keeps its pick-up note and carried messages across a state rebuild', async () => {
+    const first = await openStore({ directory: dir })
+    const task = await first.createTask({ title: 'Switch Providers' })
+    const held = {
+      taskId: task.id,
+      agent: 'claude' as const,
+      pickUp: 'Picking up after an agent change',
+      carried: { runId: 'old-lead', messageIds: ['m1', 'm2'] },
+    }
+    first.holdTaskRun(held)
+    await first.close()
+    for (const f of (await readdir(path.join(dir, 'ted'))).filter((f) => f.startsWith('state')))
+      await rm(path.join(dir, 'ted', f), { force: true })
+
+    const second = await openStore({ directory: dir })
+    try {
+      expect(second.heldRuns()).toEqual([held])
+      second.releaseTaskRun(task.id)
+      expect(second.heldRuns()).toEqual([])
+    } finally {
+      await second.close()
+    }
+  })
+
   test('activity counts actual unfinished Runs, not held Task launches', async () => {
     const store = await openStore({ directory: dir })
     try {
