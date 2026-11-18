@@ -162,7 +162,7 @@ test('a repair Task named in the assessment is its own decision choice', async (
   expect(assessed.status, JSON.stringify(assessed.body)).toBe(200)
   expect((assessed.body as FailureCase).assessments.at(-1)?.repairTask).toBe(repair.id)
   const asked = await s.lead.call('POST', `${s.root}/failures/${s.failure.id}/decision`, {})
-  expect(asked.status, JSON.stringify(asked.body)).toBe(200)
+  expect(asked.status, JSON.stringify(asked.body)).toBe(201)
   const decision = required((asked.body as FailureCase).decisions.at(-1))
   expect(decision.repairTask).toEqual({
     id: repair.id,
