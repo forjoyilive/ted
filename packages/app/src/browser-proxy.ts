@@ -152,6 +152,7 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
       target.protocol !== 'http:' ||
       target.username ||
       target.password ||
+      target.port !== '' ||
       (incoming.method !== 'GET' && incoming.method !== 'HEAD')
     ) {
       return refuse(403)
@@ -159,7 +160,6 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
     void publicAddress(target.hostname).then(
       (address) => {
         if (!address) return refuse(403)
-        const port = Number(target.port || 80)
         const headers: IncomingHttpHeaders = { ...incoming.headers, host: target.host }
         delete headers['proxy-authorization']
         delete headers['proxy-connection']
@@ -169,7 +169,7 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
             path: `${target.pathname}${target.search}`,
             headers,
             setHost: false,
-            createConnection: () => open(port, address),
+            createConnection: () => open(80, address),
           },
           (response) => {
             outgoing.writeHead(response.statusCode ?? 502, response.headers)
@@ -195,9 +195,12 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
       client.end('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n')
       return
     }
-    const port = Number(target.port)
-    if (!port || target.pathname !== '/' || target.username || target.password) {
+    if (target.pathname !== '/' || target.username || target.password) {
       client.end('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n')
+      return
+    }
+    if (target.port !== '443') {
+      client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
       return
     }
     void publicAddress(target.hostname).then(
@@ -206,7 +209,7 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
           client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
           return
         }
-        const upstream = open(port, address)
+        const upstream = open(443, address)
         upstream.on('connect', () => {
           client.write('HTTP/1.1 200 Connection Established\r\n\r\n')
           if (head.length) upstream.write(head)
