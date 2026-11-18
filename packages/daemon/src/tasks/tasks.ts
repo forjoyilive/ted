@@ -12355,6 +12355,7 @@ export function createTasks(options: {
     }
     if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check || githubIntake)
       return task
+    if (taskLeadLink?.child) return queueAndAnswer(task.id, { cause: 'task-lead-child' })
     if (startNow !== true) return task
     const cause: StartCause | undefined = automation && { cause: 'automation' }
     return startInBackground === true ? queueAndAnswer(task.id, cause) : start(task.id, {}, cause)

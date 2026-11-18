@@ -825,7 +825,7 @@ describe('Automations', () => {
     }
   })
 
-  test('a Task Lead creates up to 10 Tasks in Backlog, with a reminder past 3, and waits for a child it made', async () => {
+  test('a Task Lead creates up to 10 Tasks in Backlog, with a reminder past 3, and starts and waits for a child it made', async () => {
     const client = await startTed()
     const factory = (await client.ok<Factory[]>('GET', '/factories')).find((f) => f.key === 'NB')
     await client.ok('PUT', '/backlog-starts', {
@@ -879,13 +879,11 @@ describe('Automations', () => {
       (t) => t.createdBy === 'task-lead',
     )
     expect(made).toHaveLength(10)
-    expect(
-      made.slice(0, 4).map((t) => [t.title, t.stage, t.createdBy, t.parentId ?? null]),
-    ).toEqual([
-      ['Separate work', 'backlog', 'task-lead', null],
-      ['Child work', 'backlog', 'task-lead', task.id],
-      ['Third', 'backlog', 'task-lead', null],
-      ['Fourth', 'backlog', 'task-lead', null],
+    expect(made.slice(0, 4).map((t) => [t.title, t.createdBy, t.parentId ?? null])).toEqual([
+      ['Separate work', 'task-lead', null],
+      ['Child work', 'task-lead', task.id],
+      ['Third', 'task-lead', null],
+      ['Fourth', 'task-lead', null],
     ])
     expect(made.at(-1)?.title).toBe('Tenth')
     const child = made[1]
@@ -905,12 +903,19 @@ describe('Automations', () => {
       const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
       return found?.status?.kind === 'blocked' ? found : undefined
     }, 'the creating Task to wait for its child')
+    await waitUntil(async () => {
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === child?.id)
+      return found && found.stage !== 'backlog' ? found : undefined
+    }, 'the child to start without the user')
+    expect(await threadTexts(client, child as Task)).toContain(
+      'Started because the Task Lead of the Task above it filed it',
+    )
     const later = await client.ok<Task[]>('GET', '/tasks')
-    const laterMade = later.filter((t) => t.createdBy === 'task-lead')
+    const laterMade = later.filter((t) => t.createdBy === 'task-lead' && t.id !== child?.id)
     expect(laterMade.map((t) => [t.stage, t.runs.length])).toEqual(
       laterMade.map(() => ['backlog', 0]),
     )
-    expect(laterMade).toHaveLength(10)
+    expect(laterMade).toHaveLength(9)
   }, 90_000)
 
   test('a failed Run is resumed once, then fails with Retry; three failures in a row raise a banner', async () => {
