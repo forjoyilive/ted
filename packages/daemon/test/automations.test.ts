@@ -8,6 +8,7 @@ import type {
   AutomationRun,
   AutomationTemplate,
   Banner,
+  Comment,
   Factory,
   RunSlots,
   RunWithConversation,
@@ -835,6 +836,13 @@ describe('Automations', () => {
       factoryIds: [factory?.id],
     })
     const make = (...args: string[]) => ({ run: ['ted', 'task', 'create', ...args] })
+    const childTitle = steps(
+      make('--child', 'Grandchild'),
+      { endTurn: true },
+      {
+        everyMessage: [{ endTurn: true }],
+      },
+    )
     const task = await client.ok<Task>('POST', '/tasks', {
       factory: 'NB',
       start: true,
@@ -842,7 +850,7 @@ describe('Automations', () => {
         make('--description', 'Found while working', 'Separate work'),
         make('--start', 'Started at once'),
         make('--factory', 'OTHER', 'Elsewhere'),
-        make('--child', 'Child work'),
+        make('--child', childTitle),
         make('Third'),
         make('Fourth'),
         ...['Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'].map((title) => make(title)),
@@ -876,12 +884,12 @@ describe('Automations', () => {
     )
 
     const made = (await client.ok<Task[]>('GET', '/tasks')).filter(
-      (t) => t.createdBy === 'task-lead',
+      (t) => t.createdBy === 'task-lead' && t.title !== 'Grandchild',
     )
     expect(made).toHaveLength(10)
     expect(made.slice(0, 4).map((t) => [t.title, t.createdBy, t.parentId ?? null])).toEqual([
       ['Separate work', 'task-lead', null],
-      ['Child work', 'task-lead', task.id],
+      [childTitle, 'task-lead', task.id],
       ['Third', 'task-lead', null],
       ['Fourth', 'task-lead', null],
     ])
@@ -910,8 +918,20 @@ describe('Automations', () => {
     expect(await threadTexts(client, child as Task)).toContain(
       'Started because the Task Lead of the Task above it filed it',
     )
+    const grandchild = await waitUntil(async () => {
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.title === 'Grandchild')
+      return found
+    }, 'the child’s Task Lead to file its own child')
+    expect(grandchild).toMatchObject({ stage: 'backlog', parentId: child?.id, runs: [] })
+    const held = await waitUntil(async () => {
+      const comments = await client.ok<Comment[]>('GET', `/tasks/${child?.id}/comments`)
+      return comments.find((c) => c.title === 'Child Task waits in Backlog')
+    }, 'the note that the nested child waits')
+    expect(held.body).toContain('this Task was itself created by a Task Lead')
     const later = await client.ok<Task[]>('GET', '/tasks')
-    const laterMade = later.filter((t) => t.createdBy === 'task-lead' && t.id !== child?.id)
+    const laterMade = later.filter(
+      (t) => t.createdBy === 'task-lead' && t.id !== child?.id && t.id !== grandchild.id,
+    )
     expect(laterMade.map((t) => [t.stage, t.runs.length])).toEqual(
       laterMade.map(() => ['backlog', 0]),
     )
@@ -1547,6 +1567,27 @@ describe('Tasks an Automation Run starts', () => {
       id: done.id,
       displayId: done.displayId,
     })
+    const parent = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      start: true,
+      title: steps(
+        { run: ['ted', 'task', 'create', '--child', 'Bypass child'] },
+        { endTurn: true },
+        { everyMessage: [{ endTurn: true }] },
+      ),
+    })
+    const child = await waitUntil(async () => {
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find(
+        (t) => t.title === 'Bypass child',
+      )
+      return found
+    }, 'the Task Lead to file a child')
+    expect(child).toMatchObject({ stage: 'backlog', parentId: parent.id, runs: [] })
+    const childNote = await waitUntil(async () => {
+      const comments = await client.ok<Comment[]>('GET', `/tasks/${parent.id}/comments`)
+      return comments.find((c) => c.title === 'Child Task waits in Backlog')
+    }, 'the note that the child waits')
+    expect(childNote.body).toContain('this Factory runs agents without the sandbox')
 
     await client.ok('PUT', `/factories/${factory?.id}/permissions`, { mode: 'auto' })
     const started = await fire(client, done, 'Auto')
@@ -1568,7 +1609,7 @@ describe('Tasks an Automation Run starts', () => {
         `Auto: ${task.title}`,
       ).toHaveLength(1)
     }
-  })
+  }, 90_000)
 })
 
 test('a Run reads only its own Factory’s Automations', async () => {

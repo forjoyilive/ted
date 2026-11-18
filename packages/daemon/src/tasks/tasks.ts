@@ -12355,7 +12355,21 @@ export function createTasks(options: {
     }
     if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check || githubIntake)
       return task
-    if (taskLeadLink?.child) return queueAndAnswer(task.id, { cause: 'task-lead-child' })
+    if (creator && taskLeadLink?.child) {
+      const why = runsInBypass(resolution)
+        ? 'this Factory runs agents without the sandbox'
+        : creator.task.createdBy === 'task-lead'
+          ? 'this Task was itself created by a Task Lead'
+          : undefined
+      if (why === undefined) return queueAndAnswer(task.id, { cause: 'task-lead-child' })
+      store.postComment({
+        taskId: creator.task.id,
+        author: { kind: 'ted' },
+        title: 'Child Task waits in Backlog',
+        body: `${task.displayId} waits in Backlog for the user to start it, because ${why}. This Task waits until it merges.`,
+      })
+      return task
+    }
     if (startNow !== true) return task
     const cause: StartCause | undefined = automation && { cause: 'automation' }
     return startInBackground === true ? queueAndAnswer(task.id, cause) : start(task.id, {}, cause)
