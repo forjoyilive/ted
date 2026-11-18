@@ -1337,6 +1337,15 @@ export const commands = [
     options: options('reset'),
   },
   {
+    name: 'dev stop',
+    handler: 'stopDemo',
+    min: 0,
+    max: 0,
+    help: '  ted dev stop                              Stop a Ted Dev demo’s daemon, Runs and Apps; keeps its data',
+    callers: 'Terminal',
+    options: options(),
+  },
+  {
     name: 'dev run show',
     handler: 'showRun',
     min: 1,

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promise
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { prepareDemo } from '../src/dev/demo.ts'
+import { prepareDemo, stopDemo } from '../src/dev/demo.ts'
 import {
   checkDemoHome,
   demoEnvironment,
@@ -102,19 +102,21 @@ test('reset recovers an incomplete demo with stale daemon metadata', async () =>
   expect(await readdir(folder)).not.toContain('daemon.json')
 })
 
-test('reset still refuses a live daemon', async () => {
+test('reset and stop refuse while the demo app is open', async () => {
   await markDemo(folder, { version: demoVersion, complete: false })
-  await writeFile(
-    path.join(folder, 'daemon.json'),
-    JSON.stringify({
-      port: 9,
-      token: 'demo-fixture-token',
-      pid: process.pid,
-      version: '0.1.3',
-    }),
-  )
+  await mkdir(path.join(folder, 'electron'))
+  await symlink(`demo-host-${process.pid}`, path.join(folder, 'electron', 'SingletonLock'))
   await expect(prepareDemo(folder, true)).rejects.toThrow('Quit the demo app')
-  expect(await readdir(folder)).toContain('daemon.json')
+  await expect(stopDemo(folder)).rejects.toThrow('Quit the demo app')
+  expect(await readdir(folder)).toContain('demo.json')
+})
+
+test('stop refuses a folder without a demo and leaves an idle demo quit', async () => {
+  await expect(stopDemo(folder)).rejects.toThrow('no demo')
+  await markDemo(folder, { version: demoVersion, complete: true })
+  await stopDemo(folder)
+  expect(await readdir(folder)).toContain('quit-mark')
+  expect((await checkDemoHome(folder))?.complete).toBe(true)
 })
 
 test('withDemoEnvironment uses the demo stubs and then restores the caller’s environment', async () => {
