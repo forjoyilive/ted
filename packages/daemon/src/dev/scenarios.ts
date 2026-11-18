@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { CheckRun, DaemonClient, Run, Task } from '@ted/protocol'
+import { isArray, isInteger, isObject, isString, parseJson } from '@ted/protocol/parse'
 import { waitForLock } from '../lock.ts'
 import { until } from './demo.ts'
 import { commitDemoTask, demoGit } from './fixtures.ts'
@@ -26,6 +27,27 @@ const proposal = {
     { title: 'Share a read-only link', scope: 'Publish one note with an expiring URL.' },
     { title: 'Manage shared links', scope: 'List and revoke published links.', blockedBy: [1] },
   ],
+}
+
+interface DemoStepResult {
+  step: string
+  code: number | null
+  stderr: string
+}
+
+function demoScriptResults(text: string): DemoStepResult[] {
+  const body = parseJson(text)
+  const results = isObject(body) ? body.results : undefined
+  if (!isArray(results)) throw new Error(`Unreadable demo script results: ${text}`)
+  return results.map((result) => {
+    if (!isObject(result)) throw new Error(`Unreadable demo step result: ${text}`)
+    const { step, code, stderr } = result
+    return {
+      step: isString(step) ? step : '',
+      code: isInteger(code) ? code : null,
+      stderr: isString(stderr) ? stderr : '',
+    }
+  })
 }
 
 export function demoCheckProblem(runs: readonly CheckRun[]): string | undefined {
@@ -260,34 +282,45 @@ async function populateScenarios(
       return run?.state === 'idle' ? run.id : undefined
     }, `idle Task Lead for ${task.displayId}`)
   }
-  let nextScript = 0
+  const scriptCounts = new Map<string, number>()
   async function steps(task: Task, list: unknown[], wait = true) {
     const run = await lead(task)
-    const marker = `demo-script-${++nextScript}-done`
-    await client.sendRunMessage(run, script(...list, ...(wait ? [{ say: marker }, idle] : [])))
+    const folder = path.join(home, 'inputs', 'runs', run)
+    const count = (scriptCounts.get(run) ?? 0) + 1
+    scriptCounts.set(run, count)
+    const n = String(count)
+    await mkdir(folder, { recursive: true })
+    const file = path.join(folder, `${n}.json`)
+    await writeFile(`${file}.tmp`, script(...list))
+    await rename(`${file}.tmp`, file)
+    if (!wait) return undefined
     let checkedRevision = -1
-    if (wait)
-      return until(
-        async () => {
-          if (observed.run(run)?.state !== 'idle') return false
-          const revision = observed.revision(run)
-          if (revision === checkedRevision) return false
-          checkedRevision = revision
-          const current = await client.getRun(run)
-          const done =
-            current.run.state === 'idle' &&
-            current.conversation.some((entry) => {
-              const line = JSON.parse(entry.line)
-              return (
-                line.type === 'assistant' &&
-                line.message?.content?.some((part: { text?: string }) => part.text === marker)
-              )
-            })
-          return done ? current : false
-        },
-        `script on ${task.displayId}`,
-        advanceWaitMs,
-      )
+    // The result file can appear before the daemon reads the turn's output, so wait for the
+    // stub's done line in the conversation: an idle state after it is this turn's end.
+    await until(
+      async () => {
+        if (observed.run(run)?.state !== 'idle') return false
+        const revision = observed.revision(run)
+        if (revision === checkedRevision) return false
+        checkedRevision = revision
+        const current = await client.getRun(run)
+        return (
+          current.run.state === 'idle' &&
+          current.conversation.some((entry) => {
+            const line = parseJson(entry.line)
+            return (
+              isObject(line) &&
+              line.type === 'system' &&
+              line.subtype === 'demo_script_done' &&
+              line.script === n
+            )
+          })
+        )
+      },
+      `script on ${task.displayId}`,
+      advanceWaitMs,
+    )
+    return demoScriptResults(await readFile(path.join(folder, `${n}.result.json`), 'utf8'))
   }
   async function checksSettled(task: Task) {
     await until(
@@ -326,14 +359,10 @@ async function populateScenarios(
     )
   }
   async function checkedSteps(task: Task, list: unknown[], label: string) {
-    const completed = await steps(task, list)
-    if (!completed) throw new Error(`Demo command did not complete on ${task.displayId}.`)
-    const entries = completed.conversation
-    const result = entries.find(
-      (e) =>
-        e.line.includes('stdout') && e.line.includes('stderr') && e.line.includes('\\"code\\":1'),
-    )
-    if (result) throw new Error(`Demo command failed: ${label}: ${result.line}`)
+    const results = await steps(task, list)
+    if (!results) throw new Error(`Demo command did not complete on ${task.displayId}.`)
+    const failed = results.find((result) => result.code !== 0)
+    if (failed) throw new Error(`Demo command failed: ${label}: ${failed.step}: ${failed.stderr}`)
   }
   async function atMerge(task: Task) {
     await until(
@@ -743,6 +772,19 @@ export async function verifyDemo(client: DaemonClient): Promise<void> {
   const factories = await client.listFactories()
   const need = (ok: boolean, label: string) => {
     if (!ok) throw new Error(`Demo coverage is missing ${label}.`)
+  }
+  for (const task of tasks) {
+    if (!task.leadRunId) continue
+    const chat = await client.getRunChat(task.leadRunId)
+    const leak = chat.items
+      .flatMap((item) => (item.kind === 'agent' || item.kind === 'human' ? [item.text] : []))
+      .find((text) =>
+        ['"steps"', '"stdout"', '"code":', 'demo-script-', '/inputs/'].some((plumbing) =>
+          text.includes(plumbing),
+        ),
+      )
+    if (leak !== undefined)
+      throw new Error(`Demo Task ${task.displayId} shows stub plumbing in its thread: ${leak}`)
   }
   need(
     factories.length === 2 && factories.some((f) => f.repos.length === 2),

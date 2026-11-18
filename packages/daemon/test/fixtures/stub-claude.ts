@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -161,7 +169,30 @@ const hook = (name: string) => {
     emit({ type: 'system', subtype: 'hook_started', hook_name: name, hook_event: event })
 }
 
-const defaultMessageSteps: Step[] = process.env.TED_DEMO === '1' ? [{ endTurn: true }] : []
+const demo = process.env.TED_DEMO === '1'
+const defaultMessageSteps: Step[] = demo ? [{ endTurn: true }] : []
+const demoScripts =
+  demo && process.env.TED_HOME && process.env.TED_RUN
+    ? path.join(process.env.TED_HOME, 'inputs', 'runs', process.env.TED_RUN)
+    : undefined
+let demoResults: { step: string; code: number | null; stderr: string }[] = []
+
+function nextDemoScript(): string | undefined {
+  if (!demoScripts || !existsSync(demoScripts)) return undefined
+  const files = new Set(readdirSync(demoScripts))
+  return [...files]
+    .flatMap((name) => /^(\d+)\.json$/.exec(name)?.[1] ?? [])
+    .sort((a, b) => Number(a) - Number(b))
+    .find((n) => !files.has(`${n}.result.json`))
+}
+
+function writeDemoResults(script: string) {
+  if (!demoScripts) return
+  mkdirSync(demoScripts, { recursive: true })
+  const file = path.join(demoScripts, `${script}.result.json`)
+  writeFileSync(`${file}.tmp`, JSON.stringify({ results: demoResults }))
+  renameSync(`${file}.tmp`, file)
+}
 let everyMessage: Step[] =
   flag('--resume') !== undefined
     ? (stubHealth().resumeSteps ?? defaultMessageSteps)
@@ -225,15 +256,13 @@ async function runStep(step: Step): Promise<void> {
           }
         }
       } else await client.setClarifyDepth(task, request.depth)
-      say(JSON.stringify({ code: 0, stdout: '', stderr: '' }))
+      demoResults.push({ step: Object.keys(request)[0] ?? '', code: 0, stderr: '' })
     } catch (error) {
-      say(
-        JSON.stringify({
-          code: 1,
-          stdout: '',
-          stderr: error instanceof Error ? error.message : String(error),
-        }),
-      )
+      demoResults.push({
+        step: Object.keys(request)[0] ?? '',
+        code: 1,
+        stderr: error instanceof Error ? error.message : String(error),
+      })
     }
   } else if ('everyMessage' in step) everyMessage = step.everyMessage
   else if ('emit' in step) emit(step.emit)
@@ -318,7 +347,10 @@ async function runStep(step: Step): Promise<void> {
     inputGate = step.readNextAfter
   } else if ('run' in step) {
     const [command = '', ...args] = step.run
-    say(JSON.stringify(await runCommand(command, args)))
+    const result = await runCommand(command, args)
+    if (demo)
+      demoResults.push({ step: step.run.join(' '), code: result.code, stderr: result.stderr })
+    else say(JSON.stringify(result))
   } else if ('endTurn' in step) {
     hook('Stop')
     emit({
@@ -381,9 +413,15 @@ for (;;) {
   inputGate = undefined
   const message = messages.shift()
   if (!message) {
+    const script = nextDemoScript()
+    if (script !== undefined && demoScripts) {
+      await runDemoScript(script, readFileSync(path.join(demoScripts, `${script}.json`), 'utf8'))
+      continue
+    }
     if (closed) break
     await new Promise<void>((resolve) => {
       wake = resolve
+      if (demoScripts) setTimeout(resolve, 50)
     })
     continue
   }
@@ -430,6 +468,29 @@ for (;;) {
     await sleep(stubHealth().interruptEndsAfterMs ?? 0)
     emit({ type: 'result', subtype: 'error_during_execution', is_error: false })
   }
+}
+
+async function runDemoScript(script: string, content: string) {
+  hook('UserPromptSubmit')
+  emit({
+    type: 'system',
+    subtype: 'init',
+    cwd: process.cwd(),
+    permissionMode: permissionMode(),
+    apiKeySource: stubHealth().apiKeySource ?? 'none',
+  })
+  demoResults = []
+  interrupted = false
+  for (const step of stepsIn(content)) {
+    if (interrupted) break
+    await runStep(step)
+  }
+  writeDemoResults(script)
+  emit({ type: 'system', subtype: 'demo_script_done', script })
+  if (interrupted) {
+    interrupted = false
+    emit({ type: 'result', subtype: 'error_during_execution', is_error: false })
+  } else await runStep({ endTurn: true })
 }
 
 function stepsIn(content: string): Step[] {
