@@ -42,7 +42,7 @@ import { certificateErrorCode } from '../tls-trust.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
 import type { AppDeclaration } from './declared.ts'
 import { createDevicePool } from './device-pool.ts'
-import { lineTicket, type SimulatorApp } from './device-slots.ts'
+import type { SimulatorApp } from './device-slots.ts'
 import {
   type AndroidTools,
   createAndroidTools,
@@ -437,10 +437,11 @@ export function createApps(options: AppsOptions): Apps {
     const simulator = isDeviceApp(app)
       ? devicesFor(app.kind).info(taskId, repo, app.name)
       : undefined
-    const holder =
-      state === 'waiting' && instance?.waitingFor?.startsWith(lineTicket) === true
-        ? pool.holder()
+    const waiter =
+      state === 'waiting' && instance?.waitingFor !== undefined
+        ? pool.waiter(instance.waitingFor)
         : undefined
+    const holder = waiter !== undefined && !waiter.asking ? pool.holder() : undefined
     const waitingOn =
       holder !== undefined && holder.key !== keyOf(taskId, repo, app.name)
         ? { displayId: holder.displayId, app: holder.app }

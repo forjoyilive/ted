@@ -429,6 +429,65 @@ describe('iOS simulator Apps', () => {
     expect((await iPhone(client, first))?.simulator?.shutDown?.for).toBe('NB-2')
   })
 
+  test('an approved App that waits for another App’s build names it, and ted run-app says so', async () => {
+    const client = await start()
+    const built = path.join(scratch, 'built')
+    await addFactory(
+      client,
+      `until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
+    )
+    await client.ok('PATCH', '/settings', { maxRunningDevices: 2 })
+    const first = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
+    await writeFile(built, '')
+    await waitForApp(client, first, (a) => a.state === 'running', 'NB-1’s iPhone to be built')
+    const builder = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${builder.id}/apps/start`, { name: 'Watch' })
+    await waitUntil(
+      async () =>
+        (await apps(client, builder)).find((a) => a.name === 'Watch' && a.simulator?.booted),
+      'NB-2’s Watch to boot and take the build turn',
+    )
+    const said = path.join(scratch, 'run-app.err')
+    const second = await taskWithWorktree(
+      client,
+      JSON.stringify({
+        steps: [{ run: ['sh', '-c', `ted run-app iPhone 2> '${said}'`] }, { endTurn: true }],
+      }),
+    )
+    const request = await simulatorRequest(client, second)
+    const nb1 = request.simulator?.booted.find((b) => b.displayId === 'NB-1')
+
+    await client.ok('POST', `/comments/${request.id}/answer`, {
+      action: 'approve',
+      simulator: nb1?.udid,
+    })
+    const waiting = await waitForApp(
+      client,
+      second,
+      (a) => a.waitingOn !== undefined,
+      'NB-3’s iPhone to wait for NB-2’s build',
+    )
+    expect(waiting).toMatchObject({
+      state: 'waiting',
+      waitingOn: { displayId: 'NB-2', app: 'Watch' },
+    })
+
+    const building = 'Waiting for NB-2’s Watch to finish building…'
+    await waitUntil(
+      async () => (await readFile(said, 'utf8').catch(() => '')).includes(building),
+      'ted run-app to say whose build it waits for',
+    )
+    await client.ok('POST', `/tasks/${builder.id}/apps/stop`, { name: 'Watch' })
+    const result = await leadResult(client, second)
+    expect(result.code).toBe(0)
+    const lines = (await readFile(said, 'utf8')).split('\n')
+    expect(lines.filter((l) => l.includes('Waiting for'))).toEqual([
+      'Every simulator and emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…',
+      building,
+    ])
+  })
+
   test('a slot that frees up first closes the request without shutting anything down', async () => {
     const client = await start()
     await addFactory(client)

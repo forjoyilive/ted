@@ -39,6 +39,7 @@ export interface DevicePool {
   wait(id: string, waiter: PoolWaiter): void
   unwait(id: string): void
   waiters(): PoolWaiter[]
+  waiter(id: string): PoolWaiter | undefined
   takeTurn(holder: TurnHolder): boolean
   startTurn(holder: TurnHolder): boolean
   turnFree(key: string): boolean
@@ -128,6 +129,7 @@ export function createDevicePool(options: {
       for (const member of members) member.notify()
     },
     waiters: () => [...waiters.values()],
+    waiter: (id) => waiters.get(id),
     takeTurn,
     startTurn: (holder) => !options.oneAtATime() || (line.length === 0 && takeTurn(holder)),
     turnFree,
