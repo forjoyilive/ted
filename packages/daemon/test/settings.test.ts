@@ -6,6 +6,7 @@ import {
   type DaemonEvent,
   defaultMachineSettings,
   type MachineSettings,
+  noBacklogStarts,
   readDaemonInfo,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -145,13 +146,36 @@ describe('machine settings in the store', () => {
             repo: 'kriya/notebook',
             defaultBranch: 'main',
             repos: [{ repo: 'kriya/notebook', name: 'notebook' }],
-            autoStartBacklog: false,
             cloned: true,
             position: 0,
             createdAt: factory.createdAt,
           },
         },
       ])
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('until automatic Backlog starts are saved, they follow each Factory’s old switch', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const factory = store.addFactory({
+        key: 'NB',
+        name: 'notebook',
+        repo: 'kriya/notebook',
+        cloneUrl: 'https://example.invalid/notebook.git',
+        defaultBranch: 'main',
+      })
+      expect(store.settings().backlogStarts).toEqual(noBacklogStarts)
+      store.setFactoryAutoStartBacklog(factory.id, true)
+      expect(store.settings().backlogStarts).toEqual({
+        ...noBacklogStarts,
+        enabled: true,
+        factoryIds: [factory.id],
+      })
+      store.updateSettings({ backlogStarts: { ...noBacklogStarts } })
+      expect(store.settings().backlogStarts).toEqual(noBacklogStarts)
     } finally {
       await store.close()
     }

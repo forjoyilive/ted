@@ -129,6 +129,12 @@ export function createFactoryRemovals(options: {
           linearIntakeScopes: scopes,
           asanaIntakeScopes: asanaScopes,
           githubIntakeScopes: githubScopes,
+          ...(settings.backlogStarts.factoryIds.includes(factory.id) && {
+            backlogStarts: {
+              ...settings.backlogStarts,
+              factoryIds: settings.backlogStarts.factoryIds.filter((id) => id !== factory.id),
+            },
+          }),
           factoryPermissions: permissions,
           linearSyncTeams: teams,
           linearSyncDeclined: declined,

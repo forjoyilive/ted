@@ -41,6 +41,7 @@ import {
   taskCommands,
 } from './commands.ts'
 import { openMovedTaskEvent } from './components/ArchiveDialogs.tsx'
+import { startsAutomatically } from './components/BacklogStarts.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { buttonPosition } from './components/ContextMenu.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
@@ -963,6 +964,17 @@ export function App({ start }: { start?: AppStart | undefined }) {
             onOpen={openTask}
             onOpenTask={openTaskByRef}
             onNewTask={() => openNewTask()}
+            onOpenBacklogStarts={() =>
+              openSetting(
+                {
+                  id: 'app.general.backlog-starts',
+                  name: 'Backlog starts',
+                  where: '',
+                  target: { kind: 'app', section: 'general' },
+                },
+                dispatch,
+              )
+            }
           />
         )
       case 'factory': {
@@ -1224,6 +1236,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
           {...(newTaskOpen.parentId !== undefined && { parentId: newTaskOpen.parentId })}
           onClose={() => setNewTaskOpen(undefined)}
           onOpenTask={openTask}
+          {...(settings && {
+            startsAutomatically: startsAutomatically(settings.backlogStarts, factoryLayout),
+          })}
         />
       )}
       <RestartStoppedDialog />

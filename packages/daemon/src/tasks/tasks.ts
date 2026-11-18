@@ -138,6 +138,7 @@ import {
   archiveChoice,
   asanaAddChoice,
   asanaSyncAllowable,
+  backlogStartFactories,
   bannerId,
   briefHeadings,
   type CleanupStepReport,
@@ -175,6 +176,7 @@ import {
   resetRefusal,
   runOnlyBrowserActions,
   type SetPullRequestTitleRequest,
+  sameBacklogStarts,
   sizeChoices,
   type TaskMoved,
   type TaskMovePlan,
@@ -1430,6 +1432,7 @@ export function createTasks(options: {
   let busyTimer: NodeJS.Timeout | undefined
   const autoStartFailures = new Set<string>()
   let backlogVersion = 0
+  let seenBacklogStarts = store.settings().backlogStarts
 
   function hold(taskId: string): () => void {
     return inFlight.hold(taskId)
@@ -2080,6 +2083,19 @@ export function createTasks(options: {
       )
   }
 
+  let backlogFrom: { version: number; from: ReturnType<typeof backlogStartFactories> } | undefined
+  function startsFrom(factoryId: string): boolean {
+    if (backlogFrom?.version !== backlogVersion) {
+      const { backlogStarts } = store.settings()
+      backlogFrom = {
+        version: backlogVersion,
+        from: backlogStartFactories(backlogStarts, store.factoryLayout()),
+      }
+    }
+    const { from } = backlogFrom
+    return from === 'all' || (from !== 'none' && from.has(factoryId))
+  }
+
   function backlogEligible(task: StoredTask, preparing = false): boolean {
     return (
       task.stage === 'backlog' &&
@@ -2094,7 +2110,7 @@ export function createTasks(options: {
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
       (task.snoozedUntil !== undefined ||
-        (store.getFactory(task.factoryId)?.autoStartBacklog === true &&
+        (startsFrom(task.factoryId) &&
           !automationGitHubTask(task) &&
           task.createdBy !== 'task-lead')) &&
       unmergedBlockers(task.id).length === 0
@@ -3815,8 +3831,8 @@ export function createTasks(options: {
     return workflow.settings.stages.merge?.commit_titles !== false
   }
 
-  async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
-    return validation.merge(taskId, resolution)
+  async function mergeChecks(taskId: string): Promise<boolean> {
+    return validation.merge(taskId)
   }
 
   async function mergeSendBack(
@@ -11171,9 +11187,17 @@ export function createTasks(options: {
       event.type === 'task-deleted' ||
       event.type === 'factory-removed' ||
       event.type === 'factory-updated' ||
+      event.type === 'factory-layout-changed' ||
       event.type === 'settings-changed'
     )
       backlogVersion++
+    if (
+      event.type === 'settings-changed' &&
+      !sameBacklogStarts(event.settings.backlogStarts, seenBacklogStarts)
+    ) {
+      seenBacklogStarts = event.settings.backlogStarts
+      autoStartFailures.clear()
+    }
     if (event.type === 'factory-updated') {
       for (const id of autoStartFailures) {
         if (store.getTask(id)?.factoryId === event.factory.id) autoStartFailures.delete(id)
@@ -11206,7 +11230,8 @@ export function createTasks(options: {
       event.type === 'task-deleted' ||
       event.type === 'factory-removed' ||
       event.type === 'settings-changed' ||
-      event.type === 'factory-updated'
+      event.type === 'factory-updated' ||
+      event.type === 'factory-layout-changed'
     ) {
       void pump()
     }

@@ -26,7 +26,6 @@ export function factory(fields: Partial<Factory> = {}): Factory {
     repo: 'acme/widgets',
     defaultBranch: 'main',
     repos: [{ repo: 'acme/widgets', name: 'widgets' }],
-    autoStartBacklog: false,
     cloned: true,
     position: 0,
     createdAt,

@@ -81,7 +81,6 @@ const settings = {
 } satisfies Required<P.FactorySettingsChanges>
 roundTrip(P.parseMergeSettingsRequest, { receipt: 'a'.repeat(32) })
 rejects(P.parseMergeSettingsRequest, { receipt: '../bad' }, 'receipt must be')
-roundTrip(P.parseAutoStartBacklogRequest, { enabled: true })
 roundTrip(P.parseCreateFactoryRequest, {
   name: 'Ted',
   key: 'Ted',
@@ -265,7 +264,6 @@ rejects(
   'more than 20 commands',
 )
 
-rejects(P.parseAutoStartBacklogRequest, { enabled: 1 }, 'enabled must be')
 rejects(P.parseReorderFactoriesRequest, { factoryIds: 'one' }, 'factoryIds must be a list')
 rejects(P.parseFactoryLayout, { items: 'one' }, 'items must be a list')
 rejects(P.parseFactoryLayout, { items: [{ factoryId: 1 }] }, 'a Factory id must be text')

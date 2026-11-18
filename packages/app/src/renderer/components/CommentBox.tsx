@@ -157,6 +157,11 @@ export function CommentBox({
         <p className={styles.mergeNote}>
           The merge is pending. Posting a comment cancels Ted’s merge and counts as Request changes.
           If you then merge the pull request on GitHub, Ted still moves the Task to Done.
+          {task.mergeHeld !== undefined && (
+            <span className={styles.mergeHeld} data-merge-held>
+              {task.mergeHeld}
+            </span>
+          )}
         </p>
       )}
       {task.canResume && (

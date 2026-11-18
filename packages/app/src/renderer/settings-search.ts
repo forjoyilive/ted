@@ -79,7 +79,7 @@ const entries = {
   'app.general.autopilot.mode': {
     name: 'Autopilot across all Factories',
     keywords: 'overnight mode',
-    help: 'Carry started work through Merge without routine questions or sign-offs. It starts no Backlog Tasks; each Factory’s Start Backlog Tasks automatically setting does that. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you.',
+    help: 'Carry started work through Merge without routine questions or sign-offs. It starts no Backlog Tasks; Backlog starts below does that. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you.',
     detail:
       'Stays on until you turn it off, on this computer only. Turning it off leaves started work running.',
   },
@@ -87,6 +87,23 @@ const entries = {
     name: 'Review Tasks from Automations and public issues',
     keywords: 'overnight mode review gate sign-off automation github issue outsider',
     help: 'While Autopilot is on, Tasks an Automation created and Tasks from a GitHub issue with text from outsiders still wait for your Review sign-off, and merge only the code you approved.',
+  },
+  'app.general.backlog-starts': {
+    name: 'Backlog starts',
+    keywords: 'auto start automatic backlog queue',
+    heading: true,
+  },
+  'app.general.backlog-starts.enabled': {
+    name: 'Start Backlog Tasks automatically',
+    keywords: 'auto start automatic backlog queue',
+    detail:
+      'When a working-Run slot is free, start the next Backlog Task: highest Priority first, then the order in All Tasks. Skips blocked Tasks; Queued work goes first. Turning this off leaves started Tasks running.',
+  },
+  'app.general.backlog-starts.from': {
+    name: 'Start from',
+    keywords: 'auto start automatic backlog factories groups',
+    detail:
+      'Tick a group to include every Factory in it, now and later. A snoozed Task starts when its snooze ends, whichever Factories are ticked.',
   },
   'app.general.startup': { name: 'Startup and quitting', heading: true },
   'app.general.startup.login': {
@@ -356,11 +373,6 @@ const entries = {
   'factory.general.name': {
     name: 'Name',
     help: 'Shown in the sidebar and the Inbox. Task IDs don’t change.',
-  },
-  'factory.general.auto-start': {
-    name: 'Start Backlog Tasks automatically',
-    detail:
-      'Start the next eligible Task when a working-Run slot is free. Uses priority and manual order, skips blocked Tasks, and gives Queued work precedence. Takes effect immediately. Turning this off leaves started Tasks running.',
   },
   'factory.intake': {
     name: 'Intake',

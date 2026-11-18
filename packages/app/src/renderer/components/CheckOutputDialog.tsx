@@ -1,12 +1,14 @@
 import type { FailureCase } from '@ted/protocol'
 import { type CheckRun, checkLabel } from '@ted/protocol/checks'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useFailures } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './CheckOutputDialog.module.css'
 import { FailureDetails } from './FailureDetails.tsx'
 import { CloseIcon } from './icons.tsx'
 import { Loading } from './Loading.tsx'
+
+const followSlack = 24
 
 interface CheckOutputProps {
   checkRun: CheckRun
@@ -39,6 +41,8 @@ function RecordedCheckOutput({
   const [shown, setShown] = useState(position)
   const [output, setOutput] = useState<{ position: number; text: string; log: string }>()
   const [error, setError] = useState<string>()
+  const pre = useRef<HTMLPreElement>(null)
+  const following = useRef(true)
   const check = checkRun.checks[shown]
   const running = check?.state === 'running'
 
@@ -71,6 +75,11 @@ function RecordedCheckOutput({
   )
   const text = output?.position === shown ? output.text : undefined
 
+  useLayoutEffect(() => {
+    const element = pre.current
+    if (text !== undefined && element && following.current) element.scrollTop = element.scrollHeight
+  }, [text])
+
   return (
     <dialog
       ref={dialog}
@@ -101,7 +110,10 @@ function RecordedCheckOutput({
                   role="tab"
                   aria-selected={i === shown}
                   className={styles.tab}
-                  onClick={() => setShown(i)}
+                  onClick={() => {
+                    following.current = true
+                    setShown(i)
+                  }}
                 >
                   {checkLabel(c)}
                 </button>
@@ -126,7 +138,15 @@ function RecordedCheckOutput({
           {error}
         </p>
       ) : (
-        <pre className={`${styles.output} ${text === undefined ? styles.pending : ''}`}>
+        <pre
+          ref={pre}
+          className={`${styles.output} ${text === undefined ? styles.pending : ''}`}
+          onScroll={(event) => {
+            const element = event.currentTarget
+            following.current =
+              element.scrollHeight - element.scrollTop - element.clientHeight <= followSlack
+          }}
+        >
           {text === undefined ? (
             <Loading terminal label="Loading check output…" />
           ) : text === '' ? (

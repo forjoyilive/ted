@@ -26,6 +26,13 @@ import {
 } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AutopilotLabel } from '../components/Autopilot.tsx'
+import {
+  BacklogStartsDot,
+  BacklogStartsMenu,
+  backlogStartsSummary,
+  startsAutomatically,
+  startsOnItsOwn,
+} from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
@@ -107,6 +114,14 @@ export function idColumnWidth(tasks: readonly Pick<Task, 'displayId'>[]): string
   return `max(${columnWidths.id}, calc(${longest + 2} * 0.65 * var(--text-14)))`
 }
 
+const factoryMax = '220px'
+const factoryIconRoom = '18px'
+
+export function factoryColumnWidth(names: readonly string[]): string {
+  const longest = Math.max(0, ...names.map((n) => n.length))
+  return `clamp(${columnWidths.factory}, calc(${longest} * 0.6 * var(--text-14) + ${factoryIconRoom}), ${factoryMax})`
+}
+
 export const listColumnGap = '16px'
 const statusMin = '176px'
 const titleRoom = '40ch'
@@ -114,13 +129,16 @@ const titleRoom = '40ch'
 export function listGrid(
   columns: readonly (ListColumn | 'queue')[],
   tasks: readonly Pick<Task, 'displayId'>[],
+  factoryNames: readonly string[] = [],
 ): string {
   const width = (c: ListColumn | 'queue') =>
     c === 'id'
       ? idColumnWidth(tasks)
       : c === 'parent'
         ? `max(${columnWidths.parent}, ${idColumnWidth(tasks)})`
-        : columnWidths[c]
+        : c === 'factory'
+          ? factoryColumnWidth(factoryNames)
+          : columnWidths[c]
   const status = (others: readonly (ListColumn | 'queue')[]) => {
     if (!others.includes('title')) return `minmax(${statusMin}, ${columnWidths.status})`
     const taken = [
@@ -551,6 +569,7 @@ export function TaskList({
   banners,
   capLine,
   slots,
+  onOpenBacklogStarts,
 }: {
   scope: string
   title: string
@@ -566,6 +585,7 @@ export function TaskList({
   banners?: ReactNode
   capLine?: string | undefined
   slots?: RunSlots | undefined
+  onOpenBacklogStarts?: () => void
 }) {
   const now = useNow()
   const allTasks = isAllTasks(scope)
@@ -593,6 +613,11 @@ export function TaskList({
   }
   const changeFilters = (filters: ListFilters) => change({ ...view, filters })
 
+  const backlogStarts = settings?.backlogStarts
+  const startsIn = useMemo(
+    () => (backlogStarts ? startsAutomatically(backlogStarts, layout) : () => false),
+    [backlogStarts, layout],
+  )
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
   const shown = filterTasks(inScope, view.filters, text, layout)
   const scopedFactories = allTasks ? factories : factories.filter((f) => f.id === scope)
@@ -630,7 +655,12 @@ export function TaskList({
   const ordered = groups.flatMap((g) =>
     isCollapsed(g) ? [] : rowsOf(g).flatMap((r) => (r.context ? [] : [r.task])),
   )
-  const grid = listGrid([...(queueMode ? (['queue'] as const) : []), ...columns], tasks)
+  const listedFactories = new Set(inScope.map((t) => t.factoryId))
+  const grid = listGrid(
+    [...(queueMode ? (['queue'] as const) : []), ...columns],
+    tasks,
+    factories.filter((f) => listedFactories.has(f.id)).map((f) => f.name),
+  )
   const chips = filterChips(view.filters, factories, layout, stages)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
   const { selected, setSelected, anchor, setAnchor, toggle } = useSelection(ordered, scope)
@@ -800,7 +830,11 @@ export function TaskList({
             </span>
           )
         if (!task.status && task.markers.length === 0 && activeSubAgentCount(task.runs) === 0) {
-          return <span className={styles.none}>—</span>
+          return allTasks && startsOnItsOwn(task, startsIn) ? (
+            <span className={styles.meta}>Starts automatically</span>
+          ) : (
+            <span className={styles.none}>—</span>
+          )
         }
         return <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
       case 'blocked-by': {
@@ -1046,6 +1080,26 @@ export function TaskList({
         </h1>
         <span className={views.headerSpacer} />
         {capLine !== undefined && <span className={styles.capLine}>{capLine}</span>}
+        {allTasks && settings && (
+          <MenuButton
+            label={`Backlog starts: ${backlogStartsSummary(settings.backlogStarts, factories, layout)}`}
+            icon={<BacklogStartsDot on={settings.backlogStarts.enabled} />}
+          >
+            {(close) => (
+              <BacklogStartsMenu
+                starts={settings.backlogStarts}
+                factories={factories}
+                layout={layout}
+                {...(onOpenBacklogStarts && {
+                  onOpenSettings: () => {
+                    close()
+                    onOpenBacklogStarts()
+                  },
+                })}
+              />
+            )}
+          </MenuButton>
+        )}
         <MenuButton
           label="Filter"
           icon={<FilterIcon />}

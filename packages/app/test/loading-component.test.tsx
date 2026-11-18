@@ -10,7 +10,7 @@ import { SettingsShell } from '../src/renderer/settings/SettingsShell.tsx'
 import { TaskThread } from '../src/renderer/views/TaskThread.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
-import { comment, createdAt, task } from './support/fixtures.ts'
+import { comment, createdAt, factory, task } from './support/fixtures.ts'
 
 const callbacks = {
   onBack: vi.fn(),
@@ -23,7 +23,9 @@ const callbacks = {
 }
 
 function history(t = task()) {
-  return <TaskThread task={t} backLink={undefined} shownRun={undefined} {...callbacks} />
+  return (
+    <TaskThread task={t} factories={[]} backLink={undefined} shownRun={undefined} {...callbacks} />
+  )
 }
 
 function detailHandlers() {
@@ -141,7 +143,13 @@ test('Answer in the header closes a shown App so the request appears', async () 
     appLog: () => ({ text: '', truncated: false }),
   })
   const onCloseApp = vi.fn()
-  const props = { task: task(), backLink: undefined, shownRun: undefined, ...callbacks }
+  const props = {
+    task: task(),
+    factories: [],
+    backLink: undefined,
+    shownRun: undefined,
+    ...callbacks,
+  }
   const view = render(
     <TaskThread
       {...props}
@@ -168,7 +176,7 @@ test('the Task header counts returns to Work from the first one, with the limit 
     taskDescriptions: () => [],
     appLog: () => ({ text: '', truncated: false }),
   })
-  const props = { backLink: undefined, shownRun: undefined, ...callbacks }
+  const props = { factories: [], backLink: undefined, shownRun: undefined, ...callbacks }
   const meta = () => screen.getByText(/Back to Work/).textContent
   const view = render(<TaskThread {...props} task={task({ stage: 'review' })} />)
   expect(screen.queryByText(/Back to Work/)).toBeNull()
@@ -178,6 +186,30 @@ test('the Task header counts returns to Work from the first one, with the limit 
   expect(meta()).toBe('NB-1  ·  Back to Work 3 of 8')
   view.rerender(<TaskThread {...props} task={task({ stage: 'work', backToWork: { count: 1 } })} />)
   expect(meta()).toBe('NB-1  ·  Back to Work 1')
+})
+
+test('the Task header names the Task’s Factory before its ID', () => {
+  bridge({
+    ...detailHandlers(),
+    listThreadEvents: () => [],
+    listCheckRuns: () => [],
+    listFailures: () => [],
+    listStageEntries: () => [],
+    taskDescriptions: () => [],
+    appLog: () => ({ text: '', truncated: false }),
+  })
+  render(
+    <TaskThread
+      task={task({ stage: 'review', backToWork: { count: 1 } })}
+      factories={[factory({ name: 'Ted & Bill' })]}
+      backLink={undefined}
+      shownRun={undefined}
+      {...callbacks}
+    />,
+  )
+  expect(screen.getByText(/Back to Work/).textContent).toBe(
+    'Ted & Bill  ·  NB-1  ·  Back to Work 1',
+  )
 })
 
 test('a failed description load shows the error, even for an empty description, and can be retried', async () => {

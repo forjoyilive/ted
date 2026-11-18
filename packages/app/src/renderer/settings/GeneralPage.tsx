@@ -8,7 +8,8 @@ import { systemTimeZone } from '@ted/protocol/time'
 import { useState } from 'react'
 import type { LoginItemState } from '../../login-item.ts'
 import { PersonAvatar } from '../components/Avatar.tsx'
-import { useEventValue } from '../data.ts'
+import { BacklogStartsChoice, useBacklogStartsSave } from '../components/BacklogStarts.tsx'
+import { useEventValue, useFactories, useFactoryLayout } from '../data.ts'
 import { useOvernightChange } from '../overnight.tsx'
 import { useProfile } from '../profile.tsx'
 import { reportingLabel } from '../reporting.ts'
@@ -206,6 +207,8 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         </SettingRow>
       </SettingsGroup>
 
+      <BacklogStartsGroup settings={settings} />
+
       <SettingsGroup setting="app.general.startup">
         <SettingRow
           setting="app.general.startup.login"
@@ -262,5 +265,45 @@ export function GeneralPage({ settings }: SettingsPageProps) {
       </CommandLineGroup>
       <AboutGroup />
     </SettingsPage>
+  )
+}
+
+function BacklogStartsGroup({ settings }: Pick<SettingsPageProps, 'settings'>) {
+  const factories = useFactories()
+  const layout = useFactoryLayout()
+  const { save, saving, error } = useBacklogStartsSave()
+  const starts = settings.backlogStarts
+  return (
+    <SettingsGroup setting="app.general.backlog-starts">
+      <SettingRow setting="app.general.backlog-starts.enabled">
+        <Switch
+          label="Start Backlog Tasks automatically"
+          checked={starts.enabled}
+          disabled={saving}
+          onChange={(enabled) => save({ ...starts, enabled })}
+        />
+      </SettingRow>
+      <div className={styles.row} data-setting="app.general.backlog-starts.from">
+        <div className={styles.rowText}>
+          <span className={styles.rowTitle}>Start from</span>
+          <div className={styles.rowDetail}>
+            Tick a group to include every Factory in it, now and later. A snoozed Task starts when
+            its snooze ends, whichever Factories are ticked.
+          </div>
+          {error !== undefined && (
+            <div className={styles.rowDetail} role="alert">
+              {error}
+            </div>
+          )}
+          <BacklogStartsChoice
+            starts={starts}
+            factories={factories}
+            layout={layout}
+            disabled={saving}
+            onChange={save}
+          />
+        </div>
+      </div>
+    </SettingsGroup>
   )
 }

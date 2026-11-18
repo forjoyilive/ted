@@ -118,6 +118,17 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       throw error
     })
   const command = (request: BrowserRequest) => client.browserCommand(task.id, request)
+  const backButton = panel.getByRole('button', { name: 'Back', exact: true })
+  const forwardButton = panel.getByRole('button', { name: 'Forward', exact: true })
+  expect(await backButton.isDisabled()).toBe(true)
+  expect(await forwardButton.isDisabled()).toBe(true)
+  await command({ action: 'navigate', value: new URL('?second', running.url).href })
+  await expect.poll(() => backButton.isEnabled()).toBe(true)
+  expect(await forwardButton.isDisabled()).toBe(true)
+  await backButton.click()
+  await expect.poll(() => forwardButton.isEnabled()).toBe(true)
+  await expect.poll(() => backButton.isDisabled()).toBe(true)
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   const snapshot = await command({ action: 'snapshot' })
   expect(snapshot.text).toContain('Browser fixture')
   const field = snapshot.text?.match(/([^\s]+) input Name/)?.[1]
@@ -319,12 +330,6 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .poll(() => panel.getByRole('textbox', { name: 'App address' }).inputValue())
     .toBe(firstPage)
   expect((await command({ action: 'snapshot' })).text).toContain('Clicked')
-  await client.startApp(task.id, { name: 'Admin' })
-  const admin = await waitUntil(
-    async () =>
-      (await client.listApps(task.id)).find((a) => a.name === 'Admin' && a.state === 'running'),
-    'Admin App',
-  )
   const otherPage = new URL(otherApp.url ?? '').href
   await app.evaluate(async ({ webContents }, url) => {
     await webContents
@@ -337,7 +342,20 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await startGuestWorker(app, firstPage)
   await startGuestWorker(app, otherPage)
   const otherTraffic = await guestWorkerTraffic(otherPage)
-  await command({ action: 'open', app: { name: 'Admin' } })
+  await panel.getByRole('combobox', { name: 'Web App' }).click()
+  await window
+    .getByRole('listbox', { name: 'Web App' })
+    .getByRole('option', { name: 'Admin' })
+    .click()
+  await window
+    .getByRole('dialog', { name: 'Run Admin outside the sandbox?' })
+    .getByRole('button', { name: 'Run', exact: true })
+    .click()
+  const admin = await waitUntil(
+    async () =>
+      (await client.listApps(task.id)).find((a) => a.name === 'Admin' && a.state === 'running'),
+    'Admin App started from the Web App list',
+  )
   await expect.poll(async () => (await guestWorkerTraffic(firstPage)).connections).toBe(0)
   const stoppedTraffic = await guestWorkerTraffic(firstPage)
   await expect
@@ -366,6 +384,33 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .toBe('Preview size: Mobile · 390 × 844')
   await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
   const adminPage = new URL(admin.url ?? '').href
+  const screenshotSize = async () => {
+    const shot = await command({ action: 'screenshot' })
+    if (!shot.attachment) throw new Error('Screenshot missing')
+    const png = Buffer.from(
+      (await client.readBrowserCapture(task.id, shot.attachment.hash)).data,
+      'base64',
+    )
+    return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
+  }
+  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
+  await panel.getByRole('button', { name: '← Task Lead' }).click()
+  await expect
+    .poll(() =>
+      app?.evaluate(({ BrowserWindow }, url) => {
+        const children = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []
+        return children.some(
+          (v) =>
+            'webContents' in v &&
+            (v.webContents as import('electron').WebContents).getURL() === url,
+        )
+      }, adminPage),
+    )
+    .toBe(false)
+  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
+  await window.getByRole('tab', { name: 'Apps' }).click()
+  await window.getByRole('button', { name: 'Preview Admin', exact: true }).click()
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   const onAdmin = (script: string) =>
     app?.evaluate(
       async ({ webContents }, { url, script }) =>

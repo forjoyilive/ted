@@ -40,6 +40,7 @@ import {
   asanaSyncOf,
   automationCardHeadline,
   autopilotEnabled,
+  type BacklogStarts,
   type Banner,
   type BannerAction,
   type BannerSeverity,
@@ -95,6 +96,7 @@ import {
   type MachineSettings,
   type MemoryKillAsk,
   type MergeMethod,
+  noBacklogStarts,
   type PermissionMode,
   type Priority,
   type Proposal,
@@ -393,12 +395,19 @@ export interface StoredFactoryRepo {
 }
 
 export interface StoredFactory extends Omit<Factory, 'repos' | 'cloned' | 'setup' | 'localFolder'> {
+  autoStartBacklog: boolean
   cloneUrl: string
   repos: StoredFactoryRepo[]
   clonedAt?: string
 }
 
-export function basicFactory({ cloneUrl: _, clonedAt, repos, ...factory }: StoredFactory): Factory {
+export function basicFactory({
+  cloneUrl: _,
+  autoStartBacklog: __,
+  clonedAt,
+  repos,
+  ...factory
+}: StoredFactory): Factory {
   return {
     ...factory,
     repos: repos.map(({ repo, name }) => ({ repo, name })),
@@ -1301,6 +1310,8 @@ export interface TedStore extends TaskHistory {
   setTaskChecking(taskId: string, on: boolean): void
   setTaskStopping(taskId: string, on: boolean): void
   setTaskMovingAfterChecks(taskId: string, on: boolean): void
+  setMergeHeld(taskId: string, why: string | undefined): void
+  mergeHeld(taskId: string): string | undefined
   setChecksWaiting(places: ReadonlyMap<string, number>): void
   onWriteResult(listener: (error?: unknown) => void): () => void
   automationDrafts: AutomationDraftStore
@@ -1428,6 +1439,7 @@ export async function openStore({
   const liveTokens = new Map<string, number>()
   const checkingTasks = new Set<string>()
   const movingAfterChecks = new Set<string>()
+  const heldMerges = new Map<string, string>()
   const stoppingTasks = new Set<string>()
   let checksWaiting: ReadonlyMap<string, number> = new Map()
   const tellWriters = (error?: unknown) => {
@@ -2499,6 +2511,8 @@ export async function openStore({
       ...(taskCanResume(facts) && { canResume: true }),
       ...(taskWakesOnComment(facts) && { wakesOnComment: true as const }),
       ...(facts.checksActive && { checksActive: true }),
+      ...(facts.mergePending &&
+        heldMerges.has(row.id) && { mergeHeld: heldMerges.get(row.id) ?? '' }),
       tabs,
       ...(tokens > 0 && { tokens }),
       runs: live
@@ -3582,6 +3596,12 @@ export async function openStore({
       : 'ask'
   }
 
+  const backlogStartsBeforeSaving = (): BacklogStarts => {
+    const factoryIds = store.query(
+      queryDb(factories.select('id').where({ autoStartBacklog: true })),
+    )
+    return { ...noBacklogStarts, enabled: factoryIds.length > 0, factoryIds }
+  }
   const machineDefaults: MachineSettings = {
     ...defaultMachineSettings,
     maxWorkingRuns: defaultWorkingRuns(totalMemory()),
@@ -3598,6 +3618,7 @@ export async function openStore({
       ...(legacy && { appearance: legacy.appearance as Appearance }),
       ...deviceLimitFromOldLimits(values),
       ...pick(values, Object.keys(defaultMachineSettings)),
+      ...(values.backlogStarts === undefined && { backlogStarts: backlogStartsBeforeSaving() }),
       billing: {
         ...defaultMachineSettings.billing,
         ...(values.billing as Partial<MachineSettings['billing']> | undefined),
@@ -4767,6 +4788,7 @@ export async function openStore({
       if (!row) return
       checkingTasks.delete(taskId)
       movingAfterChecks.delete(taskId)
+      heldMerges.delete(taskId)
       const at = new Date().toISOString()
       const guideEnd = row.setup ? guideEnding(row.factoryId, 'setup-deleted') : []
       commit(
@@ -4797,6 +4819,7 @@ export async function openStore({
       const row = requireTaskRow(taskId)
       checkingTasks.delete(taskId)
       movingAfterChecks.delete(taskId)
+      heldMerges.delete(taskId)
       const runIds = taskRuns(taskId).map((r) => r.id)
       const human = history.humanClarifyDepth(taskId)
       const byLead = row.clarifyDepthBy === 'task-lead'
@@ -4830,6 +4853,7 @@ export async function openStore({
         const row = requireTaskRow(taskId)
         checkingTasks.delete(taskId)
         movingAfterChecks.delete(taskId)
+        heldMerges.delete(taskId)
         return {
           row,
           started,
@@ -5852,6 +5876,7 @@ export async function openStore({
     },
     localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry, options) {
+      heldMerges.delete(taskId)
       const at = new Date().toISOString()
       const withdrawn = openRequestRows(taskId).filter(
         (row) =>
@@ -7601,6 +7626,15 @@ export async function openStore({
       } else movingAfterChecks.delete(taskId)
       if (taskRow(taskId)) updatedTask(taskId)
     },
+    setMergeHeld(taskId, why) {
+      if (heldMerges.get(taskId) === why) return
+      if (why !== undefined && !taskRow(taskId)) return
+      stateCommits += 1
+      if (why === undefined) heldMerges.delete(taskId)
+      else heldMerges.set(taskId, why)
+      if (taskRow(taskId)) updatedTask(taskId)
+    },
+    mergeHeld: (taskId) => heldMerges.get(taskId),
     setTaskStopping(taskId, on) {
       if (stoppingTasks.has(taskId) === on) return
       stateCommits += 1

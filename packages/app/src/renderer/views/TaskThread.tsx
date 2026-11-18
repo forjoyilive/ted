@@ -562,6 +562,7 @@ export function TaskPanes({
       ) : null}
       <TaskThread
         task={task}
+        factories={factories}
         backLink={backLink}
         revealRequest={revealRequest}
         found={found}
@@ -628,6 +629,7 @@ export function TaskPanes({
 
 export function TaskThread({
   task,
+  factories,
   taskChanges,
   onOpenFile,
   onAllChanges,
@@ -654,6 +656,7 @@ export function TaskThread({
   onOpenFile?: ((file: ChangedFile) => void) | undefined
   onAllChanges?: (() => void) | undefined
   task: Task
+  factories: readonly Factory[]
   backLink: string | undefined
   revealRequest?: ScrollReveal | undefined
   found?: ScrollReveal | undefined
@@ -960,6 +963,14 @@ export function TaskThread({
           <TaskDescription task={task} />
           <div className={`${styles.headerRow} ${styles.statusRow}`}>
             <span className={styles.taskMeta}>
+              {factories.some((f) => f.id === task.factoryId) && (
+                <>
+                  <span className={styles.metaFactory}>
+                    <FactoryName factories={factories} factoryId={task.factoryId} />
+                  </span>
+                  {'  ·  '}
+                </>
+              )}
               {task.displayId}
               {onOpenBrief && (
                 <>
@@ -1047,6 +1058,7 @@ export function TaskThread({
               shown={shownApp}
               onBack={() => onCloseApp?.()}
               onLog={() => onOpenApp?.({ repo: shownApp.repo, name: shownApp.name })}
+              onSwitch={(next) => onOpenApp?.({ ...next, browser: true })}
             />
           ) : shownApp !== undefined ? (
             <AppLogView

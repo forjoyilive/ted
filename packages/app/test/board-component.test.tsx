@@ -12,7 +12,12 @@ import {
 import { Help } from '../src/renderer/components/Help.tsx'
 import { affects, StagesProvider } from '../src/renderer/stages.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
-import { idColumnWidth, listGrid, TaskList } from '../src/renderer/views/TaskList.tsx'
+import {
+  factoryColumnWidth,
+  idColumnWidth,
+  listGrid,
+  TaskList,
+} from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, expandFactory, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
@@ -603,6 +608,16 @@ test('List ID column fits the longest ID, and Status gives way before Title is u
   expect(listGrid(['id', 'status'], [])).toContain('minmax(176px, 300px)')
   expect(listGrid(['children', 'parent'], [{ displayId: 'TED-1000' }])).toBe(
     '4px 24px 104px max(80px, max(56px, calc(10 * 0.65 * var(--text-14)))) 4px',
+  )
+})
+
+test('List Factory column fits the longest Factory name between 120px and 220px', () => {
+  expect(factoryColumnWidth([])).toBe('clamp(120px, calc(0 * 0.6 * var(--text-14) + 18px), 220px)')
+  expect(factoryColumnWidth(['Ted', 'Ananda Meditation'])).toBe(
+    'clamp(120px, calc(17 * 0.6 * var(--text-14) + 18px), 220px)',
+  )
+  expect(listGrid(['factory', 'stage'], [], ['Ananda Insight'])).toBe(
+    '4px 24px clamp(120px, calc(14 * 0.6 * var(--text-14) + 18px), 220px) 80px 4px',
   )
 })
 

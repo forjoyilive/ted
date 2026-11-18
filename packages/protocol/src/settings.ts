@@ -1,4 +1,5 @@
 import type { AsanaIntakeScope } from './asana-intake.ts'
+import { type BacklogStarts, noBacklogStarts } from './backlog-starts.ts'
 import type { BoardView } from './board-view.ts'
 import { type DiagnosticsSort, defaultDiagnosticsSort } from './diagnostics-sort.ts'
 import type { GitHubIntakeScope } from './github-intake.ts'
@@ -145,6 +146,7 @@ export interface MachineSettings {
   checkCpuPercent: number
   limitScheduledCheckCpus: boolean
   startNewTasks: boolean
+  backlogStarts: BacklogStarts
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -208,6 +210,7 @@ export const defaultMachineSettings: MachineSettings = {
   checkCpuPercent: 50,
   limitScheduledCheckCpus: true,
   startNewTasks: true,
+  backlogStarts: noBacklogStarts,
 }
 
 export interface Profile {
