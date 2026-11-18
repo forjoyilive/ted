@@ -142,4 +142,39 @@ test('sidebars resize, persist, fit the window and share navigation width with S
     await settings.evaluate((b) => b.getBoundingClientRect().bottom <= globalThis.innerHeight),
   ).toBe(true)
   await capture(window, 'factory-list-scrolled.png')
+
+  const edges = () =>
+    factoryList.evaluate((list) => {
+      const style = getComputedStyle(list)
+      const clear = 'rgba(0, 0, 0, 0)'
+      return { above: style.borderTopColor !== clear, below: style.borderBottomColor !== clear }
+    })
+  await expect.poll(edges).toEqual({ above: true, below: false })
+  await factoryList.evaluate((list) => list.scrollTo({ top: 0 }))
+  await expect.poll(edges).toEqual({ above: false, below: true })
+
+  const rows = factoryList.locator(':scope > div > article')
+  const names = () => rows.evaluateAll((all) => all.map((row) => row.getAttribute('aria-label')))
+  const [first, ...rest] = await names()
+  const start = await rows.first().boundingBox()
+  const list = await factoryList.boundingBox()
+  if (!start || !list) throw new Error('Missing Factory list')
+  const x = start.x + start.width / 2
+  await window.mouse.move(x, start.y + start.height / 2)
+  await window.mouse.down()
+  await window.mouse.move(x, start.y + start.height, { steps: 4 })
+  const edgeY = list.y + list.height - 6
+  let nudge = 0
+  await expect
+    .poll(async () => {
+      nudge = 1 - nudge
+      await window.mouse.move(x + nudge, edgeY)
+      return factoryList.evaluate((box) => box.scrollTop + box.clientHeight >= box.scrollHeight - 1)
+    })
+    .toBe(true)
+  const end = await factoryList.locator(':scope > div').last().boundingBox()
+  if (!end) throw new Error('Missing end of the Factory list')
+  await window.mouse.move(x, end.y + end.height / 2, { steps: 2 })
+  await window.mouse.up()
+  await expect.poll(names).toEqual([...rest, first])
 })
