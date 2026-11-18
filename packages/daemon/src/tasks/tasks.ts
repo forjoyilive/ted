@@ -4632,6 +4632,24 @@ export function createTasks(options: {
     ].join('\n\n')
   }
 
+  async function restartFromBrief(task: StoredTask, asked: string): Promise<void> {
+    await leadLifecycle.restartFromBrief(task.id, async (unread) =>
+      [
+        fromTheBrief(find(task.id), {
+          heading: 'Picking up after getting stuck',
+          why: `The previous Task Lead kept stopping without asking the human anything, even after Ted nudged it. The human chose to restart from the brief, so you don’t have that conversation. Ted told the human: “${oneLine(asked, 500)}” If you need the human to decide or do something, ask with \`ted outcome ask "<question>"\`.`,
+        }),
+        ...(unread.length > 0
+          ? [
+              `## Messages the old Task Lead hadn’t read\n\n${unread
+                .map((m) => `${m.from === 'ted' ? 'Ted' : 'The user'}: ${m.text.trim()}`)
+                .join('\n\n')}`,
+            ]
+          : []),
+      ].join('\n\n'),
+    )
+  }
+
   async function useDefaultModel(ref: string): Promise<Task> {
     const task = find(ref)
     await leadLifecycle.useDefaultModel(task)
@@ -6453,6 +6471,7 @@ export function createTasks(options: {
         },
         wake,
         sendNudge,
+        restartFromBrief,
         useDefaultModel,
         linesText,
         gateName,
@@ -10471,10 +10490,15 @@ export function createTasks(options: {
       return
     }
     if (timer || run.taskId === undefined) return
-    const next = clock.timeout(() => {
-      nudgeTimers.delete(run.id)
-      if (!closed) inBackground('nudge the Task Lead', () => nudgeIfIdle(run.id))
-    }, nudgeAfterMs)
+    const task = store.getTask(run.taskId)
+    const nudged = task ? nudgesSinceHeard(task, run.id) : 0
+    const next = clock.timeout(
+      () => {
+        nudgeTimers.delete(run.id)
+        if (!closed) inBackground('nudge the Task Lead', () => nudgeIfIdle(run.id))
+      },
+      nudgeAfterMs * (nudgeSteps[nudged] ?? 1),
+    )
     next.unref()
     nudgeTimers.set(run.id, next)
   }
@@ -10501,8 +10525,7 @@ export function createTasks(options: {
     if (inFlight.is(task.id, 'stoppingForBlockers') || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).some((c) => !isTrackerGroupAsk(c))) return
     if (planningInChat(task.id)) return
-    const nudged = store.latestNudge(task.id, run.id)
-    if (nudged === undefined || heardSince(task, nudged)) await sendNudge(task, run)
+    if (nudgesSinceHeard(task, run.id) < nudgeSteps.length) await sendNudge(task, run)
     else askAboutIdle(task, run)
   }
 
@@ -10515,18 +10538,19 @@ export function createTasks(options: {
     )
   }
 
-  function heardSince(task: StoredTask, at: string): boolean {
+  function nudgesSinceHeard(task: StoredTask, runId: string): number {
     const comments = store.listComments(task.id)
-    return (
-      store.listStageEntries(task.id).some((e) => e.at > at) ||
-      comments.some((c) => c.author.kind === 'human' && c.createdAt > at) ||
-      comments.some((c) => c.answer !== undefined && c.answer.at > at)
-    )
+    const heard = [
+      ...store.listStageEntries(task.id).map((e) => e.at),
+      ...comments.flatMap((c) => (c.author.kind === 'human' ? [c.createdAt] : [])),
+      ...comments.flatMap((c) => (c.answer === undefined ? [] : [c.answer.at])),
+    ].reduce(latest, '')
+    return store.nudgesSince(task.id, runId, heard)
   }
 
   async function sendNudge(task: Task, run: Run): Promise<void> {
-    await runs.send(run.id, nudgeMessage)
     store.leadNudged(task.id, run.id)
+    await runs.send(run.id, nudgeMessage)
   }
 
   function askAboutIdle(task: StoredTask, run: Run): void {
@@ -10536,7 +10560,8 @@ export function createTasks(options: {
       return text !== undefined && text.trim() !== ''
     })
     const said = spoke && agent.agentTextFrom(spoke.line)
-    const quoted = said === undefined ? undefined : oneLine(said, 500)
+    const reason = said === undefined ? undefined : stuckReason(said)
+    const stopped = `It stopped again after ${nudgeSteps.length} nudges without asking you anything`
     store.postComment({
       taskId: task.id,
       kind: 'question',
@@ -10544,10 +10569,12 @@ export function createTasks(options: {
       title: idleTitle,
       purpose: { kind: 'idle-run' },
       body:
-        quoted === undefined
-          ? 'It went idle again after the nudge, with nothing open, and wrote no message.'
-          : `It went idle again after the nudge, with nothing open. Its last message:\n\n> ${quoted}`,
-      choices: [nudgeAgainChoice],
+        reason !== undefined
+          ? `${reason}\n\n${stopped}.`
+          : said === undefined
+            ? `${stopped}, and it wrote no message.`
+            : `${stopped} or saying why. Its last message:\n\n> ${oneLine(said, 500)}`,
+      choices: [nudgeAgainChoice, restartFromBriefChoice],
     })
   }
 
@@ -13782,8 +13809,19 @@ function textOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-const idleTitle = 'The Task Lead stopped without saying why'
+const idleTitle = 'The Task Lead is stuck'
 const nudgeAgainChoice = 'Nudge again'
+const restartFromBriefChoice = 'Restart from the brief'
+const nudgeSteps = [1, 5, 15]
+const stuckLine = /^[\s>*_-]*stuck because:[\s*_]*(.*?)[\s*_]*$/i
+
+function stuckReason(text: string): string | undefined {
+  const reason = text
+    .split('\n')
+    .map((line) => stuckLine.exec(line)?.[1] ?? '')
+    .findLast((found) => found !== '')
+  return reason === undefined ? undefined : oneLine(reason, 300)
+}
 
 function isIdleQuestion(comment: Comment): boolean {
   return comment.purpose?.kind === 'idle-run' && comment.answer === undefined

@@ -20,3 +20,5 @@
 - A Task’s Stopped state is `stoppedAt` on the `tasks` table; the activity line and header chip read it.
 - The app’s Task actions menu, the header’s Resume button, the comment box’s Send and resume and the `S` shortcut all call these two routes.
 - KRI-107’s Run bar can call `ted.stopTask` from the renderer for **Stop Task**.
+
+Amended by ADR 0189-an-idle-task-lead-is-nudged-three-times-before-ted-asks: Ted nudges an idle Task Lead up to 3 times, after 1, 5 and 15 minutes, before it asks “The Task Lead is stuck” with Nudge again and Restart from the brief.

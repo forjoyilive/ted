@@ -742,7 +742,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - **Stop** (Task actions menu or palette; no shortcut) stops every Run on the Task (kept as history), frees its slots, keeps the worktree and Apps, and leaves the Task in its Stage as **Stopped**. Stopping the Task Lead’s Run is the same action. There’s no human Pause; Paused is only for Providers that can’t run. (KRI-55, KRI-56)
 - **Resume** (`S`, the header button, or **Send and resume** in the comment box) starts a fresh Task Lead Run from the brief plus Comments since, through the queue. (KRI-55, KRI-61, KRI-63)
 - **Retry** on a Failed Task is Send and resume. It is on the FAILED ask, on hover and in the menu of a Failed card or List row, and on `S`. (KRI-61, KRI-8 coordinator decision 14, KRI-56)
-- **Task Lead goes idle without asking:** after the Run has been idle for 60 seconds with no unanswered request, Ted sends one nudge into the Run: “Continue. If you need the human to decide or do something, ask with `ted outcome ask "<question>"`; a plain `ted comment` doesn’t wait for them, so Ted will ask them why you stopped.” There is no nudge at Merge once the Task Lead has advanced, or while Ted is working for the Task (a sub-agent working or queued, Checks running, a loop check open). The delay is fixed, with no user-facing setting. It measures time in the idle state; thinking or running a tool while the Run is working does not count. If it goes idle again with nothing open, Ted posts a `question`, “The Task Lead stopped without saying why”, with the agent’s last message and **Nudge again**. (KRI-55, KRI-177)
+- **Task Lead goes idle without asking:** when the Run has been idle with no unanswered request, Ted sends a nudge into the Run: “Continue. If you need the human to decide or do something, ask with `ted outcome ask "<question>"`; a plain `ted comment` doesn’t wait for them. If you can’t go on, end your reply with one line that starts `Stuck because:` and says why; Ted shows that line to the human.” It sends up to 3 nudges, after 1, 5 and 15 minutes idle; a comment or answer from the human, or a Stage change, starts the count again. There is no nudge at Merge once the Task Lead has advanced, or while Ted is working for the Task (a sub-agent working or queued, Checks running, a loop check open). The delays are fixed, with no user-facing setting. They measure time in the idle state; thinking or running a tool while the Run is working does not count. If it goes idle again after the third nudge with nothing open, Ted posts a `question`, “The Task Lead is stuck”, with the agent’s `Stuck because:` line (or its last message), **Nudge again** and **Restart from the brief**, which replaces the Task Lead with a fresh Run from the Task brief. (KRI-55, KRI-177, TED-572)
 
 ### 6.19 Archive and delete
 
@@ -993,7 +993,7 @@ Figma: KRI-61 Task thread (sign-off, re-sign-off, Merge off, Merge sign-off, sim
 | Simulator request | | **Deny** · **Shut down NB-40’s and run** |
 | CI stuck at Merge | | **Send to Task Lead** · **Keep waiting**, plus **Merge anyway** only when no pending check is required |
 | FAILED ask | | **Send** · **Retry** |
-| Idle ask | | **Nudge again** |
+| Idle ask | | **Nudge again** · **Restart from the brief** |
 
 (Source: KRI-60, KRI-61, KRI-55.)
 

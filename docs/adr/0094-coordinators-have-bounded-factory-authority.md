@@ -30,7 +30,7 @@ The first version of answer refused every question Ted asked, because some of th
 - **Validate at its limit, or a loop check that found a loop** (“Try again”, “Back to Design”, “Move to Review anyway”): Ted moves the Task back to the Stage Validate named, back to Design, or on to the next Stage with the Findings still open.
 - **The FAILED ask** (“Retry”): starts a fresh Task Lead Run.
 - **CI stuck at Merge** (“Send to Task Lead”, “Keep waiting”, “Merge anyway”): sends the Task back to Work, waits again, or merges without waiting for the checks.
-- **The idle Task Lead** (“Nudge again”): sends the Task Lead the nudge.
+- **The idle Task Lead** (“Nudge again”, “Restart from the brief”): sends the Task Lead the nudge, or replaces it with a fresh Task Lead Run from the Task brief (ADR 0189-an-idle-task-lead-is-nudged-three-times-before-ted-asks).
 Two of these choices skip a check: “Merge anyway” merges without waiting for CI, and “Move to … anyway” leaves Validate with Findings open. The Coordinator reads untrusted Task text, so the daemon refuses both from it (`Tasks.humanOnlyChoices`) and shows them as `humanOnlyChoices` in what it reads. Only the human gives them.
 
 - **Model unavailable** (“Use the default model”, “Change setting”): restarts the Run on the CLI’s default model, or only closes the question.

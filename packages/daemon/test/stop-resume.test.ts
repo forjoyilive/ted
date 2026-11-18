@@ -565,7 +565,7 @@ describe('Resume', () => {
 })
 
 describe('the idle Task Lead', () => {
-  test('is nudged once, then Ted asks with its last message and Nudge again', async () => {
+  test('is nudged 3 times with growing gaps, then Ted asks with its reason, Nudge again and Restart from the brief', async () => {
     const clock = new ManualClock()
     const client = await startTed({ nudgeAfterMs: 100, clock })
     const task = await create(
@@ -573,56 +573,62 @@ describe('the idle Task Lead', () => {
       steps(
         { say: 'Templates are wired into New Note.' },
         { endTurn: true },
-        { everyMessage: [{ say: 'I’ll check the empty template next.' }, { endTurn: true }] },
+        {
+          everyMessage: [
+            {
+              say: 'I’ll check the empty template next.\nStuck because: the fixture has no empty template.',
+            },
+            { endTurn: true },
+          ],
+        },
       ),
       { start: true },
     )
     await waitFor(client, task, (t) => t.runs[0]?.state === 'idle', 'to go idle')
-    await eventWait(
-      clock.subscribe,
-      () => clock.pending.includes(100),
-      'the first nudge timer to arm',
-    )
-    clock.advance(100)
-    await eventWait(
-      client.subscribe,
-      async () => {
-        const current = await getTask(client, task.id)
-        const messages = await userMessages(client, current.leadRunId ?? '')
-        return current.runs[0]?.state === 'idle' && messages.filter((m) => m === nudge).length === 1
-      },
-      'the nudged turn to finish',
-    )
-    await eventWait(
-      clock.subscribe,
-      () => clock.pending.includes(100),
-      'the second nudge timer to arm',
-    )
+    const runId = (await getTask(client, task.id)).leadRunId ?? ''
+    for (const [i, wait] of [100, 500, 1500].entries()) {
+      await eventWait(
+        clock.subscribe,
+        () => clock.pending.includes(wait),
+        `nudge ${i + 1}’s timer to arm`,
+      )
+      clock.advance(wait)
+      await eventWait(
+        client.subscribe,
+        async () => {
+          const current = await getTask(client, task.id)
+          const messages = await userMessages(client, runId)
+          return (
+            current.runs[0]?.state === 'idle' &&
+            messages.filter((m) => m === nudge).length === i + 1
+          )
+        },
+        `nudge ${i + 1}’s turn to finish`,
+      )
+    }
+    expect((await comments(client, task)).filter((c) => c.kind === 'question')).toHaveLength(0)
+    await eventWait(clock.subscribe, () => clock.pending.includes(100), 'the ask timer to arm')
     clock.advance(100)
     const asked = await eventWait(
       client.subscribe,
-      async () => {
-        const found = (await comments(client, task)).find((c) => c.kind === 'question')
-        return found
-      },
+      async () => (await comments(client, task)).find((c) => c.kind === 'question'),
       'Ted to ask',
     )
     const current = await getTask(client, task.id)
-    const runId = current.leadRunId ?? ''
-    const messages = await userMessages(client, runId)
-    expect(messages.filter((m) => m === nudge)).toHaveLength(1)
+    expect((await userMessages(client, runId)).filter((m) => m === nudge)).toHaveLength(3)
     expect(asked).toMatchObject({
       author: { kind: 'ted' },
-      title: 'The Task Lead stopped without saying why',
-      choices: ['Nudge again'],
+      title: 'The Task Lead is stuck',
+      choices: ['Nudge again', 'Restart from the brief'],
     })
-    expect(asked.body).toContain('It went idle again after the nudge, with nothing open.')
-    expect(asked.body).toContain('I’ll check the empty template next.')
+    expect(asked.body).toBe(
+      'the fixture has no empty template.\n\nIt stopped again after 3 nudges without asking you anything.',
+    )
     expect(current.status?.kind).toBe('waiting-on-you')
     expect((await threadEvents(client, task)).map((e) => e.text)).toContain(
       `Ted nudged the Task Lead: “${nudge}”`,
     )
-    clock.advance(300)
+    clock.advance(3000)
     expect((await comments(client, task)).filter((c) => c.kind === 'question')).toHaveLength(1)
 
     await client.ok('POST', `/comments/${asked.id}/answer`, {
@@ -631,8 +637,13 @@ describe('the idle Task Lead', () => {
     })
 
     await waitUntil(
-      async () => (await userMessages(client, runId)).filter((m) => m === nudge).length === 2,
-      'a second nudge',
+      async () => (await userMessages(client, runId)).filter((m) => m === nudge).length === 4,
+      'a fourth nudge',
+    )
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(500),
+      'the count to start again after the answer, with the second step’s gap',
     )
   })
 

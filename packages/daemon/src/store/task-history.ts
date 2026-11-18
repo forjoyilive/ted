@@ -262,9 +262,10 @@ export function createTaskHistory(
       const last = read(taskId).findLast((e) => e.name === 'v1.TaskLeadFailed')
       return last && failureOf(last)
     },
-    latestNudge(taskId: string, runId: string): string | undefined {
-      return read(taskId).findLast((e) => e.name === 'v1.TaskLeadNudged' && e.data.runId === runId)
-        ?.at
+    nudgesSince(taskId: string, runId: string, since: string): number {
+      return read(taskId).filter(
+        (e) => e.name === 'v1.TaskLeadNudged' && e.data.runId === runId && e.at >= since,
+      ).length
     },
   }
 }

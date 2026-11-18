@@ -132,6 +132,7 @@ export interface RequestAnswerPort {
   tellChat(chatId: string, text: string): Promise<void>
   wake(): void
   sendNudge(task: StoredTask, run: Run): Promise<void>
+  restartFromBrief(task: StoredTask, asked: string): Promise<void>
   useDefaultModel(id: string): Promise<Task>
   linesText(comment: Comment): string | undefined
   gateName(comment: Comment): string
@@ -214,6 +215,7 @@ export function createRequestAnswers(
     tellChat,
     wake,
     sendNudge,
+    restartFromBrief,
     useDefaultModel,
     linesText,
     gateName,
@@ -241,6 +243,7 @@ export function createRequestAnswers(
       queueAnswer,
     )
   const nudgeAgainChoice = 'Nudge again'
+  const restartFromBriefChoice = 'Restart from the brief'
   const useDefaultChoice = 'Use the default model'
   const retryChoice = 'Retry'
   function unanswered(comment: Comment): void {
@@ -1129,6 +1132,16 @@ export function createRequestAnswers(
         })
         const run = liveLead(find(task.id))
         if (run) await sendNudge(task, run)
+        return answered
+      }
+      if (comment.purpose?.kind === 'idle-run' && choice === restartFromBriefChoice) {
+        const answered = answerRequest(task, comment, {
+          kind: 'answered',
+          at,
+          choice,
+          ...(text !== '' && { text }),
+        })
+        await restartFromBrief(find(task.id), comment.body)
         return answered
       }
       const aboutModel = comment.purpose?.kind === 'model'

@@ -128,6 +128,9 @@ beforeEach(async () => {
     sendNudge: async () => {
       effects.push('nudged')
     },
+    restartFromBrief: async (_task, asked) => {
+      effects.push(`restarted:${asked}`)
+    },
     useDefaultModel: async () => {
       effects.push('default-model')
       return port.find(taskId)
@@ -347,6 +350,19 @@ test('the stored idle purpose nudges its current Lead', async () => {
     choice: 'Nudge again',
   })
   expect(effects).toEqual(['nudged'])
+})
+
+test('the stored idle purpose restarts from the brief after recording the answer', async () => {
+  const comment = post(
+    { kind: 'idle-run' },
+    { body: 'The fixture repo is missing.', choices: ['Nudge again', 'Restart from the brief'] },
+  )
+  await answer(comment, { action: 'answer', choice: 'Restart from the brief' })
+  expect(effects).toEqual(['restarted:The fixture repo is missing.'])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Restart from the brief',
+  })
 })
 
 test('a sign-off approves only after checking obligations and advances, without sending drafts', async () => {
