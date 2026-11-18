@@ -1,6 +1,6 @@
 # Outside commands run only after the user allows them
 
-Status: accepted (TED-434). Builds on ADR 0182-an-agent-runs-named-commands-in-its-chats-copy, ADR 0180-a-chat-records-its-agent-and-ted-checks-its-powers, ADR 0181-the-coordinator-drafts-agents-the-user-creates, ADR 0054-the-app-holds-the-human-token-in-memory and ADR 0091-agent-started-checks-and-apps-run-sandboxed.
+Status: accepted (TED-434). Builds on ADR 0182-an-agent-runs-named-commands-in-its-chats-copy, ADR 0180-a-chat-records-its-agent-and-ted-checks-its-powers, ADR 0181-the-coordinator-drafts-agents-the-user-creates, ADR 0054-the-app-holds-the-human-token-in-memory and ADR 0091-agent-started-checks-and-apps-run-sandboxed. ADR 0190-an-outside-command-checks-its-local-folder-first adds a check of the local folder before each run, which can update it or hold the command.
 
 Everything an agent starts runs in Ted’s sandbox, so nothing an agent starts can push, publish, sign or read the keychain. A release needs all of that. TED-434 adds one narrow way out: commands the user lists for an Agent and allows, run by Ted on this Mac outside the sandbox.
 

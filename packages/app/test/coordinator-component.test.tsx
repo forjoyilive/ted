@@ -950,6 +950,15 @@ test('an Automation card shows the draft, offers Start the Tasks it creates for 
 
 test('an outside command card shows the exact command and folder, and only Run with the tick allows it always; the chat line stops it and the details pane removes an allowance', async () => {
   const { a, shown, open } = withCoordinator()
+  const behindCheck = {
+    checked: true,
+    branch: 'main',
+    against: 'main',
+    main: 'main',
+    head: '1a2b3c4d5e6f',
+    target: '5d6e7f8a9b0c',
+    behind: 168,
+  }
   const releaseAgent = {
     id: 'release',
     name: 'Release',
@@ -974,6 +983,7 @@ test('an outside command card shows the exact command and folder, and only Run w
       argument: '1.2.3',
       folder: '/Users/me/Apps/ted',
       repo: 'acme/ted',
+      localFolder: { check: behindCheck },
     },
     createdAt,
   }
@@ -989,7 +999,19 @@ test('an outside command card shows the exact command and folder, and only Run w
         status: 'running',
         output: 'Uploading TED-1.2.3.dmg',
         at: createdAt,
-        outside: { command: 'pnpm release publish', folder: '/Users/me/Apps/ted' },
+        outside: {
+          command: 'pnpm release publish',
+          folder: '/Users/me/Apps/ted',
+          local: {
+            check: behindCheck,
+            update: {
+              from: '1a2b3c4d5e6f',
+              to: '5d6e7f8a9b0c',
+              commits: 168,
+              dependencies: ['pnpm-lock.yaml'],
+            },
+          },
+        },
       },
     ],
   }
@@ -1016,8 +1038,11 @@ test('an outside command card shows the exact command and folder, and only Run w
   expect(card.querySelector('[data-command]')?.textContent).toBe('pnpm release 1.2.3')
   expect(card.textContent).toContain('/Users/me/Apps/ted')
   expect(card.textContent).toContain('It can push, publish and use your keychain.')
+  expect(card.querySelector('[data-local-folder="ok"]')?.textContent).toBe(
+    '168 commits behind main. Ted will update it to 5d6e7f8 before running. Nothing of yours changes: it has no uncommitted changes or commits of its own.',
+  )
   await user().click(within(card).getByRole('checkbox', { name: /Always allow this command/ }))
-  await user().click(within(card).getByRole('button', { name: 'Run' }))
+  await user().click(within(card).getByRole('button', { name: 'Update and run' }))
   expect(answer).toHaveBeenCalledWith('k1', 'q1', { run: true, always: true })
 
   const line = pane.querySelector('[data-outside-command="publish"]')
@@ -1026,6 +1051,9 @@ test('an outside command card shows the exact command and folder, and only Run w
   expect(pane.textContent).toContain('Outside the sandbox')
   const row = line?.parentElement
   if (!(row instanceof HTMLElement)) throw new Error('no outside command row')
+  expect(row.querySelector('[data-local-folder="ok"]')?.textContent).toBe(
+    'Ted updated your local ted from 1a2b3c4 to 5d6e7f8 (168 commits) before running. pnpm-lock.yaml changed, so dependencies may need installing.',
+  )
   await user().click(within(row).getByRole('button', { name: 'Stop' }))
   expect(stop).toHaveBeenCalledWith('k1')
 

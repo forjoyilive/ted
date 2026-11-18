@@ -1,4 +1,5 @@
 import { isAgentId } from './agent-files.ts'
+import type { LocalFolderState } from './local-folder.ts'
 import { isBoolean, reader, type Untyped } from './parse.ts'
 import { RequestValidationError as HttpError } from './validation.ts'
 
@@ -103,6 +104,8 @@ export interface OutsideCommandAsk {
   repo: string
   allowedBefore?: string
   allowedFolder?: string
+  localFolder?: LocalFolderState
+  allowedButHeld?: true
 }
 
 export interface OutsideCommandAnswer {

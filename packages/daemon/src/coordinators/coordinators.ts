@@ -57,6 +57,12 @@ import {
   priorities,
 } from '@ted/protocol'
 import type { AgentCommand, AgentPower, ResolvedAgent } from '@ted/protocol/agent-files'
+import {
+  behindText,
+  heldAfterFailedUpdate,
+  localFolderAction,
+  shortCommit,
+} from '@ted/protocol/local-folder'
 import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Banners } from '../banners.ts'
@@ -89,6 +95,7 @@ import {
   requirePower,
 } from '../chats/powers.ts'
 import { RequestError } from '../errors.ts'
+import { ensureClone } from '../factories.ts'
 import type { MakeDirectory } from '../files.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
@@ -378,6 +385,13 @@ export function createCoordinators(options: {
     store,
     env: options.env,
     ended: tellChat,
+    cloneOf: (factory, repo) =>
+      ensureClone(
+        { banners: options.banners, reposDir: options.reposDir },
+        repo.repo === factory.repo
+          ? factory
+          : { ...factory, repo: repo.repo, cloneUrl: repo.cloneUrl },
+      ),
     ...(options.outsideLimitMs !== undefined && { limitMs: options.outsideLimitMs }),
   })
   const outsideChat = (c: StoredCoordinator) => ({
@@ -385,6 +399,7 @@ export function createCoordinators(options: {
     runId: c.runId,
     factory: requireFactory(c.factoryId),
     agent: agentOf(c),
+    copies: saved.get(c.id)?.checkout ?? [],
   })
   async function stillListed(c: StoredCoordinator, name: string): Promise<void> {
     const agent = agentOf(c)
@@ -2604,15 +2619,24 @@ export function createCoordinators(options: {
         if (changing.has(c.id) || deleting.has(c.id))
           throw new RequestError(409, 'The human is changing this chat')
         const chat = outsideChat(c)
-        const plan = await outside.plan(chat, input.name, input.argument)
+        let plan = await outside.plan(chat, input.name, input.argument)
         await stillListed(c, plan.command.name)
-        if (outside.allowed(chat, plan)) {
-          outside.start(chat, plan, { always: true })
-          return {
-            state: 'running' as const,
-            message: `The user allowed \`${plan.command.command}\` always, so Ted is running \`${plan.shown}\` in ${plan.folder}. Ted sends you its output as a message when it ends; end your turn now.`,
+        const action = localFolderAction(plan.local, plan.folder)
+        const always = outside.allowed(chat, plan)
+        if (always && action.kind !== 'hold') {
+          if (action.kind === 'update') plan = await outside.update(chat, plan)
+          if (plan.updateFailed === undefined) {
+            outside.start(chat, plan, { always: true })
+            return {
+              state: 'running' as const,
+              message: `The user allowed \`${plan.command.command}\` always, so Ted is running \`${plan.shown}\` in ${plan.folder}${plan.update ? ` after updating the folder to ${shortCommit(plan.update.to)}` : ''}. Ted sends you its output as a message when it ends; end your turn now.`,
+            }
           }
         }
+        const held =
+          plan.updateFailed !== undefined
+            ? heldAfterFailedUpdate(plan.updateFailed, plan.folder)
+            : action
         const waiting = openAsked(c)[0]
         if (waiting)
           throw new RequestError(
@@ -2629,10 +2653,14 @@ export function createCoordinators(options: {
           outsideCommand: outside.ask(plan, chat),
         })
         await store.persisted()
+        const why =
+          always && held.kind === 'hold'
+            ? `You’re allowed to run \`${plan.command.name}\` always, but its local folder is ${behindText(plan.local)} and Ted can’t update it because ${held.reason}, so Ted asked the user (request ${posted.id}).`
+            : `Ted asked the user to run \`${plan.shown}\` (request ${posted.id}).`
         return {
           state: 'asked' as const,
           requestId: posted.id,
-          message: `Ted asked the user to run \`${plan.shown}\` (request ${posted.id}). Nothing runs until they click Run. End your turn now: Ted sends you the output, or their refusal, as a message.`,
+          message: `${why} Nothing runs until they click Run. End your turn now: Ted sends you the output, or their refusal, as a message.`,
         }
       })
     },
@@ -2661,13 +2689,30 @@ export function createCoordinators(options: {
           return publicChat(requireChat(chatId))
         }
         const chat = outsideChat(c)
-        const plan = await outside.plan(chat, ask.name, ask.argument)
+        let plan = await outside.plan(chat, ask.name, ask.argument)
         await stillListed(c, plan.command.name)
         if (plan.command.command !== ask.command || plan.folder !== ask.folder)
           throw new RequestError(
             409,
             `\`${ask.name}\` changed since this card was shown (${shown}); don’t run it, and ask the chat to request it again`,
           )
+        if (
+          localFolderAction(plan.local, plan.folder).kind === 'update' &&
+          ask.localFolder?.updateFailed === undefined
+        ) {
+          plan = await outside.update(chat, plan)
+          if (plan.updateFailed !== undefined) {
+            store.chats.outsideFolderChecked(asked.id, {
+              check: plan.local,
+              updateFailed: plan.updateFailed,
+            })
+            await store.persisted()
+            throw new RequestError(
+              409,
+              `Ted couldn’t update ${plan.folder}: ${plan.updateFailed}. Nothing ran.`,
+            )
+          }
+        }
         outside.start(chat, plan, { always: false })
         if (answer.always)
           store.chats.allow(

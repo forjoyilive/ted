@@ -49,6 +49,7 @@
     "./update": "./src/update.ts",
     "./proposal": "./src/proposal.ts",
     "./outside-command": "./src/outside-command.ts",
+    "./local-folder": "./src/local-folder.ts",
     "./plan": "./src/plan.ts",
     "./agent-files": "./src/agent-files.ts",
     "./setup-agents": "./src/setup-agents.ts",

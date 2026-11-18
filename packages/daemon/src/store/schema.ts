@@ -1158,6 +1158,7 @@ export const chatCommands = State.SQLite.table({
     endedAt: State.SQLite.text(),
     tail: State.SQLite.text(),
     outside: State.SQLite.text({ nullable: true }),
+    outsideFolder: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -1196,6 +1197,7 @@ export const chatRequests = State.SQLite.table({
     proposal: State.SQLite.text({ nullable: true }),
     agentDraft: State.SQLite.text({ nullable: true }),
     outsideCommand: State.SQLite.text({ nullable: true }),
+    outsideFolder: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -1525,6 +1527,14 @@ export const events = {
   chatOutsideCommandRan: Events.synced({
     name: 'v1.ChatOutsideCommandRan',
     schema: Schema.Struct({ id: Schema.String, outside: Schema.String }),
+  }),
+  chatOutsideFolderChecked: Events.synced({
+    name: 'v1.ChatOutsideFolderChecked',
+    schema: Schema.Struct({ id: Schema.String, folder: Schema.String }),
+  }),
+  chatOutsideFolderRan: Events.synced({
+    name: 'v1.ChatOutsideFolderRan',
+    schema: Schema.Struct({ id: Schema.String, folder: Schema.String }),
   }),
   outsideCommandAllowed: Events.synced({
     name: 'v1.OutsideCommandAllowed',
@@ -6141,6 +6151,10 @@ const materializers = counted(
         chatRequests.update({ outsideCommand: ask }).where({ id }),
       'v1.ChatOutsideCommandRan': ({ id, outside }) =>
         chatCommands.update({ outside }).where({ id }),
+      'v1.ChatOutsideFolderChecked': ({ id, folder }) =>
+        chatRequests.update({ outsideFolder: folder }).where({ id }),
+      'v1.ChatOutsideFolderRan': ({ id, folder }) =>
+        chatCommands.update({ outsideFolder: folder }).where({ id }),
       'v1.OutsideCommandAllowed': ({ at, ...allowance }) =>
         outsideCommandAllowances
           .insert({ ...allowance, allowedAt: at })
