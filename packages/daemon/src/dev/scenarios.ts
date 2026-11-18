@@ -335,6 +335,20 @@ async function populateScenarios(
     )
     if (result) throw new Error(`Demo command failed: ${label}: ${result.line}`)
   }
+  async function atMerge(task: Task) {
+    await until(
+      async () => {
+        const current = await observed.task(task.id)
+        return current.stage === 'merge' && current.repos.every((r) => r.pullRequest !== undefined)
+      },
+      `${task.displayId} at Merge`,
+      advanceWaitMs,
+    )
+  }
+  async function advanceAtMerge(task: Task) {
+    await atMerge(task)
+    await command(task, 'outcome', 'advance')
+  }
   const validations = new Set<Promise<void>>()
   async function reach(task: Task, target: string) {
     for (let i = 0; i < 12; i++) {
@@ -602,6 +616,7 @@ async function populateScenarios(
     const ready = await planning
     if ('error' in ready) throw ready.error
     await configurePrs(done, () => ({}))
+    await advanceAtMerge(done)
     const doneSignoff = await until(
       async () =>
         (await client.listComments(done.id)).find((c) => c.kind === 'signoff' && !c.answer),
@@ -665,14 +680,22 @@ async function populateScenarios(
   const planned = await planning
   if ('error' in planned) throw planned.error
   await command(review, 'outcome', 'advance')
-  await configurePrs(ci, () => ({
-    checks: [{ name: 'Build', status: 'IN_PROGRESS', conclusion: null, required: true }],
-  }))
+  await advanceAtMerge(merge)
+  await until(
+    async () =>
+      (await client.listComments(merge.id)).some((c) => c.kind === 'signoff' && !c.answer),
+    'Merge sign-off',
+  )
   await command(ci, 'outcome', 'advance')
   const reviewGate = (await client.listComments(ci.id)).findLast(
     (c) => c.kind === 'signoff' && !c.answer,
   )
   if (reviewGate) await client.answerRequest(reviewGate.id, { action: 'approve' })
+  await atMerge(ci)
+  await configurePrs(ci, () => ({
+    checks: [{ name: 'Build', status: 'IN_PROGRESS', conclusion: null, required: true }],
+  }))
+  await command(ci, 'outcome', 'advance')
   await until(
     async () => (await observed.task(ci.id)).statuses.includes('waiting-for-github'),
     'pending CI',
@@ -682,6 +705,7 @@ async function populateScenarios(
   await configurePrs(partly, (index) =>
     index === 1 ? { mergeFails: 'Demo: the second repository rejected its merge.' } : {},
   )
+  await advanceAtMerge(partly)
   const partlySignoff = await until(
     async () =>
       (await client.listComments(partly.id)).find((c) => c.kind === 'signoff' && !c.answer),
