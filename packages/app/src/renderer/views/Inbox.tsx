@@ -26,6 +26,7 @@ import { FactoryName } from '../components/FactoryIcon.tsx'
 import { Help } from '../components/Help.tsx'
 import { BellOffIcon, ChevronIcon, ClockIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { PriorityButton, priorityMenuItems } from '../components/PriorityMenu.tsx'
 import { ListPane } from '../components/ResizableSidebar.tsx'
 import { TaskDialog, type TaskDialogKind } from '../components/TaskActions.tsx'
 import type { ConfirmationRequest } from '../data.ts'
@@ -124,6 +125,7 @@ export function Inbox({
     ...(!task.archived && task.preparation === 'ready'
       ? [{ label: 'Stop Task', action: () => ted.stopTask(task.id) }]
       : []),
+    ...(task.archived ? [] : [{ label: 'Priority', items: priorityMenuItems(task) }]),
     {
       label: 'Copy Task ID',
       action: () => navigator.clipboard.writeText(task.displayId),
@@ -331,6 +333,13 @@ export function Inbox({
       <span className={styles.until}>Returns {snoozeTime(at)}</span>
     )
   }
+  const priority = (row: (typeof allRows)[number]) =>
+    row.kind === 'task' &&
+    !row.item.task.archived && (
+      <span className={styles.priority}>
+        <PriorityButton task={row.item.task} />
+      </span>
+    )
   const rowButton = (row: (typeof allRows)[number], old = false) => {
     const ageClass = old ? `${styles.age} ${styles.old}` : styles.age
     if (row.kind === 'plan') {
@@ -394,7 +403,11 @@ export function Inbox({
           onClick={() => onOpen(item)}
         >
           <span className={styles.top}>
-            <PriorityIcon priority={task.priority} />
+            {task.archived ? (
+              <PriorityIcon priority={task.priority} />
+            ) : (
+              <span className={styles.prioritySlot} />
+            )}
             <span className={request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind}>
               {requestLabel(request)}
             </span>
@@ -702,6 +715,7 @@ export function Inbox({
                     group.rows.map((row) => (
                       <li key={row.request.id} className={styles.item}>
                         {rowButton(row, group.old === true && !showAnswered)}
+                        {priority(row)}
                         {!showAnswered && (
                           <button
                             type="button"
@@ -737,6 +751,7 @@ export function Inbox({
               snoozedRows.map((row) => (
                 <li key={row.request.id} className={`${styles.item} ${styles.snoozedItem}`}>
                   {rowButton(row)}
+                  {priority(row)}
                   <div className={styles.rowActions}>
                     <Button
                       size="small"
