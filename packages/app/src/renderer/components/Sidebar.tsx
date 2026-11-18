@@ -733,11 +733,14 @@ export function Sidebar({
             <PlusIcon />
           </ActionButton>
         </div>
-        {entries.map((entry) =>
-          entry.kind === 'factory'
-            ? renderFactory(entry.factory)
-            : renderGroup(entry.group, entry.factories),
-        )}
+        <div className={styles.factoryList}>
+          {entries.map((entry) =>
+            entry.kind === 'factory'
+              ? renderFactory(entry.factory)
+              : renderGroup(entry.group, entry.factories),
+          )}
+          <div className={styles.spacer} {...dropZone(() => ({ end: true }))} />
+        </div>
         {orderError !== undefined && (
           <p className={styles.orderError} role="alert">
             {orderError}
@@ -819,7 +822,6 @@ export function Sidebar({
             }}
           />
         )}
-        <div className={styles.spacer} {...dropZone(() => ({ end: true }))} />
         {guide}
 
         <ActionButton

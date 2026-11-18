@@ -37,6 +37,8 @@ async function capture(window: Page, name: string) {
 
 test('sidebars resize, persist, fit the window and share navigation width with Settings', async () => {
   await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
+  await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin-2')), 'NC')
+  await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin-3')), 'ND')
   const client = await daemonClient()
   await client.createTask({
     factory: 'NB',
@@ -102,4 +104,35 @@ test('sidebars resize, persist, fit the window and share navigation width with S
   await window.keyboard.press('Escape')
   await details.waitFor()
   expect(await value(navigation)).toBe(260)
+
+  const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
+  const views = sidebar.getByRole('button', { name: 'Views', exact: true, expanded: false })
+  for (let left = await views.count(); left > 0; left--) await views.first().click()
+  expect(await views.count()).toBe(0)
+  await ctx.app?.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]?.setSize(1280, 560),
+  )
+  await expect.poll(() => window.evaluate(() => globalThis.innerHeight)).toBeLessThan(600)
+  const top = (name: string) =>
+    sidebar
+      .getByRole('button', { name, exact: true })
+      .first()
+      .evaluate((b) => b.getBoundingClientRect().top)
+  const dashboardTop = await top('Dashboard')
+  const factoryList = sidebar.getByRole('article').first().locator('xpath=../..')
+  const scroll = () =>
+    factoryList.evaluate((list) => ({
+      overflows: list.scrollHeight > list.clientHeight,
+      sidebarScrolls:
+        (list.parentElement?.scrollHeight ?? 0) > (list.parentElement?.clientHeight ?? 0),
+    }))
+  expect(await scroll()).toEqual({ overflows: true, sidebarScrolls: false })
+  await capture(window, 'factory-list-scrolls.png')
+  await factoryList.evaluate((list) => list.scrollTo({ top: list.scrollHeight }))
+  expect(await top('Dashboard')).toBe(dashboardTop)
+  const settings = sidebar.getByRole('button', { name: /^Settings/ }).last()
+  expect(
+    await settings.evaluate((b) => b.getBoundingClientRect().bottom <= globalThis.innerHeight),
+  ).toBe(true)
+  await capture(window, 'factory-list-scrolled.png')
 })
