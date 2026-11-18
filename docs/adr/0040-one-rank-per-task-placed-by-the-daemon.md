@@ -1,5 +1,7 @@
 # One rank per Task, placed by the daemon
 
+Amended by ADR 0195-stage-queue-priority-and-busy-hold-skip-are-workflow-settings: the queue applies Stage priority and continuation order before Priority and rank, so its order can differ from the List’s Manual sort.
+
 The List (KRI-98) and the Board (KRI-97) both let the human drag Tasks into order, and the List’s Queued view orders the machine-wide queue. All three use the same number: every Task has a `rank`, and the Manual order everywhere is Priority, then rank.
 
 **Where rank lives.** `v1.TaskRanked` sets `tasks.rank` and, if the Task is queued, the `taskQueue` row’s rank, so the queue’s order (ADR 0030) and the List’s Manual sort can’t disagree. A new Task gets a rank one more than the highest on the machine, committed with `v2.TaskCreated`, so it lands at the bottom of its Priority group. Starting a Task gives it a new bottom rank again, so the queue stays first-come within a Priority until someone drags. Tasks created before this event have no stored rank and use their number.

@@ -181,7 +181,7 @@ The first version of a Task’s description, kept as written when the Task was c
 _Avoid_: First draft, initial description
 
 **Priority**:
-How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Task’s place in its column it decides which Queued Task starts first.
+How urgent a Task is (Urgent, High, Medium, Low, or None); it orders Queued Tasks after their Stage’s queue priority and Task Lead continuation order, then the Task’s place in its column breaks ties.
 _Avoid_: Severity, importance
 
 **Queued**:
