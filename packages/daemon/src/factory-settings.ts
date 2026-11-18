@@ -14,9 +14,11 @@ import {
   type DaemonEvent,
   type DiffLine,
   type Effort,
+  efforts,
   type FactorySettingsChanges,
   type FactorySettingsView,
   type FileChange,
+  type InstructionCheckView,
   type IntegrationsHealth,
   type InvalidSettings,
   type LayerKind,
@@ -37,6 +39,7 @@ import {
   type WorkflowProblem,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
+import { isOneOf } from '@ted/protocol/parse'
 import {
   handsOff,
   hasClarifyRounds,
@@ -646,13 +649,36 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           }
         }),
       )
-      const checks: CheckView[] = (base.settings?.stages.validate?.checks ?? []).map((c, was) => ({
-        was,
-        name: c.name,
-        run: c.run,
-        ...(c.repo !== undefined && { repo: c.repo }),
-        ...(c.timeout !== undefined && { timeout: c.timeout }),
-      }))
+      const listed = base.settings?.stages.validate?.checks ?? []
+      const checks: CheckView[] = listed.flatMap((c, was) =>
+        c.run === undefined
+          ? []
+          : [
+              {
+                was,
+                name: c.name,
+                run: c.run,
+                ...(c.repo !== undefined && { repo: c.repo }),
+                ...(c.timeout !== undefined && { timeout: c.timeout }),
+              },
+            ],
+      )
+      const instructionChecks: InstructionCheckView[] = listed.flatMap((c, was) =>
+        c.instruction === undefined
+          ? []
+          : [
+              {
+                was,
+                name: c.name,
+                instruction: c.instruction,
+                ...(c.fix === true && { fix: true }),
+                ...(c.timeout !== undefined && { timeout: c.timeout }),
+                ...(c.agent !== undefined && { agent: c.agent }),
+                ...(c.model !== undefined && { model: c.model }),
+                ...(isOneOf(c.effort, efforts) && { effort: c.effort }),
+              },
+            ],
+      )
       const cleanupStage = base.settings?.stages.cleanup
       const cleanup: CleanupSettingsInput = {
         enabled: cleanupStage?.enabled === true,
@@ -682,6 +708,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           (name) => `.ted/${name}`,
         ),
         checks,
+        instructionChecks,
         cleanup,
         tries: await options.checkTries.list(factory.id),
         agents: agentRows(base),

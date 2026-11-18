@@ -26,6 +26,13 @@ import {
 } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AutopilotLabel } from '../components/Autopilot.tsx'
+import {
+  BacklogStartsDot,
+  BacklogStartsMenu,
+  backlogStartsSummary,
+  startsAutomatically,
+  startsOnItsOwn,
+} from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
@@ -117,6 +124,8 @@ export function factoryColumnWidth(names: readonly string[]): string {
 
 export const listColumnGap = '16px'
 const statusMin = '176px'
+const statusFloor = '110px'
+const factoryFloor = '80px'
 const titleRoom = '40ch'
 
 export function listGrid(
@@ -132,24 +141,26 @@ export function listGrid(
         : c === 'factory'
           ? factoryColumnWidth(factoryNames)
           : columnWidths[c]
-  const status = (others: readonly (ListColumn | 'queue')[]) => {
-    if (!others.includes('title')) return `minmax(${statusMin}, ${columnWidths.status})`
-    const taken = [
-      '4px',
-      '24px',
-      ...others.map((c) => (c === 'title' ? titleRoom : width(c))),
-      '4px',
-    ]
-    const room = `calc(100% - ${taken.join(' - ')} - ${taken.length} * ${listColumnGap})`
-    return `minmax(${statusMin}, min(${columnWidths.status}, ${room}))`
-  }
-  const others = columns.filter((c) => c !== 'status')
-  return [
+  const edges = (widths: string[]) => ['4px', '24px', ...widths, '4px'].join(' ')
+  if (!columns.includes('title'))
+    return edges(
+      columns.map((c) =>
+        c === 'status' ? `minmax(${statusMin}, ${columnWidths.status})` : width(c),
+      ),
+    )
+  const fixed = [
     '4px',
     '24px',
-    ...columns.map((c) => (c === 'status' ? status(others) : width(c))),
+    ...columns.flatMap((c) =>
+      c === 'title' ? [titleRoom] : c === 'factory' || c === 'status' ? [] : [width(c)],
+    ),
     '4px',
-  ].join(' ')
+  ]
+  const room = `calc(100% - ${fixed.join(' - ')} - ${columns.length + 2} * ${listColumnGap})`
+  const factory = `clamp(${factoryFloor}, ${columns.includes('status') ? `calc(${room} - ${statusMin})` : room}, ${factoryColumnWidth(factoryNames)})`
+  const statusRoom = columns.includes('factory') ? `calc(${room} - ${factory})` : room
+  const status = `minmax(${statusFloor}, min(${columnWidths.status}, ${statusRoom}))`
+  return edges(columns.map((c) => (c === 'status' ? status : c === 'factory' ? factory : width(c))))
 }
 
 const sortHints: Partial<Record<ListSort, string>> = { manual: 'Priority, then rank' }
@@ -562,6 +573,7 @@ export function TaskList({
   banners,
   capLine,
   slots,
+  onOpenBacklogStarts,
 }: {
   scope: string
   title: string
@@ -577,6 +589,7 @@ export function TaskList({
   banners?: ReactNode
   capLine?: string | undefined
   slots?: RunSlots | undefined
+  onOpenBacklogStarts?: () => void
 }) {
   const now = useNow()
   const allTasks = isAllTasks(scope)
@@ -604,6 +617,11 @@ export function TaskList({
   }
   const changeFilters = (filters: ListFilters) => change({ ...view, filters })
 
+  const backlogStarts = settings?.backlogStarts
+  const startsIn = useMemo(
+    () => (backlogStarts ? startsAutomatically(backlogStarts, layout) : () => false),
+    [backlogStarts, layout],
+  )
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
   const shown = filterTasks(inScope, view.filters, text, layout)
   const scopedFactories = allTasks ? factories : factories.filter((f) => f.id === scope)
@@ -816,7 +834,11 @@ export function TaskList({
             </span>
           )
         if (!task.status && task.markers.length === 0 && activeSubAgentCount(task.runs) === 0) {
-          return <span className={styles.none}>—</span>
+          return allTasks && startsOnItsOwn(task, startsIn) ? (
+            <span className={styles.meta}>Starts automatically</span>
+          ) : (
+            <span className={styles.none}>—</span>
+          )
         }
         return <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
       case 'blocked-by': {
@@ -938,6 +960,8 @@ export function TaskList({
         ].join(' ')}
         {...dragHandlers(nest, group, index)}
         onClick={(event) => {
+          if (event.target instanceof Element && event.target.closest('[data-selection-hit]'))
+            return
           if (select(task, event)) return
           setSelected([])
           setAnchor(task.id)
@@ -946,15 +970,17 @@ export function TaskList({
         onKeyDown={(event) => onRowKeyDown(event, task)}
       >
         <td className={`${styles.cell} ${styles.selectionCell}`}>
-          <input
-            type="checkbox"
-            className={styles.selectionCheckbox}
-            data-selection-box
-            aria-label={`Select ${task.displayId}`}
-            checked={isSelected}
-            onClick={(event) => event.stopPropagation()}
-            onChange={() => toggle(task.id)}
-          />
+          <label className={styles.selectionHit} data-selection-hit>
+            <input
+              type="checkbox"
+              className={styles.selectionCheckbox}
+              data-selection-box
+              aria-label={`Select ${task.displayId}`}
+              checked={isSelected}
+              onClick={(event) => event.stopPropagation()}
+              onChange={() => toggle(task.id)}
+            />
+          </label>
         </td>
         {queueMode && (
           <td className={styles.queueCell}>
@@ -1062,6 +1088,26 @@ export function TaskList({
         </h1>
         <span className={views.headerSpacer} />
         {capLine !== undefined && <span className={styles.capLine}>{capLine}</span>}
+        {allTasks && settings && (
+          <MenuButton
+            label={`Backlog starts: ${backlogStartsSummary(settings.backlogStarts, factories, layout)}`}
+            icon={<BacklogStartsDot on={settings.backlogStarts.enabled} />}
+          >
+            {(close) => (
+              <BacklogStartsMenu
+                starts={settings.backlogStarts}
+                factories={factories}
+                layout={layout}
+                {...(onOpenBacklogStarts && {
+                  onOpenSettings: () => {
+                    close()
+                    onOpenBacklogStarts()
+                  },
+                })}
+              />
+            )}
+          </MenuButton>
+        )}
         <MenuButton
           label="Filter"
           icon={<FilterIcon />}
@@ -1186,38 +1232,40 @@ export function TaskList({
                   {view.group !== 'none' && (
                     <tr className={styles.groupRow}>
                       <th>
-                        <input
-                          type="checkbox"
-                          className={styles.selectionCheckbox}
-                          data-selection-box
-                          aria-label={`Select all ${group.label} Tasks`}
-                          aria-checked={
-                            group.tasks.some((t) => selected.includes(t.id)) &&
-                            !group.tasks.every((t) => selected.includes(t.id))
-                              ? 'mixed'
-                              : undefined
-                          }
-                          checked={
-                            group.tasks.length > 0 &&
-                            group.tasks.every((t) => selected.includes(t.id))
-                          }
-                          ref={(input) => {
-                            if (input)
-                              input.indeterminate =
-                                group.tasks.some((t) => selected.includes(t.id)) &&
-                                !group.tasks.every((t) => selected.includes(t.id))
-                          }}
-                          disabled={group.tasks.length === 0}
-                          onChange={() => {
-                            const ids = new Set(group.tasks.map((t) => t.id))
-                            const all = group.tasks.every((t) => selected.includes(t.id))
-                            setSelected((current) =>
-                              all
-                                ? current.filter((id) => !ids.has(id))
-                                : [...new Set([...current, ...ids])],
-                            )
-                          }}
-                        />
+                        <label className={styles.groupSelectionHit}>
+                          <input
+                            type="checkbox"
+                            className={styles.selectionCheckbox}
+                            data-selection-box
+                            aria-label={`Select all ${group.label} Tasks`}
+                            aria-checked={
+                              group.tasks.some((t) => selected.includes(t.id)) &&
+                              !group.tasks.every((t) => selected.includes(t.id))
+                                ? 'mixed'
+                                : undefined
+                            }
+                            checked={
+                              group.tasks.length > 0 &&
+                              group.tasks.every((t) => selected.includes(t.id))
+                            }
+                            ref={(input) => {
+                              if (input)
+                                input.indeterminate =
+                                  group.tasks.some((t) => selected.includes(t.id)) &&
+                                  !group.tasks.every((t) => selected.includes(t.id))
+                            }}
+                            disabled={group.tasks.length === 0}
+                            onChange={() => {
+                              const ids = new Set(group.tasks.map((t) => t.id))
+                              const all = group.tasks.every((t) => selected.includes(t.id))
+                              setSelected((current) =>
+                                all
+                                  ? current.filter((id) => !ids.has(id))
+                                  : [...new Set([...current, ...ids])],
+                              )
+                            }}
+                          />
+                        </label>
                         <ActionButton
                           type="button"
                           className={styles.groupHead}

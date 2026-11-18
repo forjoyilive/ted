@@ -5,8 +5,8 @@ import {
   browserViewport,
   scriptLiteral,
 } from '@ted/protocol'
-import type { Session, WebContents, WebPreferences } from 'electron'
-import { isOutsideMedia } from './browser-proxy.ts'
+import type { Event as ElectronEvent, Session, WebContents, WebPreferences } from 'electron'
+import { type GuestProxyRules, guestSignInUrl, isOutsideMedia } from './browser-proxy.ts'
 
 export interface GuestHost {
   contents: WebContents
@@ -50,10 +50,12 @@ export function webContentsDriver(contents: WebContents): PageDriver {
     send: (method, params) => contents.debugger.sendCommand(method, params),
     load: (url) => contents.loadURL(url),
     back: async () => {
-      if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+      if (contents.navigationHistory.canGoBack())
+        await committed(contents, () => contents.navigationHistory.goBack())
     },
     forward: async () => {
-      if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
+      if (contents.navigationHistory.canGoForward())
+        await committed(contents, () => contents.navigationHistory.goForward())
     },
     reload: async () => contents.reload(),
     capture: async () =>
@@ -61,6 +63,35 @@ export function webContentsDriver(contents: WebContents): PageDriver {
         (await contents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG(),
       ),
   }
+}
+
+function committed(contents: WebContents, go: () => void): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      contents.off('did-navigate', done)
+      contents.off('did-navigate-in-page', inPage)
+      contents.off('did-fail-load', failed)
+      contents.off('destroyed', done)
+      resolve()
+    }
+    const inPage = (_event: ElectronEvent, _url: string, mainFrame: boolean) => {
+      if (mainFrame) done()
+    }
+    const failed = (
+      _event: ElectronEvent,
+      _code: number,
+      _description: string,
+      _url: string,
+      mainFrame: boolean,
+    ) => {
+      if (mainFrame) done()
+    }
+    contents.on('did-navigate', done)
+    contents.on('did-navigate-in-page', inPage)
+    contents.on('did-fail-load', failed)
+    contents.on('destroyed', done)
+    go()
+  })
 }
 
 export interface PageCommand {
@@ -95,7 +126,7 @@ export async function openGuest(
   appUrl: string,
   options: {
     check(): void
-    proxy?(): Promise<string>
+    proxy?: GuestProxyRules
     host(webPreferences: WebPreferences): GuestHost
     created?(page: GuestPage): void
     beforeLoad?(page: GuestPage): Promise<void>
@@ -130,6 +161,15 @@ export async function openGuest(
     driver: webContentsDriver(host.contents),
   }
   options.created?.(page)
+  let shown = {}
+  let counting = true
+  const blockedRequest = () => {
+    if (!counting) return () => {}
+    const made = shown
+    return () => {
+      if (made === shown) page.blocked++
+    }
+  }
   const contents = page.contents
   contents.setWindowOpenHandler(() => ({ action: 'deny' }))
   contents.on('select-client-certificate', (event, _url, _certificates, callback) => {
@@ -154,10 +194,17 @@ export async function openGuest(
   contents.on('did-start-navigation', (event) => {
     if (!event.isMainFrame) return
     page.revision = randomUUID()
-    if (!event.isSameDocument) page.blocked = 0
+    if (event.isSameDocument) return
+    page.blocked = 0
+    shown = {}
+    counting = false
   })
   contents.on('did-navigate', () => {
     page.revision = randomUUID()
+    counting = true
+  })
+  contents.on('did-stop-loading', () => {
+    counting = true
   })
   contents.on('did-navigate-in-page', () => {
     page.revision = randomUUID()
@@ -194,18 +241,21 @@ export async function openGuest(
     })
     check()
     // WebTransport bypasses webRequest but refuses proxied connections.
-    const proxyRules = options.proxy ? await options.proxy() : 'socks5://127.0.0.1:9'
+    const route = options.proxy ? await options.proxy(contents, blockedRequest) : undefined
     check()
     await ses.setProxy({
-      proxyRules,
+      proxyRules: route?.rules ?? 'socks5://127.0.0.1:9',
       proxyBypassRules: `<-loopback>,${origin},${origin.replace(/^http/, 'ws')}`,
     })
     check()
     ses.webRequest.onBeforeRequest((details, callback) => {
+      if (details.webContentsId === undefined && details.url === guestSignInUrl) return callback({})
       const pass = allowed(details.url) || isOutsideMedia(details.url, details.resourceType)
-      if (!pass && /^(https?|wss?):/.test(details.url)) page.blocked++
+      if (!pass && /^(https?|wss?):/.test(details.url)) blockedRequest()()
       callback({ cancel: !pass })
     })
+    await route?.signIn()
+    check()
     await contents.debugger.sendCommand('Page.enable')
     check()
     await contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
@@ -222,6 +272,7 @@ export async function openGuest(
       page.error = 'The page couldn’t load. Reload to try again.'
     })
     check()
+    contents.navigationHistory.clear()
     page.ready = true
     return page
   } catch (error) {

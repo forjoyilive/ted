@@ -79,7 +79,7 @@ const entries = {
   'app.general.autopilot.mode': {
     name: 'Autopilot across all Factories',
     keywords: 'overnight mode',
-    help: 'Carry started work through Merge without routine questions or sign-offs. It starts no Backlog Tasks; each Factory’s Start Backlog Tasks automatically setting does that. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you.',
+    help: 'Carry started work through Merge without routine questions or sign-offs. It starts no Backlog Tasks; Backlog starts below does that. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you.',
     detail:
       'Stays on until you turn it off, on this computer only. Turning it off leaves started work running.',
   },
@@ -87,6 +87,23 @@ const entries = {
     name: 'Review Tasks from Automations and public issues',
     keywords: 'overnight mode review gate sign-off automation github issue outsider',
     help: 'While Autopilot is on, Tasks an Automation created and Tasks from a GitHub issue with text from outsiders still wait for your Review sign-off, and merge only the code you approved.',
+  },
+  'app.general.backlog-starts': {
+    name: 'Backlog starts',
+    keywords: 'auto start automatic backlog queue',
+    heading: true,
+  },
+  'app.general.backlog-starts.enabled': {
+    name: 'Start Backlog Tasks automatically',
+    keywords: 'auto start automatic backlog queue',
+    detail:
+      'When a working-Run slot is free, start the next Backlog Task: highest Priority first, then the order in All Tasks. Skips blocked Tasks; Queued work goes first. Turning this off leaves started Tasks running.',
+  },
+  'app.general.backlog-starts.from': {
+    name: 'Start from',
+    keywords: 'auto start automatic backlog factories groups',
+    detail:
+      'Tick a group to include every Factory in it, now and later. A snoozed Task starts when its snooze ends, whichever Factories are ticked.',
   },
   'app.general.startup': { name: 'Startup and quitting', heading: true },
   'app.general.startup.login': {
@@ -181,14 +198,13 @@ const entries = {
     name: 'Wait to start new work when this computer is busy',
     help: 'While the CPU is busy or memory is low, Ted starts no new Run, sub-agent, simulator or emulator unless none is working, and scheduled checks wait. Work already running carries on. The limit above is still the most Ted runs at once.',
   },
-  'app.limits.simulators': {
-    name: 'Simulators booted at once',
-    help: 'iOS simulator Apps share these slots. When they’re all taken, Ted asks which simulator to shut down; it never shuts one down on its own to make room.',
-    platform: 'mac',
+  'app.limits.devices': {
+    name: 'Simulators and emulators at once',
+    help: 'iOS simulator and Android emulator Apps share these slots. When they’re all taken, Ted asks which simulator or emulator to shut down; it never shuts one down on its own to make room.',
   },
-  'app.limits.emulators': {
-    name: 'Android emulators running at once',
-    help: 'Android emulator Apps share these slots, separately from iOS simulators. When they’re all taken, Ted asks which emulator to shut down; it never shuts one down on its own to make room.',
+  'app.limits.build-one-device': {
+    name: 'Build one simulator or emulator App at a time',
+    help: 'The next App waits until the current one is built. Turn off when a Task needs an iOS and an Android device built at once.',
   },
   'app.limits.checks': {
     name: 'Checks running at once',
@@ -198,7 +214,7 @@ const entries = {
     name: 'CPU a check may use',
     help: 'Ted tells each check how many of this computer’s cores it may use: this share of them, divided between the checks running at once, and never fewer than 1. A lower share leaves more room for Runs and makes checks slower.',
     detail:
-      'Ted doesn’t enforce it. A check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Applies to checks started after you change it.',
+      'Ted doesn’t enforce it. A check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Simulator and emulator App builds get the same share as TED_APP_CPUS, divided between the builds running at once. Applies to checks and builds started after you change it.',
   },
   'app.limits.scheduled-check-cpus': {
     name: 'Limit the CPU scheduled checks use too',
@@ -358,11 +374,6 @@ const entries = {
     name: 'Name',
     help: 'Shown in the sidebar and the Inbox. Task IDs don’t change.',
   },
-  'factory.general.auto-start': {
-    name: 'Start Backlog Tasks automatically',
-    detail:
-      'Start the next eligible Task when a working-Run slot is free. Uses priority and manual order, skips blocked Tasks, and gives Queued work precedence. Takes effect immediately. Turning this off leaves started Tasks running.',
-  },
   'factory.intake': {
     name: 'Intake',
     detail: 'Choose which issues and tasks Automations can bring into this Factory.',
@@ -449,7 +460,8 @@ const entries = {
   },
   'factory.checks': {
     name: 'Checks',
-    help: 'Commands Ted runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree.',
+    keywords: 'commands instruction checks agent may fix validate run now',
+    help: 'Checks run at Validate. Instruction Checks that may fix run first, then the commands one after another, then the other Instruction Checks.',
     heading: true,
   },
   'factory.agent-files': {

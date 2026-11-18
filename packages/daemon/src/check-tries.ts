@@ -1,7 +1,17 @@
 import { createHash } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { CheckTry, CheckTryOutput, CheckTryRequest, DaemonEvent } from '@ted/protocol'
+import {
+  type CheckTry,
+  type CheckTryOutput,
+  type CheckTryRequest,
+  type CheckTryState,
+  type CheckTryTask,
+  type CommandCheckTryRequest,
+  type DaemonEvent,
+  type InstructionCheckTryRequest,
+  isInstructionTry,
+} from '@ted/protocol'
 import type { Banners } from './banners.ts'
 import { loginShell, worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
@@ -15,8 +25,19 @@ import { type FactoryRepoEntry, factoryRepos, findRepo, isSafeRepo } from './tas
 import { copyFiles, durationMs, runWorktreeCommand } from './tasks/worktree.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
+export interface InstructionTries {
+  tasks(factoryId: string): Promise<CheckTryTask[]>
+  run(
+    factoryId: string,
+    request: InstructionCheckTryRequest,
+    log: string,
+    signal: AbortSignal,
+  ): Promise<{ state: CheckTryState; taskDisplayId: string; noReport?: string }>
+}
+
 export interface CheckTries {
   start(factoryId: string, request: CheckTryRequest): Promise<CheckTry>
+  tasks(factoryId: string): Promise<CheckTryTask[]>
   stop(factoryId: string, name: string): void
   list(factoryId: string): Promise<CheckTry[]>
   output(factoryId: string, name: string): Promise<CheckTryOutput>
@@ -51,6 +72,7 @@ export function createCheckTries(options: {
   emit: (event: DaemonEvent) => void
   maxAgeMs?: number
   env?: () => NodeJS.ProcessEnv
+  instructions?: () => InstructionTries | undefined
 }): CheckTries {
   const { store, banners, workflows, reposDir, scratchDir, emit } = options
   const maxAgeMs = options.maxAgeMs ?? scratchMaxAgeMs
@@ -213,7 +235,7 @@ export function createCheckTries(options: {
   async function execute(
     factory: StoredFactory,
     entry: FactoryRepoEntry,
-    request: CheckTryRequest,
+    request: CommandCheckTryRequest,
     started: CheckTry,
     abort: AbortController,
     shownWaiting: boolean,
@@ -297,6 +319,40 @@ export function createCheckTries(options: {
     }
   }
 
+  async function executeInstruction(
+    factory: StoredFactory,
+    request: InstructionCheckTryRequest,
+    started: CheckTry,
+    abort: AbortController,
+  ): Promise<void> {
+    const log = logFile(factory.id, request.name)
+    await mkdir(path.dirname(log), { recursive: true, mode: 0o700 })
+    let finished: CheckTry
+    try {
+      const runner = options.instructions?.()
+      if (!runner) throw new Error('Ted is still starting')
+      const result = await runner.run(factory.id, request, log, abort.signal)
+      finished = {
+        ...started,
+        state: result.state,
+        taskDisplayId: result.taskDisplayId,
+        ...(result.noReport !== undefined && { noReport: result.noReport }),
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await writeFile(log, `Ted couldn’t run this check on the Task: ${message}\n`, {
+        mode: 0o600,
+      }).catch(() => undefined)
+      finished = { ...started, state: abort.signal.aborted ? 'stopped' : 'failed' }
+    }
+    const finishedAt = new Date()
+    await update(factory.id, {
+      ...finished,
+      finishedAt: finishedAt.toISOString(),
+      durationMs: finishedAt.getTime() - Date.parse(started.startedAt),
+    })
+  }
+
   const sweepTimer = setInterval(() => void sweep(), Math.min(maxAgeMs, 60 * 60 * 1000))
   sweepTimer.unref()
   void sweep()
@@ -325,6 +381,37 @@ export function createCheckTries(options: {
         await sweeping
         const { workflow } = await workflows.resolve(factory, { fetch: true })
         const entries = factoryRepos(workflow, factory)
+        if (isInstructionTry(request)) {
+          const runner = options.instructions?.()
+          if (!runner) throw new RequestError(503, 'Ted is still starting')
+          const task = (await runner.tasks(factoryId)).find((t) => t.id === request.taskId)
+          if (!task)
+            throw new RequestError(
+              409,
+              'Run now needs an open Task in this Factory with a worktree that has changes',
+            )
+          const started: CheckTry = {
+            factoryId,
+            name: request.name,
+            repo: entries[0]?.name ?? '',
+            state: 'running',
+            startedAt: new Date().toISOString(),
+            instruction: true,
+            taskId: task.id,
+            taskDisplayId: task.displayId,
+          }
+          await update(factoryId, started)
+          placeholder.done = (async () => {
+            try {
+              await executeInstruction(factory, request, started, placeholder.abort)
+            } catch (error) {
+              console.error('an instruction check tried from settings failed:', error)
+            } finally {
+              if (running.get(factoryId) === placeholder) running.delete(factoryId)
+            }
+          })()
+          return started
+        }
         const entry = request.repo === undefined ? entries[0] : findRepo(entries, request.repo)
         if (!entry)
           throw new RequestError(
@@ -351,6 +438,10 @@ export function createCheckTries(options: {
         running.delete(factoryId)
         throw error
       }
+    },
+    async tasks(factoryId) {
+      if (!store.getFactory(factoryId)) throw new RequestError(404, 'no such Factory')
+      return (await options.instructions?.()?.tasks(factoryId)) ?? []
     },
     stop(factoryId, name) {
       const current = running.get(factoryId)

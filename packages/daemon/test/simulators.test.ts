@@ -1,5 +1,5 @@
-import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type {
@@ -16,6 +16,7 @@ import type {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { checkCpus } from '../src/tasks/check-slots.ts'
 import {
   api,
   assistantTexts,
@@ -103,13 +104,17 @@ async function stubCalls(): Promise<string[][]> {
     .map((l) => JSON.parse(l) as string[])
 }
 
-async function start(simulators: { supported?: boolean; idleMs?: number } = {}) {
+async function start(
+  simulators: { supported?: boolean; idleMs?: number } = {},
+  disk?: { freeBytes: () => Promise<number>; checkEveryMs: number },
+) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
     apps: { pollMs: 50, readyTimeoutMs: 20_000, stopGraceMs: 3_000 },
     simulators: { supported: true, pollMs: 100, ...simulators },
+    ...(disk !== undefined && { disk }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -138,6 +143,20 @@ const workflow = (run = 'echo udid $TED_TASK $TED_SIMULATOR_UDID; exec sleep 600
     '        device: "iPhone 17"',
     '        run: "exec sleep 600"',
   ].join('\n')
+
+const cpusDir = () => path.join(scratch, 'cpus')
+
+const tellCpus = () =>
+  `mkdir -p '${cpusDir()}'; echo $TED_APP_CPUS > '${cpusDir()}/'$TED_SIMULATOR_UDID.tmp; mv '${cpusDir()}/'$TED_SIMULATOR_UDID.tmp '${cpusDir()}/'$TED_SIMULATOR_UDID`
+
+const cpusTold = (count: number) =>
+  waitUntil(async () => {
+    const names = (await readdir(cpusDir()).catch(() => [])).filter((n) => !n.endsWith('.tmp'))
+    if (names.length !== count) return undefined
+    return Promise.all(
+      names.map(async (n) => (await readFile(path.join(cpusDir(), n), 'utf8')).trim()),
+    )
+  }, `${count} Apps to be told their CPUs`)
 
 async function addFactory(client: Client, run?: string) {
   await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow(run) })
@@ -242,7 +261,7 @@ describe('iOS simulator Apps', () => {
     expect(line).toBe(`udid NB-1 ${clone?.udid} ${taskCache}/cache/xcode/DerivedData`)
 
     const slots = await client.ok<SimulatorSlots>('GET', '/simulators')
-    expect(slots).toMatchObject({ supported: true, limit: 3 })
+    expect(slots).toMatchObject({ supported: true, limit: 2 })
     expect(slots.booted.map((s) => [s.displayId, s.app, s.recording])).toEqual([
       ['NB-1', 'iPhone', false],
     ])
@@ -286,10 +305,80 @@ describe('iOS simulator Apps', () => {
     )
   })
 
+  test('one simulator App builds at a time: the next waits until the first prints TED_APP_READY, and stays listed as waiting across a restart while new work is held', async () => {
+    let free = 500e9
+    const disk = { freeBytes: async () => free, checkEveryMs: 20 }
+    const first = await start({}, disk)
+    const built = path.join(scratch, 'built')
+    await addFactory(
+      first,
+      `${tellCpus()}; until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
+    )
+    const task = await taskWithWorktree(first)
+    await first.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
+
+    const watch = await first.ok<TaskApp>('POST', `/tasks/${task.id}/apps/start`, {
+      name: 'Watch',
+    })
+    expect(watch).toMatchObject({
+      state: 'waiting',
+      waitingOn: { displayId: 'NB-1', app: 'iPhone' },
+    })
+    expect((await first.ok<SimulatorSlots>('GET', '/simulators')).waiting).toMatchObject([
+      {
+        taskId: task.id,
+        displayId: 'NB-1',
+        app: 'Watch',
+        place: 1,
+        waitingFor: { kind: 'build', displayId: 'NB-1', app: 'iPhone' },
+      },
+    ])
+
+    free = 0
+    await daemon?.stop()
+    const client = await start({}, disk)
+    const listed = await waitUntil(async () => {
+      const { waiting } = await client.ok<SimulatorSlots>('GET', '/simulators')
+      return waiting.length > 0 ? waiting : undefined
+    }, 'the waiting Watch App to be listed after the restart')
+    expect(listed).toMatchObject([{ taskId: task.id, displayId: 'NB-1', app: 'Watch' }])
+    expect((await apps(client, task)).find((a) => a.name === 'Watch')?.state).toBe('waiting')
+
+    free = 500e9
+    await writeFile(built, '')
+    await waitUntil(
+      async () =>
+        (await apps(client, task)).find((a) => a.name === 'Watch' && a.state === 'running'),
+      'the Watch App to start once the iPhone App is built',
+    )
+    expect((await iPhone(client, task))?.state).toBe('running')
+    expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toEqual([])
+    expect(await cpusTold(1)).toEqual([String(checkCpus(os.availableParallelism(), 1, 50))])
+  })
+
+  test('with one build at a time off, two builds at once split the CPU share', async () => {
+    const client = await start()
+    const built = path.join(scratch, 'built')
+    await addFactory(
+      client,
+      `${tellCpus()}; until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
+    )
+    await client.ok('PATCH', '/settings', { buildDeviceAppsOneAtATime: false })
+    const first = await taskWithWorktree(client)
+    const second = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
+    await client.ok('POST', `/tasks/${second.id}/apps/start`, { name: 'iPhone' })
+
+    const cores = os.availableParallelism()
+    expect((await cpusTold(2)).sort()).toEqual(
+      [String(checkCpus(cores, 1, 50)), String(checkCpus(cores, 2, 50))].sort(),
+    )
+  })
+
   test('with every slot booted the human must pick one to shut down', async () => {
     const client = await start()
     await addFactory(client)
-    await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
+    await client.ok('PATCH', '/settings', { maxRunningDevices: 1 })
     const first = await taskWithWorktree(client)
     const second = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
@@ -299,7 +388,7 @@ describe('iOS simulator Apps', () => {
     })
     expect(refused.status).toBe(409)
     expect((refused.body as { error: string }).error).toBe(
-      'The only simulator slot is taken. Choose a simulator to shut down, then run iPhone again.',
+      'The only simulator or emulator slot is taken. Choose one to shut down, then run iPhone again.',
     )
     const [booted] = (await client.ok<SimulatorSlots>('GET', '/simulators')).booted
     expect(booted?.displayId).toBe('NB-1')
@@ -324,7 +413,7 @@ describe('iOS simulator Apps', () => {
   test('a Task’s other simulator App can take its first App’s slot', async () => {
     const client = await start()
     await addFactory(client)
-    await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
+    await client.ok('PATCH', '/settings', { maxRunningDevices: 1 })
     const task = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
     const [booted] = (await client.ok<SimulatorSlots>('GET', '/simulators')).booted
@@ -341,7 +430,7 @@ describe('iOS simulator Apps', () => {
   test('a Run that needs a slot asks the human, and Deny reaches ted run-app', async () => {
     const client = await start()
     await addFactory(client)
-    await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
+    await client.ok('PATCH', '/settings', { maxRunningDevices: 1 })
     const first = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
     const second = await taskWithWorktree(client, runAppTitle)
@@ -349,8 +438,8 @@ describe('iOS simulator Apps', () => {
     const request = await simulatorRequest(client, second)
     expect(request).toMatchObject({
       kind: 'permission',
-      title: 'iPhone needs a simulator · 1 of 1 booted',
-      body: 'Validate wants to record the swipe. Pick one to shut down, or deny and the Task Lead carries on without iPhone.',
+      title: 'iPhone needs a simulator · 1 of 1 running',
+      body: 'Validate wants to record the swipe. Pick a simulator or emulator to shut down, or deny and the Task Lead carries on without iPhone.',
       simulator: { app: 'iPhone', device: 'iPhone 17', limit: 1 },
     })
     expect(request.simulator?.booted.map((b) => b.displayId)).toEqual(['NB-1'])
@@ -358,11 +447,15 @@ describe('iOS simulator Apps', () => {
     expect(waiting.status?.kind).toBe('waiting-on-you')
     expect(waiting.activity).toBe('Waiting for a simulator slot')
     expect((await iPhone(client, second))?.state).toBe('waiting')
+    expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toMatchObject([
+      { displayId: 'NB-2', app: 'iPhone', place: 1, waitingFor: { kind: 'answer' } },
+    ])
 
     await client.ok('POST', `/comments/${request.id}/answer`, { action: 'deny' })
 
     const result = await leadResult(client, second)
     expect(result.code).toBe(1)
+    expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toEqual([])
     expect(result.stderr).toContain('No simulator slot: the human denied')
     expect((await iPhone(client, first))?.simulator?.booted).toBe(true)
   })
@@ -370,7 +463,7 @@ describe('iOS simulator Apps', () => {
   test('approving shuts down the chosen simulator and runs the App', async () => {
     const client = await start()
     await addFactory(client)
-    await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
+    await client.ok('PATCH', '/settings', { maxRunningDevices: 1 })
     const first = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
     const second = await taskWithWorktree(client, runAppTitle)
@@ -388,10 +481,69 @@ describe('iOS simulator Apps', () => {
     expect((await iPhone(client, first))?.simulator?.shutDown?.for).toBe('NB-2')
   })
 
+  test('an approved App that waits for another App’s build names it, and ted run-app says so', async () => {
+    const client = await start()
+    const built = path.join(scratch, 'built')
+    await addFactory(
+      client,
+      `until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
+    )
+    await client.ok('PATCH', '/settings', { maxRunningDevices: 2 })
+    const first = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
+    await writeFile(built, '')
+    await waitForApp(client, first, (a) => a.state === 'running', 'NB-1’s iPhone to be built')
+    const builder = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${builder.id}/apps/start`, { name: 'Watch' })
+    await waitUntil(
+      async () =>
+        (await apps(client, builder)).find((a) => a.name === 'Watch' && a.simulator?.booted),
+      'NB-2’s Watch to boot and take the build turn',
+    )
+    const said = path.join(scratch, 'run-app.err')
+    const second = await taskWithWorktree(
+      client,
+      JSON.stringify({
+        steps: [{ run: ['sh', '-c', `ted run-app iPhone 2> '${said}'`] }, { endTurn: true }],
+      }),
+    )
+    const request = await simulatorRequest(client, second)
+    const nb1 = request.simulator?.booted.find((b) => b.displayId === 'NB-1')
+
+    await client.ok('POST', `/comments/${request.id}/answer`, {
+      action: 'approve',
+      simulator: nb1?.udid,
+    })
+    const waiting = await waitForApp(
+      client,
+      second,
+      (a) => a.waitingOn !== undefined,
+      'NB-3’s iPhone to wait for NB-2’s build',
+    )
+    expect(waiting).toMatchObject({
+      state: 'waiting',
+      waitingOn: { displayId: 'NB-2', app: 'Watch' },
+    })
+
+    const building = 'Waiting for NB-2’s Watch to finish building…'
+    await waitUntil(
+      async () => (await readFile(said, 'utf8').catch(() => '')).includes(building),
+      'ted run-app to say whose build it waits for',
+    )
+    await client.ok('POST', `/tasks/${builder.id}/apps/stop`, { name: 'Watch' })
+    const result = await leadResult(client, second)
+    expect(result.code).toBe(0)
+    const lines = (await readFile(said, 'utf8')).split('\n')
+    expect(lines.filter((l) => l.includes('Waiting for'))).toEqual([
+      'Every simulator and emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…',
+      building,
+    ])
+  })
+
   test('a slot that frees up first closes the request without shutting anything down', async () => {
     const client = await start()
     await addFactory(client)
-    await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
+    await client.ok('PATCH', '/settings', { maxRunningDevices: 1 })
     const first = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
     const second = await taskWithWorktree(client, runAppTitle)
@@ -493,7 +645,7 @@ describe('iOS simulator Apps', () => {
       ].join('\n'),
     })
     await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
-    await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
+    await client.ok('PATCH', '/settings', { maxRunningDevices: 1 })
     const task = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
 
@@ -616,7 +768,7 @@ describe('iOS simulator Apps', () => {
     expect(await gone(path.join(home, 'automation-runs', heldRun))).toBe(true)
     expect(await gone(path.join(home, 'apps', heldRun))).toBe(true)
     expect(await gone(cache)).toBe(true)
-  })
+  }, 90_000)
 
   test('an Audit reads its simulator’s screen, taps through two screens and files a Task with a screenshot for the planted problem', async () => {
     await writeStub({
@@ -831,8 +983,9 @@ describe('iOS simulator Apps', () => {
     expect(await iPhone(client, task)).toBeUndefined()
     expect(await client.ok<SimulatorSlots>('GET', '/simulators')).toEqual({
       supported: false,
-      limit: 3,
+      limit: 2,
       booted: [],
+      waiting: [],
     })
     expect(await stubCalls()).toEqual([])
   })

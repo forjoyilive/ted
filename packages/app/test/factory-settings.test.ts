@@ -8,6 +8,7 @@ import {
   changeCount,
   driftLine,
   editedFields,
+  instructionRunText,
   lastRunText,
   lastValidLine,
   missingCopies,
@@ -118,6 +119,7 @@ const view: FactorySettingsView = {
   ],
   ignoredStageFiles: [],
   checks: [{ was: 0, name: 'Typecheck', run: 'npm run typecheck' }],
+  instructionChecks: [],
   cleanup: { enabled: false, steps: [] },
   tries: [],
   agents: [
@@ -159,6 +161,31 @@ describe('Factory settings draft', () => {
     expect([...unsavedSections(draft, loaded)]).toEqual(['workflow', 'checks'])
     expect([...unsavedSections(settingsDraft(view), loaded)]).toEqual([])
     expect([...stageEdited(draft, loaded, 'review')]).toEqual(['file'])
+  })
+
+  test('editing an instruction Check sends only the instruction Checks, keeping each was', () => {
+    const withInstruction: FactorySettingsView = {
+      ...view,
+      instructionChecks: [{ was: 1, name: 'Docs drift', instruction: 'Fix stale docs.' }],
+    }
+    const loaded = settingsDraft(withInstruction)
+    const draft = settingsDraft(withInstruction)
+    expect(settingsChanges(draft, loaded).instructionChecks).toBeUndefined()
+    const docs = { was: 1, name: 'Docs drift', instruction: 'Fix stale docs.' }
+    draft.instructionChecks = [
+      { ...docs, fix: true, effort: 'high' },
+      { name: 'Copy', instruction: 'Check the UI text.' },
+    ]
+    const changes = settingsChanges(draft, loaded)
+    expect(changes.checks).toBeUndefined()
+    expect(changes.instructionChecks).toEqual([
+      { was: 1, name: 'Docs drift', instruction: 'Fix stale docs.', fix: true, effort: 'high' },
+      { name: 'Copy', instruction: 'Check the UI text.' },
+    ])
+    expect(unsavedChanges(draft, loaded)).toEqual({ count: 2, files: ['.ted/workflow.yaml'] })
+    expect([...unsavedSections(draft, loaded)]).toEqual(['checks'])
+    draft.instructionChecks = [{ ...docs, fix: false }]
+    expect(settingsChanges(draft, loaded).instructionChecks).toBeUndefined()
   })
 
   test('turning Cleanup on with two steps sends cleanup and counts each edit in workflow.yaml', () => {
@@ -266,6 +293,16 @@ describe('Factory settings draft', () => {
     )
     expect(lastRunText({ ...base, state: 'failed', exitCode: 1, setupFailed: true }, now)).toBe(
       '✗ Setup failed · 2h ago',
+    )
+    const tried = { ...base, instruction: true as const, taskDisplayId: 'NB-2' }
+    expect(
+      instructionRunText({ ...tried, state: 'running', startedAt: '2026-11-09T11:59:30Z' }, now),
+    ).toBe('Running on NB-2 · 30s')
+    expect(
+      instructionRunText({ ...tried, state: 'passed', finishedAt: '2026-11-09T11:00:00Z' }, now),
+    ).toBe('✓ Passed on NB-2 · 1h ago')
+    expect(instructionRunText({ ...tried, state: 'failed', noReport: 'no result line' }, now)).toBe(
+      '✗ No report on NB-2 · 2h ago',
     )
   })
 

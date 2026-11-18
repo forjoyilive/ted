@@ -67,6 +67,15 @@ describe('queueOrder', () => {
     ])
   })
 
+  test('a Task in Cleanup that skips the busy hold sorts with the continuations, ahead of new Tasks', () => {
+    const order = queueOrder([
+      task('new-urgent', 'urgent', 0),
+      { ...task('cleanup-low', 'low', 5), skipsBusy: true },
+      { ...task('answered-high', 'high', 3), kind: 'continuation' },
+    ])
+    expect(order.map((entry) => entry.id)).toEqual(['answered-high', 'cleanup-low', 'new-urgent'])
+  })
+
   test('entries of one class keep their rank order', () => {
     const order = queueOrder([
       { id: 'second', kind: 'automation', rank: 2 },
@@ -358,6 +367,18 @@ describe('startsNow while this computer is busy', () => {
         caps: { nb: 1 },
         busy: true,
       }),
+    ).toEqual([])
+  })
+  test('a Task in Cleanup starts past the hold, but not past the limit', () => {
+    const cleanup = { ...task('cleanup', 'none', 9), skipsBusy: true } as const
+    const ordered = queueOrder([...queue, cleanup])
+    expect(
+      startsNow(ordered, { limit: 6, working: 1, byFactory: {}, caps: {}, busy: true }).map(
+        (e) => e.id,
+      ),
+    ).toEqual(['cleanup'])
+    expect(
+      startsNow(ordered, { limit: 1, working: 1, byFactory: {}, caps: {}, busy: true }),
     ).toEqual([])
   })
 })

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Comment, CommentAnswer, DaemonEvent } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
+import { createDevicePool, type DevicePool } from '../src/apps/device-pool.ts'
 import {
   createDeviceSlots,
   type DeviceDriver,
@@ -38,18 +39,35 @@ const app = (task: string, name = 'ios'): SimulatorApp => ({
 })
 
 function setup(
-  options: { limit?: number; idleMs?: number; appLive?: Set<string>; busy?: () => boolean } = {},
+  options: {
+    limit?: number
+    idleMs?: number
+    appLive?: Set<string>
+    busy?: () => boolean
+    pool?: DevicePool
+    android?: boolean
+    oneAtATime?: boolean
+  } = {},
 ) {
+  const pool =
+    options.pool ??
+    createDevicePool({
+      limit: () => options.limit ?? 1,
+      oneAtATime: () => options.oneAtATime ?? false,
+    })
+  const prefix = options.android ? 'emu' : 'dev'
   const live = new Set<string>()
   const recording = new Set<string>()
   const stopped: string[] = []
   const shutDowns: DeviceShutDown[] = []
   const comments = new Map<string, Comment>()
   const boots: string[] = []
+  const events: DaemonEvent[] = []
   let made = 0
   const driver: DeviceDriver<FakeRecord> = {
-    words: { noun: 'simulator', article: 'a', live: 'booted' },
-    limit: () => options.limit ?? 1,
+    words: options.android
+      ? { noun: 'emulator', article: 'an', live: 'running', platform: 'android' }
+      : { noun: 'simulator', article: 'a', live: 'booted' },
     event: (simulators): DaemonEvent => ({ type: 'simulators-changed', simulators }),
     slotId: (record) => record.id,
     isLive: (record) => live.has(record.id),
@@ -59,7 +77,7 @@ function setup(
       if (existing) return existing
       made += 1
       return {
-        id: `dev-${made}`,
+        id: `${prefix}-${made}`,
         taskId: app.taskId,
         repo: app.repo,
         name: app.name,
@@ -98,7 +116,10 @@ function setup(
     store,
     supported: true,
     driver,
-    emit: () => undefined,
+    pool,
+    emit: (event) => {
+      events.push(event)
+    },
     appLive: async (taskId) => options.appLive?.has(taskId) ?? false,
     stopApp: async () => undefined,
     pollMs: 60 * 60_000,
@@ -106,7 +127,7 @@ function setup(
     ...(options.busy !== undefined && { busy: async () => options.busy?.() ?? false }),
   })
   opened.push(slots)
-  return { slots, live, boots, recording, stopped, shutDowns, comments }
+  return { slots, pool, live, boots, recording, stopped, shutDowns, comments, events }
 }
 
 test('a free slot boots the device and a live one is reused', async () => {
@@ -154,7 +175,7 @@ test('a human start needs a choice, a chosen device is shut down for it, and a r
   const { slots, live, recording, stopped, shutDowns } = setup()
   await slots.acquire(app('t1'), 'human', {})
   await expect(slots.acquire(app('t2'), 'human', {})).rejects.toThrow(
-    'The only simulator slot is taken. Choose a simulator to shut down, then run ios again.',
+    'The only simulator or emulator slot is taken. Choose one to shut down, then run ios again.',
   )
 
   recording.add('dev-1')
@@ -182,8 +203,8 @@ test('a Task Run asks for a slot and is granted it once the human approves', asy
   })
   if (!('waiting' in asked)) throw new Error('expected to wait')
   expect(comments.get(asked.waiting)).toMatchObject({
-    title: 'ios needs a simulator · 1 of 1 booted',
-    body: 'To check the login screen. Pick one to shut down, or deny and the Task Lead carries on without ios.',
+    title: 'ios needs a simulator · 1 of 1 running',
+    body: 'To check the login screen. Pick a simulator or emulator to shut down, or deny and the Task Lead carries on without ios.',
   })
   expect(await slots.wait(asked.waiting, app('t2'))).toEqual({ state: 'pending' })
   const owner = await slots.withRequest(comments.get(asked.waiting) as Comment, async (effects) => {
@@ -204,4 +225,209 @@ test('an idle device is shut down unless its App is still running', async () => 
   await slots.refresh()
   expect([...live]).toEqual(['dev-2'])
   expect(shutDowns).toEqual([{ taskId: 't1', repo: 'widgets', name: 'ios', idle: true }])
+})
+
+test('simulators and emulators share one limit, and either kind can be shut down for the other', async () => {
+  const ios = setup({ limit: 2 })
+  const android = setup({ pool: ios.pool, android: true })
+  expect(await ios.slots.acquire(app('t1'), 'human', {})).toEqual({ udid: 'dev-1' })
+  expect(await android.slots.acquire(app('t2', 'android'), 'human', {})).toEqual({
+    udid: 'emu-1',
+  })
+  expect(android.slots.slots()).toMatchObject({ limit: 2 })
+  expect(ios.slots.slots().booted.map((b) => [b.udid, b.platform])).toEqual([
+    ['dev-1', undefined],
+    ['emu-1', 'android'],
+  ])
+  await expect(ios.slots.acquire(app('t3'), 'human', {})).rejects.toThrow(
+    'All 2 simulators and emulators are running. Choose one to shut down, then run ios again.',
+  )
+
+  android.recording.add('emu-1')
+  await expect(ios.slots.acquire(app('t3'), 'human', { shutDown: 'emu-1' })).rejects.toThrow(
+    'T2’s emulator is recording, so it can’t be shut down',
+  )
+  android.recording.delete('emu-1')
+  expect(await ios.slots.acquire(app('t3'), 'human', { shutDown: 'emu-1' })).toEqual({
+    udid: 'dev-2',
+  })
+  expect(android.shutDowns).toEqual([
+    { taskId: 't2', repo: 'widgets', name: 'android', forTask: 'T3', idle: false },
+  ])
+})
+
+test('while this computer is busy an agent’s first simulator waits when an emulator is running', async () => {
+  const ios = setup({ limit: 3, busy: () => true })
+  const android = setup({ pool: ios.pool, android: true, busy: () => true })
+  expect(await android.slots.acquire(app('t1', 'android'), 'task-lead', { runId: 'r1' })).toEqual({
+    udid: 'emu-1',
+  })
+  const waiting = await ios.slots.acquire(app('t2'), 'task-lead', { runId: 'r2' })
+  expect(waiting).toHaveProperty('waiting')
+  expect(ios.live.size).toBe(0)
+})
+
+test('one App builds at a time across kinds, and the next goes when the turn ends or runs out', async () => {
+  let now = 0
+  const pool = createDevicePool({
+    limit: () => 3,
+    oneAtATime: () => true,
+    turnMs: 60_000,
+    now: () => now,
+  })
+  const ios = setup({ pool })
+  const android = setup({ pool, android: true })
+  expect(await android.slots.acquire(app('t1', 'android'), 'task-lead', { runId: 'r1' })).toEqual({
+    udid: 'emu-1',
+  })
+  expect(pool.holder()).toMatchObject({ displayId: 'T1', app: 'android' })
+
+  const human = await ios.slots.acquire(app('t2'), 'human', {})
+  const agent = await ios.slots.acquire(app('t3'), 'task-lead', { runId: 'r3' })
+  if (!('waiting' in human) || !('waiting' in agent)) throw new Error('expected to wait')
+  expect(ios.live.size).toBe(0)
+  expect(await ios.slots.wait(human.waiting, app('t2'))).toEqual({ state: 'pending' })
+
+  pool.endTurn('t1/widgets/android')
+  expect(await ios.slots.wait(agent.waiting, app('t3'))).toEqual({ state: 'pending' })
+  expect(await ios.slots.wait(human.waiting, app('t2'))).toEqual({
+    state: 'granted',
+    udid: 'dev-1',
+  })
+  expect(await ios.slots.wait(agent.waiting, app('t3'))).toEqual({ state: 'pending' })
+
+  now += 60_000
+  expect(await ios.slots.wait(agent.waiting, app('t3'))).toEqual({
+    state: 'granted',
+    udid: 'dev-2',
+  })
+  expect(pool.holder()).toMatchObject({ displayId: 'T3' })
+
+  const again = await android.slots.acquire(app('t1', 'android'), 'human', {})
+  expect(again).toHaveProperty('waiting')
+})
+
+test('the waiting list says what each App waits for and updates when the build turn ends', async () => {
+  const { slots, pool, events } = setup({ oneAtATime: true })
+  await slots.acquire(app('t1'), 'human', {})
+  const queued = await slots.acquire(app('t2'), 'automation', {})
+  if (!('waiting' in queued)) throw new Error('expected to wait')
+  expect(slots.slots().waiting).toMatchObject([
+    { taskId: 't2', app: 'ios', place: 1, waitingFor: { kind: 'build', displayId: 'T1' } },
+  ])
+
+  events.length = 0
+  pool.endTurn('t1/widgets/ios')
+  const sent = events.flatMap((e) => (e.type === 'simulators-changed' ? [e.simulators] : []))
+  expect(sent.at(-1)?.waiting).toMatchObject([{ taskId: 't2', waitingFor: { kind: 'device' } }])
+
+  slots.withdraw(queued.waiting)
+  expect(slots.slots().waiting).toEqual([])
+})
+
+test('a build turn that runs out updates what the waiting App waits for', async () => {
+  let now = 0
+  const pool = createDevicePool({
+    limit: () => 1,
+    oneAtATime: () => true,
+    turnMs: 60_000,
+    now: () => now,
+  })
+  const { slots, events } = setup({ pool })
+  await slots.acquire(app('t1'), 'human', {})
+  const queued = await slots.acquire(app('t2'), 'automation', {})
+  if (!('waiting' in queued)) throw new Error('expected to wait')
+
+  events.length = 0
+  now += 60_000
+  expect(await slots.wait(queued.waiting, app('t2'))).toEqual({ state: 'pending' })
+  await Promise.resolve()
+  const sent = events.flatMap((e) => (e.type === 'simulators-changed' ? [e.simulators] : []))
+  expect(sent.at(-1)?.waiting).toMatchObject([{ taskId: 't2', waitingFor: { kind: 'device' } }])
+})
+
+test('Apps that ask the human and Apps in line are listed in the order they asked', async () => {
+  const { slots } = setup()
+  await slots.acquire(app('t1'), 'human', {})
+  await slots.acquire(app('t2'), 'task-lead', { runId: 'r2' })
+  await slots.acquire(app('t3'), 'automation', {})
+  expect(slots.slots().waiting).toMatchObject([
+    { taskId: 't2', place: 1, waitingFor: { kind: 'answer' } },
+    { taskId: 't3', place: 2, waitingFor: { kind: 'device' } },
+  ])
+})
+
+test('listing again puts waiting Apps back without booting them, and leaves out a request that has ended', async () => {
+  const { slots, pool, boots, comments } = setup()
+  await slots.acquire(app('t1'), 'human', {})
+  const asked = await slots.acquire(app('t2'), 'task-lead', { runId: 'r2' })
+  const queued = await slots.acquire(app('t3'), 'automation', {})
+  if (!('waiting' in asked) || !('waiting' in queued)) throw new Error('expected to wait')
+  pool.unwait(asked.waiting)
+  pool.unwait(queued.waiting)
+  expect(slots.slots().waiting).toEqual([])
+
+  slots.list(asked.waiting, app('t2'))
+  slots.list(queued.waiting, app('t3'))
+  slots.list(queued.waiting, app('t3'))
+  expect(slots.slots().waiting).toMatchObject([
+    { taskId: 't2', waitingFor: { kind: 'answer' } },
+    { taskId: 't3', waitingFor: { kind: 'device' } },
+  ])
+  expect(pool.line.filter((ticket) => ticket === queued.waiting)).toHaveLength(1)
+  expect(boots).toEqual(['dev-1'])
+
+  pool.unwait(asked.waiting)
+  const denied = { ...comments.get(asked.waiting), answer: { kind: 'denied' } } as Comment
+  comments.set(asked.waiting, denied)
+  slots.list(asked.waiting, app('t2'))
+  expect(slots.slots().waiting).toMatchObject([{ taskId: 't3' }])
+})
+
+test('with one build at a time off, two Apps start together', async () => {
+  const ios = setup({ limit: 2 })
+  const android = setup({ pool: ios.pool, android: true })
+  expect(await android.slots.acquire(app('t1', 'android'), 'task-lead', { runId: 'r1' })).toEqual({
+    udid: 'emu-1',
+  })
+  expect(await ios.slots.acquire(app('t2'), 'task-lead', { runId: 'r2' })).toEqual({
+    udid: 'dev-1',
+  })
+  expect(ios.pool.holder()).toBeUndefined()
+})
+
+test('the pool counts device builds until their turn ends or runs out', () => {
+  let at = 0
+  const pool = createDevicePool({
+    limit: () => 2,
+    oneAtATime: () => false,
+    turnMs: 1000,
+    now: () => at,
+  })
+  expect(pool.beginBuild('t1/ios')).toBe(1)
+  expect(pool.beginBuild('t2/android')).toBe(2)
+  expect(pool.beginBuild('t2/android')).toBe(2)
+  pool.endTurn('t1/ios')
+  expect(pool.building('t1/ios')).toBe(false)
+  expect(pool.building('t2/android')).toBe(true)
+  at = 1000
+  expect(pool.building('t2/android')).toBe(false)
+  expect(pool.beginBuild('t3/ios')).toBe(1)
+})
+
+test('when a build turn runs out its build stops counting, even if it launched after the turn began', () => {
+  let at = 0
+  const pool = createDevicePool({
+    limit: () => 2,
+    oneAtATime: () => true,
+    turnMs: 1000,
+    now: () => at,
+  })
+  expect(pool.takeTurn({ key: 't1/ios', displayId: 'NB-1', app: 'iPhone' })).toBe(true)
+  at = 200
+  expect(pool.beginBuild('t1/ios')).toBe(1)
+  at = 1000
+  expect(pool.takeTurn({ key: 't2/ios', displayId: 'NB-2', app: 'iPhone' })).toBe(true)
+  expect(pool.building('t1/ios')).toBe(false)
+  expect(pool.beginBuild('t2/ios')).toBe(1)
 })

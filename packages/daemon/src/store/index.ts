@@ -40,6 +40,7 @@ import {
   asanaSyncOf,
   automationCardHeadline,
   autopilotEnabled,
+  type BacklogStarts,
   type Banner,
   type BannerAction,
   type BannerSeverity,
@@ -77,6 +78,7 @@ import {
   declaredSendBackCauses,
   defaultMachineSettings,
   defaultWorkingRuns,
+  deviceSlotLimits,
   type Effort,
   emptyMessageDraft,
   type Factory,
@@ -94,6 +96,7 @@ import {
   type MachineSettings,
   type MemoryKillAsk,
   type MergeMethod,
+  noBacklogStarts,
   type PermissionMode,
   type Priority,
   type Proposal,
@@ -131,7 +134,7 @@ import {
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { isOneOf } from '@ted/protocol/parse'
+import { isInteger, isOneOf, type Untyped } from '@ted/protocol/parse'
 import { planTitle as titleFromMessage } from '@ted/protocol/plan'
 import {
   compareStages,
@@ -392,12 +395,19 @@ export interface StoredFactoryRepo {
 }
 
 export interface StoredFactory extends Omit<Factory, 'repos' | 'cloned' | 'setup' | 'localFolder'> {
+  autoStartBacklog: boolean
   cloneUrl: string
   repos: StoredFactoryRepo[]
   clonedAt?: string
 }
 
-export function basicFactory({ cloneUrl: _, clonedAt, repos, ...factory }: StoredFactory): Factory {
+export function basicFactory({
+  cloneUrl: _,
+  autoStartBacklog: __,
+  clonedAt,
+  repos,
+  ...factory
+}: StoredFactory): Factory {
   return {
     ...factory,
     repos: repos.map(({ repo, name }) => ({ repo, name })),
@@ -547,7 +557,7 @@ export interface SubAgentRequest {
   at: string
 }
 
-export type ReviewerPurpose = 'review' | 'loop-check'
+export type ReviewerPurpose = 'review' | 'loop-check' | 'instruction-check'
 
 export interface Reviewer {
   runId: string
@@ -687,7 +697,7 @@ export interface CleanupCommandResult {
   output: string
 }
 
-export type PlannedCheck = Omit<CheckResult, 'exitCode' | 'durationMs'>
+export type PlannedCheck = Omit<CheckResult, 'exitCode' | 'durationMs' | 'noReport'>
 
 export interface LoggedEvent {
   id: string
@@ -713,6 +723,13 @@ export interface HeldRun {
   taskId: string
   agent: AgentKind
   sessionId?: string
+  pickUp?: string
+  carried?: CarriedMessages
+}
+
+export interface CarriedMessages {
+  runId: string
+  messageIds: readonly string[]
 }
 
 export interface TedStore extends TaskHistory {
@@ -1137,6 +1154,7 @@ export interface TedStore extends TaskHistory {
     stage: StageId
     checks: PlannedCheck[]
   }): CheckRun
+  replanChecks(checkRunId: string, from: number, checks: PlannedCheck[]): CheckRun
   checkSlotBoundary(
     checkRunId: string,
     boundary: 'entered' | 'acquired' | 'canceled' | 'interrupted' | 'recovered',
@@ -1156,6 +1174,16 @@ export interface TedStore extends TaskHistory {
     position: number,
     result: { state: CheckState; exitCode?: number; durationMs: number },
   ): CheckRun
+  recordCheckChangeKey(checkRunId: string, position: number, key: string): void
+  checkReportMissing(
+    checkRunId: string,
+    position: number,
+    missing: { reason: string; durationMs: number },
+  ): CheckRun
+  awaitedReport(
+    checkRunId: string,
+  ): { position: number; reason: string; durationMs: number } | undefined
+  passedChangeKey(taskId: string, name: string): string | undefined
   finishChecks(checkRunId: string, outcome: CheckRunOutcome): CheckRun
   getCheckRun(id: string): CheckRun | undefined
   listCheckRuns(taskId?: string): CheckRun[]
@@ -1762,6 +1790,7 @@ export async function openStore({
                 rank,
                 priority: task.priority as Priority,
                 factoryId: task.factoryId,
+                ...(isCleanup(task.stage) && { skipsBusy: true as const }),
               },
             ]
           : []
@@ -2190,9 +2219,8 @@ export async function openStore({
     const repos = reads
       .repos(row.id)
       .map((repo) => toTaskRepo(repo, reads.pullRequest(repo.id).at(0)))
-    const unmerged = blockerLinks(row.id, reads).filter(
-      (b) => !b.merged && !b.satisfied && b.kind !== 'asana',
-    )
+    const open = blockerLinks(row.id, reads).filter((b) => !b.merged && !b.satisfied)
+    const unmerged = open.filter((b) => b.kind !== 'asana')
     const waitingOn = unmerged.map((b) => b.displayId)
     const firstEnded = unmerged[0]?.ended
     const visit = mergesHere(stage) ? history.mergeHistory(row.id) : undefined
@@ -2224,9 +2252,10 @@ export async function openStore({
       (comment) => comment.answerHeld && comment.answerQueuedAt !== null,
     )
     const queuedContinuation = pendingMessages.some((message) => message.waitForSlot) || heldAnswer
-    const queuedAfter =
-      pendingMessages.find((message) => message.waitForSlot && message.after !== undefined)
-        ?.after ?? (heldAnswer ? 'answer' : undefined)
+    const skipsBusy =
+      isCleanup(stage) ||
+      heldAnswer ||
+      pendingMessages.some((message) => message.waitForSlot && message.after !== undefined)
     const place =
       queued || queuedContinuation
         ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
@@ -2304,7 +2333,7 @@ export async function openStore({
             ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Providers.` }
             : place > 0
               ? newWorkHeld === undefined
-                ? { place, ...(queuedAfter !== undefined && { after: queuedAfter }) }
+                ? { place, ...(skipsBusy && { skipsBusy: true as const }) }
                 : { hold: newWorkHeld }
               : { hold: 'Waiting for a Provider' },
       }),
@@ -2459,6 +2488,7 @@ export async function openStore({
       ...(stageEffort !== null && { stageEffort: stageEffort as Effort }),
       pendingLeadMessages: pendingMessages,
       blockedBy,
+      ...(open.length > 0 && { openBlockers: open.map((b) => b.displayId) }),
       ...(parentId !== undefined && { parentId }),
       childIds: reads.children(row.id).map((child) => child.taskId),
       waitsForBlockers,
@@ -2913,12 +2943,33 @@ export async function openStore({
   const toCheckResult = (row: typeof checkResults.Type): CheckResult => ({
     name: row.name,
     ...(row.repo !== null && { repo: row.repo }),
-    command: row.command,
+    ...(row.instruction === null && { command: row.command }),
     timeout: row.timeout,
     state: row.state as CheckState,
     ...(row.exitCode !== null && { exitCode: row.exitCode }),
     ...(row.durationMs !== null && { durationMs: row.durationMs }),
     ...(row.builtIn === 'ted-settings' && { builtIn: 'ted-settings' as const }),
+    ...(row.instruction !== null && { instruction: row.instruction }),
+    ...(row.fix !== null && { fix: row.fix }),
+    ...(row.agent !== null && { agent: row.agent }),
+    ...(row.model !== null && { model: row.model }),
+    ...(row.effort !== null && { effort: row.effort }),
+    ...(row.notRerun === true && { notRerun: true }),
+    ...(row.noReport !== null && row.state === 'failed' && { noReport: row.noReport }),
+  })
+  const plannedRow = (check: PlannedCheck) => ({
+    name: check.name,
+    repo: check.repo ?? null,
+    command: check.command ?? null,
+    timeout: check.timeout,
+    builtIn: check.builtIn ?? null,
+    state: check.state,
+    instruction: check.instruction ?? null,
+    fix: check.fix ?? null,
+    agent: check.agent ?? null,
+    model: check.model ?? null,
+    effort: check.effort ?? null,
+    notRerun: check.notRerun ?? null,
   })
   const toCheckRun = (row: typeof checkRuns.Type): CheckRun => {
     const run: CheckRun = {
@@ -3586,6 +3637,12 @@ export async function openStore({
       : 'ask'
   }
 
+  const backlogStartsBeforeSaving = (): BacklogStarts => {
+    const factoryIds = store.query(
+      queryDb(factories.select('id').where({ autoStartBacklog: true })),
+    )
+    return { ...noBacklogStarts, enabled: factoryIds.length > 0, factoryIds }
+  }
   const machineDefaults: MachineSettings = {
     ...defaultMachineSettings,
     maxWorkingRuns: defaultWorkingRuns(totalMemory()),
@@ -3600,7 +3657,9 @@ export async function openStore({
     return {
       ...machineDefaults,
       ...(legacy && { appearance: legacy.appearance as Appearance }),
+      ...deviceLimitFromOldLimits(values),
       ...pick(values, Object.keys(defaultMachineSettings)),
+      ...(values.backlogStarts === undefined && { backlogStarts: backlogStartsBeforeSaving() }),
       billing: {
         ...defaultMachineSettings.billing,
         ...(values.billing as Partial<MachineSettings['billing']> | undefined),
@@ -6587,23 +6646,29 @@ export async function openStore({
     startChecks({ taskId, trigger, stage, checks }) {
       const id = randomUUID()
       commit(
-        events.checksStarted({
+        events.checksStartedWithInstructions({
           id,
           taskId,
           trigger,
           stage,
-          checks: checks.map((check) => ({
-            name: check.name,
-            repo: check.repo ?? null,
-            command: check.command,
-            timeout: check.timeout,
-            builtIn: check.builtIn ?? null,
-            state: check.state,
-          })),
+          checks: checks.map(plannedRow),
           at: new Date().toISOString(),
         }),
       )
       return updatedCheckRun(id)
+    },
+    replanChecks(checkRunId, from, checks) {
+      const run = requireCheckRun(checkRunId)
+      commit(
+        events.checksReplanned({
+          taskId: run.taskId,
+          checkRunId,
+          from,
+          checks: checks.map(plannedRow),
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedCheckRun(checkRunId)
     },
     checkSlotBoundary(checkRunId, boundary, at) {
       const run = requireCheckRun(checkRunId)
@@ -6670,6 +6735,51 @@ export async function openStore({
         }),
       )
       return updatedCheckRun(checkRunId)
+    },
+    recordCheckChangeKey(checkRunId, position, key) {
+      commit(
+        events.checkChangeKeyRecorded({ checkRunId, position, key, at: new Date().toISOString() }),
+      )
+    },
+    checkReportMissing(checkRunId, position, { reason, durationMs }) {
+      const run = requireCheckRun(checkRunId)
+      commit(
+        events.checkReportMissing({
+          taskId: run.taskId,
+          checkRunId,
+          position,
+          reason,
+          durationMs,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedCheckRun(checkRunId)
+    },
+    awaitedReport(checkRunId) {
+      const started = new Set(
+        store
+          .query(queryDb(checkBoundaries.where({ checkRunId, kind: 'start' })))
+          .map((boundary) => boundary.position),
+      )
+      const row = checkResultRows(checkRunId).find(
+        (result) =>
+          result.noReport !== null && result.state === 'running' && !started.has(result.position),
+      )
+      if (!row || row.noReport === null) return undefined
+      return { position: row.position, reason: row.noReport, durationMs: row.noReportMs ?? 0 }
+    },
+    passedChangeKey(taskId, name) {
+      for (const row of [...checkRunRows(taskId)].reverse()) {
+        const found = checkResultRows(row.id).find(
+          (result) =>
+            result.name === name &&
+            result.instruction !== null &&
+            result.state === 'passed' &&
+            result.changeKey !== null,
+        )
+        if (found?.changeKey) return found.changeKey
+      }
+      return undefined
     },
     finishChecks(checkRunId, outcome) {
       commit(events.checksFinished({ checkRunId, outcome, at: new Date().toISOString() }))
@@ -7549,16 +7659,25 @@ export async function openStore({
       noteActivity()
     },
     agentPauses: pauses,
-    holdTaskRun({ taskId, agent, sessionId }) {
+    holdTaskRun({ taskId, agent, sessionId, pickUp, carried }) {
       const current = heldRow(taskId)
-      if (current && current.agent === agent && (current.sessionId ?? undefined) === sessionId) {
+      if (
+        current &&
+        current.agent === agent &&
+        (current.sessionId ?? undefined) === sessionId &&
+        (current.pickUp ?? undefined) === pickUp &&
+        (current.carriedRunId ?? undefined) === carried?.runId &&
+        (current.carriedMessageIds ?? []).join('\n') === (carried?.messageIds ?? []).join('\n')
+      ) {
         return
       }
       commit(
-        events.taskRunHeld({
+        events.taskRunHeldV2({
           taskId,
           agent,
           sessionId: sessionId ?? null,
+          pickUp: pickUp ?? null,
+          carried: carried ? { runId: carried.runId, messageIds: [...carried.messageIds] } : null,
           at: new Date().toISOString(),
         }),
       )
@@ -7576,6 +7695,10 @@ export async function openStore({
         taskId: row.taskId,
         agent: row.agent as AgentKind,
         ...(row.sessionId !== null && { sessionId: row.sessionId }),
+        ...(row.pickUp !== null && { pickUp: row.pickUp }),
+        ...(row.carriedRunId !== null && {
+          carried: { runId: row.carriedRunId, messageIds: row.carriedMessageIds ?? [] },
+        }),
       })),
     pausedRunCount: (agent) =>
       store.query(queryDb(runRows.where({ agent }))).filter((r) => r.state !== 'finished').length +
@@ -7786,4 +7909,14 @@ function withGroupAccount(
     ...current,
     [tracker]: { ...byFactory, [factoryId]: { ...byFactory[factoryId], [group]: account } },
   }
+}
+
+function deviceLimitFromOldLimits(values: {
+  maxBootedSimulators?: Untyped
+  maxRunningEmulators?: Untyped
+}): Partial<MachineSettings> {
+  const { maxBootedSimulators: simulators, maxRunningEmulators: emulators } = values
+  if (simulators === undefined && emulators === undefined) return {}
+  const total = (isInteger(simulators) ? simulators : 3) + (isInteger(emulators) ? emulators : 2)
+  return { maxRunningDevices: Math.min(total, deviceSlotLimits.max) }
 }

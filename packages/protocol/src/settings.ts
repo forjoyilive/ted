@@ -1,4 +1,5 @@
 import type { AsanaIntakeScope } from './asana-intake.ts'
+import { type BacklogStarts, noBacklogStarts } from './backlog-starts.ts'
 import type { BoardView } from './board-view.ts'
 import { type DiagnosticsSort, defaultDiagnosticsSort } from './diagnostics-sort.ts'
 import type { GitHubIntakeScope } from './github-intake.ts'
@@ -98,8 +99,8 @@ export interface MachineSettings {
   reviewUnvettedTasks: boolean
   maxWorkingRuns: number
   waitWhenBusy: boolean
-  maxBootedSimulators: number
-  maxRunningEmulators: number
+  maxRunningDevices: number
+  buildDeviceAppsOneAtATime: boolean
   runOutputDays: number
   deleteArchivedAfterDays: number | null
   deleteArchivedChatsAfterDays: number | null
@@ -145,6 +146,7 @@ export interface MachineSettings {
   checkCpuPercent: number
   limitScheduledCheckCpus: boolean
   startNewTasks: boolean
+  backlogStarts: BacklogStarts
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -161,8 +163,8 @@ export const defaultMachineSettings: MachineSettings = {
   reviewUnvettedTasks: true,
   maxWorkingRuns: 6,
   waitWhenBusy: true,
-  maxBootedSimulators: 3,
-  maxRunningEmulators: 2,
+  maxRunningDevices: 2,
+  buildDeviceAppsOneAtATime: true,
   runOutputDays: 7,
   deleteArchivedAfterDays: null,
   deleteArchivedChatsAfterDays: null,
@@ -208,6 +210,7 @@ export const defaultMachineSettings: MachineSettings = {
   checkCpuPercent: 50,
   limitScheduledCheckCpus: true,
   startNewTasks: true,
+  backlogStarts: noBacklogStarts,
 }
 
 export interface Profile {

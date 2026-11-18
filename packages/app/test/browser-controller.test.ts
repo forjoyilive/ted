@@ -11,6 +11,11 @@ import {
 import type { Rectangle } from 'electron'
 import { afterEach, expect, test, vi } from 'vitest'
 
+interface GuestRequest {
+  url: string
+  resourceType: string
+  webContentsId?: number
+}
 function makeSession() {
   const clearAllStorage = vi.fn()
   return {
@@ -21,7 +26,16 @@ function makeSession() {
     setPermissionCheckHandler: vi.fn(),
     removeAllListeners: vi.fn(),
     on: vi.fn(),
-    webRequest: { onBeforeRequest: vi.fn() },
+    webRequest: {
+      onBeforeRequest: vi.fn(
+        (
+          _listener: (
+            details: GuestRequest,
+            callback: (response: { cancel?: boolean }) => void,
+          ) => void,
+        ) => {},
+      ),
+    },
     clearStorageData: vi.fn(async (options?: { storages: string[] }) => {
       if (!options) clearAllStorage()
     }),
@@ -42,6 +56,7 @@ function makeContents() {
     }),
     setWindowOpenHandler: vi.fn(),
     getURL: () => 'http://localhost:3000/',
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false, clear: vi.fn() },
     getUserAgent: () => 'Electron desktop',
     reload: vi.fn((): void => {}),
     capturePage: vi.fn(
@@ -502,6 +517,58 @@ test('guests reject system client certificates', async () => {
   expect(select).toHaveBeenCalledWith()
 })
 
+test('a blocked request counts only on the document that made it', async () => {
+  const transport = bridge()
+  let started: (() => () => void) | undefined
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+    electron,
+    {},
+    async (_contents, claim) => {
+      started = claim
+      return { rules: 'http://127.0.0.1:9', signIn: async () => {} }
+    },
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  const filter = mocks.sessions[0]?.webRequest.onBeforeRequest.mock.calls[0]?.[0]
+  if (!contents || !filter || !started) throw new Error('Missing browser guards')
+  const proxyRequest = started
+  const blockScript = () =>
+    filter({ url: 'https://cdn.example/app.js', resourceType: 'script', webContentsId: 1 }, vi.fn())
+  const blocked = async () => {
+    const state = await controller.state('one')
+    return 'blocked' in state ? state.blocked : undefined
+  }
+  blockScript()
+  proxyRequest()()
+  expect(await blocked()).toBe(2)
+
+  const pendingRefusal = proxyRequest()
+  contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+  expect(await blocked()).toBe(0)
+  blockScript()
+  const refusalWhileLoading = proxyRequest()
+  contents.emit('did-navigate')
+  pendingRefusal()
+  refusalWhileLoading()
+  expect(await blocked()).toBe(0)
+
+  blockScript()
+  contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true })
+  blockScript()
+  expect(await blocked()).toBe(2)
+
+  contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+  contents.emit('did-stop-loading')
+  blockScript()
+  expect(await blocked()).toBe(1)
+})
+
 test.each(['stop', 'restart'])(
   'a previously visited App’s %s clears the Task session while another App is selected',
   async (lifecycle) => {
@@ -588,6 +655,8 @@ test('a Task whose App is being switched reports Opening until the new page is r
   expect(await controller.state('one')).toEqual({
     url: 'http://localhost:3000/',
     text: 'Ready',
+    canGoBack: false,
+    canGoForward: false,
     size: 'desktop',
     blocked: 0,
   })
@@ -606,6 +675,8 @@ test('a Task whose App is being switched reports Opening until the new page is r
   expect(await controller.state('one')).toEqual({
     url: 'http://localhost:3000/',
     text: 'Ready',
+    canGoBack: false,
+    canGoForward: false,
     size: 'desktop',
     blocked: 0,
   })
@@ -998,12 +1069,13 @@ test('a size change whose reload never finishes reports an error instead of succ
   const contents = mocks.views[0]?.webContents
   if (!contents) throw new Error('Missing browser contents')
   contents.reload.mockImplementationOnce(() => {})
+  const pageListeners = contents.listenerCount('did-stop-loading')
   await transport.send('size', 'one', 'size', { value: 'mobile' })
   await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
   expect(transport.replies[1]?.error).toBe(
     'The page didn’t finish loading at its new size; take a snapshot to check it',
   )
-  expect(contents.listenerCount('did-stop-loading')).toBe(0)
+  expect(contents.listenerCount('did-stop-loading')).toBe(pageListeners)
   expect(await controller.state('one')).toMatchObject({ size: 'mobile' })
   await controller.present('one', { x: 0, y: 0, width: 390, height: 844 }, 1)
   expect(window.contentView.addChildView).toHaveBeenCalled()

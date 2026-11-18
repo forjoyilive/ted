@@ -22,6 +22,7 @@ export interface TaskApp {
   startedBy?: AppStarter
   removed?: boolean
   waitingFor?: string
+  waitingOn?: { displayId: string; app: string }
   simulator?: AppSimulator
   confirmOutsideSandbox?: true
   electron?: true
@@ -46,12 +47,33 @@ export interface BootedSimulator {
   device: string
   lastUsedAt: string
   recording: boolean
+  platform?: 'android'
+}
+
+export type DeviceWait =
+  | { kind: 'answer' }
+  | { kind: 'build'; displayId: string; app: string }
+  | { kind: 'device' }
+  | { kind: 'busy' }
+  | { kind: 'line' }
+
+export interface WaitingDevice {
+  taskId: string
+  displayId: string
+  title: string
+  repo: string
+  app: string
+  device: string
+  platform?: 'android'
+  place: number
+  waitingFor: DeviceWait
 }
 
 export interface SimulatorSlots {
   supported: boolean
   limit: number
   booted: BootedSimulator[]
+  waiting: WaitingDevice[]
 }
 
 export type DevicePlatform = 'ios' | 'android'
@@ -135,16 +157,13 @@ export function isLoopbackUrl(text: string): boolean {
   return host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host)
 }
 
-export const simulatorSlotLimits = { min: 1, max: 20 } as const
+export const deviceSlotLimits = { min: 1, max: 20 } as const
 
-export const emulatorSlotLimits = { min: 1, max: 16 } as const
-
-export function simulatorsLine(slots: SimulatorSlots): string | undefined {
-  if (!slots.supported || slots.booted.length === 0) return undefined
-  return `Simulators ${slots.booted.length} of ${slots.limit} booted`
-}
-
-export function emulatorsLine(slots: SimulatorSlots): string | undefined {
-  if (!slots.supported || slots.booted.length === 0) return undefined
-  return `Emulators ${slots.booted.length} of ${slots.limit} running`
+export function devicesLine(slots: SimulatorSlots): string | undefined {
+  if (!slots.supported) return undefined
+  const running = slots.booted.length
+  const waiting = slots.waiting.length
+  if (running === 0 && waiting === 0) return undefined
+  const line = `Simulators and emulators ${running} of ${slots.limit} running`
+  return waiting === 0 ? line : `${line} · ${waiting} waiting`
 }

@@ -22,6 +22,8 @@ import {
   checkInFlightNavigation,
   checkModalRace,
   checkOutsideRequests,
+  checkRefusedNames,
+  checkWorkerMedia,
   guestWorkerTraffic,
   startGuestWorker,
 } from './browser-probes.ts'
@@ -61,6 +63,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     TED_CLAUDE_BIN: stubClaude,
     TED_HIDDEN_WINDOW: '1',
     TED_IDLE_EXIT_MS: '30000',
+    TED_BROWSER_HOSTS: 'private.example=10.0.0.1',
   }
   const originDir = path.join(home, 'origin')
   const origin = await makeOriginRepo(originDir)
@@ -80,6 +83,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       `        run: "'${process.execPath}' '${stubApp}'"`,
       '        env:',
       '          STUB_APP_BROWSER: "1"',
+      '          STUB_APP_EDGE_MARKS: "1"',
     ].join('\n'),
   })
   let client = await daemonAsApp(home, env)
@@ -118,6 +122,21 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       throw error
     })
   const command = (request: BrowserRequest) => client.browserCommand(task.id, request)
+  const backButton = panel.getByRole('button', { name: 'Back', exact: true })
+  const forwardButton = panel.getByRole('button', { name: 'Forward', exact: true })
+  expect(await backButton.isDisabled()).toBe(true)
+  expect(await forwardButton.isDisabled()).toBe(true)
+  await command({ action: 'navigate', value: new URL('?second', running.url).href })
+  await expect.poll(() => backButton.isEnabled()).toBe(true)
+  expect(await forwardButton.isDisabled()).toBe(true)
+  await backButton.click()
+  await expect.poll(() => forwardButton.isEnabled()).toBe(true)
+  await expect.poll(() => backButton.isDisabled()).toBe(true)
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
+  await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
+    command({ action: 'reload' }),
+  )
+  await checkWorkerMedia(app, panel, new URL(running.url ?? '').href)
   const snapshot = await command({ action: 'snapshot' })
   expect(snapshot.text).toContain('Browser fixture')
   const field = snapshot.text?.match(/([^\s]+) input Name/)?.[1]
@@ -319,12 +338,6 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .poll(() => panel.getByRole('textbox', { name: 'App address' }).inputValue())
     .toBe(firstPage)
   expect((await command({ action: 'snapshot' })).text).toContain('Clicked')
-  await client.startApp(task.id, { name: 'Admin' })
-  const admin = await waitUntil(
-    async () =>
-      (await client.listApps(task.id)).find((a) => a.name === 'Admin' && a.state === 'running'),
-    'Admin App',
-  )
   const otherPage = new URL(otherApp.url ?? '').href
   await app.evaluate(async ({ webContents }, url) => {
     await webContents
@@ -337,7 +350,20 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await startGuestWorker(app, firstPage)
   await startGuestWorker(app, otherPage)
   const otherTraffic = await guestWorkerTraffic(otherPage)
-  await command({ action: 'open', app: { name: 'Admin' } })
+  await panel.getByRole('combobox', { name: 'Web App' }).click()
+  await window
+    .getByRole('listbox', { name: 'Web App' })
+    .getByRole('option', { name: 'Admin' })
+    .click()
+  await window
+    .getByRole('dialog', { name: 'Run Admin outside the sandbox?' })
+    .getByRole('button', { name: 'Run', exact: true })
+    .click()
+  const admin = await waitUntil(
+    async () =>
+      (await client.listApps(task.id)).find((a) => a.name === 'Admin' && a.state === 'running'),
+    'Admin App started from the Web App list',
+  )
   await expect.poll(async () => (await guestWorkerTraffic(firstPage)).connections).toBe(0)
   const stoppedTraffic = await guestWorkerTraffic(firstPage)
   await expect
@@ -366,30 +392,62 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .toBe('Preview size: Mobile · 390 × 844')
   await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
   const adminPage = new URL(admin.url ?? '').href
-  const screenshotSize = async () => {
+  await checkRefusedNames(app, panel, adminPage)
+  const screenshot = async () => {
     const shot = await command({ action: 'screenshot' })
     if (!shot.attachment) throw new Error('Screenshot missing')
-    const png = Buffer.from(
-      (await client.readBrowserCapture(task.id, shot.attachment.hash)).data,
-      'base64',
-    )
-    return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
+    const data = (await client.readBrowserCapture(task.id, shot.attachment.hash)).data
+    return app?.evaluate(({ nativeImage }, base64) => {
+      const image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'))
+      const { width, height } = image.getSize()
+      const bitmap = image.toBitmap()
+      // toBitmap's channel order depends on the platform; the fixture's corner colours read the same in RGBA and BGRA.
+      const channels = (x: number, y: number) =>
+        [0, 1, 2].map((c) => ((bitmap[(y * width + x) * 4 + c] ?? 0) > 127 ? 1 : 0)).join('')
+      return {
+        width,
+        height,
+        topRight: channels(width - 10, 10),
+        bottomRight: channels(width - 10, height - 10),
+        bottomLeft: channels(10, height - 10),
+      }
+    }, data)
   }
-  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
-  await panel.getByRole('button', { name: '← Task Lead' }).click()
+  const mobileShot = {
+    width: 390,
+    height: 844,
+    topRight: '010',
+    bottomRight: '101',
+    bottomLeft: '000',
+  }
+  expect(await screenshot()).toEqual(mobileShot)
+  const unscaledPage = new URL('?no-viewport', adminPage).href
+  await command({ action: 'navigate', value: unscaledPage })
   await expect
     .poll(() =>
-      app?.evaluate(({ BrowserWindow }, url) => {
-        const children = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []
-        return children.some(
-          (v) =>
-            'webContents' in v &&
-            (v.webContents as import('electron').WebContents).getURL() === url,
-        )
-      }, adminPage),
+      app?.evaluate(
+        async ({ webContents }, url) =>
+          webContents
+            .getAllWebContents()
+            .find((c) => c.getURL() === url)
+            ?.executeJavaScript('({ width: innerWidth, scale: visualViewport.scale < 1 })'),
+        unscaledPage,
+      ),
     )
-    .toBe(false)
-  expect(await screenshotSize()).toEqual({ width: 390, height: 844 })
+    .toEqual({ width: 980, scale: true })
+  expect(await screenshot()).toEqual(mobileShot)
+  await command({ action: 'navigate', value: adminPage })
+  const adminAttached = () =>
+    app?.evaluate(({ BrowserWindow }, url) => {
+      const children = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []
+      return children.some(
+        (v) =>
+          'webContents' in v && (v.webContents as import('electron').WebContents).getURL() === url,
+      )
+    }, adminPage)
+  await panel.getByRole('button', { name: '← Task Lead' }).click()
+  await expect.poll(adminAttached).toBe(false)
+  expect(await screenshot()).toEqual(mobileShot)
   await window.getByRole('tab', { name: 'Apps' }).click()
   await window.getByRole('button', { name: 'Preview Admin', exact: true }).click()
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
@@ -420,6 +478,10 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     await command({ action: 'click', ref })
   }
   await addTarget('touchend')
+  await expect.poll(adminAttached).toBe(true)
+  await expect
+    .poll(() => onAdmin('document.elementFromPoint(5, 5)?.textContent'))
+    .toBe('Tap target')
   await app.evaluate(({ webContents }, url) => {
     const page = webContents.getAllWebContents().find((c) => c.getURL() === url)
     // sendInputEvent skips Chromium's touch emulation; a mouse event sent this way never answers.
@@ -478,12 +540,17 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       return Math.max(...centers) - Math.min(...centers)
     })
   const widthField = panel.getByLabel('Custom width in pixels')
-  for (const width of [1440, 1280]) {
-    await window.setViewportSize({ width, height: 900 })
-    await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+  const sizeButtonFocused = () =>
+    sizeButton.evaluate((button) => button === document.activeElement).catch(() => false)
+  const openCustomWidth = async () => {
     await sizeButton.click()
     await window.getByRole('menuitemradio', { name: /^Custom width/ }).click()
     await widthField.waitFor()
+  }
+  for (const width of [1440, 1280]) {
+    await window.setViewportSize({ width, height: 900 })
+    await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+    await openCustomWidth()
     expect(await sizeButton.count()).toBe(0)
     await expect.poll(addressRowSpread).toBeLessThan(4)
     await widthField.fill('10')
@@ -494,7 +561,26 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     await addressRow.getByRole('button', { name: 'Cancel' }).click()
     await sizeButton.waitFor()
     expect(await widthField.count()).toBe(0)
+    await expect.poll(sizeButtonFocused).toBe(true)
   }
+  await openCustomWidth()
+  await widthField.press('Escape')
+  await expect.poll(sizeButtonFocused).toBe(true)
+  const previewSize = () => panel.locator('[data-preview-size]').getAttribute('data-preview-size')
+  await openCustomWidth()
+  await widthField.fill('1024')
+  await widthField.press('Enter')
+  await expect.poll(sizeButtonFocused).toBe(true)
+  await expect.poll(previewSize).toBe('1024')
+  await openCustomWidth()
+  await widthField.fill('1200')
+  await addressRow.getByRole('button', { name: 'Apply' }).click()
+  await expect.poll(sizeButtonFocused).toBe(true)
+  await expect.poll(previewSize).toBe('1200')
+  await sizeButton.click()
+  await window.getByRole('menuitemradio', { name: /^Desktop/ }).click()
+  await expect.poll(previewSize).toBe('desktop')
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   await window.setViewportSize({ width: 1100, height: 760 })
   await expect
     .poll(async () =>
@@ -524,20 +610,38 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     )
     .toBe(0)
   await window.evaluate(() => document.querySelector('#browser-test-dialog')?.remove())
-  await app.evaluate(({ webContents }, url) => {
-    webContents
-      .getAllWebContents()
-      .find((c) => c.getURL() === url)
-      ?.forcefullyCrashRenderer()
+  type CrashRecovery = typeof globalThis & { crashRecovery?: { busy: boolean; done: boolean } }
+  // The panel reopens a crashed page itself. Until its open command finishes,
+  // the daemon refuses any other browser command for the Task.
+  await panel.evaluate((region) => {
+    const recovery = { busy: false, done: false }
+    ;(globalThis as CrashRecovery).crashRecovery = recovery
+    new MutationObserver((_records, observer) => {
+      const text = region.querySelector('[role="status"]')?.textContent ?? ''
+      if (!text.includes('Ready')) recovery.busy = true
+      else if (recovery.busy) {
+        recovery.done = true
+        observer.disconnect()
+      }
+    }).observe(region, { childList: true, subtree: true, characterData: true })
+  })
+  const crashed = await app.evaluate(({ webContents }, url) => {
+    const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+    guest?.forcefullyCrashRenderer()
+    return guest?.id
   }, firstPage)
   await expect
     .poll(async () =>
       app?.evaluate(
-        ({ webContents }, url) => webContents.getAllWebContents().some((c) => c.getURL() === url),
-        firstPage,
+        ({ webContents }, { url, crashed }) =>
+          webContents.getAllWebContents().some((c) => c.getURL() === url && c.id !== crashed),
+        { url: firstPage, crashed },
       ),
     )
-    .toBe(false)
+    .toBe(true)
+  await expect
+    .poll(() => window.evaluate(() => (globalThis as CrashRecovery).crashRecovery?.done))
+    .toBe(true)
   await command({ action: 'reload' })
   expect((await command({ action: 'snapshot' })).text).toContain('Project')
   await checkInFlightNavigation(app, firstPage, command)

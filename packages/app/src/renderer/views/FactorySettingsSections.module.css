@@ -6,8 +6,6 @@
 }
 
 .workflowRow,
-.checkRow,
-.checkRowRepo,
 .agentRow {
   display: grid;
   align-items: center;
@@ -33,11 +31,6 @@
   overflow-x: auto;
 }
 
-.scrollTable .checkRow {
-  min-width: 720px;
-}
-
-.scrollTable .checkRowRepo,
 .scrollTable .agentRow {
   min-width: 820px;
 }
@@ -100,14 +93,6 @@
   }
 }
 
-.checkRow {
-  grid-template-columns: 112px minmax(0, 1fr) 56px 112px 98px;
-}
-
-.checkRowRepo {
-  grid-template-columns: 100px minmax(0, 1fr) 118px 56px 96px 98px;
-}
-
 .agentRow {
   grid-template-columns: 92px 104px minmax(0, 1fr) 112px 64px 118px;
   min-height: 54px;
@@ -116,11 +101,6 @@
 
 .agentRow:first-child {
   border-top: none;
-}
-
-.checkRow,
-.checkRowRepo {
-  border-top: 1px solid var(--border-subtle);
 }
 
 .headRow {
@@ -737,4 +717,228 @@
 
 .rowWarning {
   padding: 0 0 6px 12px;
+}
+
+.checkList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.listHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.listTitle {
+  margin: 0;
+  font-size: var(--text-13-5);
+  font-weight: var(--weight-semibold);
+}
+
+.listCaption {
+  color: var(--text-caption);
+  font-size: var(--text-12-5);
+}
+
+.checkItems {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.commandRow,
+.commandRowRepo,
+.instructionRow {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.commandRow {
+  grid-template-columns: 16px 140px minmax(0, 1fr) 56px 190px 140px;
+}
+
+.commandRowRepo {
+  grid-template-columns: 16px 120px minmax(0, 1fr) 110px 56px 190px 140px;
+}
+
+.instructionRow {
+  grid-template-columns: 16px 170px minmax(0, 1fr) 220px 140px;
+}
+
+.scrollTable .commandRow,
+.scrollTable .instructionRow {
+  min-width: 760px;
+}
+
+.scrollTable .commandRowRepo {
+  min-width: 860px;
+}
+
+.checkHead {
+  min-height: 34px;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.checkBlock,
+.checkOpen {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.checkOpen {
+  background: var(--surface-inset);
+}
+
+.checkDragging {
+  opacity: 0.4;
+}
+
+.grip {
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  line-height: 1;
+}
+
+.grip:hover,
+.grip:focus-visible {
+  outline: none;
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.checkName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: var(--weight-medium);
+}
+
+.truncated {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fixTag,
+.stageChip {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+  white-space: nowrap;
+}
+
+.checkEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 40px 20px;
+}
+
+.editorFields {
+  display: grid;
+  align-items: end;
+  gap: 16px;
+}
+
+.commandFields {
+  grid-template-columns: 180px minmax(0, 1fr) 90px;
+}
+
+.commandFieldsRepo {
+  grid-template-columns: 160px minmax(0, 1fr) 140px 90px;
+}
+
+.instructionTop {
+  grid-template-columns: 240px 90px;
+}
+
+.agentFields {
+  grid-template-columns: repeat(3, minmax(0, 180px));
+}
+
+.editorField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.editorLabel {
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.instructionText {
+  min-height: 110px;
+}
+
+.fixLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-13);
+}
+
+.fixCaption {
+  color: var(--text-caption);
+}
+
+.editorFoot {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 2px;
+}
+
+.emptyList {
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-caption);
+  font-size: var(--text-13);
+}
+
+.pickerText {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+
+.taskPicker {
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+
+.taskOption {
+  display: grid;
+  grid-template-columns: 16px 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+
+.taskOption:first-of-type {
+  border-top: none;
 }

@@ -791,6 +791,15 @@ export const checkResults = State.SQLite.table({
     state: State.SQLite.text(),
     exitCode: State.SQLite.integer({ nullable: true }),
     durationMs: State.SQLite.integer({ nullable: true }),
+    instruction: State.SQLite.text({ nullable: true }),
+    fix: State.SQLite.boolean({ nullable: true }),
+    agent: State.SQLite.text({ nullable: true }),
+    model: State.SQLite.text({ nullable: true }),
+    effort: State.SQLite.text({ nullable: true }),
+    notRerun: State.SQLite.boolean({ nullable: true }),
+    noReport: State.SQLite.text({ nullable: true }),
+    noReportMs: State.SQLite.integer({ nullable: true }),
+    changeKey: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -965,6 +974,9 @@ export const heldRuns = State.SQLite.table({
     agent: State.SQLite.text(),
     sessionId: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
+    pickUp: State.SQLite.text({ nullable: true }),
+    carriedRunId: State.SQLite.text({ nullable: true }),
+    carriedMessageIds: State.SQLite.json({ schema: Schema.Array(Schema.String), nullable: true }),
   },
 })
 
@@ -2790,6 +2802,77 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  checksStartedWithInstructions: Events.synced({
+    name: 'v2.ChecksStarted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      checks: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+          command: Schema.NullOr(Schema.String),
+          timeout: Schema.String,
+          builtIn: Schema.NullOr(Schema.String),
+          state: Schema.String,
+          instruction: Schema.NullOr(Schema.String),
+          fix: Schema.NullOr(Schema.Boolean),
+          agent: Schema.NullOr(Schema.String),
+          model: Schema.NullOr(Schema.String),
+          effort: Schema.NullOr(Schema.String),
+          notRerun: Schema.NullOr(Schema.Boolean),
+        }),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  checksReplanned: Events.synced({
+    name: 'v1.ChecksReplanned',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      from: Schema.Number,
+      checks: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+          command: Schema.NullOr(Schema.String),
+          timeout: Schema.String,
+          builtIn: Schema.NullOr(Schema.String),
+          state: Schema.String,
+          instruction: Schema.NullOr(Schema.String),
+          fix: Schema.NullOr(Schema.Boolean),
+          agent: Schema.NullOr(Schema.String),
+          model: Schema.NullOr(Schema.String),
+          effort: Schema.NullOr(Schema.String),
+          notRerun: Schema.NullOr(Schema.Boolean),
+        }),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  checkChangeKeyRecorded: Events.synced({
+    name: 'v1.CheckChangeKeyRecorded',
+    schema: Schema.Struct({
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      key: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkReportMissing: Events.synced({
+    name: 'v1.CheckReportMissing',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      reason: Schema.String,
+      durationMs: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
   checkSlotEntered: Events.synced({
     name: 'v1.CheckSlotEntered',
     schema: Schema.Struct({
@@ -3214,6 +3297,19 @@ export const events = {
       taskId: Schema.String,
       agent: Schema.String,
       sessionId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskRunHeldV2: Events.synced({
+    name: 'v2.TaskRunHeld',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      agent: Schema.String,
+      sessionId: Schema.NullOr(Schema.String),
+      pickUp: Schema.NullOr(Schema.String),
+      carried: Schema.NullOr(
+        Schema.Struct({ runId: Schema.String, messageIds: Schema.Array(Schema.String) }),
+      ),
       at: Schema.String,
     }),
   }),
@@ -4487,6 +4583,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       teardownOutcome: args.teardownOutcome,
     }),
   'v1.TaskRunHeld': (args) => task(args, { agent: args.agent }),
+  'v2.TaskRunHeld': (args) => task(args, { agent: args.agent }),
   'v1.AppStarted': (args) =>
     task(args, {
       repo: args.repo,
@@ -5369,6 +5466,38 @@ const materializers = counted(
           }),
         ),
       ],
+      'v2.ChecksStarted': ({ checks, at, ...run }) => [
+        checkRuns.insert({ ...run, startedAt: at }),
+        ...checks.map(({ command, ...check }, position) =>
+          checkResults.insert({
+            ...check,
+            command: command ?? '',
+            id: `${run.id}:${position}`,
+            checkRunId: run.id,
+            position,
+          }),
+        ),
+      ],
+      'v1.ChecksReplanned': ({ checkRunId, from, checks }) => [
+        checkResults.delete().where({ checkRunId, position: { op: '>=', value: from } }),
+        ...checks.map(({ command, ...check }, index) =>
+          checkResults.insert({
+            ...check,
+            command: command ?? '',
+            id: `${checkRunId}:${from + index}`,
+            checkRunId,
+            position: from + index,
+          }),
+        ),
+      ],
+      'v1.CheckChangeKeyRecorded': ({ checkRunId, position, key }) =>
+        checkResults.update({ changeKey: key }).where({ id: `${checkRunId}:${position}` }),
+      'v1.CheckReportMissing': ({ checkRunId, position, reason, durationMs }) => [
+        checkResults
+          .update({ noReport: reason, noReportMs: durationMs })
+          .where({ id: `${checkRunId}:${position}` }),
+        checkBoundaries.delete().where({ id: `${checkRunId}:start:${position}` }),
+      ],
       'v1.CheckSlotEntered': ({ checkRunId, at }) =>
         checkBoundaries.insert({
           id: `${checkRunId}:entered`,
@@ -5911,6 +6040,14 @@ const materializers = counted(
         agentPauses.insert({ agent, reason, since: at }).onConflict('agent', 'replace'),
       'v1.AgentResumed': ({ agent }) => agentPauses.delete().where({ agent }),
       'v1.TaskRunHeld': (held) => heldRuns.insert(held).onConflict('taskId', 'replace'),
+      'v2.TaskRunHeld': ({ carried, ...held }) =>
+        heldRuns
+          .insert({
+            ...held,
+            carriedRunId: carried?.runId ?? null,
+            carriedMessageIds: carried?.messageIds ?? null,
+          })
+          .onConflict('taskId', 'replace'),
       'v1.TaskRunReleased': ({ taskId }) => heldRuns.delete().where({ taskId }),
       'v1.CommentsDelivered': ({ ids, runId, at }) =>
         ids.map((id) => comments.update({ deliveredRunId: runId, deliveredAt: at }).where({ id })),

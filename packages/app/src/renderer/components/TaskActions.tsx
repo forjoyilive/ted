@@ -1,4 +1,4 @@
-import type { RunSummary, Task } from '@ted/protocol'
+import type { AutopilotChoice, RunSummary, Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
 import { type MoveRefusal, moveRefusal } from '@ted/protocol/task-move'
@@ -138,9 +138,13 @@ function Submenu({ label, hint, children }: { label: string; hint: string; child
 function settingsHint(task: Task): string {
   const priority = priorityLabels[task.priority]
   if (task.stage === 'done') return priority
-  const lead = `${priority} · ${task.lead ? agentLabels[task.lead.agent] : 'Default'}`
-  const autopilot = task.archived ? 'inherit' : (task.autopilot?.choice ?? 'inherit')
-  return autopilot === 'inherit' ? lead : `${lead} · ${autopilotChoiceLabel(autopilot, false)}`
+  return `${priority} · ${task.lead ? agentLabels[task.lead.agent] : 'Default'}`
+}
+
+function autopilotHint(choice: AutopilotChoice, globalOn: boolean): string {
+  if (choice === 'on') return 'On'
+  if (choice === 'off') return 'Off'
+  return `Global (${globalOn ? 'On' : 'Off'})`
 }
 
 function Choice({
@@ -713,23 +717,24 @@ export function TaskActionsMenu({
                     />
                   ))
                 )}
-                {!task.archived && (
-                  <>
-                    <hr className={styles.separator} />
-                    <div className={styles.group}>Autopilot</div>
-                    {autopilotChoices.map((choice) => (
-                      <Choice
-                        key={choice}
-                        label={autopilotChoiceLabel(choice, autopilotOn)}
-                        checked={(task.autopilot?.choice ?? 'inherit') === choice}
-                        onChoose={() => act(() => ted.setTaskAutopilot(task.id, { choice }))}
-                      />
-                    ))}
-                  </>
-                )}
               </>
             )}
           </Submenu>
+          {task.stage !== 'done' && !task.archived && (
+            <Submenu
+              label="Autopilot"
+              hint={autopilotHint(task.autopilot?.choice ?? 'inherit', autopilotOn)}
+            >
+              {autopilotChoices.map((choice) => (
+                <Choice
+                  key={choice}
+                  label={autopilotChoiceLabel(choice, autopilotOn)}
+                  checked={(task.autopilot?.choice ?? 'inherit') === choice}
+                  onChoose={() => act(() => ted.setTaskAutopilot(task.id, { choice }))}
+                />
+              ))}
+            </Submenu>
+          )}
           {task.stage !== 'done' && (
             <ActionButton
               type="button"

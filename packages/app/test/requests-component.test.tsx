@@ -231,6 +231,25 @@ test('questions that take only their buttons offer no Other answer and send no t
     choice: 'Try again',
     text: 'Try once more',
   })
+  cleanup()
+
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        title: 'An instruction check didn’t report: Docs drift',
+        choices: ['Try again', 'Count it as failed'],
+        purpose: { kind: 'check-report' },
+      })}
+    />,
+  )
+  expect(screen.queryByRole('radio', { name: 'Other answer' })).toBeNull()
+  await u.click(screen.getByRole('radio', { name: 'Count it as failed' }))
+  await u.click(screen.getByRole('button', { name: 'Send' }))
+  expect(answer).toHaveBeenLastCalledWith('c1', {
+    action: 'answer',
+    choice: 'Count it as failed',
+  })
 })
 
 test('Automation question choices and written answers wait for Send', async () => {

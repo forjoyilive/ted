@@ -48,8 +48,7 @@ export interface SidebarFooter {
   failed?: string
   paused?: string
   overnight?: string
-  simulators?: string
-  emulators?: string
+  devices?: string
   update?: { label: string; busy: boolean }
 }
 
@@ -65,6 +64,8 @@ interface SidebarProps {
   footer?: SidebarFooter
   runsOpen?: boolean
   onOpenRuns?: () => void
+  devicesOpen?: boolean
+  onOpenDevices?: () => void
   onOpenFailed?: () => void
   usage?: ReactNode
   guide?: ReactNode
@@ -267,6 +268,8 @@ export function Sidebar({
   footer = {},
   runsOpen = false,
   onOpenRuns,
+  devicesOpen = false,
+  onOpenDevices,
   onOpenFailed,
   usage,
   guide,
@@ -734,11 +737,14 @@ export function Sidebar({
             <PlusIcon />
           </ActionButton>
         </div>
-        {entries.map((entry) =>
-          entry.kind === 'factory'
-            ? renderFactory(entry.factory)
-            : renderGroup(entry.group, entry.factories),
-        )}
+        <div className={styles.factoryList}>
+          {entries.map((entry) =>
+            entry.kind === 'factory'
+              ? renderFactory(entry.factory)
+              : renderGroup(entry.group, entry.factories),
+          )}
+          <div className={styles.spacer} {...dropZone(() => ({ end: true }))} />
+        </div>
         {orderError !== undefined && (
           <p className={styles.orderError} role="alert">
             {orderError}
@@ -820,7 +826,6 @@ export function Sidebar({
             }}
           />
         )}
-        <div className={styles.spacer} {...dropZone(() => ({ end: true }))} />
         {guide}
 
         <ActionButton
@@ -863,12 +868,20 @@ export function Sidebar({
               ))}
             {footer.paused !== undefined && <p className={styles.runs}>{footer.paused}</p>}
             {footer.overnight !== undefined && <p className={styles.runs}>{footer.overnight}</p>}
-            {footer.simulators !== undefined && (
-              <p className={styles.simulators}>{footer.simulators}</p>
-            )}
-            {footer.emulators !== undefined && (
-              <p className={styles.simulators}>{footer.emulators}</p>
-            )}
+            {footer.devices !== undefined &&
+              (onOpenDevices ? (
+                <ActionButton
+                  type="button"
+                  className={styles.runsButton}
+                  aria-haspopup="dialog"
+                  aria-expanded={devicesOpen}
+                  onClick={onOpenDevices}
+                >
+                  {footer.devices}
+                </ActionButton>
+              ) : (
+                <p className={styles.simulators}>{footer.devices}</p>
+              ))}
             {footer.update !== undefined && (
               <ActionButton
                 type="button"

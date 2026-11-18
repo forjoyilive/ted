@@ -46,12 +46,37 @@ export interface AgentChoice {
   effort?: string
 }
 
-export interface CheckSettings {
+export interface CommandCheckSettings {
   name: string
   run: string
   repo?: string
   timeout?: string
+  instruction?: never
+  fix?: never
+  agent?: never
+  model?: never
+  effort?: never
 }
+
+export interface InstructionCheckSettings {
+  name: string
+  instruction: string
+  fix?: boolean
+  timeout?: string
+  agent?: string
+  model?: string
+  effort?: string
+  run?: never
+  repo?: never
+}
+
+export type CheckSettings = CommandCheckSettings | InstructionCheckSettings
+
+export function isInstructionCheck(check: CheckSettings): check is InstructionCheckSettings {
+  return check.instruction !== undefined
+}
+
+export const reviewerAgents = ['codex', 'claude', 'antigravity', 'same'] as const
 
 export interface CleanupInstructionStep {
   name: string
@@ -380,10 +405,8 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
   return settings
 
   function agentChoice(name: 'lead' | 'reviewer' | 'planner', value: Node | null) {
-    const agents =
-      name === 'reviewer'
-        ? ['codex', 'claude', 'antigravity', 'same']
-        : ['claude', 'codex', 'antigravity']
+    const agents: string[] =
+      name === 'reviewer' ? [...reviewerAgents] : ['claude', 'codex', 'antigravity']
     const agentMessage = (path: string) =>
       `\`${path}\` must be ${agents.slice(0, -1).join(', ')} or ${agents.at(-1)}`
     if (isScalar(value)) {
@@ -665,25 +688,111 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     const checks: CheckSettings[] = []
     for (const item of value.items as (Node | null)[]) {
       if (!isMap(item)) {
-        error(item, 'each check must be a map with a `name` and a `run` command')
+        error(
+          item,
+          'each check must be a map with a `name` and a `run` command or an `instruction`',
+        )
         continue
       }
-      const check: Partial<CheckSettings> = {}
-      for (const entry of entries(item)) {
-        if (entry.name === 'name' || entry.name === 'run' || entry.name === 'repo') {
-          if (!isText(entry.value)) error(entry.value, `a check’s \`${entry.name}\` must be text`)
-          else check[entry.name] = scalar(entry.value) as string
-        } else if (entry.name === 'timeout') {
-          if (!durationValue(entry.value)) error(entry.value, durationMessage)
-          else check.timeout = scalar(entry.value) as string
-        } else warn(entry.key, `unknown key \`${entry.name}\` in a check`)
-      }
-      if (check.name === undefined) error(item, 'each check needs a `name`')
-      else if (check.run === undefined) error(item, 'each check needs a `run` command')
-      else checks.push(check as CheckSettings)
-      checkNodes.set(check as CheckSettings, item)
+      const check = checkOne(item)
+      if (!check) continue
+      checks.push(check)
+      checkNodes.set(check, item)
     }
     return checks
+  }
+
+  function checkOne(item: YAMLMap): CheckSettings | undefined {
+    const text = new Map<'name' | 'run' | 'repo' | 'instruction', string>()
+    const choice: AgentChoice = {}
+    let timeout: string | undefined
+    let fix: boolean | undefined
+    let bad = false
+    const keyOf = (name: string) => entries(item).find((entry) => entry.name === name)?.key ?? item
+    for (const entry of entries(item)) {
+      switch (entry.name) {
+        case 'name':
+        case 'run':
+        case 'repo':
+        case 'instruction':
+          if (!isText(entry.value)) {
+            error(entry.value, `a check’s \`${entry.name}\` must be text`)
+            bad = true
+          } else text.set(entry.name, String(scalar(entry.value)))
+          break
+        case 'timeout':
+          if (!durationValue(entry.value)) {
+            error(entry.value, durationMessage)
+            bad = true
+          } else timeout = String(scalar(entry.value))
+          break
+        case 'fix':
+          if (scalar(entry.value) !== true && scalar(entry.value) !== false) {
+            error(entry.value, 'a check’s `fix` must be true or false')
+            bad = true
+          } else fix = scalar(entry.value) === true
+          break
+        case 'agent':
+          if (!oneOf(entry.value, [...reviewerAgents])) {
+            error(
+              entry.value,
+              `a check’s \`agent\` must be ${reviewerAgents.slice(0, -1).join(', ')} or ${reviewerAgents.at(-1)}`,
+            )
+            bad = true
+          } else choice.agent = String(scalar(entry.value))
+          break
+        case 'model':
+          if (!isText(entry.value) || !isModelName(scalar(entry.value))) {
+            error(entry.value, 'a check’s `model` must be a model name')
+            bad = true
+          } else choice.model = String(scalar(entry.value))
+          break
+        case 'effort':
+          if (!oneOf(entry.value, efforts)) {
+            error(entry.value, `a check’s \`effort\` must be one of ${efforts.join(', ')}`)
+            bad = true
+          } else choice.effort = String(scalar(entry.value))
+          break
+        default:
+          warn(entry.key, `unknown key \`${entry.name}\` in a check`)
+      }
+    }
+    if (bad) return undefined
+    const name = text.get('name')
+    const run = text.get('run')
+    const repo = text.get('repo')
+    const instruction = text.get('instruction')
+    if (name === undefined) return void error(item, 'each check needs a `name`')
+    if (run !== undefined && instruction !== undefined)
+      return void error(item, 'a check has a `run` command or an `instruction`, not both')
+    if (instruction !== undefined) {
+      if (instruction.trim() === '') return void error(item, 'a check’s `instruction` is empty')
+      if (repo !== undefined)
+        return void error(
+          keyOf('repo'),
+          'an instruction check runs across all the Task’s repos, so it takes no `repo`',
+        )
+      return {
+        name,
+        instruction,
+        ...(fix !== undefined && { fix }),
+        ...(timeout !== undefined && { timeout }),
+        ...choice,
+      }
+    }
+    if (run === undefined)
+      return void error(item, 'each check needs a `run` command or an `instruction`')
+    if (fix !== undefined) return void error(keyOf('fix'), 'only an instruction check takes `fix`')
+    for (const key of ['agent', 'model', 'effort'] as const) {
+      if (choice[key] !== undefined)
+        return void error(keyOf(key), `only an instruction check takes \`${key}\``)
+    }
+    return {
+      name,
+      run,
+      ...(repo !== undefined && { repo }),
+      ...(timeout !== undefined && { timeout }),
+    }
   }
 
   function checkRepos(value: Node | null): RepoSettings[] | undefined {

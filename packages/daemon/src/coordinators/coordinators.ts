@@ -347,6 +347,7 @@ export function coordinatorNeverAnswers(comment: Comment): boolean {
       comment.asanaUnfinished ||
       comment.cleanupFailure ||
       comment.memoryKill ||
+      comment.purpose?.kind === 'check-report' ||
       comment.move,
   )
 }

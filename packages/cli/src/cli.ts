@@ -694,16 +694,19 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         ...wanted,
         ...(options.reason !== undefined && { reason: options.reason }),
       })
-      if (app.state === 'waiting') {
-        const android = app.kind === 'android-emulator'
-        console.error(
-          owner.what === 'this Run'
-            ? `Every ${android ? 'emulator' : 'simulator'} slot is taken. Waiting for one to free up…`
-            : android
-              ? 'Every emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…'
-              : 'Every simulator is booted, so Ted asked the human which one to shut down. Waiting for an answer…',
-        )
+      let said: string | undefined
+      const sayWhy = () => {
+        if (app.state !== 'waiting') return
+        const why =
+          app.waitingOn !== undefined
+            ? `Waiting for ${printable(app.waitingOn.displayId)}’s ${printable(app.waitingOn.app)} to finish building…`
+            : owner.what === 'this Run'
+              ? `Waiting for ${app.kind === 'android-emulator' ? 'an emulator' : 'a simulator'} slot to free up…`
+              : 'Every simulator and emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…'
+        if (why !== said) console.error(why)
+        said = why
       }
+      sayWhy()
       while (app.state === 'starting' || app.state === 'waiting') {
         await sleep(500)
         const current = app
@@ -716,6 +719,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           )
         }
         app = found
+        sayWhy()
       }
       const log =
         app.state === 'running'
@@ -1886,18 +1890,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
         throw new UsageError('Run demo seeding from a local terminal, outside a Run.')
       const started = Date.now()
-      const { demoHome, demoEnvironment, seedDemoFromCli } = await import('@ted/daemon/demo')
+      const { demoHome, seedDemoFromCli } = await import('@ted/daemon/demo')
       const demo = runtime.home ?? demoHome(env)
-      const prepared = demoEnvironment(demo, env)
-      const original = { ...process.env }
-      try {
-        for (const key of Object.keys(process.env)) delete process.env[key]
-        Object.assign(process.env, prepared)
-        await seedDemoFromCli(demo, options.reset)
-      } finally {
-        for (const key of Object.keys(process.env)) delete process.env[key]
-        Object.assign(process.env, original)
-      }
+      await seedDemoFromCli(demo, options.reset)
       console.log(`Demo ready in ${demo} (${Date.now() - started} ms)`)
     },
     showMemory: async () => {

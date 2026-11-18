@@ -7,7 +7,7 @@ import type {
   ListFilters,
   Task,
 } from '@ted/protocol'
-import { emulatorsLine, simulatorsLine } from '@ted/protocol/app'
+import { devicesLine } from '@ted/protocol/app'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { agentKinds } from '@ted/protocol/run'
@@ -41,8 +41,10 @@ import {
   taskCommands,
 } from './commands.ts'
 import { openMovedTaskEvent } from './components/ArchiveDialogs.tsx'
+import { startsAutomatically } from './components/BacklogStarts.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { buttonPosition } from './components/ContextMenu.tsx'
+import { DevicesPopover } from './components/DevicesPopover.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FactoryColorsProvider } from './components/FactoryIcon.tsx'
 import { FindBar } from './components/FindBar.tsx'
@@ -266,10 +268,12 @@ export function App({ start }: { start?: AppStart | undefined }) {
   const slots = useSlots()
   const drift = useDrift()
   const simulators = useSimulators()
-  const simulatorsFooter = simulators && simulatorsLine(simulators)
   const emulators = useEmulators()
-  const emulatorsFooter = emulators && emulatorsLine(emulators)
+  const deviceSlots = simulators?.supported === true ? simulators : emulators
+  const devicesFooter = deviceSlots && devicesLine(deviceSlots)
   const [runsOpen, setRunsOpen] = useState(false)
+  const [devicesOpen, setDevicesOpen] = useState(false)
+  const closeDevices = useCallback(() => setDevicesOpen(false), [])
   const [usageOpen, setUsageOpen] = useState(false)
   const closeUsage = useCallback(() => setUsageOpen(false), [])
   useEffect(() => {
@@ -963,6 +967,17 @@ export function App({ start }: { start?: AppStart | undefined }) {
             onOpen={openTask}
             onOpenTask={openTaskByRef}
             onNewTask={() => openNewTask()}
+            onOpenBacklogStarts={() =>
+              openSetting(
+                {
+                  id: 'app.general.backlog-starts',
+                  name: 'Backlog starts',
+                  where: '',
+                  target: { kind: 'app', section: 'general' },
+                },
+                dispatch,
+              )
+            }
           />
         )
       case 'factory': {
@@ -1224,6 +1239,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
           {...(newTaskOpen.parentId !== undefined && { parentId: newTaskOpen.parentId })}
           onClose={() => setNewTaskOpen(undefined)}
           onOpenTask={openTask}
+          {...(settings && {
+            startsAutomatically: startsAutomatically(settings.backlogStarts, factoryLayout),
+          })}
         />
       )}
       <RestartStoppedDialog />
@@ -1339,8 +1357,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
           settingsProblem={settingsStopsWork(banners)}
           footer={{
             ...(slots !== undefined && { runs: runsLine(slots) }),
-            ...(simulatorsFooter !== undefined && { simulators: simulatorsFooter }),
-            ...(emulatorsFooter !== undefined && { emulators: emulatorsFooter }),
+            ...(devicesFooter !== undefined && { devices: devicesFooter }),
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
             ...(settings?.overnightMode && { overnight: 'Autopilot is on' }),
@@ -1360,7 +1377,14 @@ export function App({ start }: { start?: AppStart | undefined }) {
           runsOpen={runsOpen}
           onOpenRuns={() => {
             setUsageOpen(false)
+            setDevicesOpen(false)
             setRunsOpen((open) => !open)
+          }}
+          devicesOpen={devicesOpen}
+          onOpenDevices={() => {
+            setUsageOpen(false)
+            setRunsOpen(false)
+            setDevicesOpen((open) => !open)
           }}
           guide={guide}
           usage={
@@ -1377,6 +1401,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
               open={usageOpen}
               onToggle={() => {
                 setRunsOpen(false)
+                setDevicesOpen(false)
                 setUsageOpen((open) => !open)
               }}
               onClose={closeUsage}
@@ -1392,6 +1417,23 @@ export function App({ start }: { start?: AppStart | undefined }) {
           onAddFactory={() => setAddFactoryOpen(true)}
           onRemoveFactory={setRemoving}
         />
+        {devicesOpen && deviceSlots && devicesFooter !== undefined && (
+          <DevicesPopover
+            slots={deviceSlots}
+            onClose={closeDevices}
+            onOpenTask={(taskId) => {
+              const found = tasks.find((t) => t.id === taskId)
+              if (found) openTask(found)
+            }}
+            onShow={async (device) => {
+              await ted.showApp(device.taskId, { repo: device.repo, name: device.app })
+            }}
+            onStop={async (device) => {
+              await ted.stopApp(device.taskId, { repo: device.repo, name: device.app })
+            }}
+            onOpenLimits={() => dispatch({ type: 'open-settings', section: 'limits' })}
+          />
+        )}
         {runsOpen && slots && (
           <WorkingRunsPopover
             slots={slots}

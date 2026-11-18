@@ -5,6 +5,8 @@ import {
   type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
+  type MachineSettings,
+  noBacklogStarts,
   readDaemonInfo,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -73,6 +75,23 @@ describe('machine settings in the store', () => {
     }
   })
 
+  test.each([
+    ['nothing stored', {}, 2],
+    ['both old limits', { maxBootedSimulators: 4, maxRunningEmulators: 3 }, 7],
+    ['only the simulator limit', { maxBootedSimulators: 1 }, 3],
+    ['old limits over the new maximum', { maxBootedSimulators: 20, maxRunningEmulators: 16 }, 20],
+  ])('the simulator and emulator limit starts from %s', async (_, old, expected) => {
+    const store = await openStore({ directory: dir })
+    try {
+      store.updateSettings(old as Partial<MachineSettings>)
+      expect(store.settings().maxRunningDevices).toBe(expected)
+      store.updateSettings({ maxRunningDevices: 5 })
+      expect(store.settings().maxRunningDevices).toBe(5)
+    } finally {
+      await store.close()
+    }
+  })
+
   test('a change to the current value emits nothing', async () => {
     const store = await openStore({ directory: dir })
     try {
@@ -127,13 +146,36 @@ describe('machine settings in the store', () => {
             repo: 'kriya/notebook',
             defaultBranch: 'main',
             repos: [{ repo: 'kriya/notebook', name: 'notebook' }],
-            autoStartBacklog: false,
             cloned: true,
             position: 0,
             createdAt: factory.createdAt,
           },
         },
       ])
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('until automatic Backlog starts are saved, they follow each Factory’s old switch', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const factory = store.addFactory({
+        key: 'NB',
+        name: 'notebook',
+        repo: 'kriya/notebook',
+        cloneUrl: 'https://example.invalid/notebook.git',
+        defaultBranch: 'main',
+      })
+      expect(store.settings().backlogStarts).toEqual(noBacklogStarts)
+      store.setFactoryAutoStartBacklog(factory.id, true)
+      expect(store.settings().backlogStarts).toEqual({
+        ...noBacklogStarts,
+        enabled: true,
+        factoryIds: [factory.id],
+      })
+      store.updateSettings({ backlogStarts: { ...noBacklogStarts } })
+      expect(store.settings().backlogStarts).toEqual(noBacklogStarts)
     } finally {
       await store.close()
     }
@@ -264,11 +306,13 @@ describe('settings and Factories over the daemon API', () => {
     ['onboarding on next open that is not true or false', { onboardingOnNextOpen: 1 }],
     ['reporting that is not true or false', { reporting: 'on' }],
     ['reporting asked that is not true or false', { reportingAsked: 1 }],
-    ['no simulator slots', { maxBootedSimulators: 0 }],
+    ['no simulator or emulator slots', { maxRunningDevices: 0 }],
     ['no Checks at once', { maxChecksAtOnce: 0 }],
     ['more Checks at once than the limit', { maxChecksAtOnce: 17 }],
-    ['more simulator slots than the limit', { maxBootedSimulators: 21 }],
-    ['more emulator slots than the limit', { maxRunningEmulators: 17 }],
+    ['more simulator and emulator slots than the limit', { maxRunningDevices: 21 }],
+    ['simulator and emulator slots that aren’t a number', { maxRunningDevices: '2' }],
+    ['the old simulator limit', { maxBootedSimulators: 2 }],
+    ['one build at a time that is not true or false', { buildDeviceAppsOneAtATime: 'yes' }],
     ['Run output kept for no days', { runOutputDays: 0 }],
     ['Run output kept for more than a year', { runOutputDays: 366 }],
     ['Run output kept for part of a day', { runOutputDays: 1.5 }],

@@ -862,7 +862,7 @@ export const commands = [
     handler: 'checks',
     min: 0,
     max: 0,
-    help: '  ted checks [--name <Check>]                Run the Factory’s checks now, one after another,\n                                             stopping at the first failure',
+    help: '  ted checks [--name <Check>]                Run the Factory’s checks now, one after another,\n                                             stopping at the first failure (not in Work)',
     callers: 'Task Run',
     options: options('task', 'name'),
   },

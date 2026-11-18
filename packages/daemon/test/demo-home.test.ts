@@ -3,7 +3,14 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { prepareDemo } from '../src/dev/demo.ts'
-import { checkDemoHome, demoEnvironment, demoHome, demoVersion, markDemo } from '../src/dev/home.ts'
+import {
+  checkDemoHome,
+  demoEnvironment,
+  demoHome,
+  demoVersion,
+  markDemo,
+  withDemoEnvironment,
+} from '../src/dev/home.ts'
 
 let folder: string
 beforeEach(async () => {
@@ -108,4 +115,35 @@ test('reset still refuses a live daemon', async () => {
   )
   await expect(prepareDemo(folder, true)).rejects.toThrow('Quit the demo app')
   expect(await readdir(folder)).toContain('daemon.json')
+})
+
+test('withDemoEnvironment uses the demo stubs and then restores the caller’s environment', async () => {
+  const before = { ...process.env }
+  process.env.TED_CODEX_BIN = '/usr/local/bin/codex'
+  process.env.TED_CLAUDE_BIN = '/usr/local/bin/claude'
+  delete process.env.TED_KEYRING_MODULE
+  process.env.CODEX_HOME = path.join(homedir(), '.codex')
+  try {
+    const inside = await withDemoEnvironment(folder, async () => ({ ...process.env }))
+    expect(inside).toMatchObject({
+      TED_HOME: folder,
+      TED_DEMO: '1',
+      TED_CODEX_BIN: path.join(folder, 'bin', 'stub-codex.mjs'),
+      TED_CLAUDE_BIN: path.join(folder, 'bin', 'stub-claude.mjs'),
+      TED_GH_BIN: path.join(folder, 'bin', 'stub-gh.mjs'),
+    })
+    expect(inside.TED_KEYRING_MODULE).toContain('stub-keyring')
+    expect(inside.CODEX_HOME).toBeUndefined()
+    expect(process.env.TED_CODEX_BIN).toBe('/usr/local/bin/codex')
+    await expect(
+      withDemoEnvironment(folder, async () => {
+        throw new Error('seed failed')
+      }),
+    ).rejects.toThrow('seed failed')
+    expect(process.env.TED_CLAUDE_BIN).toBe('/usr/local/bin/claude')
+    expect(process.env.TED_HOME).toBe(before.TED_HOME)
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key]
+    Object.assign(process.env, before)
+  }
 })

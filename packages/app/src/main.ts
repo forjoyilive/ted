@@ -88,7 +88,7 @@ import {
   windowTitle,
 } from './background.ts'
 import { createTaskBrowsers } from './browser.ts'
-import { guestProxyRules } from './browser-proxy.ts'
+import { fixedHosts, guestProxyRules } from './browser-proxy.ts'
 import type { CustomHandlers, CustomRequests } from './custom-requests.ts'
 import { getAutomation, taskBrief } from './daemon-adapters.ts'
 import { forwardDaemonRequest, isForwardedRequest } from './daemon-requests.ts'
@@ -424,6 +424,7 @@ ignoreBrokenPipes([process.stdout, process.stderr], (error) => {
 let settings: MachineSettings = defaultMachineSettings
 const testSentryDsn = app.isPackaged ? undefined : tedEnv('TED_SENTRY_DSN')
 const forcedErrors = tedEnv('TED_FORCE_ERROR')?.split(',') ?? []
+const browserHosts = tedEnv('TED_BROWSER_HOSTS')
 
 function crashReports(part: 'main' | 'renderer'): ReportCrash {
   return crashReporter({
@@ -1224,7 +1225,7 @@ async function start(): Promise<void> {
     },
     { session, WebContentsView },
     {},
-    guestProxyRules(app),
+    guestProxyRules(app, net, browserHosts ? { lookup: fixedHosts(browserHosts) } : {}),
   )
   servePrototypes((file) => supervised.client.readAttachment(file))
   traceStartup('initial-state-start')

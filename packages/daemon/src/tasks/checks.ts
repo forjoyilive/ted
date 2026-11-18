@@ -1,12 +1,18 @@
 import { mkdir, open, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { type CheckResult, type CheckState, checkFailed, checkLabel } from '@ted/protocol'
+import {
+  type CheckResult,
+  type CheckState,
+  checkFailed,
+  checkLabel,
+  defaultInstructionCheckTimeout,
+} from '@ted/protocol'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import { type MemoryWatch, memoryKill } from '../memory-kills.ts'
 import { redactSecrets } from '../redact.ts'
 import type { PlannedCheck } from '../store/index.ts'
 import { plural } from '../text.ts'
-import type { CheckSettings } from '../workflow/check.ts'
+import { type CheckSettings, isInstructionCheck } from '../workflow/check.ts'
 import { checkWorkflowPath } from '../workflow/check-path.ts'
 import { checkCpusEnv } from './check-slots.ts'
 import { type CommandLaunch, runTaskCommand } from './command.ts'
@@ -31,10 +37,24 @@ export interface RunnableCheck {
 }
 
 export interface CheckRunnerResult {
-  outcome: 'passed' | 'failed' | 'interrupted' | 'memory'
+  outcome: 'passed' | 'failed' | 'interrupted' | 'memory' | 'no-report'
   failed?: { position: number; check: PlannedCheck; state: CheckState; exitCode?: number }
   killed?: { position: number; check: PlannedCheck; lowestMemory: number; durationMs: number }
+  missing?: { position: number; check: PlannedCheck; reason: string; durationMs: number }
   notFound: string[]
+}
+
+export type InstructionStep =
+  | { kind: 'finished'; state: 'passed' | 'failed'; durationMs: number }
+  | { kind: 'missing'; reason: string; durationMs: number }
+  | { kind: 'interrupted' }
+
+export const notRerunNote = 'not rerun: the Task’s changes are the same as when it passed'
+
+export function isInstructionPlanned(
+  check: PlannedCheck,
+): check is PlannedCheck & { instruction: string } {
+  return check.instruction !== undefined
 }
 
 export function touchesSettings(files: readonly string[] | undefined): boolean {
@@ -47,6 +67,9 @@ export async function planChecks(input: {
   primary: string
   only?: string
   reads?: WorktreeReads
+  commandsOnly?: boolean
+  changeKey?: (check: PlannedCheck) => Promise<string | undefined>
+  passedKey?: (name: string) => string | undefined
 }): Promise<RunnableCheck[]> {
   const changes = new Map<string, string[] | undefined>()
   for (const repo of input.repos) {
@@ -63,29 +86,54 @@ export async function planChecks(input: {
     const files = changes.get(name)
     return files === undefined || files.length > 0
   }
-  const planned: RunnableCheck[] = input.checks
-    .filter((c) => input.only === undefined || c.name === input.only)
-    .map((settings) => {
-      const name = settings.repo ?? input.primary
-      const repo = input.repos.find((r) => r.name === name)
+  const primary = input.repos.find((r) => r.name === input.primary)
+  const wanted = input.checks.filter((c) => input.only === undefined || c.name === input.only)
+  const commands: RunnableCheck[] = []
+  const fixing: RunnableCheck[] = []
+  const reporting: RunnableCheck[] = []
+  for (const settings of wanted) {
+    if (isInstructionCheck(settings)) {
+      if (input.commandsOnly) continue
       const check: PlannedCheck = {
         name: settings.name,
-        ...(settings.repo !== undefined && { repo: settings.repo }),
-        command: settings.run,
-        timeout: settings.timeout ?? defaultCheckTimeout,
-        state: repo && changed(name) ? 'waiting' : 'skipped',
+        instruction: settings.instruction,
+        ...(settings.fix === true && { fix: true }),
+        ...(settings.agent !== undefined && { agent: settings.agent }),
+        ...(settings.model !== undefined && { model: settings.model }),
+        ...(settings.effort !== undefined && { effort: settings.effort }),
+        timeout: settings.timeout ?? defaultInstructionCheckTimeout,
+        state: primary && input.repos.some((r) => changed(r.name)) ? 'waiting' : 'skipped',
       }
-      return check.state === 'skipped' || !repo
-        ? { check }
-        : { check, cwd: repo.worktree, env: repo.env }
-    })
-  const primary = input.repos.find((r) => r.name === input.primary)
+      const passed = check.state === 'waiting' ? input.passedKey?.(check.name) : undefined
+      const key = passed === undefined ? undefined : await input.changeKey?.(check)
+      if (passed !== undefined && key === passed) {
+        check.state = 'passed'
+        check.notRerun = true
+      }
+      ;(settings.fix === true ? fixing : reporting).push(
+        check.state === 'skipped' || !primary ? { check } : { check, cwd: primary.worktree },
+      )
+      continue
+    }
+    const name = settings.repo ?? input.primary
+    const repo = input.repos.find((r) => r.name === name)
+    const check: PlannedCheck = {
+      name: settings.name,
+      ...(settings.repo !== undefined && { repo: settings.repo }),
+      command: settings.run,
+      timeout: settings.timeout ?? defaultCheckTimeout,
+      state: repo && changed(name) ? 'waiting' : 'skipped',
+    }
+    commands.push(
+      check.state === 'skipped' || !repo ? { check } : { check, cwd: repo.worktree, env: repo.env },
+    )
+  }
   if (
     primary &&
     touchesSettings(changes.get(input.primary)) &&
     (input.only === undefined || input.only === tedSettingsCheck)
   ) {
-    planned.push({
+    commands.push({
       check: {
         name: tedSettingsCheck,
         command: 'ted workflow check',
@@ -96,7 +144,7 @@ export async function planChecks(input: {
       cwd: primary.worktree,
     })
   }
-  return planned
+  return [...fixing, ...commands, ...reporting]
 }
 
 export function supportsTestReporting(command: string): boolean {
@@ -120,8 +168,15 @@ export async function runChecks(input: {
   cpus?: () => number
   memory?: MemoryWatch
   from?: number
+  to?: number
   onInterrupted?: (position: number) => void
   reportingEnv?: (position: number, supported: boolean) => Promise<Record<string, string>>
+  beforeCommand?: () => Promise<boolean>
+  beforeInstruction?: () => void
+  runInstruction?: (
+    position: number,
+    check: PlannedCheck & { instruction: string },
+  ) => Promise<InstructionStep>
   onStart: (position: number) => void
   onFinish: (
     position: number,
@@ -131,22 +186,46 @@ export async function runChecks(input: {
   const notFound: string[] = []
   for (const [position, { check, cwd, env }] of input.checks.entries()) {
     if (position < (input.from ?? 0)) continue
-    if (check.state === 'skipped' || cwd === undefined) continue
+    if (input.to !== undefined && position >= input.to) break
+    if (check.state === 'skipped' || check.notRerun || cwd === undefined) continue
     if (input.signal?.aborted) return { outcome: 'interrupted', notFound }
+    if (isInstructionPlanned(check)) {
+      if (!input.runInstruction) continue
+      input.beforeInstruction?.()
+      input.onStart(position)
+      const step = await input.runInstruction(position, check)
+      if (step.kind === 'interrupted') {
+        input.onInterrupted?.(position)
+        return { outcome: 'interrupted', notFound }
+      }
+      if (step.kind === 'missing') {
+        return {
+          outcome: 'no-report',
+          missing: { position, check, reason: step.reason, durationMs: step.durationMs },
+          notFound,
+        }
+      }
+      const finished = { state: step.state, durationMs: step.durationMs }
+      input.onFinish(position, finished)
+      if (checkFailed(step.state))
+        return { outcome: 'failed', failed: { position, check, ...finished }, notFound }
+      continue
+    }
+    const command = check.command ?? ''
+    if (input.beforeCommand && !(await input.beforeCommand()))
+      return { outcome: 'interrupted', notFound }
     input.onStart(position)
     const started = Date.now()
     const log = input.logFor(position)
     const reporting =
-      (await input
-        .reportingEnv?.(position, supportsTestReporting(check.command))
-        .catch(() => ({}))) ?? {}
+      (await input.reportingEnv?.(position, supportsTestReporting(command)).catch(() => ({}))) ?? {}
     const watching = check.builtIn === 'ted-settings' ? undefined : input.memory?.watch()
     const ran =
       check.builtIn === 'ted-settings'
         ? checkSettings(cwd, log, input.libraryDir)
         : runTaskCommand({
             label: 'this check',
-            command: { run: check.command, timeoutMs: durationMs(check.timeout) },
+            command: { run: command, timeoutMs: durationMs(check.timeout) },
             cwd,
             env: {
               ...checkEnv(input.taskDisplayId, env ?? {}, input.env),
@@ -190,7 +269,7 @@ export async function runChecks(input: {
       durationMs: Date.now() - started,
     }
     input.onFinish(position, finished)
-    if (result.exitCode === 127) notFound.push(check.command)
+    if (result.exitCode === 127) notFound.push(command)
     if (checkFailed(state)) {
       return { outcome: 'failed', failed: { position, check, ...finished }, notFound }
     }
@@ -270,13 +349,17 @@ export async function readOutput(log: string): Promise<string> {
 }
 
 export function describeResult(
-  check: Pick<CheckResult, 'name' | 'repo' | 'state' | 'exitCode' | 'timeout'>,
+  check: Pick<
+    CheckResult,
+    'name' | 'repo' | 'state' | 'exitCode' | 'timeout' | 'instruction' | 'notRerun' | 'noReport'
+  >,
 ): string {
-  const label = checkLabel(check)
+  const label = check.instruction === undefined ? checkLabel(check) : `${check.name} (instruction)`
   switch (check.state) {
     case 'passed':
-      return `✓ ${label}`
+      return `✓ ${label}${check.notRerun ? ` · ${notRerunNote}` : ''}`
     case 'failed':
+      if (check.noReport !== undefined) return `✗ ${label} · no report: ${check.noReport}`
       return `✗ ${label}${check.exitCode === 127 ? ' · command not found' : check.exitCode !== undefined ? ` · exit code ${check.exitCode}` : ''}`
     case 'timed-out':
       return `✗ ${label} · timed out after ${check.timeout}`
@@ -298,12 +381,27 @@ export function summary(checks: readonly CheckResult[]): string {
 }
 
 export function failureFindings(input: {
-  check: Pick<CheckResult, 'name' | 'repo' | 'command' | 'state' | 'exitCode' | 'timeout'>
+  check: Pick<
+    CheckResult,
+    'name' | 'repo' | 'command' | 'state' | 'exitCode' | 'timeout' | 'instruction' | 'noReport'
+  >
   output: string
   log: string
   checks: readonly CheckResult[]
 }): string {
   const { check } = input
+  if (check.instruction !== undefined) {
+    return redactSecrets(
+      [
+        `1. The instruction check “${check.name}” failed${check.noReport !== undefined ? ` with no report (${check.noReport}), and the human counted it as failed` : ''}.`,
+        `Its instruction, from the Factory:\n\n\`\`\`\n${check.instruction.trim()}\n\`\`\``,
+        `Checks:\n${summary(input.checks)}`,
+        'The agent’s report:',
+        `\`\`\`\n${input.output.trimEnd()}\n\`\`\``,
+        `Full report: ${input.log}`,
+      ].join('\n\n'),
+    )
+  }
   const how =
     check.state === 'timed-out'
       ? `timed out after ${check.timeout}`

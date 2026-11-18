@@ -1,7 +1,7 @@
 import { parseAgentFileChanges, parseKeepAgentFiles } from './agent-file-parsers.ts'
+import { parseInstructionChecks } from './check-parsers.ts'
 import type {
   AddFactoryRequest,
-  AutoStartBacklogRequest,
   CheckRepoRequest,
   CreateFactoryRequest,
   FactoryLayout,
@@ -41,7 +41,6 @@ import {
   agentRoles,
   appKinds,
   type CheckInput,
-  type CheckTryRequest,
   type CleanupSettingsInput,
   type CleanupStepInput,
   type FactorySettingsChanges,
@@ -76,24 +75,6 @@ import {
 const maxSettingsRepos = 10
 const maxListItems = 200
 const maxFileChars = 256 * 1024
-
-export function parseCheckTryRequest(given: unknown): CheckTryRequest {
-  const body = record(given)
-  const name = text(body.name, 'name').trim()
-  const run = text(body.run, 'run').trim()
-  if (name === '' || run === '') throw new HttpError(400, 'A check needs a name and a command')
-  const repo = optionalText(body.repo, 'repo')?.trim() || undefined
-  const timeout = optionalText(body.timeout, 'timeout')?.trim() || undefined
-  if (timeout !== undefined && !/^\d+[smh]$/.test(timeout)) {
-    throw new HttpError(400, 'timeout must be a duration such as 30s, 15m or 1h')
-  }
-  return {
-    name,
-    run,
-    ...(repo !== undefined && { repo }),
-    ...(timeout !== undefined && { timeout }),
-  }
-}
 
 const builtInOnlyFields = [
   'enabled',
@@ -295,6 +276,8 @@ export function parseFactorySettingsChanges(given: unknown): FactorySettingsChan
     changes.keepStageFiles = keepStageFiles(body.keepStageFiles)
   }
   if (body.checks !== undefined) changes.checks = list(body.checks, 'checks').map(checkInput)
+  if (body.instructionChecks !== undefined)
+    changes.instructionChecks = parseInstructionChecks(body.instructionChecks)
   if (body.cleanup !== undefined) changes.cleanup = cleanupSettings(body.cleanup)
   if (body.agents !== undefined) {
     const given = record(body.agents)
@@ -394,12 +377,6 @@ function repoSource(given: unknown): RepoSource {
 function newRepo(given: unknown): NewFactoryRepo {
   const repo = (typeof given === 'object' && given !== null ? given : {}) as Record<string, unknown>
   return { source: repoSource(repo.source), name: typeof repo.name === 'string' ? repo.name : '' }
-}
-
-export function parseAutoStartBacklogRequest(value: unknown): AutoStartBacklogRequest {
-  const body = record(value)
-  if (typeof body.enabled !== 'boolean') throw new HttpError(400, 'enabled must be true or false')
-  return { enabled: body.enabled }
 }
 
 export function parseCreateFactoryRequest(value: unknown): CreateFactoryRequest {

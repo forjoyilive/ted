@@ -1,5 +1,5 @@
 import type { RunSlots, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
-import { emulatorsLine, simulatorsLine } from '@ted/protocol'
+import { devicesLine } from '@ted/protocol'
 import { noChecks } from '@ted/protocol/slots'
 import { describe, expect, test } from 'vitest'
 import { appStatusLine, needsSlot, previewChoice } from '../src/renderer/apps.ts'
@@ -102,6 +102,7 @@ describe('iOS simulator Apps', () => {
       lastUsedAt: '2026-11-09T10:00:00Z',
       recording: false,
     })),
+    waiting: [],
   })
 
   test('the row says whether its simulator is booted or why it was shut down', () => {
@@ -140,10 +141,26 @@ describe('iOS simulator Apps', () => {
     expect(needsSlot(app({}), booted(3))).toBe(false)
   })
 
-  test('the footer and Limits lines count booted simulators, and say nothing when unsupported', () => {
-    expect(simulatorsLine(booted(3))).toBe('Simulators 3 of 3 booted')
-    expect(simulatorsLine(booted(0))).toBeUndefined()
-    expect(simulatorsLine({ ...booted(1), supported: false })).toBeUndefined()
+  test('the footer and Limits lines count simulators and emulators together, and say nothing when unsupported', () => {
+    expect(devicesLine(booted(3))).toBe('Simulators and emulators 3 of 3 running')
+    expect(devicesLine(booted(0))).toBeUndefined()
+    expect(devicesLine({ ...booted(1), supported: false })).toBeUndefined()
+    const waiter = {
+      taskId: 't9',
+      displayId: 'NB-49',
+      title: 'Another Task',
+      repo: 'app',
+      app: 'iPhone',
+      device: 'iPhone 17',
+      place: 1,
+      waitingFor: { kind: 'device' as const },
+    }
+    expect(devicesLine({ ...booted(3), waiting: [waiter, { ...waiter, place: 2 }] })).toBe(
+      'Simulators and emulators 3 of 3 running · 2 waiting',
+    )
+    expect(devicesLine({ ...booted(0), waiting: [waiter] })).toBe(
+      'Simulators and emulators 0 of 3 running · 1 waiting',
+    )
     const slots: RunSlots = {
       working: 4,
       limit: 6,
@@ -154,7 +171,7 @@ describe('iOS simulator Apps', () => {
       checks: noChecks,
     }
     expect(nowLine(slots, booted(1))).toBe(
-      'Now: 4 of 6 slots in use · 2 queued · 1 of 3 simulators booted',
+      'Now: 4 of 6 slots in use · 2 queued · 1 of 3 simulators and emulators running',
     )
     expect(nowLine(slots, { ...booted(1), supported: false })).toBe(
       'Now: 4 of 6 slots in use · 2 queued',
@@ -180,6 +197,7 @@ describe('Android emulator Apps', () => {
       lastUsedAt: '2026-11-09T10:00:00Z',
       recording: false,
     })),
+    waiting: [],
   })
 
   test('the row says whether the emulator has a window, and ▶ asks only when every slot is taken', () => {
@@ -198,8 +216,16 @@ describe('Android emulator Apps', () => {
     ).toBe('Waiting for an emulator · Pixel_8_API_35')
     expect(needsSlot(phone({}), running(1))).toBe(false)
     expect(needsSlot(phone({}), running(2))).toBe(true)
-    expect(emulatorsLine(running(2))).toBe('Emulators 2 of 2 running')
-    expect(emulatorsLine(running(0))).toBeUndefined()
+    expect(
+      appStatusLine(
+        phone({
+          state: 'waiting',
+          simulator: { device, booted: false },
+          waitingOn: { displayId: 'NB-40', app: 'ios' },
+        }),
+        now,
+      ),
+    ).toBe('Waiting for NB-40’s ios to finish building')
     const slots: RunSlots = {
       working: 4,
       limit: 6,
@@ -210,7 +236,7 @@ describe('Android emulator Apps', () => {
       checks: noChecks,
     }
     expect(nowLine(slots, undefined, running(1))).toBe(
-      'Now: 4 of 6 slots in use · 2 queued · 1 of 2 emulators running',
+      'Now: 4 of 6 slots in use · 2 queued · 1 of 2 simulators and emulators running',
     )
   })
 })
@@ -229,7 +255,7 @@ test('the sidebar names slot usage and its limit, including above-limit and queu
   expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 of 6 slots in use')
   expect(runsLine({ ...slots, working: 0 })).toBe('0 of 6 slots in use · 1 queued')
   expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 of 6 slots in use')
-  expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toContain('this computer is busy')
+  expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toContain('computer is busy')
 })
 
 test('the sidebar counts running and waiting Checks beside the agents', () => {
@@ -244,10 +270,10 @@ test('the sidebar counts running and waiting Checks beside the agents', () => {
     busy: { loadRatio: 1.4 },
   }
   expect(runsLine(slots)).toBe(
-    '1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · this computer is busy',
+    '1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · computer is busy',
   )
   expect(nowLine(slots)).toBe(
-    'Now: 1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · this computer is busy',
+    'Now: 1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · computer is busy',
   )
   const { busy: _, ...calm } = slots
   expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, running: 1 } })).toBe(
@@ -265,8 +291,8 @@ test('hovering a busy hold names each resource that holds, with its figure and m
       'CPU load: 1.30 per core · waits at 1, starts again below 0.75',
     ].join('\n'),
   )
-  expect(
-    statusDetail({ kind: 'queued', hold: 'this computer is busy', busy: { loadRatio: 2 } }),
-  ).toBe('CPU load: 2.00 per core · waits at 1, starts again below 0.75')
+  expect(statusDetail({ kind: 'queued', hold: 'computer is busy', busy: { loadRatio: 2 } })).toBe(
+    'CPU load: 2.00 per core · waits at 1, starts again below 0.75',
+  )
   expect(statusDetail({ kind: 'queued', place: 2 })).toBeUndefined()
 })

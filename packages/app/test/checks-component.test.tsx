@@ -77,7 +77,10 @@ test('Check output opens the failed output and tabs switch to another Check', as
   expect(close).toHaveBeenCalledOnce()
 })
 
-test('Check output follows new lines only while scrolled to the bottom', async () => {
+const lineText = (prefix: string, count: number) =>
+  Array.from({ length: count }, (_, i) => `${prefix} ${i + 1}`).join('\n')
+
+function fakeScrolling() {
   const scrolled = new WeakMap<Element, number>()
   const lineHeight = 20
   const shownHeight = 100
@@ -100,14 +103,27 @@ test('Check output follows new lines only while scrolled to the bottom', async (
       },
     },
   })
+  return () => {
+    for (const name of ['clientHeight', 'scrollHeight', 'scrollTop']) {
+      Reflect.deleteProperty(HTMLPreElement.prototype, name)
+    }
+  }
+}
+
+function shownOutput(container: HTMLElement) {
+  const pre = container.querySelector('pre')
+  if (!pre) throw new Error('No output shown')
+  return pre
+}
+
+test('Check output follows new lines only while scrolled to the bottom', async () => {
+  const restore = fakeScrolling()
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   try {
     let lines = 10
-    const lineText = (count: number) =>
-      Array.from({ length: count }, (_, i) => `line ${i + 1}`).join('\n')
     bridge({
       listFailures: () => [],
-      checkOutput: () => ({ text: lineText(lines), log: '/test/check.log' }),
+      checkOutput: () => ({ text: lineText('line', lines), log: '/test/check.log' }),
     })
     const running: CheckRun = {
       ...run,
@@ -116,11 +132,7 @@ test('Check output follows new lines only while scrolled to the bottom', async (
     const { container } = render(
       <CheckOutputDialog checkRun={running} position={1} onClose={vi.fn()} />,
     )
-    const output = () => {
-      const pre = container.querySelector('pre')
-      if (!pre) throw new Error('No output shown')
-      return pre
-    }
+    const output = () => shownOutput(container)
     const grow = async (count: number) => {
       lines = count
       act(() => void vi.advanceTimersByTime(1000))
@@ -138,15 +150,45 @@ test('Check output follows new lines only while scrolled to the bottom', async (
     await grow(30)
     expect(output().scrollTop).toBe(50)
 
-    output().scrollTop = 490
+    fireEvent.click(screen.getByRole('tab', { name: 'Tests' }))
+    await grow(35)
+    expect(output().scrollTop).toBe(50)
+
+    output().scrollTop = 590
     fireEvent.scroll(output())
     await grow(40)
     expect(output().scrollTop).toBe(700)
   } finally {
     vi.useRealTimers()
-    for (const name of ['clientHeight', 'scrollHeight', 'scrollTop']) {
-      Reflect.deleteProperty(HTMLPreElement.prototype, name)
-    }
+    restore()
+  }
+})
+
+test('a finished Check opens at the bottom and a tab switch starts at the bottom', async () => {
+  const restore = fakeScrolling()
+  try {
+    bridge({
+      listFailures: () => [],
+      checkOutput: (_id, position) => ({
+        text: position === 1 ? lineText('line', 30) : lineText('typed', 15),
+        log: '/test/check.log',
+      }),
+    })
+    const { container } = render(
+      <CheckOutputDialog checkRun={run} position={1} onClose={vi.fn()} />,
+    )
+    const output = () => shownOutput(container)
+
+    await expect.poll(() => output().textContent).toContain('line 30')
+    expect(output().scrollTop).toBe(500)
+
+    output().scrollTop = 50
+    fireEvent.scroll(output())
+    fireEvent.click(screen.getByRole('tab', { name: 'Typecheck' }))
+    await expect.poll(() => output().textContent).toContain('typed 15')
+    expect(output().scrollTop).toBe(200)
+  } finally {
+    restore()
   }
 })
 
@@ -216,4 +258,48 @@ test('accepted failures keep their failing glyph and explicit label', () => {
   render(<ChecksRow checks={run.checks} accepted={[1]} onOpen={vi.fn()} />)
   expect(screen.getByRole('button', { name: /✗Tests.*failed, accepted by you/ })).toBeTruthy()
   expect(screen.getByText('· not run')).toBeTruthy()
+})
+
+test('instruction Checks show their kind, duration, report, not-rerun note and missing report', async () => {
+  const open = vi.fn()
+  render(
+    <ChecksRow
+      checks={[
+        {
+          name: 'Docs drift',
+          instruction: 'Fix stale docs.',
+          fix: true,
+          timeout: '20m',
+          state: 'passed',
+          durationMs: 182_000,
+        },
+        {
+          name: 'Copy',
+          instruction: 'Check the UI text.',
+          timeout: '20m',
+          state: 'passed',
+          notRerun: true,
+        },
+        {
+          name: 'Names',
+          instruction: 'Check names.',
+          timeout: '20m',
+          state: 'failed',
+          durationMs: 4_000,
+          noReport: 'it ended without a result line',
+        },
+      ]}
+      onOpen={open}
+    />,
+  )
+  const items = screen.getAllByRole('listitem').map((item) => item.textContent)
+  expect(items.slice(0, 3)).toEqual([
+    '✓Docs drift · instruction · may fix · 3m 02s · Report',
+    '✓Copy · instruction · not rerun: the Task’s own changes are the same as when it passed',
+    '✗Names · instruction · no report: it ended without a result line · 4s · Report',
+  ])
+  const reports = screen.getAllByRole('button', { name: 'Report' })
+  expect(reports).toHaveLength(2)
+  await user().click(reports[1] as HTMLElement)
+  expect(open).toHaveBeenCalledWith(2)
 })

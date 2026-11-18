@@ -20,6 +20,7 @@ import {
   type RepoSetup,
   type RepoSource,
   repoNamePattern,
+  withoutGroups,
 } from '@ted/protocol'
 import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
@@ -50,7 +51,6 @@ export interface Factories {
   create(request: CreateFactoryRequest): Promise<Factory>
   retry(factoryId: string): Promise<Factory>
   setLocalFolder(key: string, folder: string): Promise<Factory>
-  setAutoStartBacklog(factoryId: string, enabled: boolean): Promise<Factory>
   rename(factoryId: string, name: string): Promise<Factory>
   setIcon(factoryId: string, icon: FactoryIcon | null): Promise<Factory>
   setRepoFolder(factoryId: string, repoName: string, folder: string | undefined): Promise<Factory>
@@ -628,7 +628,11 @@ export function createFactories(options: FactoriesOptions): Factories {
       throw new RequestError(400, 'each group needs its own id')
     }
     const before = new Map(current.map((f) => [f.id, f.position]))
+    const previous = store.factoryLayout()
     const saved = store.saveFactoryLayout(layout)
+    const starts = store.settings().backlogStarts
+    const kept = withoutGroups(starts, previous, layout)
+    if (kept !== starts) store.updateSettings({ backlogStarts: kept })
     await Promise.all((saved ?? []).filter((f) => before.get(f.id) !== f.position).map(publish))
   }
 
@@ -645,10 +649,6 @@ export function createFactories(options: FactoriesOptions): Factories {
     create,
     retry,
     setLocalFolder,
-    async setAutoStartBacklog(factoryId, enabled) {
-      find(factoryId)
-      return publish(store.setFactoryAutoStartBacklog(factoryId, enabled))
-    },
     rename: renameFactory,
     async setIcon(factoryId, icon) {
       find(factoryId)

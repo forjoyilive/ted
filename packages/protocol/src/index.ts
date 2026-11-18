@@ -18,10 +18,11 @@ export {
   appStates,
   type BootedSimulator,
   type DevicePlatform,
+  type DeviceWait,
   devicePlatform,
+  deviceSlotLimits,
+  devicesLine,
   deviceWords,
-  emulatorSlotLimits,
-  emulatorsLine,
   isDeviceApp,
   isEmulatorApp,
   isLoopbackUrl,
@@ -30,9 +31,8 @@ export {
   type SimulatorAsk,
   type SimulatorSlots,
   type StartAppRequest,
-  simulatorSlotLimits,
-  simulatorsLine,
   type TaskApp,
+  type WaitingDevice,
 } from './app.ts'
 export {
   type AppAuth,
@@ -184,6 +184,16 @@ export {
   type TaskAutopilot,
 } from './autopilot.ts'
 export {
+  type BacklogStarts,
+  backlogStartFactories,
+  noBacklogStarts,
+  parseSetBacklogStartsRequest,
+  type SetBacklogStartsRequest,
+  sameBacklogStarts,
+  startsFromBacklog,
+  withoutGroups,
+} from './backlog-starts.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerActionInput,
@@ -294,6 +304,7 @@ export {
   parsePostChatRequest,
   parseRunChatCommandRequest,
 } from './chat-agent.ts'
+export { checkAgents, parseCheckTryRequest, parseInstructionChecks } from './check-parsers.ts'
 export {
   type BaseConflictFound,
   type CheckOutput,
@@ -311,6 +322,7 @@ export {
   declaredSendBackCauses,
   type FindingSeverity,
   findingSeverities,
+  isInstructionResult,
   type RunChecksRequest,
   type SendBack,
   type SendBackCause,
@@ -484,7 +496,6 @@ export {
   type SaveExportResult,
 } from './export.ts'
 export type {
-  AutoStartBacklogRequest,
   SetRepoFolderRequest,
   StopCheckTryRequest,
 } from './factory.ts'
@@ -529,9 +540,7 @@ export type {
 } from './factory-icon.ts'
 export {
   parseAddFactoryRequest,
-  parseAutoStartBacklogRequest,
   parseCheckRepoRequest,
-  parseCheckTryRequest,
   parseCreateFactoryRequest,
   parseFactoryLayout,
   parseFactorySettingsChanges,
@@ -562,22 +571,29 @@ export {
   type CheckTryOutput,
   type CheckTryRequest,
   type CheckTryState,
+  type CheckTryTask,
   type CheckView,
   type CleanupCommandStepInput,
   type CleanupInstructionStepInput,
   type CleanupSettingsInput,
   type CleanupStepInput,
+  type CommandCheckTryRequest,
   type CopyFileState,
   cleanupStepProblem,
   type DiffLine,
   type DiffLineKind,
   type DriftCounts,
+  defaultInstructionCheckTimeout,
   type EnvVariable,
   type FactorySettingsChanges,
   type FactorySettingsView,
   type FileChange,
+  type InstructionCheckInput,
+  type InstructionCheckTryRequest,
+  type InstructionCheckView,
   type InvalidSettings,
   isCleanupCommand,
+  isInstructionTry,
   type LibraryAgentRow,
   type LibraryChanges,
   type LibraryInvalid,

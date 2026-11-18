@@ -54,6 +54,7 @@ import type {
   AutomationDraftResult,
 } from './automation-card.ts'
 import type { SetTaskAutopilotRequest } from './autopilot.ts'
+import type { SetBacklogStartsRequest } from './backlog-starts.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
 import type {
@@ -138,6 +139,7 @@ import type {
   CheckTry,
   CheckTryOutput,
   CheckTryRequest,
+  CheckTryTask,
   DriftCounts,
   FactorySettingsChanges,
   FactorySettingsView,
@@ -1535,6 +1537,10 @@ export class DaemonClient {
     return this.#request('PATCH', '/settings', changes)
   }
 
+  setBacklogStarts(starts: SetBacklogStartsRequest): Promise<MachineSettings> {
+    return this.#request('PUT', '/backlog-starts', starts)
+  }
+
   getProfile(): Promise<Profile> {
     return this.#request('GET', '/profile')
   }
@@ -1872,6 +1878,10 @@ export class DaemonClient {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try`, request)
   }
 
+  checkTryTasks(factoryId: string): Promise<CheckTryTask[]> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/checks/try/tasks`)
+  }
+
   stopCheckTry(factoryId: string, name: string): Promise<void> {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try/stop`, {
       name,
@@ -1883,12 +1893,6 @@ export class DaemonClient {
       'GET',
       `/factories/${encodeURIComponent(factoryId)}/checks/try/output?name=${encodeURIComponent(name)}`,
     )
-  }
-
-  setFactoryAutoStartBacklog(factoryId: string, enabled: boolean): Promise<Factory> {
-    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/auto-start-backlog`, {
-      enabled,
-    })
   }
 
   renameFactory(factoryId: string, name: string): Promise<Factory> {

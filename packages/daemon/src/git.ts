@@ -417,7 +417,7 @@ export async function fetchBranch(
 async function inScratch<T>(
   worktree: string,
   prefix: string,
-  work: (run: (args: string[]) => Promise<{ stdout: string }>) => Promise<T>,
+  work: (run: (args: string[], input?: string) => Promise<{ stdout: string }>) => Promise<T>,
 ): Promise<T> {
   const common = await git(
     worktree,
@@ -433,16 +433,41 @@ async function inScratch<T>(
   try {
     await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], { cwd: scratch, env })
     await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
-    return await work((args) =>
-      execFileAsync('git', ['-c', 'core.commitGraph=false', ...args], {
-        cwd: scratch,
-        env,
-        maxBuffer: 16 * 1024 * 1024,
-      }),
-    )
+    const options = { cwd: scratch, env, maxBuffer: 16 * 1024 * 1024 }
+    return await work((args, input) => {
+      const full = ['-c', 'core.commitGraph=false', ...args]
+      if (input === undefined) return execFileAsync('git', full, options)
+      return new Promise((resolve, reject) => {
+        const child = execFile('git', full, options, (error, stdout) =>
+          error ? reject(error) : resolve({ stdout }),
+        )
+        child.stdin?.end(input)
+      })
+    })
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
+}
+
+export async function patchId(repo: string, from: string, to: string): Promise<string> {
+  return inScratch(repo, 'ted-patch-id-', async (run) => {
+    const { stdout } = await run(['diff', ...diffFlags, '--full-index', '--binary', from, to, '--'])
+    if (stdout === '') return ''
+    const ids = await run(['patch-id', '--stable'], stdout)
+    return ids.stdout
+      .split('\n')
+      .map((line) => line.split(' ')[0] ?? '')
+      .filter((id) => id !== '')
+      .join(',')
+  })
+}
+
+export async function commitSubjects(repo: string, from: string, to: string): Promise<string[]> {
+  if (from === to) return []
+  const { stdout } = await inScratch(repo, 'ted-subjects-', (run) =>
+    run(['log', '--no-decorate', '--no-show-signature', '--format=%h %s', `${from}..${to}`, '--']),
+  )
+  return stdout.split('\n').filter((line) => line !== '')
 }
 
 export async function isAncestor(repo: string, ancestor: string, commit: string): Promise<boolean> {

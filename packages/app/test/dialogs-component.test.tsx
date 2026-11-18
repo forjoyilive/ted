@@ -15,7 +15,7 @@ async function formReady() {
 }
 
 async function newTask(
-  options: { tasks?: Task[]; parentId?: string; autoStartBacklog?: boolean } = {},
+  options: { tasks?: Task[]; parentId?: string; startsAutomatically?: boolean } = {},
 ) {
   const created = vi.fn(() => task())
   const settings = vi.fn((changes: unknown) => changes)
@@ -28,7 +28,8 @@ async function newTask(
   const close = vi.fn()
   render(
     <NewTaskDialog
-      factories={[factory({ autoStartBacklog: options.autoStartBacklog ?? false })]}
+      factories={[factory()]}
+      startsAutomatically={() => options.startsAutomatically ?? false}
       tasks={options.tasks ?? []}
       factoryId="f1"
       {...(options.parentId !== undefined && { parentId: options.parentId })}
@@ -93,11 +94,13 @@ test('New Task sends an explicit title and starts by default', async () => {
   )
 })
 
-test('Start now unchecked says the Task will start when the Factory starts Backlog Tasks automatically', async () => {
-  await newTask({ autoStartBacklog: true })
+test('Start now unchecked says the Task will start when Ted starts Backlog Tasks from the Factory', async () => {
+  await newTask({ startsAutomatically: true })
   await user().click(screen.getByLabelText('Start now'))
   expect(
-    screen.getByText('Starts when a slot is free: this Factory starts Backlog Tasks automatically'),
+    screen.getByText(
+      'Starts when a slot is free: Ted starts Backlog Tasks from this Factory automatically',
+    ),
   ).toBeTruthy()
   expect(screen.queryByText('Waits in Backlog until you start it')).toBeNull()
 })
@@ -552,13 +555,13 @@ test('the Factory picker shows each Factory with its icon and chooses by mouse a
   const chosen = vi.fn()
   const { rerender } = render(<FactoryPicker factories={factories} value="f1" onChange={chosen} />)
   const picker = screen.getByRole('combobox', { name: 'Factory' })
-  expect(picker.textContent).toBe('wwidgets')
+  expect(picker.textContent).toBe('widgets')
   expect(picker.getAttribute('aria-expanded')).toBe('false')
 
   await user().click(picker)
   const list = screen.getByRole('listbox', { name: 'Factory' })
   const options = within(list).getAllByRole('option')
-  expect(options.map((o) => o.textContent)).toEqual(['wwidgets', 'ggadgets', 'ggizmos'])
+  expect(options.map((o) => o.textContent)).toEqual(['widgets', 'gadgets', 'gizmos'])
   expect(options.map((o) => o.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false'])
   await user().click(within(list).getByRole('option', { name: 'gadgets' }))
   expect(chosen).toHaveBeenLastCalledWith('f2')

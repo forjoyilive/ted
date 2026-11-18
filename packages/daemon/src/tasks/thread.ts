@@ -1,4 +1,5 @@
 import type {
+  CheckRun,
   ClarifyDepth,
   Comment,
   CopySkip,
@@ -25,6 +26,7 @@ export interface ThreadContext {
   descriptions?: readonly DescriptionVersion[]
   planTitleOf?: (planId: string) => string | undefined
   factoryNameOf?: (factoryId: string) => string | undefined
+  runNowAgents?: ReadonlySet<string>
 }
 
 const planEndLines: Record<string, string> = {
@@ -163,11 +165,43 @@ export function appExitLine(name: string, code: unknown, signal: unknown): strin
 }
 
 export function taskThreadEvents(
-  store: Pick<TedStore, 'taskLog'>,
+  store: Pick<TedStore, 'taskLog' | 'reviewerOf' | 'listCheckRuns'>,
   taskId: string,
   context: ThreadContext,
 ): ThreadEvent[] {
-  return threadEvents(taskId, store.taskLog(taskId), context)
+  const log = store.taskLog(taskId)
+  const runNow = runNowAgents(
+    log,
+    (runId) => store.reviewerOf(runId)?.purpose,
+    store.listCheckRuns(taskId),
+  )
+  return threadEvents(taskId, log, { ...context, runNowAgents: runNow })
+}
+
+export function runNowAgents(
+  log: readonly LoggedEvent[],
+  purposeOf: (runId: string) => string | undefined,
+  checkRuns: readonly Pick<CheckRun, 'checks' | 'startedAt' | 'finishedAt'>[],
+): Set<string> {
+  const found = new Set<string>()
+  for (const entry of log) {
+    if (entry.name !== 'v4.RunStarted' && entry.name !== 'v5.RunStarted') continue
+    const runId = entry.data.runId
+    if (!isString(runId) || purposeOf(runId) !== 'instruction-check') continue
+    const at = Date.parse(entry.at)
+    const inCheckRun = checkRuns.some(
+      (run) =>
+        Date.parse(run.startedAt) <= at &&
+        (run.finishedAt === undefined || at <= Date.parse(run.finishedAt)) &&
+        run.checks.some(
+          (check) =>
+            check.instruction !== undefined &&
+            `Check · ${check.name}`.slice(0, 60) === entry.data.name,
+        ),
+    )
+    if (!inCheckRun) found.add(runId)
+  }
+  return found
 }
 
 export function threadEvents(
@@ -815,6 +849,7 @@ export function threadEvents(
         break
       case 'v4.RunStarted':
       case 'v5.RunStarted':
+        if (isString(data.runId) && context.runNowAgents?.has(data.runId)) break
         add(
           entry,
           'run',
@@ -921,6 +956,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskRunHeld':
+      case 'v2.TaskRunHeld':
         held = true
         add(
           entry,

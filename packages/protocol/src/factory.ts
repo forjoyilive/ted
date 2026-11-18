@@ -32,7 +32,6 @@ export interface Factory {
   defaultBranch: string
   localFolder?: LocalFolder
   repos: FactoryRepo[]
-  autoStartBacklog: boolean
   icon?: FactoryIcon
   cloned: boolean
   hasSettings?: true
@@ -195,9 +194,6 @@ export function suggestRepoName(repo: string): string {
   return trimOf(name, '-') || 'repo'
 }
 
-export interface AutoStartBacklogRequest {
-  enabled: boolean
-}
 export interface SetRepoFolderRequest {
   path: string
 }

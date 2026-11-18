@@ -23,6 +23,26 @@ function handle(req: http.IncomingMessage, res: http.ServerResponse) {
         })));`)
       return
     }
+    if (url.pathname === '/media/worker.js') {
+      res.setHeader('content-type', 'text/javascript')
+      res.end(`const seen = [];
+        self.addEventListener('install', () => self.skipWaiting());
+        self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+        self.addEventListener('fetch', e => {
+          if (new URL(e.request.url).origin === self.location.origin) return;
+          seen.push(e.request.url);
+          e.respondWith(fetch(e.request));
+        });
+        self.addEventListener('message', e => e.waitUntil(e.data.fetch
+          ? fetch(e.data.fetch).then(r => r.ok ? 'loaded' : 'refused', () => 'refused').then(result => e.ports[0].postMessage(result))
+          : Promise.resolve(e.ports[0].postMessage(seen))));`)
+      return
+    }
+    if (url.pathname === '/media/page') {
+      res.setHeader('content-type', 'text/html')
+      res.end('<!doctype html><title>Media fixture</title>')
+      return
+    }
     if (url.pathname === '/browser-worker-traffic') {
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify({ messages: workerMessages, connections: workerSockets.size }))
@@ -47,9 +67,21 @@ function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       )
       return
     }
+    const corner = (place: string, colour: string) =>
+      `<div aria-hidden="true" style="position:fixed;${place};width:40px;height:40px;background:${colour}"></div>`
+    const marked = process.env.STUB_APP_EDGE_MARKS === '1'
+    const viewport =
+      marked && !url.searchParams.has('no-viewport')
+        ? '<meta name="viewport" content="width=device-width">'
+        : ''
+    const edgeMarks = marked
+      ? corner('top:0;right:0', '#0f0') +
+        corner('bottom:0;right:0', '#f0f') +
+        corner('bottom:0;left:0', '#000')
+      : ''
     res.setHeader('content-type', 'text/html')
     res.end(
-      `<!doctype html><title>Browser fixture</title><h1>Project</h1><label>Name <input aria-label="Name"></label><button onclick="document.querySelector('h1').textContent='Clicked'">Try it</button><input type="file"><script>globalThis.rtcAtLoad=typeof RTCPeerConnection;document.cookie='taskSession=yes';</script>`,
+      `<!doctype html><title>Browser fixture</title>${viewport}<h1>Project</h1><label>Name <input aria-label="Name"></label><button onclick="document.querySelector('h1').textContent='Clicked'">Try it</button><input type="file">${edgeMarks}<script>globalThis.rtcAtLoad=typeof RTCPeerConnection;document.cookie='taskSession=yes';</script>`,
     )
     return
   }

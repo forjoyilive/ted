@@ -113,7 +113,7 @@ const freshContextSteps = (id: string) =>
   `Capture a fresh context with \`ted failure context\`, add evidence that names it with \`ted failure evidence ${shortReference(id)} --file <json>\` (\`{"evidence":"…","contextId":"<new context ID>"}\`), then run \`ted failure assess ${shortReference(id)} --file <json>\` and \`ted failure ask ${shortReference(id)}\`. Evidence without the new contextId leaves the decision bound to the old context.`
 
 const newCaseSteps =
-  'A newly captured context can’t be attached to this failure, because Ted can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory check); a failure that happens again is a new case to record, assess and ask about.'
+  'A newly captured context can’t be attached to this failure, because Ted can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (for a Factory check, `ted checks` outside Work; in Work, Ted runs the checks again when the Task enters Validate); a failure that happens again is a new case to record, assess and ask about.'
 
 export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
   return workflow.settings.stages.work?.lead_closes_failures === true
@@ -544,7 +544,9 @@ export function createFailureCases(options: {
         throw new RequestError(400, 'source must identify a failed or timed-out check on this Task')
       if ((run.trigger === 'merge') !== (source.kind === 'post-rebase-check'))
         throw new RequestError(400, 'Check source does not match its trigger')
-      if (context && context.capturedAt > run.startedAt)
+      const fixedFirst =
+        generated && run.checks.some((c) => c.fix === true && c.instruction !== undefined)
+      if (context && context.capturedAt > run.startedAt && !fixedFirst)
         throw new RequestError(
           409,
           'context must be captured before check execution, not borrowed from the current worktree',
@@ -552,7 +554,10 @@ export function createFailureCases(options: {
       originalCheck = {
         ...check,
         name: generatedFailureText(check.name),
-        command: generatedFailureText(check.command),
+        ...(check.command !== undefined && { command: generatedFailureText(check.command) }),
+        ...(check.instruction !== undefined && {
+          instruction: generatedFailureText(check.instruction),
+        }),
         timeout: generatedFailureText(check.timeout),
       }
     } else if (source.kind === 'finding') {

@@ -373,9 +373,20 @@
   outline-offset: -2px;
 }
 
+.factoryList {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin-block: -2px;
+  padding-block: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .spacer {
-  flex: 1;
-  min-height: 16px;
+  flex: 1 0 16px;
 }
 
 .appSettings {
@@ -515,7 +526,7 @@
   margin-top: 14px;
 }
 
-.sectionHeading + .group {
+.factoryList > .group:first-child {
   margin-top: 0;
 }
 

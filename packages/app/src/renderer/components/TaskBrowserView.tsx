@@ -1,4 +1,4 @@
-import type { Attachment, BrowserRequest, Task } from '@ted/protocol'
+import type { Attachment, BrowserRequest, Task, TaskApp } from '@ted/protocol'
 import { isString } from '@ted/protocol/parse'
 import {
   type PreviewSize,
@@ -15,6 +15,7 @@ import { readableError, ted } from '../ted.ts'
 import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
 import { CommentFiles } from './CommentFiles.tsx'
+import { OutsideSandboxDialog } from './OutsideSandboxDialog.tsx'
 import { PreviewSizeMenu } from './PreviewSizeMenu.tsx'
 import { Select } from './Select.tsx'
 import styles from './TaskBrowserView.module.css'
@@ -26,11 +27,13 @@ export function TaskBrowserView({
   shown,
   onBack,
   onLog,
+  onSwitch,
 }: {
   task: Task
   shown: ShownApp
   onBack: () => void
   onLog: () => void
+  onSwitch: (app: ShownApp) => void
 }) {
   const { epoch, connection } = useConnection()
   const apps = useTaskApps(task.id).filter((a) => a.kind === 'web' && !a.removed)
@@ -60,7 +63,30 @@ export function TaskBrowserView({
   const [ready, setReady] = useState(false)
   const [retryOpen, setRetryOpen] = useState(0)
   const [blocked, setBlocked] = useState(0)
+  const [history, setHistory] = useState({ back: false, forward: false })
+  const [confirming, setConfirming] = useState<TaskApp>()
   const running = app?.state === 'running'
+  const idle = running ? undefined : idleText(app)
+  const readHistory = () =>
+    ted
+      .browserState(task.id)
+      .then((state) => {
+        if (state?.url)
+          setHistory({ back: state.canGoBack === true, forward: state.canGoForward === true })
+      })
+      .catch(() => {})
+  const start = (next: TaskApp) => {
+    onSwitch({ repo: next.repo, name: next.name })
+    return ted
+      .startApp(task.id, { repo: next.repo, name: next.name })
+      .catch((error: unknown) => setStatus(readableError(error)))
+  }
+  const choose = (next: TaskApp) => {
+    if (next.state === 'running' || next.state === 'starting' || next.state === 'waiting')
+      onSwitch({ repo: next.repo, name: next.name })
+    else if (next.confirmOutsideSandbox === true) setConfirming(next)
+    else void start(next)
+  }
   const act = async (request: BrowserRequest): Promise<boolean> => {
     if (active.current) return false
     active.current = true
@@ -74,12 +100,16 @@ export function TaskBrowserView({
       })
       if (result.attachment) setCapture(result.attachment)
       if (result.url) setAddress(result.url)
+      if (result.canGoBack !== undefined && result.canGoForward !== undefined)
+        setHistory({ back: result.canGoBack, forward: result.canGoForward })
+      else void readHistory()
       setStatus(
         result.attachment ? 'Screenshot saved to Task attachments' : (result.text ?? 'Ready'),
       )
       return true
     } catch (error) {
       setStatus(readableError(error))
+      void readHistory()
       return false
     } finally {
       active.current = false
@@ -135,6 +165,7 @@ export function TaskBrowserView({
     let stopped = false
     let retry: ReturnType<typeof setTimeout> | undefined
     setReady(false)
+    setHistory({ back: false, forward: false })
     const open = async () => {
       try {
         const result = await ted.browserCommand(task.id, {
@@ -147,6 +178,8 @@ export function TaskBrowserView({
         const chosen = previewSize(state?.size ?? '')
         if (!isString(chosen)) showSize(chosen, false)
         synced.current = true
+        if (state?.url)
+          setHistory({ back: state.canGoBack === true, forward: state.canGoForward === true })
         setReady(true)
         setAddress(result.url ?? '')
         setStatus(result.text ?? 'Ready')
@@ -159,10 +192,7 @@ export function TaskBrowserView({
     if (running && connection.state === 'connected') {
       setStatus('Opening…')
       void open()
-    } else
-      setStatus(
-        running ? 'Reconnecting…' : 'This App isn’t running. Use ▶ in Apps, then open preview.',
-      )
+    } else setStatus(idle ?? 'Reconnecting…')
     return () => {
       stopped = true
       clearTimeout(retry)
@@ -173,6 +203,7 @@ export function TaskBrowserView({
     shown.repo,
     shown.name,
     running,
+    idle,
     app?.startedAt,
     epoch,
     connection.state,
@@ -189,7 +220,7 @@ export function TaskBrowserView({
       const rect = viewport.current?.getBoundingClientRect()
       if (
         !rect ||
-        document.querySelector('dialog[open], [role="dialog"], [role="menu"]') ||
+        document.querySelector('dialog[open], [role="dialog"], [role="menu"], [role="listbox"]') ||
         rect.width < 1 ||
         rect.height < 1
       ) {
@@ -241,6 +272,7 @@ export function TaskBrowserView({
             if (!isString(chosen)) showSize(chosen, state.sizeByAgent === true)
             setStatus(note.current ?? state.text)
             setBlocked(state.blocked ?? 0)
+            setHistory({ back: state.canGoBack === true, forward: state.canGoForward === true })
             if (!editing.current) setAddress(state.url)
           }
         })
@@ -267,10 +299,7 @@ export function TaskBrowserView({
           value={`${shown.repo}/${shown.name}`}
           onChange={(event) => {
             const next = apps.find((a) => `${a.repo}/${a.name}` === event.target.value)
-            if (next)
-              ted
-                .openAppPreview(task.id, next.repo, next.name)
-                .catch((error: unknown) => setStatus(readableError(error)))
+            if (next) choose(next)
           }}
         >
           {apps.map((a) => (
@@ -280,11 +309,15 @@ export function TaskBrowserView({
             </option>
           ))}
         </Select>
-        <Button disabled={busy || !ready} aria-label="Back" onClick={() => act({ action: 'back' })}>
+        <Button
+          disabled={busy || !ready || !history.back}
+          aria-label="Back"
+          onClick={() => act({ action: 'back' })}
+        >
           ←
         </Button>
         <Button
-          disabled={busy || !ready}
+          disabled={busy || !ready || !history.forward}
           aria-label="Forward"
           onClick={() => act({ action: 'forward' })}
         >
@@ -392,6 +425,24 @@ export function TaskBrowserView({
           <Button onClick={() => setCapture(undefined)}>Dismiss</Button>
         </div>
       )}
+      {confirming && (
+        <OutsideSandboxDialog
+          task={task}
+          app={confirming.name}
+          onRun={() => start(confirming).then(() => setConfirming(undefined))}
+          onCancel={() => setConfirming(undefined)}
+        />
+      )}
     </section>
   )
+}
+
+function idleText(app: TaskApp | undefined): string {
+  if (app?.state === 'starting' || app?.state === 'waiting') return `Starting ${app.name}…`
+  if (app?.state === 'failed' || app?.state === 'exited') {
+    if (app.problem) return app.problem
+    const how = app.signal ? `with ${app.signal}` : `with code ${app.exitCode ?? 'unknown'}`
+    return `${app.name} stopped ${how}. Check the App log, then use ▶ in Apps.`
+  }
+  return 'This App isn’t running. Use ▶ in Apps, then open preview.'
 }

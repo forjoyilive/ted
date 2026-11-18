@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   type BrowserCommand,
+  type BrowserResult,
   type DaemonClient,
   DaemonRequestError,
   type PreviewSize,
@@ -20,6 +21,7 @@ import {
   type PageResult,
   runOnPage,
 } from './browser-page.ts'
+import type { GuestProxyRules } from './browser-proxy.ts'
 import { applyEmulation, type PreviewEmulation, previewEmulation } from './preview-emulation.ts'
 
 type Page = GuestPage & {
@@ -79,7 +81,7 @@ export function createTaskBrowsers(
   onSelect: (taskId: string, app: TaskApp) => void,
   electron: BrowserViews,
   timing: { captureMs?: number; reloadMs?: number } = {},
-  proxy?: () => Promise<string>,
+  proxy?: GuestProxyRules,
 ) {
   const pages = new Map<string, Page>()
   const sessions = new Map<string, { session: Session; apps: Map<string, TaskApp> }>()
@@ -295,6 +297,12 @@ export function createTaskBrowsers(
                 const density = await script('devicePixelRatio').catch(() => undefined)
                 if (!isNumber(density) || !Number.isFinite(density) || density <= 0)
                   return undefined
+                // Chromium lays out a page without a viewport meta tag wider than a mobile frame
+                // and zooms it out to fit; the capture’s clip is in unzoomed page pixels.
+                const zoom = await script('visualViewport ? visualViewport.scale : 1').catch(
+                  () => undefined,
+                )
+                if (!isNumber(zoom) || !Number.isFinite(zoom) || zoom <= 0) return undefined
                 // A view that isn’t on screen may not draw a frame for the debugger’s capture;
                 // a capture that stays hidden makes it draw without showing it.
                 void contents
@@ -305,9 +313,9 @@ export function createTaskBrowsers(
                   clip: {
                     x: 0,
                     y: 0,
-                    width: metrics.width,
-                    height: metrics.height,
-                    scale: 1 / density,
+                    width: metrics.width / zoom,
+                    height: metrics.height / zoom,
+                    scale: zoom / density,
                   },
                 })
                 return isString(data) ? data : undefined
@@ -358,9 +366,10 @@ export function createTaskBrowsers(
       return {
         url: page.view.webContents.getURL(),
         text: `Preview size: ${previewSizeLabel(size)}`,
+        ...historyOf(page),
       }
     }
-    return runOnPage(
+    const result = await runOnPage(
       page,
       { request: command.request, expiresAt: command.expiresAt, url: command.app.url as string },
       {
@@ -369,6 +378,7 @@ export function createTaskBrowsers(
         closeAfterPartialInput: () => close(command.taskId, false),
       },
     )
+    return { ...result, ...historyOf(page) }
   }
   const invalidate = () => {
     generation++
@@ -496,8 +506,11 @@ export function createTaskBrowsers(
       if (!page) return { url: '', text: 'Open a running web App' }
       await valid(taskId, page.app)
       const chosen = sizeFor(taskId, page.app)
+      const history = page.view.webContents.navigationHistory
       return {
         url: page.view.webContents.getURL(),
+        canGoBack: history.canGoBack(),
+        canGoForward: history.canGoForward(),
         text: page.ready ? (page.error ?? 'Ready') : 'Opening…',
         size: previewSizeValue(chosen.size),
         ...(chosen.byAgent && { sizeByAgent: true as const }),
@@ -522,5 +535,14 @@ export function createTaskBrowsers(
       hide()
       for (const id of sessions.keys()) close(id)
     },
+  }
+}
+
+function historyOf(page: Page): Pick<BrowserResult, 'canGoBack' | 'canGoForward'> {
+  const contents = page.view.webContents
+  if (contents.isDestroyed()) return {}
+  return {
+    canGoBack: contents.navigationHistory.canGoBack(),
+    canGoForward: contents.navigationHistory.canGoForward(),
   }
 }

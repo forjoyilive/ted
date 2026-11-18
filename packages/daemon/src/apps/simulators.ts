@@ -17,6 +17,7 @@ import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { TedStore } from '../store/index.ts'
 import { centre, formatScreen } from './android-screen.ts'
+import type { DevicePool } from './device-pool.ts'
 import {
   createDeviceSlots,
   type DeviceDriver,
@@ -88,6 +89,7 @@ export interface Simulators {
     input: { runId?: string; shutDown?: string; reason?: string },
   ): Promise<{ udid: string } | { waiting: string }>
   wait(commentId: string, app: SimulatorApp): Promise<SimulatorWait>
+  list(commentId: string, app: SimulatorApp): void
   withdraw(commentId: string): void
   withRequest<T>(
     comment: Comment,
@@ -143,6 +145,7 @@ export function createSimulators(options: {
   banners?: Banners
   idle?: IdleTimer
   busy?: () => Promise<boolean>
+  pool: DevicePool
   emit(event: DaemonEvent): void
   appLive(taskId: string, repo: string, name: string): Promise<boolean>
   stopApp(taskId: string, repo: string, name: string): Promise<void>
@@ -270,7 +273,6 @@ export function createSimulators(options: {
 
   const driver: DeviceDriver<DeviceRecord> = {
     words: { noun: 'simulator', article: 'a', live: 'booted' },
-    limit: () => store.settings().maxBootedSimulators,
     event: (simulators) => ({ type: 'simulators-changed', simulators }),
     slotId: (record) => record.udid,
     isLive: (record) => booted.has(record.udid),
@@ -334,6 +336,7 @@ export function createSimulators(options: {
     store,
     supported,
     driver,
+    pool: options.pool,
     ...(options.idle !== undefined && { idle: options.idle }),
     ...(options.busy !== undefined && { busy: options.busy }),
     emit: options.emit,
@@ -374,6 +377,7 @@ export function createSimulators(options: {
     },
     acquire: deviceSlots.acquire,
     wait: deviceSlots.wait,
+    list: deviceSlots.list,
     withdraw: deviceSlots.withdraw,
     withRequest: deviceSlots.withRequest,
     shutDown(taskId, repo, name) {

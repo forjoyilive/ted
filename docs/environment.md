@@ -29,6 +29,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_EXIT_WITH_PID`, `TED_TEST_RUN`, `TED_TEST_FILE` | Track and clean up test processes. |
 | `TED_STALL_AFTER_MS`, `TED_NUDGE_AFTER_MS`, `TED_IDLE_EXIT_MS`, `TED_UNATTENDED_EXIT_MS`, `TED_RESTART_DELAYS_MS`, `TED_HOLD_REQUESTS_MS` | Shorten timing for tests. |
 | `TED_FREE_BYTES_FILE`, `TED_ONLINE_FILE`, `TED_LOAD_FILE`, `TED_MEMORY_FILE` | Simulate disk space, connectivity, CPU load and memory. |
+| `TED_BROWSER_HOSTS` | Set to `name=address` pairs separated by commas to make the Task browser’s guest proxy resolve those names to those addresses, and every other name to nothing, without DNS. Ignored in release. |
 | `TED_FIX_LOG` | Record terminal fix commands instead of opening a terminal. |
 | `TED_LOGIN_ITEM_LOG`, `TED_LOGIN_ITEM_STATUS` | Simulate login items. |
 | `TED_NOTIFY_LOG`, `TED_NOTIFY_STATUS` | Record or disable notifications and badges. |
@@ -38,6 +39,8 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_DEMO`, `TED_DEMO_STARTED`, `TED_STUB_GH`, `TED_STUB_XCRUN`, `TED_STUB_ANDROID` | Prepare the isolated Dev demo and select its local fixture state; ignored in release. |
 
 Ted sets `TED_CHECK_CPUS` on every Check command (on a Scheduled Check’s only while the `limitScheduledCheckCpus` machine setting is on) and never reads it: a value in the daemon’s own environment is dropped like every other inherited `TED_*` name. This repo’s `pnpm check` reads it in `scripts/machine-load.ts` to choose its Vitest worker counts.
+
+Ted sets `TED_APP_CPUS` on every iOS simulator and Android emulator App’s `run` command in the same way (ADR 0193): the **CPU a Check may use** share of the logical cores, divided by the simulator and emulator App builds running at that moment, never less than 1. Ted never reads it; a Factory’s App script passes it to `xcodebuild -jobs` or Gradle `--max-workers`.
 
 Inside Ted’s sandbox, `TED_SANDBOX=1` also changes this repo’s test tooling (ADR 0147): `vitest.config.ts` points `TED_SANDBOX_BIN` at `packages/daemon/test/fixtures/pass-through-sandbox.sh`, because a second sandbox can’t start inside the first, and on macOS prints `TED_SANDBOX_SKIPPED: the Electron app tests`, which a Scheduled Check shows in its result; `testCacheDir` in `packages/daemon/test/support/suite-lock.ts` keeps test locks, slots and the failure log in `$XDG_CACHE_HOME/ted`, which the sandbox points at the command’s own cache folder. A test the sandbox stops (one that needs a second sandbox, writes files Ted refuses inside a Ted home, or starts or inspects processes) calls `skipInsideTedSandbox` from `packages/daemon/test/support/ted-sandbox.ts` with the matching entry of `sandboxReasons`; it prints one `TED_SANDBOX_SKIPPED:` line per reason, and a Scheduled Check’s result shows at most five, so add a new reason only for a new kind of refusal.
 

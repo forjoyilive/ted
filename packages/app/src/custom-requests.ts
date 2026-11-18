@@ -51,6 +51,8 @@ export interface CustomRequests {
         url: string
         text: string
         opening?: true
+        canGoBack?: boolean
+        canGoForward?: boolean
         size?: string
         sizeByAgent?: true
         blocked?: number

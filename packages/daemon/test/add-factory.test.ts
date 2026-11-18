@@ -375,7 +375,12 @@ describe('adding a Factory', () => {
       expect(failed?.setup?.[0]?.error).toBeTruthy()
 
       if (automatic) {
-        await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
+        await client.ok('PUT', '/backlog-starts', {
+          enabled: true,
+          all: false,
+          groupIds: [],
+          factoryIds: [factory.id],
+        })
       }
       const task = await client.ok<Task>('POST', '/tasks', {
         factory: 'WI',
