@@ -10,7 +10,7 @@ Make the change the Task asks for, on this Task’s branch.
 2. Build in small slices, each with an observable result. For behaviour changes, use `tdd` if the skill is available to your agent. Work test-first: write a failing test at an existing public boundary, then the smallest change that passes it, then refactor. Follow these steps when the skill is unavailable too. Follow the repo’s testing conventions; documentation-only changes need no artificial tests.
 3. Run tests relevant to the changed behaviour within the repo’s test scope rules, and fix what fails. Reuse passing results until a change or an unresolved concern calls for another run.
 4. Check every acceptance criterion against the result. Record the evidence and any remaining limitations in the brief; resolve missing behaviour before handing off.
-5. Commit your work. `ted outcome advance` moves the Task to Validate at once, and Ted runs the checks there as Validate’s first step. You can run the Factory’s checks yourself first with `ted checks`.
+5. Commit your work. `ted outcome advance` moves the Task to Validate at once, and Ted runs the checks there as Validate’s first step. `ted checks` is refused in Work; to check your work first, run the repo’s quick commands yourself, such as its type check and linter.
 6. Post a short note leading with the resulting behavior, then the validation outcome and any remaining limitation. Attach detailed evidence when needed, following the preamble’s writing guidance.
 
 ## Done when

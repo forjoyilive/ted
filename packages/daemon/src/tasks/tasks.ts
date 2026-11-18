@@ -13520,6 +13520,12 @@ export function createTasks(options: {
     async runChecks(ref, caller, only) {
       const { task } = taskLead(ref, caller, 'runs checks')
       refuseDuringRepairHandOff(task)
+      if (handsOff(task.stage)) {
+        throw new RequestError(
+          409,
+          `\`ted checks\` doesn’t run in Work: Ted runs the Factory’s checks when ${task.displayId} enters Validate. To check your work now, run the repo’s quick commands yourself, such as its type check and linter.`,
+        )
+      }
       if (inFlight.is(task.id, 'transition'))
         throw new RequestError(
           409,
