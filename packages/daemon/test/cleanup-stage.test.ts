@@ -8,6 +8,7 @@ import {
   ctx,
   getTask,
   lines,
+  setGh,
   start,
   toSignoff,
   useMergeHarness,
@@ -199,7 +200,7 @@ test('a Cleanup with only commands runs the unfinished ones again after a stop, 
   await expect(readdir(logs)).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
-test('a Task entering Cleanup while the computer is busy gets its Task Lead turn, while a new Task stays held', async () => {
+test('Tasks in Cleanup get their Task Lead turn while the computer is busy, whether the Task Lead is idle or has ended, while a new Task stays held', async () => {
   let ratio = 0
   const client = await start({
     workflow: [
@@ -207,6 +208,8 @@ test('a Task entering Cleanup while the computer is busy gets its Task Lead turn
       '  cleanup:',
       '    enabled: true',
       '    steps:',
+      '      - name: Wait',
+      '        command: until [ -e stub-go ]; do sleep 0.1; done',
       '      - name: Post note',
       '        instruction: |',
       `          ${leadRuns("ted cleanup report 'Post note' done 'Posted' && ted outcome advance")}`,
@@ -214,6 +217,9 @@ test('a Task entering Cleanup while the computer is busy gets its Task Lead turn
     daemon: { load: { ratio: () => ratio, memoryAvailable: () => 1, checkEveryMs: 50 } },
   })
   const { task, signoff } = await toSignoff(client)
+  const idle = await getTask(client, task.id)
+  await writeFile(path.join(idle.repos[0]?.worktree ?? '', 'stub-go'), '')
+  const ended = await toSignoff(client)
   const never = path.join(ctx.scratch, 'never')
   const working = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({ steps: [{ waitFor: never }, { endTurn: true }] }),
@@ -243,9 +249,34 @@ test('a Task entering Cleanup while the computer is busy gets its Task Lead turn
   await waitForStage(client, task, 'done')
 
   expect(await lines(client, task)).toContain('Cleanup step “Post note”: done')
+  expect((await getTask(client, task.id)).leadRunId).toBe(idle.leadRunId)
+  expect((await getTask(client, held.id)).status).toMatchObject({
+    kind: 'queued',
+    hold: 'computer is busy',
+  })
+
+  await setGh({ merged: false })
+  await approve(client, ended.signoff)
+  await waitUntil(
+    async () => (await getTask(client, ended.task.id)).activity === 'Running Cleanup commands',
+    'the second Task’s Cleanup commands to start',
+  )
+  const stopped = await getTask(client, ended.task.id)
+  await client.ok('POST', `/tasks/${ended.task.id}/stop`)
+  await waitUntil(
+    async () =>
+      (await client.getRun(stopped.leadRunId ?? '')).run.state === 'finished' || undefined,
+    'the second Task Lead’s Run to end',
+  )
+  await writeFile(path.join(stopped.repos[0]?.worktree ?? '', 'stub-go'), '')
+  await client.ok('POST', `/tasks/${ended.task.id}/resume`, {})
+  await waitForStage(client, ended.task, 'done')
+
+  expect(await lines(client, ended.task)).toContain('Cleanup step “Post note”: done')
+  expect((await getTask(client, ended.task.id)).leadRunId).not.toBe(stopped.leadRunId)
   expect((await getTask(client, held.id)).status).toMatchObject({
     kind: 'queued',
     hold: 'computer is busy',
   })
   expect((await getTask(client, held.id)).runs).toEqual([])
-}, 90_000)
+}, 150_000)
