@@ -24,7 +24,7 @@ stages:
   clarify:
     enabled: true
     gate: false
-    based_on: 9a50bb8
+    based_on: 46fa75b
   cleanup:
     enabled: true
     steps:
