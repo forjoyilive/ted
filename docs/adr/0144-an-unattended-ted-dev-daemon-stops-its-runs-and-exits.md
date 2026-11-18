@@ -29,6 +29,6 @@ A demo whose Runs were stopped this way is marked incomplete in its `demo.json`,
 ## Consequences
 
 - In Ted Dev, a Task Lead that waits on the human for more than an hour with no app open and no `ted` command is stopped. An answer resumes it (ADR 0141).
-- A demo home left with a daemon and no app loses its Runs after an hour and has to be seeded again. A demo closed with the app’s Quit has no daemon, so its hosts stay until the home is reset or deleted.
+- A demo home left with a daemon and no app loses its Runs after an hour and has to be seeded again. A demo closed with the app’s Quit has no daemon, so its hosts stay until `pnpm ted dev stop` stops them or the home is reset or deleted. Seeding and the demo app’s Quit write `quit-mark` so a stub Run’s `ted` call cannot restart the daemon. After closing the app, `pnpm ted dev stop` stops the daemon, Run hosts, stub agents and Apps while keeping the data, and marks a populated demo incomplete so it needs `pnpm ted dev seed --reset`.
 - Apps aren’t stopped by the unattended exit, as they aren’t by Quit.
 - New periodic work must not take and release an idle hold on a timer shorter than the idle exit. Hold for as long as there is something to wait for, like the Automations and snooze timers, or not at all.

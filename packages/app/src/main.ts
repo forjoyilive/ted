@@ -963,6 +963,7 @@ async function quitCompletely(): Promise<void> {
   }
   window?.hide()
   if (edition === 'dev' && tedEnv('TED_DEMO') === '1') {
+    await markQuit(tedHome()).catch(console.error)
     await supervisor?.handOver({ maxWaitMs: 0 }).catch((error: unknown) => console.error(error))
   } else {
     await markQuit(tedHome()).catch((error: unknown) => console.error('quit mark:', error))
