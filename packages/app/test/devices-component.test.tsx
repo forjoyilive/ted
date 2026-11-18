@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { SimulatorSlots } from '@ted/protocol'
+import type { DeviceWait, SimulatorSlots } from '@ted/protocol'
 import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { DevicesPopover } from '../src/renderer/components/DevicesPopover.tsx'
@@ -97,8 +97,8 @@ test('each row opens its Task, shows or stops its device, and the footer opens t
   expect(running.getByText('iPhone · iPhone 16')).toBeTruthy()
   expect(running.getByText('Recording')).toBeTruthy()
   expect(waiting.getByText('1st')).toBeTruthy()
-  expect(waiting.getByText('iPhone · iPhone 16 Pro · Waiting for a free device')).toBeTruthy()
-  expect(waiting.getByText('Android · Pixel 8 · Waiting for NB-2’s build')).toBeTruthy()
+  expect(waiting.getByText('iPhone · iPhone 16 Pro')).toBeTruthy()
+  expect(waiting.getByText('Android · Pixel 8')).toBeTruthy()
   expect(screen.getByText('At most 2 at once')).toBeTruthy()
 
   await user().click(running.getByRole('button', { name: 'Show Android' }))
@@ -122,4 +122,46 @@ test('each row opens its Task, shows or stops its device, and the footer opens t
 
   await user().click(screen.getByRole('button', { name: 'Change in Settings →' }))
   expect(props.onOpenLimits).toHaveBeenCalledTimes(1)
+})
+
+test('a Waiting row shows its whole reason on a line of its own', () => {
+  const waitingFor: DeviceWait[] = [
+    { kind: 'answer' },
+    { kind: 'build', displayId: 'NB-2', app: 'Android' },
+    { kind: 'device' },
+    { kind: 'busy' },
+    { kind: 'line' },
+  ]
+  const waiting = waitingFor.map((wait, i) => ({
+    taskId: `w${i}`,
+    displayId: `NB-${10 + i}`,
+    title: 'Share sheet',
+    repo: 'app',
+    app: `Long app name ${i}`,
+    device: 'iPad Pro 13-inch (M4) with a long device name',
+    place: i + 1,
+    waitingFor: wait,
+  }))
+  render(
+    <DevicesPopover
+      slots={{ ...slots, waiting }}
+      onOpenTask={vi.fn()}
+      onShow={vi.fn(async () => {})}
+      onStop={vi.fn(async () => {})}
+      onOpenLimits={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  )
+  const region = within(screen.getByRole('region', { name: 'Waiting' }))
+  for (const reason of [
+    'Waiting for your answer',
+    'Waiting for NB-2’s build',
+    'Waiting for a free device',
+    /^Waiting while this (Mac|computer) is busy$/,
+    'Waiting for the Apps ahead',
+  ]) {
+    const line = region.getByText(reason)
+    expect(line.className).toContain('reason')
+    expect(line.className).not.toContain('detail')
+  }
 })

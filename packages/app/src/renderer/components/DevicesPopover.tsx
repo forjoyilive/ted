@@ -108,7 +108,13 @@ export function DevicesPopover({
     </ActionButton>
   )
 
-  const openButton = (taskId: string, lead: ReactNode, title: string, detail: ReactNode) => (
+  const openButton = (
+    taskId: string,
+    lead: ReactNode,
+    title: string,
+    detail: ReactNode,
+    reason?: string,
+  ) => (
     <button
       type="button"
       className={styles.open}
@@ -121,6 +127,7 @@ export function DevicesPopover({
       <span className={runs.text}>
         <span className={runs.title}>{title}</span>
         <span className={runs.detail}>{detail}</span>
+        {reason !== undefined && <span className={styles.reason}>{reason}</span>}
       </span>
     </button>
   )
@@ -168,9 +175,8 @@ export function DevicesPopover({
           device.taskId,
           <span className={runs.place}>{ordinal(device.place)}</span>,
           `${device.displayId} · ${device.title}`,
-          busy
-            ? 'Stopping…'
-            : `${device.app} · ${device.device} · ${deviceWaitText(device.waitingFor, machine)}`,
+          busy ? 'Stopping…' : `${device.app} · ${device.device}`,
+          busy ? undefined : deviceWaitText(device.waitingFor, machine),
         )}
         <span className={styles.actions}>{stopButton(device)}</span>
       </li>
