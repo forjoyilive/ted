@@ -19,6 +19,10 @@ stages:
       - { name: Typecheck, run: pnpm typecheck }
       - { name: Lint, run: pnpm lint }
       - { name: Affected Tests, run: pnpm check --affected, timeout: 80m }
+      - name: Docs drift
+        fix: true
+        instruction: >-
+          Read the Task’s diff against its base. Find what it leaves wrong or missing in `GLOSSARY.md`, `AGENTS.md`, `docs/agents/*.md`, `docs/spec/` and any ADR in `docs/adr/` that the change touches: a rule, a term, a file path or a function name that no longer matches the code, or a new rule or term the change needs and no doc states. Fix each one with a doc edit, in its own commit, following the doc’s existing style and `AGENTS.md`’s writing rules. Don’t change the style of a doc, or any doc the change didn’t affect, and don’t edit code. Fail only for what a doc edit can’t fix, such as a contradiction between the change and a doc that needs a decision; name the doc and the line. Pass when there was nothing to fix or you fixed all of it, and list what you fixed.
   review: { enabled: false, gate: false }
   merge: { gate: false }
   clarify:
