@@ -15,6 +15,8 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import type { DaemonWrappers } from '../src/daemon.ts'
+import { RequestError } from '../src/errors.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { checkCpus } from '../src/tasks/check-slots.ts'
 import {
@@ -107,6 +109,7 @@ async function stubCalls(): Promise<string[][]> {
 async function start(
   simulators: { supported?: boolean; idleMs?: number } = {},
   disk?: { freeBytes: () => Promise<number>; checkEveryMs: number },
+  wrap?: DaemonWrappers,
 ) {
   daemon = await startDaemon({
     home,
@@ -115,6 +118,7 @@ async function start(
     apps: { pollMs: 50, readyTimeoutMs: 20_000, stopGraceMs: 3_000 },
     simulators: { supported: true, pollMs: 100, ...simulators },
     ...(disk !== undefined && { disk }),
+    ...(wrap !== undefined && { wrap }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -222,6 +226,13 @@ async function simulatorRequest(client: Client, task: Task): Promise<Comment> {
     'the simulator request',
     20_000,
   )
+}
+
+interface Lookups {
+  fail?: Error | undefined
+  hold?: Promise<void> | undefined
+  held?: () => void
+  count: number
 }
 
 describe('iOS simulator Apps', () => {
@@ -371,6 +382,73 @@ describe('iOS simulator Apps', () => {
     expect((await iPhone(client, task))?.state).toBe('running')
     expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toEqual([])
     expect(await cpusTold(1)).toEqual([String(checkCpus(os.availableParallelism(), 1, 50))])
+  })
+
+  test('a waiting simulator App keeps its place when one lookup fails, and a follower that read an older instance doesn’t end a newer one', async () => {
+    const lookups: Lookups = {
+      count: 0,
+    }
+    const client = await start({}, undefined, {
+      workflows: (workflows) => ({
+        ...workflows,
+        resolve: async (...input) => {
+          if (new Error().stack?.includes('waitForSlot') === true) {
+            lookups.count++
+            const { fail, hold, held } = lookups
+            lookups.fail = undefined
+            lookups.hold = undefined
+            if (hold !== undefined) {
+              held?.()
+              await hold
+            }
+            if (fail !== undefined) throw fail
+          }
+          return workflows.resolve(...input)
+        },
+      }),
+    })
+    const built = path.join(scratch, 'built')
+    await addFactory(
+      client,
+      `until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
+    )
+    const task = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Watch' })
+    const watchState = async () => (await apps(client, task)).find((a) => a.name === 'Watch')?.state
+
+    lookups.fail = new Error('EIO: the workflow couldn’t be read')
+    const failedAt = lookups.count
+    await waitUntil(
+      async () => lookups.fail === undefined && lookups.count > failedAt + 1,
+      'the waiting Watch App to look itself up again after a failed lookup',
+    )
+    expect(await watchState()).toBe('waiting')
+
+    let release = () => {}
+    const holding = new Promise<void>((resolve) => {
+      lookups.held = resolve
+    })
+    lookups.hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    lookups.fail = new RequestError(404, 'no Task')
+    await holding
+    await client.ok('POST', `/tasks/${task.id}/apps/stop`, { name: 'Watch' })
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Watch' })
+    const releasedAt = lookups.count
+    release()
+    await waitUntil(
+      async () => lookups.count > releasedAt,
+      'the old follower to keep following the restarted Watch App',
+    )
+    expect(await watchState()).toBe('waiting')
+
+    await writeFile(built, '')
+    await waitUntil(
+      async () => (await watchState()) === 'running',
+      'the Watch App to start once the iPhone App is built',
+    )
   })
 
   test('with one build at a time off, two builds at once split the CPU share, and a build that printed TED_APP_READY stops counting', async () => {
