@@ -272,23 +272,22 @@ test('Task actions opens and chooses actions without opening the enclosing Task'
   const settings = screen.getByRole('menu', { name: 'Settings' })
   expect(within(settings).getByText('Task Lead')).toBeTruthy()
   expect(within(settings).getByRole('menuitemradio', { name: 'Few' })).toBeTruthy()
-  expect(screen.getByRole('menuitem', { name: 'Settings' }).textContent).toContain('Autopilot off')
-  expect(within(settings).getByRole('menuitemradio', { name: 'Autopilot off' }).ariaChecked).toBe(
-    'true',
-  )
-  expect(
-    within(settings).getByRole('menuitemradio', { name: 'Use global setting (Off)' }),
-  ).toBeTruthy()
+  expect(within(settings).queryByRole('menuitemradio', { name: 'Autopilot off' })).toBeNull()
   await u.click(within(settings).getByRole('menuitemradio', { name: 'Urgent' }))
   expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'urgent')
   await vi.waitFor(() => expect(screen.queryByRole('menu', { name: /Task actions/ })).toBeNull())
   await u.click(screen.getByRole('button', { name: 'Task actions' }))
-  await u.click(screen.getByRole('menuitem', { name: 'Settings' }))
-  await u.click(
-    within(screen.getByRole('menu', { name: 'Settings' })).getByRole('menuitemradio', {
-      name: 'Autopilot on',
-    }),
+  const autopilotItem = screen.getByRole('menuitem', { name: 'Autopilot' })
+  expect(autopilotItem.textContent).toContain('Off')
+  await u.click(autopilotItem)
+  const autopilot = screen.getByRole('menu', { name: 'Autopilot' })
+  expect(within(autopilot).getByRole('menuitemradio', { name: 'Autopilot off' }).ariaChecked).toBe(
+    'true',
   )
+  expect(
+    within(autopilot).getByRole('menuitemradio', { name: 'Use global setting (Off)' }),
+  ).toBeTruthy()
+  await u.click(within(autopilot).getByRole('menuitemradio', { name: 'Autopilot on' }))
   expect(api.request).toHaveBeenCalledWith('setTaskAutopilot', 'NB-1', { choice: 'on' })
   expect(open).not.toHaveBeenCalled()
 })
