@@ -1154,6 +1154,7 @@ export interface TedStore extends TaskHistory {
     stage: StageId
     checks: PlannedCheck[]
   }): CheckRun
+  replanChecks(checkRunId: string, from: number, checks: PlannedCheck[]): CheckRun
   checkSlotBoundary(
     checkRunId: string,
     boundary: 'entered' | 'acquired' | 'canceled' | 'interrupted' | 'recovered',
@@ -2955,6 +2956,20 @@ export async function openStore({
     ...(row.effort !== null && { effort: row.effort }),
     ...(row.notRerun === true && { notRerun: true }),
     ...(row.noReport !== null && row.state === 'failed' && { noReport: row.noReport }),
+  })
+  const plannedRow = (check: PlannedCheck) => ({
+    name: check.name,
+    repo: check.repo ?? null,
+    command: check.command ?? null,
+    timeout: check.timeout,
+    builtIn: check.builtIn ?? null,
+    state: check.state,
+    instruction: check.instruction ?? null,
+    fix: check.fix ?? null,
+    agent: check.agent ?? null,
+    model: check.model ?? null,
+    effort: check.effort ?? null,
+    notRerun: check.notRerun ?? null,
   })
   const toCheckRun = (row: typeof checkRuns.Type): CheckRun => {
     const run: CheckRun = {
@@ -6636,24 +6651,24 @@ export async function openStore({
           taskId,
           trigger,
           stage,
-          checks: checks.map((check) => ({
-            name: check.name,
-            repo: check.repo ?? null,
-            command: check.command ?? null,
-            timeout: check.timeout,
-            builtIn: check.builtIn ?? null,
-            state: check.state,
-            instruction: check.instruction ?? null,
-            fix: check.fix ?? null,
-            agent: check.agent ?? null,
-            model: check.model ?? null,
-            effort: check.effort ?? null,
-            notRerun: check.notRerun ?? null,
-          })),
+          checks: checks.map(plannedRow),
           at: new Date().toISOString(),
         }),
       )
       return updatedCheckRun(id)
+    },
+    replanChecks(checkRunId, from, checks) {
+      const run = requireCheckRun(checkRunId)
+      commit(
+        events.checksReplanned({
+          taskId: run.taskId,
+          checkRunId,
+          from,
+          checks: checks.map(plannedRow),
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedCheckRun(checkRunId)
     },
     checkSlotBoundary(checkRunId, boundary, at) {
       const run = requireCheckRun(checkRunId)

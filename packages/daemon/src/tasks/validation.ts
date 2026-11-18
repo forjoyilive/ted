@@ -23,6 +23,7 @@ import type { WorkflowResolution } from '../workflow/workflows.ts'
 import {
   type CheckRunnerResult,
   type InstructionStep,
+  isInstructionPlanned,
   type RunnableCheck,
   runChecks,
   summary,
@@ -389,6 +390,7 @@ export function createValidation(options: ValidationOptions) {
           ],
         })
       }
+      const codeChangedAt: number[] = []
       const runInstruction = async (
         position: number,
         check: PlannedCheck & { instruction: string },
@@ -401,8 +403,35 @@ export function createValidation(options: ValidationOptions) {
           log: options.checkLog(task, checkRun.id, position),
         })
         if (step.kind !== 'interrupted' && step.changed && check.fix === true)
-          await refreshCoverage()
+          codeChangedAt.push(position)
         return step
+      }
+      const fixingFirst = plan.findIndex(
+        (p) => !isInstructionPlanned(p.check) || p.check.fix !== true,
+      )
+      const fixing = fixingFirst < 0 ? plan.length : fixingFirst
+      const replanAfter = async (position: number) => {
+        const fresh = await options.plan(
+          find(task.id),
+          resolution,
+          merging ? undefined : only,
+          worktreeReads(),
+          requested && !tracking,
+        )
+        const from = position + 1
+        if (fresh[start + position]?.check.name !== plan[position]?.check.name) return
+        const rest = fresh.slice(start + from)
+        const before = plan.slice(from).map((p) => p.check)
+        const after = rest.map((p) => p.check)
+        plan = [...plan.slice(0, from), ...rest]
+        if (JSON.stringify(after) === JSON.stringify(before)) return
+        store.replanChecks(checkRun.id, from, after)
+        const current = tracking ? store.failures.progress(task.id) : undefined
+        if (current?.executions.at(-1)?.runId === checkRun.id)
+          store.failures.saveProgress({
+            ...current,
+            checks: [...current.checks.slice(0, start + from), ...after],
+          })
       }
       const finishedCheck = (
         position: number,
@@ -426,10 +455,25 @@ export function createValidation(options: ValidationOptions) {
           }
         }
       }
-      const runFrom = (from: number) =>
+      const runFrom = async (from: number): Promise<CheckRunnerResult> => {
+        let position = from
+        for (; position < fixing; position++) {
+          codeChangedAt.length = 0
+          const ran = await runPlan(position, position + 1)
+          const changed = codeChangedAt.at(-1)
+          if (changed !== undefined) {
+            await replanAfter(changed)
+            await refreshCoverage()
+          }
+          if (ran.outcome !== 'passed') return ran
+        }
+        return runPlan(position)
+      }
+      const runPlan = (from: number, to?: number) =>
         runChecks({
           checks: plan,
           from,
+          ...(to !== undefined && { to }),
           taskDisplayId: task.displayId,
           libraryDir: options.libraryDir,
           env: options.env(),

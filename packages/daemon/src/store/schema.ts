@@ -2818,6 +2818,31 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  checksReplanned: Events.synced({
+    name: 'v1.ChecksReplanned',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      from: Schema.Number,
+      checks: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+          command: Schema.NullOr(Schema.String),
+          timeout: Schema.String,
+          builtIn: Schema.NullOr(Schema.String),
+          state: Schema.String,
+          instruction: Schema.NullOr(Schema.String),
+          fix: Schema.NullOr(Schema.Boolean),
+          agent: Schema.NullOr(Schema.String),
+          model: Schema.NullOr(Schema.String),
+          effort: Schema.NullOr(Schema.String),
+          notRerun: Schema.NullOr(Schema.Boolean),
+        }),
+      ),
+      at: Schema.String,
+    }),
+  }),
   checkChangeKeyRecorded: Events.synced({
     name: 'v1.CheckChangeKeyRecorded',
     schema: Schema.Struct({
@@ -5440,6 +5465,18 @@ const materializers = counted(
             id: `${run.id}:${position}`,
             checkRunId: run.id,
             position,
+          }),
+        ),
+      ],
+      'v1.ChecksReplanned': ({ checkRunId, from, checks }) => [
+        checkResults.delete().where({ checkRunId, position: { op: '>=', value: from } }),
+        ...checks.map(({ command, ...check }, index) =>
+          checkResults.insert({
+            ...check,
+            command: command ?? '',
+            id: `${checkRunId}:${from + index}`,
+            checkRunId,
+            position: from + index,
           }),
         ),
       ],

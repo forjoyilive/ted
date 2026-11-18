@@ -168,6 +168,7 @@ export async function runChecks(input: {
   cpus?: () => number
   memory?: MemoryWatch
   from?: number
+  to?: number
   onInterrupted?: (position: number) => void
   reportingEnv?: (position: number, supported: boolean) => Promise<Record<string, string>>
   beforeCommand?: () => Promise<boolean>
@@ -185,6 +186,7 @@ export async function runChecks(input: {
   const notFound: string[] = []
   for (const [position, { check, cwd, env }] of input.checks.entries()) {
     if (position < (input.from ?? 0)) continue
+    if (input.to !== undefined && position >= input.to) break
     if (check.state === 'skipped' || check.notRerun || cwd === undefined) continue
     if (input.signal?.aborted) return { outcome: 'interrupted', notFound }
     if (isInstructionPlanned(check)) {

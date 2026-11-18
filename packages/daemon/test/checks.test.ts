@@ -344,10 +344,10 @@ const passedValidate = (client: Client, task: Task) =>
   )
 
 describe('Instruction Checks at Validate', () => {
-  test('a fixing instruction Check runs before the commands and commits its fix; the commands run once on the fixed code, the report-only one runs after them, and the report lists the commit', async () => {
+  test('a fixing instruction Check runs before the commands and commits its fix; the commands run once on the fixed code, a fix under .ted/ adds the Ted settings Check to the same Check run, the report-only one runs after them, and the report lists the commit', async () => {
     await workflow(
       [
-        '      - { name: Tests, run: "test -e fixed.txt && echo ok" }',
+        '      - { name: Tests, run: "test -e .ted/notes.md && echo ok" }',
         instructionCheck(
           'Review',
           steps({ say: 'Nothing wrong.\nResult: pass' }, { endTurn: true }),
@@ -355,7 +355,7 @@ describe('Instruction Checks at Validate', () => {
         instructionCheck(
           'Docs drift',
           steps(
-            { run: commit('fixed.txt', 'Fix the docs') },
+            { run: commit('.ted/notes.md', 'Fix the docs') },
             { say: 'Fixed the docs.\nResult: pass' },
             { endTurn: true },
           ),
@@ -372,8 +372,10 @@ describe('Instruction Checks at Validate', () => {
     expect(states(run)).toEqual([
       ['Docs drift', 'passed'],
       ['Tests', 'passed'],
+      ['Ted settings', 'passed'],
       ['Review', 'passed'],
     ])
+    expect(run?.checks[2]).toMatchObject({ builtIn: 'ted-settings' })
     expect(run?.checks[0]).toMatchObject({ fix: true, agent: 'claude' })
     expect(run?.checks[0]?.instruction).toContain('Fix the docs')
     expect(run?.checks[0]?.command).toBeUndefined()
@@ -386,7 +388,7 @@ describe('Instruction Checks at Validate', () => {
     const messages = await leadMessages(client, task)
     expect(
       messages.some((m) =>
-        m.includes('✓ Docs drift (instruction)\n✓ Tests\n✓ Review (instruction)'),
+        m.includes('✓ Docs drift (instruction)\n✓ Tests\n✓ Ted settings\n✓ Review (instruction)'),
       ),
     ).toBe(true)
   }, 120_000)
