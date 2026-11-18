@@ -273,7 +273,7 @@ test('final observation invalidates earlier consent while committing only the ma
       await service.assess(task, value.id, 'lead', {
         assessment: 'unrelated',
         recommendation: 'Accept this context',
-        choice: 'accepted',
+        choice: 'fixed',
       })
       return service.request(task, value.id, 'lead')
     }
