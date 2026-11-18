@@ -174,6 +174,7 @@ interface Instance {
   sandboxed?: boolean
   waitingFor?: string
   readyAt?: string
+  builtAt?: string
   ended?: {
     at: string
     how: 'stopped' | 'exited' | 'failed'
@@ -456,6 +457,7 @@ export function createApps(options: AppsOptions): Apps {
       ...(instance?.port !== undefined && { port: instance.port }),
       ...(live && instance?.url !== undefined && { url: instance.url }),
       ...(instance && { startedAt: instance.startedAt }),
+      ...(instance?.builtAt !== undefined && { builtAt: instance.builtAt }),
       ...(instance?.startedBy !== undefined && { startedBy: instance.startedBy }),
       ...(ended && { endedAt: ended.at }),
       ...(ended?.code !== undefined && { exitCode: ended.code }),
@@ -1071,6 +1073,9 @@ export function createApps(options: AppsOptions): Apps {
       }
       if (started && pool.building(key) && (await saidReady(dir, key))) {
         pool.endTurn(key)
+        instance.builtAt = new Date().toISOString()
+        await writeInstance(dir, instance)
+        changed(taskId)
       }
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {

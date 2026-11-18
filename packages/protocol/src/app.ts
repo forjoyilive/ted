@@ -15,6 +15,7 @@ export interface TaskApp {
   port?: number
   url?: string
   startedAt?: string
+  builtAt?: string
   endedAt?: string
   exitCode?: number
   signal?: string
