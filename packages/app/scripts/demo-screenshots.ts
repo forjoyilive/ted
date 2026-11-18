@@ -7,8 +7,9 @@ import { _electron as electron } from 'playwright'
 import { buildRenderer } from '../test/build-renderer.ts'
 import { closeApp } from '../test/close-app.ts'
 import { loadedWindow } from '../test/first-window.ts'
-import { installedElectron } from './electron-path.ts'
+import { prepareElectron } from '../test/support/electron-installation.ts'
 
+const executablePath = await prepareElectron()
 const home = demoHome()
 const output = path.resolve(process.argv[2] || path.join(home, 'screenshots'))
 const env = { ...demoEnvironment(home), TED_HIDDEN_WINDOW: '1' }
@@ -18,7 +19,7 @@ await buildRenderer()
 await seedDemoFromCli(home)
 await mkdir(output, { recursive: true })
 const app = await electron.launch({
-  executablePath: await installedElectron(),
+  executablePath,
   args: [fileURLToPath(new URL('..', import.meta.url))],
   env,
   timeout: 120_000,
@@ -27,6 +28,15 @@ try {
   const window = await loadedWindow(app)
   await window.setViewportSize({ width: 1600, height: 1000 })
   const nav = () => window.getByRole('navigation', { name: 'Sidebar' })
+  const openBoard = async () => {
+    const row = nav().getByRole('article', { name: 'Garden', exact: true })
+    const views = row.getByRole('button', { name: 'Views' })
+    if ((await views.getAttribute('aria-expanded')) !== 'true') await views.click()
+    const taskViews = row.locator('..').getByRole('button', { name: 'Task views' })
+    if ((await taskViews.getAttribute('aria-expanded')) === 'false') await taskViews.click()
+    await row.locator('..').getByRole('button', { name: 'Board', exact: true }).click()
+    await window.getByRole('region', { name: 'Backlog', exact: true }).waitFor()
+  }
   await nav().waitFor({ timeout: 120_000 })
   const manifest = JSON.parse(await readFile(path.join(home, 'demo.json'), 'utf8'))
   if (!manifest.complete) throw new Error('The demo seed did not finish.')
@@ -41,8 +51,7 @@ try {
       )
     }, theme)
     await window.emulateMedia({ colorScheme: theme })
-    await nav().getByRole('button', { name: 'Garden', exact: true }).click()
-    await window.getByRole('region', { name: 'Backlog', exact: true }).waitFor()
+    await openBoard()
     await window.screenshot({
       path: path.join(output, `board-${theme}.png`),
       animations: 'disabled',
@@ -52,12 +61,12 @@ try {
       .click()
     await window.getByRole('region', { name: 'Inbox', exact: true }).waitFor()
     await window.getByText('Which notebook should new notes use?', { exact: true }).click()
-    await window.getByRole('button', { name: 'Personal', exact: true }).waitFor()
+    await window.getByRole('radio', { name: 'Personal', exact: true }).waitFor()
     await window.screenshot({
       path: path.join(output, `inbox-${theme}.png`),
       animations: 'disabled',
     })
-    await nav().getByRole('button', { name: 'Garden', exact: true }).click()
+    await openBoard()
     await window.getByText('Keep the last edited note close at hand', { exact: true }).click()
     await window.getByRole('region', { name: 'Task thread', exact: true }).waitFor()
     await window

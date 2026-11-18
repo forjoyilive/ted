@@ -16,4 +16,4 @@ To capture the Board, Inbox, a Task thread and Settings in both themes:
 pnpm --filter @ted/app exec node scripts/demo-screenshots.ts
 ```
 
-Screenshots go in the demo home’s `screenshots` folder. Pass an output folder as the script’s first argument to choose another destination. The script uses a hidden Electron window and the shared seeder. Its demo home follows `TED_HOME` too.
+Screenshots go in the demo home’s `screenshots` folder. Pass an output folder as the script’s first argument to choose another destination. The script uses a hidden Electron window and the shared seeder. Unlike `pnpm app --demo`, it downloads the Electron binary first when it’s missing, as `withApp` does. Its demo home follows `TED_HOME` too.
