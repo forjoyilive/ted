@@ -203,6 +203,7 @@ export function createInstructionChecks(deps: InstructionCheckDeps) {
     mayFix: boolean
     log: string
     signal: AbortSignal
+    runNow?: boolean
     onRun?: (runId: string) => void
   }): Promise<InstructionOutcome> {
     const { task, check, repos, mayFix, log, signal } = input
@@ -225,6 +226,7 @@ export function createInstructionChecks(deps: InstructionCheckDeps) {
       name: `Check · ${check.name}`.slice(0, 60),
       prompt,
       choice: await deps.choose(task, check),
+      ...(input.runNow === true && { runNow: true }),
     })
     if (runId === undefined) {
       await writeReport(

@@ -40,7 +40,7 @@ export interface SubAgents {
   ): string | undefined
   requestForCheck(
     task: StoredTask,
-    input: { name: string; prompt: string; choice: ReviewerChoice },
+    input: { name: string; prompt: string; choice: ReviewerChoice; runNow?: boolean },
   ): string | undefined
   cancelForCheck(runId: string): Promise<void>
   result(runId: string): Promise<SubAgentWait>
@@ -95,6 +95,10 @@ export interface SubAgentDeps {
 const maxNameLength = 60
 const lingerMs = 1_000
 
+export function isCheckAgent(purpose: ReviewerPurpose | undefined): boolean {
+  return purpose === 'instruction-check' || purpose === 'run-now-check'
+}
+
 export function createSubAgents(deps: SubAgentDeps): SubAgents {
   const { store, runs, agents, find } = deps
   const startingNow = new Map<string, string>()
@@ -107,7 +111,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
   let allocating: Promise<unknown> = Promise.resolve()
   let closed = false
 
-  const forCheck = (id: string) => store.reviewerOf(id)?.purpose === 'instruction-check'
+  const forCheck = (id: string) => isCheckAgent(store.reviewerOf(id)?.purpose)
 
   function drop(id: string): void {
     if (startingNow.has(id)) cancelled.add(id)
@@ -644,7 +648,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       deps.pump()
       return id
     },
-    requestForCheck(task, { name, prompt, choice }) {
+    requestForCheck(task, { name, prompt, choice, runNow }) {
       const parentId = task.leadRunId
       if (parentId === undefined || store.getRun(parentId) === undefined || task.archived)
         return undefined
@@ -653,7 +657,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         runId: id,
         taskId: task.id,
         stage: task.stage,
-        purpose: 'instruction-check',
+        purpose: runNow === true ? 'run-now-check' : 'instruction-check',
         agent: choice.lead.agent,
         ...(choice.unavailable !== undefined && { unavailable: choice.unavailable }),
       })

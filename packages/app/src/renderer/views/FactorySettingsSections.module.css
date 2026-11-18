@@ -885,6 +885,7 @@
 
 .instructionText {
   min-height: 110px;
+  font-family: var(--font-sans);
 }
 
 .fixLine {

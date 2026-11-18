@@ -556,7 +556,12 @@ import {
   splitApprovedSummary,
 } from './split.ts'
 import { leadAskedAtMerge } from './status.ts'
-import { createSubAgents, type PlannedReview, type ReviewerChoice } from './sub-agents.ts'
+import {
+  createSubAgents,
+  isCheckAgent,
+  type PlannedReview,
+  type ReviewerChoice,
+} from './sub-agents.ts'
 import { titleFromText } from './task-title.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
 import { createTrackerConsent, type TrackerConsent } from './tracker-sync/consent.ts'
@@ -11199,7 +11204,7 @@ export function createTasks(options: {
   leadLifecycle.restoreHealth()
 
   for (const run of store.listRuns()) {
-    if (run.state !== 'finished' && store.reviewerOf(run.id)?.purpose === 'instruction-check')
+    if (run.state !== 'finished' && isCheckAgent(store.reviewerOf(run.id)?.purpose))
       inBackground('stop an instruction check’s agent left from before Ted restarted', () =>
         runs.stop(run.id),
       )
@@ -13839,6 +13844,7 @@ export function createTasks(options: {
           mayFix: false,
           log,
           signal: AbortSignal.any([stopping.signal, signal]),
+          runNow: true,
         })
         const taskDisplayId = task.displayId
         if (outcome.kind === 'interrupted') return { state: 'stopped', taskDisplayId }

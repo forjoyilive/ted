@@ -187,7 +187,10 @@ export function runNowAgents(
   for (const entry of log) {
     if (entry.name !== 'v4.RunStarted' && entry.name !== 'v5.RunStarted') continue
     const runId = entry.data.runId
-    if (!isString(runId) || purposeOf(runId) !== 'instruction-check') continue
+    if (!isString(runId)) continue
+    const purpose = purposeOf(runId)
+    if (purpose === 'run-now-check') found.add(runId)
+    if (purpose !== 'instruction-check') continue
     const at = Date.parse(entry.at)
     const inCheckRun = checkRuns.some(
       (run) =>
