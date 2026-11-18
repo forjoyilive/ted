@@ -156,7 +156,10 @@ export class DemoAppRunningError extends Error {
   }
 }
 
-export async function stopDemo(home: string): Promise<void> {
+export async function stopDemo(
+  home: string,
+  { startTimeoutMs }: { startTimeoutMs?: number } = {},
+): Promise<void> {
   const known = await checkDemoHome(home)
   if (!known) throw new Error(`There is no demo in ${home}.`)
   if (await demoAppRunning(home)) throw new DemoAppRunningError()
@@ -179,7 +182,10 @@ export async function stopDemo(home: string): Promise<void> {
           await client.shutdown()
         }
       },
-      { appToken: randomBytes(32).toString('hex') },
+      {
+        appToken: randomBytes(32).toString('hex'),
+        ...(startTimeoutMs !== undefined && { startTimeoutMs }),
+      },
     )
     await until(async () => !(await readDaemonInfo(home)), 'the demo daemon to stop')
     await until(

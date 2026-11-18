@@ -1,7 +1,10 @@
 import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { prepareDemo, stopDemo } from '../src/dev/demo.ts'
 import {
@@ -12,6 +15,8 @@ import {
   markDemo,
   withDemoEnvironment,
 } from '../src/dev/home.ts'
+import { lockHolders } from '../src/lock.ts'
+import { sandboxReasons, skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 let folder: string
 beforeEach(async () => {
@@ -133,6 +138,35 @@ test('stop never signals a recorded pid that holds none of the demo’s locks', 
     stranger.kill('SIGKILL')
   }
 })
+
+test('stop still ends a lock holder that ignores SIGTERM when the graceful stop fails', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.processes)
+  await markDemo(folder, { version: demoVersion, complete: true })
+  const lock = pathToFileURL(fileURLToPath(new URL('../src/lock.ts', import.meta.url))).href
+  const code = `import { tryLock } from ${JSON.stringify(lock)}
+globalThis.held = tryLock(${JSON.stringify(tedPaths(folder).daemonLock)})
+if (!globalThis.held) process.exit(2)
+process.on('SIGTERM', () => {})
+setInterval(() => {}, 1000)
+console.log('locked')`
+  const holder = spawn(process.execPath, ['--input-type=module', '-e', code], {
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    detached: true,
+  })
+  try {
+    const exited = once(holder, 'exit') as Promise<[number | null, NodeJS.Signals | null]>
+    await once(holder.stdout as NodeJS.ReadableStream, 'data')
+
+    await expect(stopDemo(folder, { startTimeoutMs: 1_000 })).rejects.toThrow('didn’t start')
+
+    expect(await exited).toEqual([null, 'SIGKILL'])
+    expect(await readdir(folder)).toContain('quit-mark')
+    expect(await lockHolders(tedPaths(folder).daemonLock)).toEqual([])
+  } finally {
+    holder.kill('SIGKILL')
+  }
+}, 60_000)
 
 test('stop refuses a folder without a demo and leaves an idle demo quit', async () => {
   await expect(stopDemo(folder)).rejects.toThrow('no demo')
