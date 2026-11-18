@@ -24,6 +24,7 @@ import { openStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
+  hostsStarted,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -398,8 +399,8 @@ describe('starting when the blocker merges', () => {
     expect(await startLines(client, task)).toEqual([`Started because ${blocker.displayId} merged`])
   })
 
-  test('removing remaining blockers mid-flow carries on from the brief; a Task stopped by hand stays stopped', async () => {
-    const client = await startTed()
+  test('removing remaining blockers mid-flow carries on from the brief; a Task stopped by hand, a Failed Task and a Task waiting on the human stay put', async () => {
+    let client = await startTed()
     const gate = path.join(scratch, 'gate')
     const briefFile = path.join(scratch, 'brief.md')
     await writeFile(
@@ -424,6 +425,17 @@ describe('starting when the blocker merges', () => {
       { start: true },
     )
     const stoppedByHand = await create(client, steps({ endTurn: true }), { start: true })
+    const waitForBlocker = { run: ['ted', 'task', 'block', '--by', blocker.displayId] }
+    const asking = await create(
+      client,
+      steps(
+        waitForBlocker,
+        { run: ['ted', 'comment', '--choice', 'Yes', '--choice', 'No', 'Keep the old parser?'] },
+        { endTurn: true },
+      ),
+      { start: true },
+    )
+    const failing = await create(client, steps(waitForBlocker, { endTurn: true }), { start: true })
     const first = await waitFor(
       client,
       task,
@@ -472,7 +484,61 @@ describe('starting when the blocker merges', () => {
     await client.ok('DELETE', `/tasks/${stoppedByHand.id}/blockers/${other.displayId}`)
     const stillStopped = await getTask(client, stoppedByHand.id)
     expect(stillStopped).toMatchObject({ blockedBy: [], runs: [], status: { kind: 'stopped' } })
-  })
+
+    const waitingOnYou = await waitFor(
+      client,
+      asking,
+      (t) =>
+        t.status?.kind === 'waiting-on-you' &&
+        t.runs.length === 0 &&
+        t.statuses.includes('blocked'),
+      'to wait for the human and its blocker',
+    )
+    await client.ok('DELETE', `/tasks/${asking.id}/blockers`)
+    const stillAsking = await getTask(client, asking.id)
+    expect(stillAsking).toMatchObject({
+      blockedBy: [],
+      runs: [],
+      status: { kind: 'waiting-on-you' },
+      leadRunId: waitingOnYou.leadRunId,
+    })
+    expect(stillAsking.statuses).toContain('stopped')
+    expect(stillAsking.statuses).not.toContain('queued')
+
+    const waiting = await waitFor(
+      client,
+      failing,
+      (t) => t.status?.kind === 'blocked' && t.runs.length === 0,
+      'to wait for its blocker',
+    )
+    await hostsStarted(home)
+    await daemon?.stop()
+    daemon = undefined
+    const store = await openStore({ directory: tedPaths(home).store })
+    try {
+      store.leadFailed({
+        taskId: failing.id,
+        runId: waiting.leadRunId ?? '',
+        reason: 'exited with code 1',
+        recovery: 'failed',
+        resumeFailed: false,
+      })
+    } finally {
+      await store.close()
+    }
+    client = await openTed()
+    expect((await getTask(client, failing.id)).status?.kind).toBe('failed')
+    await client.ok('DELETE', `/tasks/${failing.id}/blockers`)
+    const stillFailed = await getTask(client, failing.id)
+    expect(stillFailed).toMatchObject({
+      blockedBy: [],
+      runs: [],
+      status: { kind: 'failed' },
+      leadRunId: waiting.leadRunId,
+    })
+    expect(stillFailed.statuses).toContain('stopped')
+    expect(stillFailed.statuses).not.toContain('queued')
+  }, 90_000)
 
   test('a blocker in another Factory works', async () => {
     const client = await startTed()
