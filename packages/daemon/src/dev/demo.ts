@@ -124,7 +124,7 @@ export async function seedDemo(home: string, client: DaemonClient): Promise<Demo
     firstLaunchDone: true,
     reportingAsked: true,
     maxWorkingRuns: 99,
-    maxBootedSimulators: 1,
+    maxRunningDevices: 1,
     stayAwake: false,
     startAtLogin: false,
     notifyInboxItems: false,

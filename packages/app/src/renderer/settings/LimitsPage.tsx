@@ -1,4 +1,4 @@
-import { emulatorSlotLimits, simulatorSlotLimits } from '@ted/protocol/app'
+import { deviceSlotLimits } from '@ted/protocol/app'
 import {
   checkCpuLimits,
   checkLimits,
@@ -42,29 +42,28 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             onChange={(waitWhenBusy) => ted.updateSettings({ waitWhenBusy })}
           />
         </SettingRow>
-        {simulators?.supported === true && (
-          <SettingRow setting="app.limits.simulators">
-            <Stepper
-              value={settings.maxBootedSimulators}
-              min={simulatorSlotLimits.min}
-              max={simulatorSlotLimits.max}
-              lessLabel="Fewer simulators"
-              moreLabel="More simulators"
-              onChange={(maxBootedSimulators) => ted.updateSettings({ maxBootedSimulators })}
-            />
-          </SettingRow>
-        )}
-        {emulators?.supported === true && (
-          <SettingRow setting="app.limits.emulators">
-            <Stepper
-              value={settings.maxRunningEmulators}
-              min={emulatorSlotLimits.min}
-              max={emulatorSlotLimits.max}
-              lessLabel="Fewer emulators"
-              moreLabel="More emulators"
-              onChange={(maxRunningEmulators) => ted.updateSettings({ maxRunningEmulators })}
-            />
-          </SettingRow>
+        {(simulators?.supported === true || emulators?.supported === true) && (
+          <>
+            <SettingRow setting="app.limits.devices">
+              <Stepper
+                value={settings.maxRunningDevices}
+                min={deviceSlotLimits.min}
+                max={deviceSlotLimits.max}
+                lessLabel="Fewer simulators and emulators"
+                moreLabel="More simulators and emulators"
+                onChange={(maxRunningDevices) => ted.updateSettings({ maxRunningDevices })}
+              />
+            </SettingRow>
+            <SettingRow setting="app.limits.build-one-device">
+              <Switch
+                label="Build one simulator or emulator App at a time"
+                checked={settings.buildDeviceAppsOneAtATime}
+                onChange={(buildDeviceAppsOneAtATime) =>
+                  ted.updateSettings({ buildDeviceAppsOneAtATime })
+                }
+              />
+            </SettingRow>
+          </>
         )}
         <SettingRow setting="app.limits.checks">
           <Stepper

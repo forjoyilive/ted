@@ -181,14 +181,13 @@ const entries = {
     name: 'Wait to start new work when this computer is busy',
     help: 'While the CPU is busy or memory is low, Ted starts no new Run, sub-agent, simulator or emulator unless none is working, and scheduled checks wait. Work already running carries on. The limit above is still the most Ted runs at once.',
   },
-  'app.limits.simulators': {
-    name: 'Simulators booted at once',
-    help: 'iOS simulator Apps share these slots. When they’re all taken, Ted asks which simulator to shut down; it never shuts one down on its own to make room.',
-    platform: 'mac',
+  'app.limits.devices': {
+    name: 'Simulators and emulators at once',
+    help: 'iOS simulator and Android emulator Apps share these slots. When they’re all taken, Ted asks which simulator or emulator to shut down; it never shuts one down on its own to make room.',
   },
-  'app.limits.emulators': {
-    name: 'Android emulators running at once',
-    help: 'Android emulator Apps share these slots, separately from iOS simulators. When they’re all taken, Ted asks which emulator to shut down; it never shuts one down on its own to make room.',
+  'app.limits.build-one-device': {
+    name: 'Build one simulator or emulator App at a time',
+    help: 'The next App waits until the current one is built. Turn off when a Task needs an iOS and an Android device built at once.',
   },
   'app.limits.checks': {
     name: 'Checks running at once',

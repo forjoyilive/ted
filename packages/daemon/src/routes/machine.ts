@@ -10,8 +10,8 @@ import {
   checkCpuLimits,
   checkLimits,
   createdByKinds,
+  deviceSlotLimits,
   editorIds,
-  emulatorSlotLimits,
   idleRunSleepLimits,
   isLinearIntakeScope,
   isLinearTeamKey,
@@ -30,7 +30,6 @@ import {
   runOutputDayLimits,
   type StageId,
   type StatusFilter,
-  simulatorSlotLimits,
   taskStatusKinds,
   terminalFontSizes,
   textSizeLimits,
@@ -365,17 +364,10 @@ export const settingParsers: {
     }
     return value
   },
-  maxBootedSimulators(value) {
-    const { min, max } = simulatorSlotLimits
+  maxRunningDevices(value) {
+    const { min, max } = deviceSlotLimits
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
-      throw new HttpError(400, `maxBootedSimulators must be a whole number from ${min} to ${max}`)
-    }
-    return value
-  },
-  maxRunningEmulators(value) {
-    const { min, max } = emulatorSlotLimits
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
-      throw new HttpError(400, `maxRunningEmulators must be a whole number from ${min} to ${max}`)
+      throw new HttpError(400, `maxRunningDevices must be a whole number from ${min} to ${max}`)
     }
     return value
   },
@@ -417,6 +409,7 @@ export const settingParsers: {
   overnightMode: onOff('overnightMode'),
   reviewUnvettedTasks: onOff('reviewUnvettedTasks'),
   waitWhenBusy: onOff('waitWhenBusy'),
+  buildDeviceAppsOneAtATime: onOff('buildDeviceAppsOneAtATime'),
   showTrayIcon: onOff('showTrayIcon'),
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),

@@ -1,7 +1,7 @@
 import type { TaskApp } from '@ted/protocol'
 import { isDeviceApp, isEmulatorApp } from '@ted/protocol/app'
 import { useState } from 'react'
-import { appStatusLine, isLive } from '../apps.ts'
+import { appStatusLine, buildingLine, isLive } from '../apps.ts'
 import { useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
@@ -63,6 +63,8 @@ export function RunAppRows({
 
 function runAppStatus(app: TaskApp, now: number): string {
   if (app.state === 'waiting') {
+    const building = buildingLine(app)
+    if (building !== undefined) return building
     const since = app.startedAt === undefined ? undefined : minutesSince(app.startedAt, now)
     return [
       `Waiting for ${isEmulatorApp(app) ? 'an emulator' : 'a simulator'} slot`,

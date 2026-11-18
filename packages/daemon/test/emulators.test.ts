@@ -224,7 +224,7 @@ describe('Android emulator Apps', () => {
   test('with every emulator slot taken, a Run asks the human and approving shuts the chosen emulator down', async () => {
     const client = await start()
     await addFactory(client)
-    await client.ok('PATCH', '/settings', { maxRunningEmulators: 1 })
+    await client.ok('PATCH', '/settings', { maxRunningDevices: 1 })
     const first = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'android' })
     const second = await taskWithWorktree(

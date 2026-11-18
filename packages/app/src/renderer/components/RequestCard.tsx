@@ -427,7 +427,7 @@ function SimulatorRequest({
       chosen={chosen}
       onChoose={onChoose}
       now={now}
-      label={ask.platform === 'android' ? 'Emulator to shut down' : 'Simulator to shut down'}
+      label="Simulator or emulator to shut down"
       showApp
       disabled={readOnly}
     />

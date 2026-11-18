@@ -694,14 +694,16 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         ...wanted,
         ...(options.reason !== undefined && { reason: options.reason }),
       })
-      if (app.state === 'waiting') {
+      if (app.state === 'waiting' && app.waitingOn !== undefined) {
+        console.error(
+          `Waiting for ${printable(app.waitingOn.displayId)}’s ${printable(app.waitingOn.app)} to finish building…`,
+        )
+      } else if (app.state === 'waiting') {
         const android = app.kind === 'android-emulator'
         console.error(
           owner.what === 'this Run'
-            ? `Every ${android ? 'emulator' : 'simulator'} slot is taken. Waiting for one to free up…`
-            : android
-              ? 'Every emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…'
-              : 'Every simulator is booted, so Ted asked the human which one to shut down. Waiting for an answer…',
+            ? `Waiting for ${android ? 'an emulator' : 'a simulator'} slot to free up…`
+            : 'Every simulator and emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…',
         )
       }
       while (app.state === 'starting' || app.state === 'waiting') {

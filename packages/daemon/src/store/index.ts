@@ -77,6 +77,7 @@ import {
   declaredSendBackCauses,
   defaultMachineSettings,
   defaultWorkingRuns,
+  deviceSlotLimits,
   type Effort,
   emptyMessageDraft,
   type Factory,
@@ -131,7 +132,7 @@ import {
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { isOneOf } from '@ted/protocol/parse'
+import { isInteger, isOneOf, type Untyped } from '@ted/protocol/parse'
 import { planTitle as titleFromMessage } from '@ted/protocol/plan'
 import {
   compareStages,
@@ -3595,6 +3596,7 @@ export async function openStore({
     return {
       ...machineDefaults,
       ...(legacy && { appearance: legacy.appearance as Appearance }),
+      ...deviceLimitFromOldLimits(values),
       ...pick(values, Object.keys(defaultMachineSettings)),
       billing: {
         ...defaultMachineSettings.billing,
@@ -7768,4 +7770,14 @@ function withGroupAccount(
     ...current,
     [tracker]: { ...byFactory, [factoryId]: { ...byFactory[factoryId], [group]: account } },
   }
+}
+
+function deviceLimitFromOldLimits(values: {
+  maxBootedSimulators?: Untyped
+  maxRunningEmulators?: Untyped
+}): Partial<MachineSettings> {
+  const { maxBootedSimulators: simulators, maxRunningEmulators: emulators } = values
+  if (simulators === undefined && emulators === undefined) return {}
+  const total = (isInteger(simulators) ? simulators : 3) + (isInteger(emulators) ? emulators : 2)
+  return { maxRunningDevices: Math.min(total, deviceSlotLimits.max) }
 }

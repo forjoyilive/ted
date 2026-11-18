@@ -1,5 +1,5 @@
 import type { SimulatorSlots, Task, TaskApp } from '@ted/protocol'
-import { devicePlatform, deviceWords, isDeviceApp, isEmulatorApp } from '@ted/protocol/app'
+import { isDeviceApp, isEmulatorApp } from '@ted/protocol/app'
 import { useEffect, useRef, useState } from 'react'
 import {
   appStatusLine,
@@ -288,7 +288,6 @@ function SlotPopover({
     return () => window.removeEventListener('keydown', close)
   }, [onCancel])
   const count = simulators.booted.length
-  const words = deviceWords[devicePlatform(app) ?? 'ios']
   const below = window.innerHeight - anchor.bottom > 240
   const place = {
     right: Math.max(8, window.innerWidth - anchor.right),
@@ -301,12 +300,12 @@ function SlotPopover({
       className={styles.popover}
       style={place}
       role="dialog"
-      aria-label={`Choose ${words.one === 'emulator' ? 'an' : 'a'} ${words.one} to shut down`}
+      aria-label="Choose a simulator or emulator to shut down"
     >
       <h3 className={styles.popoverTitle}>
         {count === 1
-          ? `The only ${words.one} slot is taken`
-          : `All ${count} ${words.many} are ${words.on}`}
+          ? 'The only simulator or emulator slot is taken'
+          : `All ${count} simulators and emulators are running`}
       </h3>
       <p className={styles.popoverText}>
         {`Running ${app.name} for ${task.displayId} needs one of them shut down. Its app and state stay; it boots again when needed.`}
@@ -316,7 +315,7 @@ function SlotPopover({
         chosen={chosen}
         onChoose={setChosen}
         now={now}
-        label={`${words.one === 'emulator' ? 'Emulator' : 'Simulator'} to shut down`}
+        label="Simulator or emulator to shut down"
       />
       <div className={styles.popoverButtons}>
         <Button onClick={onCancel}>Cancel</Button>

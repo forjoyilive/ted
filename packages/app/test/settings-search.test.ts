@@ -145,8 +145,9 @@ test('Factory settings carry the Factory’s name and are left out without a Fac
 test('a setting that shows on one platform is found only there', () => {
   expect(find('tray', { platform: 'linux' }).map((hit) => hit.name)).toEqual(['Show tray icon'])
   expect(find('tray', { platform: 'mac' })).toEqual([])
-  expect(find('simulators booted', { platform: 'mac' })).toHaveLength(1)
-  expect(find('simulators booted', { platform: 'linux' })).toEqual([])
+  expect(find('simulators and emulators at once', { platform: 'linux' })[0]?.id).toBe(
+    'app.limits.devices',
+  )
   expect(platformOf('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')).toBe('mac')
   expect(platformOf('Mozilla/5.0 (X11; Linux x86_64)')).toBe('linux')
   expect(platformOf('Mozilla/5.0 (Windows NT 10.0)')).toBe('other')

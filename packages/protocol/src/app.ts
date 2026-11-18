@@ -22,6 +22,7 @@ export interface TaskApp {
   startedBy?: AppStarter
   removed?: boolean
   waitingFor?: string
+  waitingOn?: { displayId: string; app: string }
   simulator?: AppSimulator
   confirmOutsideSandbox?: true
   electron?: true
@@ -46,6 +47,7 @@ export interface BootedSimulator {
   device: string
   lastUsedAt: string
   recording: boolean
+  platform?: 'android'
 }
 
 export interface SimulatorSlots {
@@ -135,16 +137,9 @@ export function isLoopbackUrl(text: string): boolean {
   return host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host)
 }
 
-export const simulatorSlotLimits = { min: 1, max: 20 } as const
+export const deviceSlotLimits = { min: 1, max: 20 } as const
 
-export const emulatorSlotLimits = { min: 1, max: 16 } as const
-
-export function simulatorsLine(slots: SimulatorSlots): string | undefined {
+export function devicesLine(slots: SimulatorSlots): string | undefined {
   if (!slots.supported || slots.booted.length === 0) return undefined
-  return `Simulators ${slots.booted.length} of ${slots.limit} booted`
-}
-
-export function emulatorsLine(slots: SimulatorSlots): string | undefined {
-  if (!slots.supported || slots.booted.length === 0) return undefined
-  return `Emulators ${slots.booted.length} of ${slots.limit} running`
+  return `Simulators and emulators ${slots.booted.length} of ${slots.limit} running`
 }
