@@ -61,6 +61,10 @@ export async function applyEmulation(
     ...(next.device && { maxTouchPoints: 5 }),
   })
   await target.send(
+    'Emulation.setEmitTouchEventsForMouse',
+    next.device ? { enabled: true, configuration: 'mobile' } : { enabled: false },
+  )
+  await target.send(
     'Emulation.setUserAgentOverride',
     next.device
       ? { userAgent: next.device.userAgent, platform: next.device.platform }
