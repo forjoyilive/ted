@@ -55,6 +55,9 @@ test.each(['acceptance', 'obligations', 'gate', 'merge'])(
           '  - name: widgets',
           '  - name: api',
           '    remote: https://github.com/acme/api.git',
+          ...(boundary === 'merge'
+            ? []
+            : ['stages:', '  review: { gate: false }', '  merge: { gate: true }']),
         ],
       })
       const state = await readGh()
@@ -85,6 +88,7 @@ test.each(['acceptance', 'obligations', 'gate', 'merge'])(
       const { task, signoff } = await toSignoff(client, {
         title: JSON.stringify({ steps: [{ everyMessage: each }, ...each] }),
       })
+      expect(signoff.stage).toBe(boundary === 'merge' ? 'review' : 'merge')
       await writeFile(client.mergingFile, '')
       const current = await getTask(client, task.id)
       const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)

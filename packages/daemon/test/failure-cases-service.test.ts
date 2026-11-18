@@ -427,6 +427,7 @@ test('a Check failure asked about after only the CI reading changed gets a card 
   })
   const start = Date.parse('2026-11-16T12:00:00Z')
   vi.setSystemTime(start)
+  s.worktree.ci = 'first-pull-request-ci'
   const value = await s.recordCheck((await s.capture()).id)
   vi.setSystemTime(start + 1000)
   s.worktree.ci = 'pull-request-ci'
@@ -451,6 +452,7 @@ test('accepting a failure with no tested context says so and tells the Task Lead
 test('stored contexts are compared by what was tested, not by their fingerprint or base tip', async () => {
   const s = await setup()
   const changed = acceptRefusals.changedForGood(false)
+  s.worktree.ci = 'CI-B'
   const current = await s.capture()
   s.endRun()
   const stored = (id: string, change: Partial<FailureContext>): FailureContext =>
