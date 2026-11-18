@@ -98,6 +98,7 @@ async function proxyWithUpstreams() {
   const tunnel = createTcpServer((socket) => socket.end('tunnel bytes'))
   const tunnelPort = await listen(tunnel)
   const dialed: string[] = []
+  const looked: string[] = []
   const names = new Map([
     ['images.example', [{ address: '93.184.216.34', family: 4 }]],
     ['rebind.example', [{ address: '127.0.0.1', family: 4 }]],
@@ -110,14 +111,17 @@ async function proxyWithUpstreams() {
     ],
   ])
   const proxy = await startGuestProxy({
-    lookup: async (hostname) => names.get(hostname) ?? [],
+    lookup: async (hostname) => {
+      looked.push(hostname)
+      return names.get(hostname) ?? []
+    },
     connect: (port, address) => {
       dialed.push(`${address}:${port}`)
       return connect(port === 443 ? tunnelPort : webPort, '127.0.0.1')
     },
   })
   closers.push(proxy.close)
-  return { proxy, seen, dialed }
+  return { proxy, seen, dialed, looked }
 }
 
 const auth = (proxy: GuestProxy) =>
@@ -199,4 +203,19 @@ test('the guest proxy forwards to public addresses only, after checking what the
   expect((await tunnel(proxy, 'rebind.example:443')).status).toBe(403)
   expect((await tunnel(proxy, '[::1]:443')).status).toBe(403)
   expect(dialed).toEqual(['93.184.216.34:80', '93.184.216.34:443'])
+})
+
+test('the guest proxy forwards plain HTTP only to port 80 and tunnels only to port 443', async () => {
+  const { proxy, dialed, looked } = await proxyWithUpstreams()
+  expect((await get(proxy, 'http://images.example:80/art.png')).status).toBe(200)
+  for (const url of [
+    'http://images.example:8080/art.png',
+    'http://images.example:443/art.png',
+    'http://93.184.216.34:22/art.png',
+  ])
+    expect((await get(proxy, url)).status, url).toBe(403)
+  for (const target of ['images.example:80', 'images.example:8443', '93.184.216.34:22'])
+    expect((await tunnel(proxy, target)).status, target).toBe(403)
+  expect(looked).toEqual(['images.example'])
+  expect(dialed).toEqual(['93.184.216.34:80'])
 })
