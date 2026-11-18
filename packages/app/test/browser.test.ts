@@ -502,12 +502,17 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       return Math.max(...centers) - Math.min(...centers)
     })
   const widthField = panel.getByLabel('Custom width in pixels')
-  for (const width of [1440, 1280]) {
-    await window.setViewportSize({ width, height: 900 })
-    await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+  const sizeButtonFocused = () =>
+    sizeButton.evaluate((button) => button === document.activeElement).catch(() => false)
+  const openCustomWidth = async () => {
     await sizeButton.click()
     await window.getByRole('menuitemradio', { name: /^Custom width/ }).click()
     await widthField.waitFor()
+  }
+  for (const width of [1440, 1280]) {
+    await window.setViewportSize({ width, height: 900 })
+    await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+    await openCustomWidth()
     expect(await sizeButton.count()).toBe(0)
     await expect.poll(addressRowSpread).toBeLessThan(4)
     await widthField.fill('10')
@@ -518,7 +523,26 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     await addressRow.getByRole('button', { name: 'Cancel' }).click()
     await sizeButton.waitFor()
     expect(await widthField.count()).toBe(0)
+    await expect.poll(sizeButtonFocused).toBe(true)
   }
+  await openCustomWidth()
+  await widthField.press('Escape')
+  await expect.poll(sizeButtonFocused).toBe(true)
+  const previewSize = () => panel.locator('[data-preview-size]').getAttribute('data-preview-size')
+  await openCustomWidth()
+  await widthField.fill('1024')
+  await widthField.press('Enter')
+  await expect.poll(sizeButtonFocused).toBe(true)
+  await expect.poll(previewSize).toBe('1024')
+  await openCustomWidth()
+  await widthField.fill('1200')
+  await addressRow.getByRole('button', { name: 'Apply' }).click()
+  await expect.poll(sizeButtonFocused).toBe(true)
+  await expect.poll(previewSize).toBe('1200')
+  await sizeButton.click()
+  await window.getByRole('menuitemradio', { name: /^Desktop/ }).click()
+  await expect.poll(previewSize).toBe('desktop')
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   await window.setViewportSize({ width: 1100, height: 760 })
   await expect
     .poll(async () =>
