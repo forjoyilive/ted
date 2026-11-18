@@ -337,3 +337,59 @@ export async function checkRefusedNames(
   expect(await guestScript(script)).toEqual(['refused', 'refused'])
   await expect.poll(() => panel.textContent()).toContain('Blocked 2 requests to other sites')
 }
+
+export async function checkWorkerMedia(
+  app: ElectronApplication,
+  panel: import('playwright').Locator,
+  url: string,
+) {
+  const guestScript = (script: string) =>
+    app.evaluate(
+      async ({ webContents }, { url, script }) => {
+        const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+        if (!guest) throw new Error('No guest')
+        return guest.executeJavaScript(script)
+      },
+      { url, script },
+    )
+  const before = Number((await panel.textContent())?.match(/Blocked (\d+) requests/)?.[1] ?? 0)
+  const passed = scriptLiteral('http://private.example/art.png?through-worker')
+  const fetched = scriptLiteral('http://private.example/art.png?from-worker')
+  try {
+    const result = await guestScript(`(async () => {
+      const registration = await navigator.serviceWorker.register('/media/worker.js', { scope: '/media/' });
+      const worker = registration.installing || registration.waiting || registration.active;
+      if (worker.state !== 'activated')
+        await new Promise((resolve) => worker.addEventListener('statechange', () => worker.state === 'activated' && resolve()));
+      const ask = (data) => new Promise((resolve) => {
+        const channel = new MessageChannel(); channel.port1.onmessage = (e) => resolve(e.data);
+        worker.postMessage(data, [channel.port2]);
+      });
+      const frame = document.createElement('iframe'); frame.src = '/media/page';
+      globalThis.workerMediaFrame = frame;
+      await new Promise((resolve) => { frame.onload = resolve; document.body.append(frame); });
+      const through = await new Promise((resolve) => {
+        const image = frame.contentDocument.createElement('img');
+        image.onload = () => resolve('loaded'); image.onerror = () => resolve('refused');
+        image.src = ${passed}; frame.contentDocument.body.append(image);
+      });
+      const fromWorker = await ask({ fetch: ${fetched} });
+      return { controlled: !!frame.contentWindow.navigator.serviceWorker.controller, seen: await ask({}), through, fromWorker };
+    })()`)
+    expect(result).toEqual({
+      controlled: true,
+      seen: ['http://private.example/art.png?through-worker'],
+      through: 'refused',
+      fromWorker: 'refused',
+    })
+    await expect
+      .poll(() => panel.textContent())
+      .toContain(`Blocked ${before + 2} requests to other sites`)
+  } finally {
+    await guestScript(`(async () => {
+      globalThis.workerMediaFrame?.remove(); delete globalThis.workerMediaFrame;
+      for (const registration of await navigator.serviceWorker.getRegistrations())
+        if (registration.scope.endsWith('/media/')) await registration.unregister();
+    })()`)
+  }
+}

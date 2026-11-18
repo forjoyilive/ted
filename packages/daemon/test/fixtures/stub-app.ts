@@ -23,6 +23,26 @@ function handle(req: http.IncomingMessage, res: http.ServerResponse) {
         })));`)
       return
     }
+    if (url.pathname === '/media/worker.js') {
+      res.setHeader('content-type', 'text/javascript')
+      res.end(`const seen = [];
+        self.addEventListener('install', () => self.skipWaiting());
+        self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+        self.addEventListener('fetch', e => {
+          if (new URL(e.request.url).origin === self.location.origin) return;
+          seen.push(e.request.url);
+          e.respondWith(fetch(e.request));
+        });
+        self.addEventListener('message', e => e.waitUntil(e.data.fetch
+          ? fetch(e.data.fetch).then(r => r.ok ? 'loaded' : 'refused', () => 'refused').then(result => e.ports[0].postMessage(result))
+          : Promise.resolve(e.ports[0].postMessage(seen))));`)
+      return
+    }
+    if (url.pathname === '/media/page') {
+      res.setHeader('content-type', 'text/html')
+      res.end('<!doctype html><title>Media fixture</title>')
+      return
+    }
     if (url.pathname === '/browser-worker-traffic') {
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify({ messages: workerMessages, connections: workerSockets.size }))
