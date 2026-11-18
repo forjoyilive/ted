@@ -356,14 +356,17 @@ describe('iOS simulator Apps', () => {
     expect(await cpusTold(1)).toEqual([String(checkCpus(os.availableParallelism(), 1, 50))])
   })
 
-  test('with one build at a time off, two builds at once split the CPU share', async () => {
+  test('with one build at a time off, two builds at once split the CPU share, and a build that printed TED_APP_READY stops counting', async () => {
     const client = await start()
     const built = path.join(scratch, 'built')
     await addFactory(
       client,
       `${tellCpus()}; until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
     )
-    await client.ok('PATCH', '/settings', { buildDeviceAppsOneAtATime: false })
+    await client.ok('PATCH', '/settings', {
+      buildDeviceAppsOneAtATime: false,
+      maxRunningDevices: 3,
+    })
     const first = await taskWithWorktree(client)
     const second = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
@@ -373,7 +376,25 @@ describe('iOS simulator Apps', () => {
     expect((await cpusTold(2)).sort()).toEqual(
       [String(checkCpus(cores, 1, 50)), String(checkCpus(cores, 2, 50))].sort(),
     )
-  })
+
+    const told = await readdir(cpusDir())
+    await writeFile(built, '')
+    for (const task of [first, second]) {
+      await waitUntil(
+        async () => (await apps(client, task)).find((a) => a.name === 'iPhone')?.builtAt,
+        'the build to be recorded as finished',
+      )
+    }
+    const third = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${third.id}/apps/start`, { name: 'iPhone' })
+    await cpusTold(3)
+    const [added] = (await readdir(cpusDir())).filter(
+      (n) => !n.endsWith('.tmp') && !told.includes(n),
+    )
+    expect((await readFile(path.join(cpusDir(), added ?? ''), 'utf8')).trim()).toBe(
+      String(checkCpus(cores, 1, 50)),
+    )
+  }, 60_000)
 
   test('with every slot booted the human must pick one to shut down', async () => {
     const client = await start()
