@@ -856,13 +856,15 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const several = request.multiple === true && questionChoices
   const picks = several && isSeveral(selection) ? selection.picks : []
   const selectedChoice = selection && 'choice' in selection ? selection.choice : undefined
-  const other = several
-    ? isSeveral(selection) && selection.other === true
-    : selection !== undefined && 'other' in selection
+  const kind = answerKind(request)
+  const other =
+    kind === 'open' &&
+    (several
+      ? isSeveral(selection) && selection.other === true
+      : selection !== undefined && 'other' in selection)
   const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
   const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
   const failure = isFailure(request)
-  const kind = answerKind(request)
   const textRefused = kind === 'choice-only' && typed
   const failureChoice = failure && questionChoices
   const boxLabel = !failureChoice

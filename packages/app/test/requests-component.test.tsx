@@ -134,6 +134,39 @@ test('an unsent Other answer saved in the older separate field still shows and s
   })
 })
 
+test('a saved Other answer doesn’t send on a question that takes only its buttons', async () => {
+  const { answer, handle } = requestApi()
+  handle('messageDraft', () => ({
+    draft: {
+      text: 'Older text',
+      attachments: [],
+      fields: JSON.stringify({ selection: { other: true } }),
+    },
+  }))
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        choices: ['Add them as Tasks', 'Leave it open in Asana'],
+        purpose: { kind: 'asana-unfinished' },
+      })}
+    />,
+  )
+  const u = user()
+  const box = (await screen.findByDisplayValue('Older text')) as HTMLTextAreaElement
+  const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
+  expect(send.disabled).toBe(true)
+  await u.click(screen.getByRole('radio', { name: 'Leave it open in Asana' }))
+  expect(send.disabled).toBe(true)
+  await u.clear(box)
+  expect(send.disabled).toBe(false)
+  await u.click(send)
+  expect(answer).toHaveBeenCalledExactlyOnceWith('c1', {
+    action: 'answer',
+    choice: 'Leave it open in Asana',
+  })
+})
+
 test('Linear team questions select before Send and offer only supported answers', async () => {
   const { answer } = requestApi()
   render(
