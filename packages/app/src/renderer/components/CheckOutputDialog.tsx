@@ -92,7 +92,8 @@ function RecordedCheckOutput({
     >
       <header className={styles.head}>
         <h2 id={headingId} className={styles.heading}>
-          {check ? checkLabel(check) : 'Check'} output
+          {check ? checkLabel(check) : 'Check'}{' '}
+          {check?.instruction === undefined ? 'output' : 'report'}
         </h2>
         <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
           <CloseIcon />
@@ -132,7 +133,7 @@ function RecordedCheckOutput({
         .map((f) => (
           <FailureDetails key={f.id} failure={f} />
         ))}
-      {check && <code className={styles.command}>{check.command}</code>}
+      {check?.command !== undefined && <code className={styles.command}>{check.command}</code>}
       {error !== undefined ? (
         <p className={styles.error} role="alert">
           {error}
