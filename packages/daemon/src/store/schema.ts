@@ -791,6 +791,14 @@ export const checkResults = State.SQLite.table({
     state: State.SQLite.text(),
     exitCode: State.SQLite.integer({ nullable: true }),
     durationMs: State.SQLite.integer({ nullable: true }),
+    instruction: State.SQLite.text({ nullable: true }),
+    fix: State.SQLite.boolean({ nullable: true }),
+    agent: State.SQLite.text({ nullable: true }),
+    model: State.SQLite.text({ nullable: true }),
+    effort: State.SQLite.text({ nullable: true }),
+    notRerun: State.SQLite.boolean({ nullable: true }),
+    noReport: State.SQLite.text({ nullable: true }),
+    changeKey: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -2777,6 +2785,51 @@ export const events = {
           state: Schema.String,
         }),
       ),
+      at: Schema.String,
+    }),
+  }),
+  checksStartedWithInstructions: Events.synced({
+    name: 'v2.ChecksStarted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      checks: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+          command: Schema.NullOr(Schema.String),
+          timeout: Schema.String,
+          builtIn: Schema.NullOr(Schema.String),
+          state: Schema.String,
+          instruction: Schema.NullOr(Schema.String),
+          fix: Schema.NullOr(Schema.Boolean),
+          agent: Schema.NullOr(Schema.String),
+          model: Schema.NullOr(Schema.String),
+          effort: Schema.NullOr(Schema.String),
+          notRerun: Schema.NullOr(Schema.Boolean),
+        }),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  checkChangeKeyRecorded: Events.synced({
+    name: 'v1.CheckChangeKeyRecorded',
+    schema: Schema.Struct({
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      key: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkReportMissing: Events.synced({
+    name: 'v1.CheckReportMissing',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      reason: Schema.String,
       at: Schema.String,
     }),
   }),
@@ -5359,6 +5412,22 @@ const materializers = counted(
           }),
         ),
       ],
+      'v2.ChecksStarted': ({ checks, at, ...run }) => [
+        checkRuns.insert({ ...run, startedAt: at }),
+        ...checks.map(({ command, ...check }, position) =>
+          checkResults.insert({
+            ...check,
+            command: command ?? '',
+            id: `${run.id}:${position}`,
+            checkRunId: run.id,
+            position,
+          }),
+        ),
+      ],
+      'v1.CheckChangeKeyRecorded': ({ checkRunId, position, key }) =>
+        checkResults.update({ changeKey: key }).where({ id: `${checkRunId}:${position}` }),
+      'v1.CheckReportMissing': ({ checkRunId, position, reason }) =>
+        checkResults.update({ noReport: reason }).where({ id: `${checkRunId}:${position}` }),
       'v1.CheckSlotEntered': ({ checkRunId, at }) =>
         checkBoundaries.insert({
           id: `${checkRunId}:entered`,
