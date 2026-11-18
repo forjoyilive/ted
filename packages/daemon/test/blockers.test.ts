@@ -383,6 +383,28 @@ describe('starting when the blocker merges', () => {
     expect(stays.markers).toEqual([])
   })
 
+  test('a removal recorded before a restart still starts the Task as removed, not merged', async () => {
+    let client = await startTed()
+    const blocker = await create(client, 'Never started')
+    const task = await create(client, steps({ endTurn: true }), {
+      start: true,
+      blockedBy: [blocker.id],
+    })
+    await daemon?.stop()
+    daemon = undefined
+    const store = await openStore({ directory: tedPaths(home).store })
+    try {
+      store.removeBlocker(task.id, blocker.id)
+      store.setBlockersRemoved(task.id, true)
+    } finally {
+      await store.close()
+    }
+
+    client = await openTed()
+    await waitFor(client, task, (t) => t.leadRunId !== undefined, 'to start after the restart')
+    expect(await startLines(client, task)).toEqual(['Started because its blockers were removed'])
+  })
+
   test('starting a blocked Backlog Task by hand waits for the blocker', async () => {
     const client = await startTed()
     const gate = path.join(scratch, 'gate')

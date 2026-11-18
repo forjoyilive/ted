@@ -1019,7 +1019,6 @@ export function createTasks(options: {
   }
   const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const finishingParents = new Set<string>()
-  const blockersRemoved = new Set<string>()
   const parentsChecked = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
@@ -8759,7 +8758,7 @@ export function createTasks(options: {
       store.madeParent(taskId) &&
       store.childrenOf(taskId).some((c) => store.isMerged(c))
     ) {
-      wakeTask(taskId)
+      wakeAfterRemoval(taskId)
       return
     }
     if (task.stage === 'backlog') {
@@ -8780,7 +8779,7 @@ export function createTasks(options: {
   }
 
   function wakeAfterRemoval(taskId: string): void {
-    blockersRemoved.add(taskId)
+    store.setBlockersRemoved(taskId, true)
     wakeTask(taskId)
   }
 
@@ -9152,7 +9151,7 @@ export function createTasks(options: {
       if (parent) releaseParent(parent.id, wasBlocked)
       hierarchyDone()
     }
-    if (parent && blockersRemoved.has(parent.id)) wakeTask(parent.id)
+    if (parent && store.blockersRemoved(parent.id)) wakeTask(parent.id)
     wake()
   }
 
@@ -10542,15 +10541,15 @@ export function createTasks(options: {
     if (queued.has(id) || inFlight.is(id, 'starting') || inFlight.inHierarchyWork(id)) return
     if (finishingParents.has(id)) return
     if (unmergedBlockers(id).length > 0) {
-      blockersRemoved.delete(id)
+      store.setBlockersRemoved(id, false)
       return
     }
     const task = store.getTask(id)
     if (!task || task.archived || task.stopped || task.stage === 'done') {
-      blockersRemoved.delete(id)
+      if (task) store.setBlockersRemoved(id, false)
       return
     }
-    const why: BlockersCleared = blockersRemoved.has(id) ? 'removed' : 'merged'
+    const why: BlockersCleared = store.blockersRemoved(id) ? 'removed' : 'merged'
     const wakes =
       (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) ||
       (task.waitsForBlockers && !liveLead(task))
@@ -10576,12 +10575,11 @@ export function createTasks(options: {
         .map((b) => b.displayId)
       const cause: StartCause =
         why === 'removed' ? { cause: 'blockers-removed' } : { cause: 'blockers-merged', blockers }
-      blockersRemoved.delete(id)
+      store.setBlockersRemoved(id, false)
       inBackground(`start ${task.displayId}`, async () => {
         await start(id, {}, cause)
       })
     } else if (task.waitsForBlockers && !liveLead(task)) {
-      blockersRemoved.delete(id)
       store.requeueAfterBlockers(id, why)
     }
   }

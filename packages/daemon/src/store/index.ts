@@ -973,6 +973,8 @@ export interface TedStore extends TaskHistory {
   setTaskSnooze(taskId: string, until: string | null): Task
   setStartRequested(taskId: string, startRequested: boolean): Task
   waitForBlockers(taskId: string): Task
+  blockersRemoved(taskId: string): boolean
+  setBlockersRemoved(taskId: string, removed: boolean): void
   requeueAfterBlockers(taskId: string, why: BlockersCleared): Task
   taskStoppedByHuman(taskId: string): boolean
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
@@ -4963,6 +4965,7 @@ export async function openStore({
         ...new Set([
           ...store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId),
           ...store.query(queryDb(taskParents.orderBy('taskId', 'asc'))).map((row) => row.parentId),
+          ...store.query(queryDb(tasks.where({ blockersRemoved: true }))).map((row) => row.id),
           ...store
             .query(queryDb(comments.where({ answer: null })))
             .filter((row) => row.asanaMissing !== null)
@@ -5068,10 +5071,22 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    blockersRemoved(taskId) {
+      return taskRow(taskId)?.blockersRemoved ?? false
+    },
+    setBlockersRemoved(taskId, removed) {
+      const row = taskRow(taskId)
+      if (!row || row.blockersRemoved === removed) return
+      commit(events.taskBlockersRemovedChanged({ taskId, removed, at: new Date().toISOString() }))
+    },
     requeueAfterBlockers(taskId, why) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
+      const at = new Date().toISOString()
       commit(
-        events.taskRequeuedAfterBlockersV2({ taskId, rank, why, at: new Date().toISOString() }),
+        events.taskRequeuedAfterBlockersV2({ taskId, rank, why, at }),
+        ...(taskRow(taskId)?.blockersRemoved
+          ? [events.taskBlockersRemovedChanged({ taskId, removed: false, at })]
+          : []),
       )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
