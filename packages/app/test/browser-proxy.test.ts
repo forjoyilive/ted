@@ -2,7 +2,8 @@ import { createServer, type IncomingHttpHeaders, request } from 'node:http'
 import { type AddressInfo, connect, createServer as createTcpServer, type Server } from 'node:net'
 import { afterEach, expect, test } from 'vitest'
 import {
-  type GuestProxy,
+  fixedHosts,
+  type GuestLogin,
   isOutsideMedia,
   isPublicAddress,
   startGuestProxy,
@@ -92,6 +93,7 @@ async function proxyWithUpstreams() {
   const web = createServer((incoming, outgoing) => {
     seen.path = incoming.url
     seen.headers = incoming.headers
+    outgoing.statusCode = incoming.url === '/missing' ? 404 : 200
     outgoing.end('image bytes')
   })
   const webPort = await listen(web)
@@ -113,6 +115,7 @@ async function proxyWithUpstreams() {
   const proxy = await startGuestProxy({
     lookup: async (hostname) => {
       looked.push(hostname)
+      if (hostname === 'broken.example') throw new Error('DNS server unreachable')
       return names.get(hostname) ?? []
     },
     connect: (port, address) => {
@@ -121,13 +124,24 @@ async function proxyWithUpstreams() {
     },
   })
   closers.push(proxy.close)
-  return { proxy, seen, dialed, looked }
+  const refusals = { count: 0 }
+  const login = proxy.admit(() => refusals.count++)
+  return { proxy: { port: proxy.port, login }, guestProxy: proxy, refusals, seen, dialed, looked }
 }
 
-const auth = (proxy: GuestProxy) =>
-  `Basic ${Buffer.from(`${proxy.username}:${proxy.password}`).toString('base64')}`
+interface Client {
+  port: number
+  login: GuestLogin
+}
 
-function get(proxy: GuestProxy, url: string, options: { method?: string; auth?: boolean } = {}) {
+const auth = (login: GuestLogin) =>
+  `Basic ${Buffer.from(`${login.username}:${login.password}`).toString('base64')}`
+
+function get(
+  proxy: Client,
+  url: string,
+  options: { method?: string; auth?: boolean; login?: GuestLogin } = {},
+) {
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
     const sent = request(
       {
@@ -137,7 +151,9 @@ function get(proxy: GuestProxy, url: string, options: { method?: string; auth?: 
         path: url,
         headers: {
           host: new URL(url).host,
-          ...(options.auth !== false && { 'proxy-authorization': auth(proxy) }),
+          ...(options.auth !== false && {
+            'proxy-authorization': auth(options.login ?? proxy.login),
+          }),
         },
       },
       (response) => {
@@ -153,14 +169,14 @@ function get(proxy: GuestProxy, url: string, options: { method?: string; auth?: 
   })
 }
 
-function tunnel(proxy: GuestProxy, target: string, withAuth = true) {
+function tunnel(proxy: Client, target: string, withAuth = true) {
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
     const sent = request({
       host: '127.0.0.1',
       port: proxy.port,
       method: 'CONNECT',
       path: target,
-      headers: withAuth ? { 'proxy-authorization': auth(proxy) } : {},
+      headers: withAuth ? { 'proxy-authorization': auth(proxy.login) } : {},
     })
     sent.on('connect', (response, socket) => {
       let body = ''
@@ -218,4 +234,40 @@ test('the guest proxy forwards plain HTTP only to port 80 and tunnels only to po
     expect((await tunnel(proxy, target)).status, target).toBe(403)
   expect(looked).toEqual(['images.example'])
   expect(dialed).toEqual(['93.184.216.34:80'])
+})
+
+test('the guest proxy tells only the page whose login asked when it refuses a private address', async () => {
+  const { proxy, guestProxy, refusals, looked } = await proxyWithUpstreams()
+  expect((await get(proxy, 'http://ted-guest-proxy.invalid/', { auth: false })).status).toBe(407)
+  expect((await get(proxy, 'http://ted-guest-proxy.invalid/')).status).toBe(204)
+  expect(looked).toEqual([])
+  expect((await get(proxy, 'http://images.example/art.png')).status).toBe(200)
+  expect((await get(proxy, 'http://images.example/missing')).status).toBe(404)
+  expect((await get(proxy, 'http://broken.example/art.png')).status).toBe(502)
+  expect((await get(proxy, 'http://images.example:8080/art.png')).status).toBe(403)
+  expect((await tunnel(proxy, 'images.example:443')).status).toBe(200)
+  expect((await tunnel(proxy, 'broken.example:443')).status).toBe(502)
+  expect(refusals.count).toBe(0)
+  const other = { count: 0 }
+  const second = guestProxy.admit(() => other.count++)
+  expect((await get(proxy, 'http://rebind.example/art.png')).status).toBe(403)
+  expect((await tunnel(proxy, 'mixed.example:443')).status).toBe(403)
+  expect(refusals.count).toBe(2)
+  expect(other.count).toBe(0)
+  expect((await get(proxy, 'http://rebind.example/art.png', { login: second })).status).toBe(403)
+  expect(other.count).toBe(1)
+  second.release()
+  expect((await get(proxy, 'http://rebind.example/art.png', { login: second })).status).toBe(407)
+  expect(other.count).toBe(1)
+  expect(refusals.count).toBe(2)
+})
+
+test('a fixed host list resolves only the names it lists, to valid addresses', async () => {
+  const lookup = fixedHosts(
+    'private.example=10.0.0.1, Public.example=93.184.216.34,bad.example=nope',
+  )
+  expect(await lookup('PRIVATE.example')).toEqual([{ address: '10.0.0.1', family: 4 }])
+  expect(await lookup('public.example')).toEqual([{ address: '93.184.216.34', family: 4 }])
+  expect(await lookup('bad.example')).toEqual([])
+  expect(await lookup('other.example')).toEqual([])
 })

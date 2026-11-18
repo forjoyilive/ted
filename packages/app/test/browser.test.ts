@@ -22,6 +22,7 @@ import {
   checkInFlightNavigation,
   checkModalRace,
   checkOutsideRequests,
+  checkRefusedNames,
   guestWorkerTraffic,
   startGuestWorker,
 } from './browser-probes.ts'
@@ -61,6 +62,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     TED_CLAUDE_BIN: stubClaude,
     TED_HIDDEN_WINDOW: '1',
     TED_IDLE_EXIT_MS: '30000',
+    TED_BROWSER_HOSTS: 'private.example=10.0.0.1',
   }
   const originDir = path.join(home, 'origin')
   const origin = await makeOriginRepo(originDir)
@@ -129,6 +131,9 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await expect.poll(() => forwardButton.isEnabled()).toBe(true)
   await expect.poll(() => backButton.isDisabled()).toBe(true)
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
+  await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
+    command({ action: 'reload' }),
+  )
   const snapshot = await command({ action: 'snapshot' })
   expect(snapshot.text).toContain('Browser fixture')
   const field = snapshot.text?.match(/([^\s]+) input Name/)?.[1]
@@ -384,6 +389,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .toBe('Preview size: Mobile · 390 × 844')
   await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
   const adminPage = new URL(admin.url ?? '').href
+  await checkRefusedNames(app, panel, adminPage)
   const screenshotSize = async () => {
     const shot = await command({ action: 'screenshot' })
     if (!shot.attachment) throw new Error('Screenshot missing')

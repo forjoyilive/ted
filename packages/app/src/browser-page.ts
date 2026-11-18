@@ -6,7 +6,7 @@ import {
   scriptLiteral,
 } from '@ted/protocol'
 import type { Session, WebContents, WebPreferences } from 'electron'
-import { isOutsideMedia } from './browser-proxy.ts'
+import { type GuestProxyRules, guestSignInUrl, isOutsideMedia } from './browser-proxy.ts'
 
 export interface GuestHost {
   contents: WebContents
@@ -95,7 +95,7 @@ export async function openGuest(
   appUrl: string,
   options: {
     check(): void
-    proxy?(): Promise<string>
+    proxy?: GuestProxyRules
     host(webPreferences: WebPreferences): GuestHost
     created?(page: GuestPage): void
     beforeLoad?(page: GuestPage): Promise<void>
@@ -194,18 +194,21 @@ export async function openGuest(
     })
     check()
     // WebTransport bypasses webRequest but refuses proxied connections.
-    const proxyRules = options.proxy ? await options.proxy() : 'socks5://127.0.0.1:9'
+    const route = options.proxy ? await options.proxy(contents, () => page.blocked++) : undefined
     check()
     await ses.setProxy({
-      proxyRules,
+      proxyRules: route?.rules ?? 'socks5://127.0.0.1:9',
       proxyBypassRules: `<-loopback>,${origin},${origin.replace(/^http/, 'ws')}`,
     })
     check()
     ses.webRequest.onBeforeRequest((details, callback) => {
+      if (details.webContentsId === undefined && details.url === guestSignInUrl) return callback({})
       const pass = allowed(details.url) || isOutsideMedia(details.url, details.resourceType)
       if (!pass && /^(https?|wss?):/.test(details.url)) page.blocked++
       callback({ cancel: !pass })
     })
+    await route?.signIn()
+    check()
     await contents.debugger.sendCommand('Page.enable')
     check()
     await contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
