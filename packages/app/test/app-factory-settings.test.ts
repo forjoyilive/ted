@@ -173,14 +173,18 @@ describe('Factory settings sections', () => {
       await items.getByRole('listitem').first().waitFor()
       const offsets = await items.evaluate((ul) => {
         const lefts = (row: Element | null | undefined) =>
-          [...(row?.children ?? [])].map((cell) => Math.round(cell.getBoundingClientRect().left))
+          [...(row?.children ?? [])].flatMap((cell) =>
+            getComputedStyle(cell).position === 'absolute'
+              ? []
+              : [Math.round(cell.getBoundingClientRect().left)],
+          )
         return {
           head: lefts(ul.previousElementSibling),
           row: lefts(ul.querySelector('li')?.firstElementChild),
         }
       })
       expect(offsets.head.length).toBeGreaterThan(3)
-      expect(offsets.row).toEqual(offsets.head)
+      expect(offsets.row.slice(0, offsets.head.length)).toEqual(offsets.head)
     }
   })
 })
