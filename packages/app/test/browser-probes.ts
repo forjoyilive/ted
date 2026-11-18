@@ -404,7 +404,7 @@ export async function checkWorkerMedia(
       },
       { url, script },
     )
-  const before = Number((await panel.textContent())?.match(/Blocked (\d+) requests/)?.[1] ?? 0)
+  const before = Number((await panel.textContent())?.match(/Blocked (\d+) requests?/)?.[1] ?? 0)
   const passed = scriptLiteral('http://private.example/art.png?through-worker')
   const fetched = scriptLiteral('http://private.example/art.png?from-worker')
   try {
