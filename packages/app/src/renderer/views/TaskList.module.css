@@ -609,7 +609,26 @@
 }
 
 .selectionCell {
-  padding-inline: 0;
+  display: flex;
+  align-self: stretch;
+  margin-inline: -20px -8px;
+  padding: 0;
+}
+
+.selectionHit {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 20px 8px;
+}
+
+.groupSelectionHit {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  margin-inline: -20px -26px;
+  padding-inline: 20px 26px;
 }
 
 @media (hover: none) {

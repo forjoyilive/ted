@@ -23,6 +23,7 @@ import {
   checkModalRace,
   checkOutsideRequests,
   checkRefusedNames,
+  checkWorkerMedia,
   guestWorkerTraffic,
   startGuestWorker,
 } from './browser-probes.ts'
@@ -135,6 +136,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
     command({ action: 'reload' }),
   )
+  await checkWorkerMedia(app, panel, new URL(running.url ?? '').href)
   const snapshot = await command({ action: 'snapshot' })
   expect(snapshot.text).toContain('Browser fixture')
   const field = snapshot.text?.match(/([^\s]+) input Name/)?.[1]
@@ -419,19 +421,16 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     bottomLeft: '000',
   }
   expect(await screenshot()).toEqual(mobileShot)
+  const adminAttached = () =>
+    app?.evaluate(({ BrowserWindow }, url) => {
+      const children = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []
+      return children.some(
+        (v) =>
+          'webContents' in v && (v.webContents as import('electron').WebContents).getURL() === url,
+      )
+    }, adminPage)
   await panel.getByRole('button', { name: '← Task Lead' }).click()
-  await expect
-    .poll(() =>
-      app?.evaluate(({ BrowserWindow }, url) => {
-        const children = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []
-        return children.some(
-          (v) =>
-            'webContents' in v &&
-            (v.webContents as import('electron').WebContents).getURL() === url,
-        )
-      }, adminPage),
-    )
-    .toBe(false)
+  await expect.poll(adminAttached).toBe(false)
   expect(await screenshot()).toEqual(mobileShot)
   await window.getByRole('tab', { name: 'Apps' }).click()
   await window.getByRole('button', { name: 'Preview Admin', exact: true }).click()
@@ -463,6 +462,10 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     await command({ action: 'click', ref })
   }
   await addTarget('touchend')
+  await expect.poll(adminAttached).toBe(true)
+  await expect
+    .poll(() => onAdmin('document.elementFromPoint(5, 5)?.textContent'))
+    .toBe('Tap target')
   await app.evaluate(({ webContents }, url) => {
     const page = webContents.getAllWebContents().find((c) => c.getURL() === url)
     // sendInputEvent skips Chromium's touch emulation; a mouse event sent this way never answers.
@@ -591,20 +594,38 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     )
     .toBe(0)
   await window.evaluate(() => document.querySelector('#browser-test-dialog')?.remove())
-  await app.evaluate(({ webContents }, url) => {
-    webContents
-      .getAllWebContents()
-      .find((c) => c.getURL() === url)
-      ?.forcefullyCrashRenderer()
+  type CrashRecovery = typeof globalThis & { crashRecovery?: { busy: boolean; done: boolean } }
+  // The panel reopens a crashed page itself. Until its open command finishes,
+  // the daemon refuses any other browser command for the Task.
+  await panel.evaluate((region) => {
+    const recovery = { busy: false, done: false }
+    ;(globalThis as CrashRecovery).crashRecovery = recovery
+    new MutationObserver((_records, observer) => {
+      const text = region.querySelector('[role="status"]')?.textContent ?? ''
+      if (!text.includes('Ready')) recovery.busy = true
+      else if (recovery.busy) {
+        recovery.done = true
+        observer.disconnect()
+      }
+    }).observe(region, { childList: true, subtree: true, characterData: true })
+  })
+  const crashed = await app.evaluate(({ webContents }, url) => {
+    const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+    guest?.forcefullyCrashRenderer()
+    return guest?.id
   }, firstPage)
   await expect
     .poll(async () =>
       app?.evaluate(
-        ({ webContents }, url) => webContents.getAllWebContents().some((c) => c.getURL() === url),
-        firstPage,
+        ({ webContents }, { url, crashed }) =>
+          webContents.getAllWebContents().some((c) => c.getURL() === url && c.id !== crashed),
+        { url: firstPage, crashed },
       ),
     )
-    .toBe(false)
+    .toBe(true)
+  await expect
+    .poll(() => window.evaluate(() => (globalThis as CrashRecovery).crashRecovery?.done))
+    .toBe(true)
   await command({ action: 'reload' })
   expect((await command({ action: 'snapshot' })).text).toContain('Project')
   await checkInFlightNavigation(app, firstPage, command)

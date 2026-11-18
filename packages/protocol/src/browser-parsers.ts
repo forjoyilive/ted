@@ -5,7 +5,7 @@ import {
   browserActions,
   browserViewport,
 } from './browser.ts'
-import { isString } from './parse.ts'
+import { isBoolean, isString } from './parse.ts'
 import { previewSize } from './preview-size.ts'
 import { bodyObject, RequestValidationError, text } from './validation.ts'
 
@@ -70,6 +70,8 @@ export function parseBrowserReplyRequest(value: unknown): BrowserReplyRequest {
       result: {
         ...(result.url !== undefined && { url: shortText(result.url, 'url', 4000) }),
         ...(result.text !== undefined && { text: shortText(result.text, 'text', 64_000) }),
+        ...(isBoolean(result.canGoBack) && { canGoBack: result.canGoBack }),
+        ...(isBoolean(result.canGoForward) && { canGoForward: result.canGoForward }),
       },
     }),
   }

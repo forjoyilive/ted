@@ -214,7 +214,7 @@ const entries = {
     name: 'CPU a check may use',
     help: 'Ted tells each check how many of this computer’s cores it may use: this share of them, divided between the checks running at once, and never fewer than 1. A lower share leaves more room for Runs and makes checks slower.',
     detail:
-      'Ted doesn’t enforce it. A check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Applies to checks started after you change it.',
+      'Ted doesn’t enforce it. A check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Simulator and emulator App builds get the same share as TED_APP_CPUS, divided between the builds running at once. Applies to checks and builds started after you change it.',
   },
   'app.limits.scheduled-check-cpus': {
     name: 'Limit the CPU scheduled checks use too',

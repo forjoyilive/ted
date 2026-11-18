@@ -100,17 +100,20 @@ export function TaskBrowserView({
       })
       if (result.attachment) setCapture(result.attachment)
       if (result.url) setAddress(result.url)
+      if (result.canGoBack !== undefined && result.canGoForward !== undefined)
+        setHistory({ back: result.canGoBack, forward: result.canGoForward })
+      else void readHistory()
       setStatus(
         result.attachment ? 'Screenshot saved to Task attachments' : (result.text ?? 'Ready'),
       )
       return true
     } catch (error) {
       setStatus(readableError(error))
+      void readHistory()
       return false
     } finally {
       active.current = false
       setBusy(false)
-      void readHistory()
     }
   }
   const preset = useRef(app?.preview)

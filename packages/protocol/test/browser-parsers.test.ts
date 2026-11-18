@@ -18,7 +18,7 @@ roundTrip(parseBrowserReplyRequest, {
   session: 'owner',
   canceled: true,
   error: 'Canceled',
-  result: { url: 'http://localhost:3000/', text: 'Ready' },
+  result: { url: 'http://localhost:3000/', text: 'Ready', canGoBack: true, canGoForward: false },
 })
 
 for (const action of browserActions) {

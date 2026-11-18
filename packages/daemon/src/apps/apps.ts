@@ -4,6 +4,7 @@ import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from '
 import http from 'node:http'
 import https from 'node:https'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import tls from 'node:tls'
@@ -37,6 +38,7 @@ import { type LaunchAuthority, launchAuthority } from '../runs/launch-authority.
 import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.ts'
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { TedStore } from '../store/index.ts'
+import { checkCpus } from '../tasks/check-slots.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { certificateErrorCode } from '../tls-trust.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
@@ -730,7 +732,10 @@ export function createApps(options: AppsOptions): Apps {
       const electron = app.electron === true && port !== undefined
       const electronVars = electron ? electronEnv(port, by, scope !== undefined) : {}
       const driven = electron && by !== 'human'
-      const values = { ...vars, ...portVars, ...extra }
+      const cpus = () =>
+        checkCpus(os.availableParallelism(), pool.beginBuild(key), store.settings().checkCpuPercent)
+      const launchVars = isDeviceApp(app) ? { ...extra, TED_APP_CPUS: String(cpus()) } : extra
+      const values = { ...vars, ...portVars, ...launchVars }
       const ownEnv = Object.fromEntries(
         Object.entries(app.env)
           .filter(([name]) => name.toUpperCase() !== 'PORT' && !isReservedEnvName(name))
@@ -738,7 +743,14 @@ export function createApps(options: AppsOptions): Apps {
       )
       const env = worktreeCommandEnv(
         repo.env,
-        { ...ownEnv, ...vars, ...portVars, ...extra, ...electronVars, TED_TASK: task.displayId },
+        {
+          ...ownEnv,
+          ...vars,
+          ...portVars,
+          ...launchVars,
+          ...electronVars,
+          TED_TASK: task.displayId,
+        },
         options.env?.() ?? process.env,
       )
       const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
@@ -1054,7 +1066,7 @@ export function createApps(options: AppsOptions): Apps {
         )
         return
       }
-      if (started && pool.holder()?.key === key && (await saidReady(dir, key))) {
+      if (started && pool.building(key) && (await saidReady(dir, key))) {
         pool.endTurn(key)
       }
       const readyUrl = instance.url ?? instance.debugUrl

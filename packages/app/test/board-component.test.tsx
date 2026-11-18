@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { ListFilters, TaskMarker } from '@ted/protocol'
+import { allTasksScope } from '@ted/protocol/list-view'
 import { render as draw, fireEvent, screen, within } from '@testing-library/react'
 import type { ReactElement, ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
@@ -10,6 +11,7 @@ import {
   taskStatus,
 } from '../../daemon/src/tasks/status.ts'
 import { Help } from '../src/renderer/components/Help.tsx'
+import { defaultView, shownColumns } from '../src/renderer/list-view.ts'
 import { affects, StagesProvider } from '../src/renderer/stages.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
 import {
@@ -595,6 +597,55 @@ test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s
   expect(await screen.findByRole('region', { name: 'Task thread' })).toBeTruthy()
 })
 
+function trackWidths(template: string, list: number, ch: number): number[] {
+  const tokens =
+    template.match(/var\(--text-14\)|[a-z-]+\(|\d+(?:\.\d+)?(?:px|ch|%|fr)?|[-+*,()]/g) ?? []
+  let at = 0
+  const next = () => tokens[at++] ?? ''
+  const args = (): number[] => {
+    const values = [sum()]
+    while (tokens[at] === ',') {
+      at++
+      values.push(sum())
+    }
+    next()
+    return values
+  }
+  const atom = (): number => {
+    const t = next()
+    if (t === 'var(--text-14)') return 14
+    if (t === 'calc(' || t === '(') return args()[0] ?? 0
+    if (t === 'min(') return Math.min(...args())
+    if (t === 'max(' || t === 'minmax(') return Math.max(...args())
+    if (t === 'clamp(') {
+      const [low = 0, value = 0, high = 0] = args()
+      return Math.max(low, Math.min(value, high))
+    }
+    if (t.endsWith('fr')) return Number.NaN
+    const n = Number.parseFloat(t)
+    return t.endsWith('ch') ? n * ch : t.endsWith('%') ? (n * list) / 100 : n
+  }
+  const product = (): number => {
+    let value = atom()
+    while (tokens[at] === '*') {
+      at++
+      value *= atom()
+    }
+    return value
+  }
+  const sum = (): number => {
+    let value = product()
+    while (tokens[at] === '-' || tokens[at] === '+')
+      value += next() === '-' ? -product() : product()
+    return value
+  }
+  const widths: number[] = []
+  while (at < tokens.length) widths.push(sum())
+  const fixed = widths.filter((w) => !Number.isNaN(w)).reduce((a, b) => a + b, 0)
+  const free = list - fixed - (widths.length - 1) * 16
+  return widths.map((w) => (Number.isNaN(w) ? Math.max(120, free) : w))
+}
+
 test('List ID column fits the longest ID, and Status gives way before Title is under 40 characters', () => {
   expect(idColumnWidth([{ displayId: 'TED-1000' }])).not.toMatch(/\d(ch|em|ex)\b/)
   expect(idColumnWidth([])).toBe('max(56px, calc(2 * 0.65 * var(--text-14)))')
@@ -603,7 +654,7 @@ test('List ID column fits the longest ID, and Status gives way before Title is u
   )
   expect(listGrid(['id', 'title', 'status', 'updated'], [{ displayId: 'TED-1' }])).toBe(
     '4px 24px max(56px, calc(7 * 0.65 * var(--text-14))) minmax(120px, 1fr) ' +
-      'minmax(176px, min(300px, calc(100% - 4px - 24px - max(56px, calc(7 * 0.65 * var(--text-14))) - 40ch - 56px - 4px - 6 * 16px))) 56px 4px',
+      'minmax(110px, min(300px, calc(100% - 4px - 24px - max(56px, calc(7 * 0.65 * var(--text-14))) - 40ch - 56px - 4px - 6 * 16px))) 56px 4px',
   )
   expect(listGrid(['id', 'status'], [])).toContain('minmax(176px, 300px)')
   expect(listGrid(['children', 'parent'], [{ displayId: 'TED-1000' }])).toBe(
@@ -619,6 +670,40 @@ test('List Factory column fits the longest Factory name between 120px and 220px'
   expect(listGrid(['factory', 'stage'], [], ['Ananda Insight'])).toBe(
     '4px 24px clamp(120px, calc(14 * 0.6 * var(--text-14) + 18px), 220px) 80px 4px',
   )
+})
+
+test('List Factory column, then Status, gives way so Title keeps about 40 characters', () => {
+  const columns = shownColumns(defaultView(allTasksScope))
+  expect(columns).toEqual([
+    'priority',
+    'id',
+    'title',
+    'children',
+    'parent',
+    'factory',
+    'stage',
+    'status',
+    'updated',
+    'started',
+  ])
+  const grid = listGrid(columns, [{ displayId: 'TED-590' }], ['x'.repeat(40)])
+  const at = (list: number) => {
+    const [, , , , title, , , factory, , status] = trackWidths(grid, list, 9.7)
+    return { title, factory, status }
+  }
+  expect(at(1150)).toMatchObject({ factory: 80, status: 110 })
+  expect(at(1150).title).toBeGreaterThanOrEqual(240)
+  expect(at(1300).factory).toBe(80)
+  expect(at(1300).status).toBeGreaterThan(110)
+  expect(at(1300).status).toBeLessThan(176)
+  expect(at(1400).status).toBeCloseTo(176, 6)
+  expect(at(1400).factory).toBeGreaterThan(80)
+  expect(at(1400).factory).toBeLessThan(220)
+  expect(at(1400).title).toBeCloseTo(388, 0)
+  expect(at(1600)).toMatchObject({ factory: 220 })
+  expect(at(1600).status).toBeGreaterThan(176)
+  expect(at(1600).title).toBeCloseTo(388, 0)
+  expect(at(800).title).toBe(120)
 })
 
 test('folding a parent in one Stage group keeps its children in other groups and is remembered', async () => {
