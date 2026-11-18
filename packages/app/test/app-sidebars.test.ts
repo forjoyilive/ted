@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises'
+import { cp, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type { Locator, Page } from 'playwright'
 import { expect, test } from 'vitest'
@@ -36,9 +36,16 @@ async function capture(window: Page, name: string) {
 }
 
 test('sidebars resize, persist, fit the window and share navigation width with Settings', async () => {
-  await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
-  await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin-2')), 'NC')
-  await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin-3')), 'ND')
+  const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
+  await addFactory(origin, 'NB')
+  for (const { name, key } of [
+    { name: 'gadgets', key: 'NC' },
+    { name: 'gizmos', key: 'ND' },
+  ]) {
+    const copy = path.join(path.dirname(origin), `${name}.git`)
+    await cp(origin, copy, { recursive: true })
+    await addFactory(copy, key)
+  }
   const client = await daemonClient()
   await client.createTask({
     factory: 'NB',
