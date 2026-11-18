@@ -391,8 +391,8 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     if (!line.includes(ticket)) line.push(ticket)
     pool.wait(ticket, waiterOf(app, false))
     const blocked = () =>
-      (!isLive(record) && (line[0] !== ticket || liveCount() >= limit())) ||
-      !pool.turnFree(holderOf(app).key)
+      !pool.turnFree(holderOf(app).key) ||
+      (!isLive(record) && (line[0] !== ticket || liveCount() >= limit()))
     if (blocked()) return { state: 'pending' }
     return serial(async () => {
       await pool.fresh(member)
@@ -507,7 +507,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       }
       return { state: 'gone' }
     }
-    if (liveCount() >= limit() || !pool.turnFree(holderOf(app).key)) return { state: 'pending' }
+    if (!pool.turnFree(holderOf(app).key) || liveCount() >= limit()) return { state: 'pending' }
     return serial(async () => {
       if (store.getComment(commentId)?.answer) return { state: 'pending' } as const
       await pool.fresh(member)

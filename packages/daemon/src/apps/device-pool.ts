@@ -64,7 +64,10 @@ export function createDevicePool(options: {
 
   const live = () => members.flatMap((m) => m.live())
   const current = () => {
-    if (turn !== undefined && now() - turn.at >= turnMs) turn = undefined
+    if (turn !== undefined && now() - turn.at >= turnMs) {
+      turn = undefined
+      queueMicrotask(notifyWaiters)
+    }
     return turn
   }
   const turnFree = (key: string) => {

@@ -325,6 +325,27 @@ test('the waiting list says what each App waits for and updates when the build t
   expect(slots.slots().waiting).toEqual([])
 })
 
+test('a build turn that runs out updates what the waiting App waits for', async () => {
+  let now = 0
+  const pool = createDevicePool({
+    limit: () => 1,
+    oneAtATime: () => true,
+    turnMs: 60_000,
+    now: () => now,
+  })
+  const { slots, events } = setup({ pool })
+  await slots.acquire(app('t1'), 'human', {})
+  const queued = await slots.acquire(app('t2'), 'automation', {})
+  if (!('waiting' in queued)) throw new Error('expected to wait')
+
+  events.length = 0
+  now += 60_000
+  expect(await slots.wait(queued.waiting, app('t2'))).toEqual({ state: 'pending' })
+  await Promise.resolve()
+  const sent = events.flatMap((e) => (e.type === 'simulators-changed' ? [e.simulators] : []))
+  expect(sent.at(-1)?.waiting).toMatchObject([{ taskId: 't2', waitingFor: { kind: 'device' } }])
+})
+
 test('Apps that ask the human and Apps in line are listed in the order they asked', async () => {
   const { slots } = setup()
   await slots.acquire(app('t1'), 'human', {})
