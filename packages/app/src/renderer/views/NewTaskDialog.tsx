@@ -1105,10 +1105,7 @@ function BlockedBy({
 }) {
   return (
     <div className={`${styles.field} ${styles.grow}`}>
-      <span className={styles.labelRow}>
-        <span className={styles.label}>Blocked by</span>
-        <span className={styles.hint}>any Factory</span>
-      </span>
+      <span className={styles.label}>Blocked by</span>
       <BlockerPicker tasks={tasks} blockers={blockers} onAdd={onAdd} onRemove={onRemove} />
     </div>
   )
