@@ -800,19 +800,32 @@ function TaskNames({ heading, tasks }: { heading: string; tasks: readonly Task[]
   )
 }
 
-function NamedRepairNote({
-  task,
-  requestId,
-  choice,
-}: {
-  task: Task
-  requestId: string
-  choice: string
-}) {
+function useNamedRepair(task: Task, requestId: string) {
+  const stages = useStages()
+  const tasks = useTasks()
   const named = useFailures(task.id)
     .flatMap((f) => f.decisions)
     .find((d) => d.commentId === requestId)?.repairTask
-  if (!named || choice !== namedRepairChoice(named.displayId)) return null
+  if (!named) return undefined
+  const live = tasks.find((t) => t.id === named.id)
+  const state = live
+    ? live.archived
+      ? 'Archived'
+      : stages.name(live.stage, live.factoryId)
+    : undefined
+  return { ...named, choice: namedRepairChoice(named.displayId), state }
+}
+
+function NamedRepairNote({
+  task,
+  named,
+  choice,
+}: {
+  task: Task
+  named: ReturnType<typeof useNamedRepair>
+  choice: string
+}) {
+  if (!named || choice !== named.choice) return null
   return (
     <p className={styles.caption}>
       {task.displayId} keeps its Stage and worktree and waits for {named.displayId} · {named.title}{' '}
@@ -888,6 +901,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
   const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
   const failure = isFailure(request)
+  const namedRepair = useNamedRepair(task, request.id)
   const textRefused = kind === 'choice-only' && typed
   const failureChoice = failure && questionChoices
   const boxLabel = !failureChoice
@@ -964,6 +978,16 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
           onSelect={setSelection}
           allowOther={kind === 'open'}
           disabled={sending}
+          tagOf={(choice) =>
+            failure &&
+            namedRepair &&
+            choice === namedRepair.choice && (
+              <span className={styles.choiceTag}>
+                · {namedRepair.title}
+                {namedRepair.state !== undefined && ` · ${namedRepair.state}`}
+              </span>
+            )
+          }
           {...(failure && failureWords)}
         />
       )}
@@ -1020,7 +1044,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
         <p className={styles.caption}>A reason is required. Confirming closes this failure.</p>
       )}
       {failureChoice && selectedChoice?.startsWith('Wait for ') && !repairing && (
-        <NamedRepairNote task={task} requestId={request.id} choice={selectedChoice} />
+        <NamedRepairNote task={task} named={namedRepair} choice={selectedChoice} />
       )}
       {failureChoice && other && (
         <p className={styles.caption}>

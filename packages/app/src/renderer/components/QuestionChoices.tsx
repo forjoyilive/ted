@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { type ReactNode, useId } from 'react'
 import { ChoiceText } from './ChoiceText.tsx'
 import styles from './QuestionChoices.module.css'
 
@@ -22,6 +22,7 @@ export function QuestionChoices({
   legend = 'Your answer',
   otherLabel = 'Other answer',
   disabled,
+  tagOf,
 }: {
   choices: readonly string[]
   selection: QuestionSelection | undefined
@@ -31,6 +32,7 @@ export function QuestionChoices({
   legend?: string
   otherLabel?: string
   disabled: boolean
+  tagOf?: ((choice: string) => ReactNode) | undefined
 }) {
   const group = useId()
   const several = multiple ? (isSeveral(selection) ? selection : { picks: [] }) : undefined
@@ -65,7 +67,7 @@ export function QuestionChoices({
             checked={isSelected(choice)}
             onChange={() => pick(choice)}
           />
-          <ChoiceText choice={choice} className={styles.text} />
+          <ChoiceText choice={choice} className={styles.text} tag={tagOf?.(choice)} />
         </label>
       ))}
       {allowOther && (
