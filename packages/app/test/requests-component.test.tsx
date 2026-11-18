@@ -1561,9 +1561,11 @@ test('a repair Task the Task Lead named is its own decision choice, with its tit
   )
   await user().click(await screen.findByRole('button', { name: 'NB-2 · Fix the restart test' }))
   expect(openTask).toHaveBeenCalledWith('repair-1')
-  await user().click(
-    await screen.findByRole('radio', { name: 'Wait for NB-2 · Fix the restart test · Work' }),
+  const named = await screen.findByRole('radio', { name: /^Wait for NB-2/ })
+  await waitFor(() =>
+    expect(named.closest('label')?.textContent).toBe('Wait for NB-2 · Fix the restart test · Work'),
   )
+  await user().click(named)
   expect(await screen.findByText(/waits for NB-2 · Fix the restart test to merge/)).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Confirm Wait for NB-2' }))
   expect(answer).toHaveBeenCalledWith(

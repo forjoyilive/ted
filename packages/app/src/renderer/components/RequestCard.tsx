@@ -818,13 +818,14 @@ function useNamedRepair(task: Task, requestId: string) {
 
 function NamedRepairNote({
   task,
-  named,
+  requestId,
   choice,
 }: {
   task: Task
-  named: ReturnType<typeof useNamedRepair>
+  requestId: string
   choice: string
 }) {
+  const named = useNamedRepair(task, requestId)
   if (!named || choice !== named.choice) return null
   return (
     <p className={styles.caption}>
@@ -832,6 +833,26 @@ function NamedRepairNote({
       to merge. Then Ted takes in the repair and runs fresh validation. {named.displayId} keeps its
       current state.
     </p>
+  )
+}
+
+function NamedRepairTag({
+  task,
+  requestId,
+  choice,
+}: {
+  task: Task
+  requestId: string
+  choice: string
+}) {
+  const named = useNamedRepair(task, requestId)
+  if (!named || choice !== named.choice) return null
+  return (
+    <span className={styles.choiceTag}>
+      {'· '}
+      {named.title}
+      {named.state !== undefined && ` · ${named.state}`}
+    </span>
   )
 }
 
@@ -901,7 +922,6 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
   const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
   const failure = isFailure(request)
-  const namedRepair = useNamedRepair(task, request.id)
   const textRefused = kind === 'choice-only' && typed
   const failureChoice = failure && questionChoices
   const boxLabel = !failureChoice
@@ -980,12 +1000,9 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
           disabled={sending}
           tagOf={(choice) =>
             failure &&
-            namedRepair &&
-            choice === namedRepair.choice && (
-              <span className={styles.choiceTag}>
-                · {namedRepair.title}
-                {namedRepair.state !== undefined && ` · ${namedRepair.state}`}
-              </span>
+            choice.startsWith('Wait for ') &&
+            choice !== 'Wait for a repair Task' && (
+              <NamedRepairTag task={task} requestId={request.id} choice={choice} />
             )
           }
           {...(failure && failureWords)}
@@ -1044,7 +1061,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
         <p className={styles.caption}>A reason is required. Confirming closes this failure.</p>
       )}
       {failureChoice && selectedChoice?.startsWith('Wait for ') && !repairing && (
-        <NamedRepairNote task={task} named={namedRepair} choice={selectedChoice} />
+        <NamedRepairNote task={task} requestId={request.id} choice={selectedChoice} />
       )}
       {failureChoice && other && (
         <p className={styles.caption}>
