@@ -52,6 +52,7 @@ interface NewTaskDialogProps {
   parentId?: string
   onClose: () => void
   onOpenTask?: (task: Task) => void
+  startsAutomatically?: (factoryId: string) => boolean
 }
 
 export function NewTaskDialog({
@@ -62,6 +63,7 @@ export function NewTaskDialog({
   parentId,
   onClose,
   onOpenTask,
+  startsAutomatically = () => false,
 }: NewTaskDialogProps) {
   const [seed, setSeed] = useState(initialDescription)
   const [parentSeed, setParentSeed] = useState(parentId)
@@ -80,6 +82,7 @@ export function NewTaskDialog({
       {...(carried && { carried })}
       onClose={onClose}
       {...(onOpenTask && { onOpenTask })}
+      startsAutomatically={startsAutomatically}
       onFactory={(id, draft) => {
         setSeed('')
         setParentSeed(undefined)
@@ -99,6 +102,7 @@ function NewTaskForm({
   carried,
   onClose,
   onOpenTask,
+  startsAutomatically = () => false,
   onFactory,
 }: NewTaskDialogProps & {
   carried?: NewTaskDraft
@@ -591,14 +595,14 @@ function NewTaskForm({
     .map((id) => tasks.find((t) => t.id === id))
     .filter((t) => t !== undefined)
   const merges = `${joinIds(blockers.map((t) => t.displayId))} ${blockers.length === 1 ? 'merges' : 'merge'}`
-  const autoStarts = chosenFactory?.autoStartBacklog === true
+  const autoStarts = chosenFactory !== undefined && startsAutomatically(chosenFactory.id)
   const note =
     start && blockers.length > 0
       ? `Waits as Blocked until ${merges}`
       : start
         ? undefined
         : autoStarts
-          ? `${blockers.length > 0 ? `Starts when ${merges}` : 'Starts when a slot is free'}: this Factory starts Backlog Tasks automatically`
+          ? `${blockers.length > 0 ? `Starts when ${merges}` : 'Starts when a slot is free'}: Ted starts Backlog Tasks from this Factory automatically`
           : 'Waits in Backlog until you start it'
   const summary = `Clarify depth ${clarifyDepthLabels[clarifyDepth]}${lead ? ` · Task Lead ${leadSummary(lead)}` : ''}`
 

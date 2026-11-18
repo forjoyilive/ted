@@ -26,6 +26,13 @@ import {
 } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AutopilotLabel } from '../components/Autopilot.tsx'
+import {
+  BacklogStartsDot,
+  BacklogStartsMenu,
+  backlogStartsSummary,
+  startsAutomatically,
+  startsOnItsOwn,
+} from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
@@ -562,6 +569,7 @@ export function TaskList({
   banners,
   capLine,
   slots,
+  onOpenBacklogStarts,
 }: {
   scope: string
   title: string
@@ -577,6 +585,7 @@ export function TaskList({
   banners?: ReactNode
   capLine?: string | undefined
   slots?: RunSlots | undefined
+  onOpenBacklogStarts?: () => void
 }) {
   const now = useNow()
   const allTasks = isAllTasks(scope)
@@ -604,6 +613,11 @@ export function TaskList({
   }
   const changeFilters = (filters: ListFilters) => change({ ...view, filters })
 
+  const backlogStarts = settings?.backlogStarts
+  const startsIn = useMemo(
+    () => (backlogStarts ? startsAutomatically(backlogStarts, layout) : () => false),
+    [backlogStarts, layout],
+  )
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
   const shown = filterTasks(inScope, view.filters, text, layout)
   const scopedFactories = allTasks ? factories : factories.filter((f) => f.id === scope)
@@ -816,7 +830,11 @@ export function TaskList({
             </span>
           )
         if (!task.status && task.markers.length === 0 && activeSubAgentCount(task.runs) === 0) {
-          return <span className={styles.none}>—</span>
+          return allTasks && startsOnItsOwn(task, startsIn) ? (
+            <span className={styles.meta}>Starts automatically</span>
+          ) : (
+            <span className={styles.none}>—</span>
+          )
         }
         return <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
       case 'blocked-by': {
@@ -1062,6 +1080,26 @@ export function TaskList({
         </h1>
         <span className={views.headerSpacer} />
         {capLine !== undefined && <span className={styles.capLine}>{capLine}</span>}
+        {allTasks && settings && (
+          <MenuButton
+            label={`Backlog starts: ${backlogStartsSummary(settings.backlogStarts, factories, layout)}`}
+            icon={<BacklogStartsDot on={settings.backlogStarts.enabled} />}
+          >
+            {(close) => (
+              <BacklogStartsMenu
+                starts={settings.backlogStarts}
+                factories={factories}
+                layout={layout}
+                {...(onOpenBacklogStarts && {
+                  onOpenSettings: () => {
+                    close()
+                    onOpenBacklogStarts()
+                  },
+                })}
+              />
+            )}
+          </MenuButton>
+        )}
         <MenuButton
           label="Filter"
           icon={<FilterIcon />}

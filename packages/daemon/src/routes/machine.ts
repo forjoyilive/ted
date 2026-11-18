@@ -25,11 +25,13 @@ import {
   type MachineSettings,
   parseBannerActionInput,
   parseChangeAgentAvailabilityRequest,
+  parseSetBacklogStartsRequest,
   priorities,
   quitChoices,
   runOutputDayLimits,
   type StageId,
   type StatusFilter,
+  sameBacklogStarts,
   simulatorSlotLimits,
   taskStatusKinds,
   terminalFontSizes,
@@ -73,6 +75,20 @@ export const machineRoutes: Route[] = [
       return [200, store.updateSettings(settingsChanges(await readJson(req), store.settings()))]
     },
   },
+  jsonRoute(parseSetBacklogStartsRequest, {
+    method: 'PUT',
+    path: /^\/backlog-starts$/,
+    async handle({ body }, { store }) {
+      const known = new Set(store.listFactories().map((factory) => factory.id))
+      const groups = new Set(
+        store.factoryLayout().items.flatMap((item) => ('group' in item ? [item.group.id] : [])),
+      )
+      if (body.factoryIds.some((id) => !known.has(id))) throw new HttpError(400, 'Unknown Factory')
+      if (body.groupIds.some((id) => !groups.has(id))) throw new HttpError(400, 'Unknown group')
+      if (sameBacklogStarts(body, store.settings().backlogStarts)) return [200, store.settings()]
+      return [200, store.updateSettings({ backlogStarts: body })]
+    },
+  }),
   {
     method: 'GET',
     path: /^\/activity$/,
@@ -460,6 +476,9 @@ export const settingParsers: {
   },
   githubIntakeScopes() {
     throw new HttpError(400, 'Change a Factory’s GitHub intake through its own route')
+  },
+  backlogStarts() {
+    throw new HttpError(400, 'Change automatic Backlog starts through their own route')
   },
   linearSync: onOff('linearSync'),
   asanaSync: onOff('asanaSync'),

@@ -40,6 +40,7 @@ import {
   asanaSyncOf,
   automationCardHeadline,
   autopilotEnabled,
+  type BacklogStarts,
   type Banner,
   type BannerAction,
   type BannerSeverity,
@@ -94,6 +95,7 @@ import {
   type MachineSettings,
   type MemoryKillAsk,
   type MergeMethod,
+  noBacklogStarts,
   type PermissionMode,
   type Priority,
   type Proposal,
@@ -392,12 +394,19 @@ export interface StoredFactoryRepo {
 }
 
 export interface StoredFactory extends Omit<Factory, 'repos' | 'cloned' | 'setup' | 'localFolder'> {
+  autoStartBacklog: boolean
   cloneUrl: string
   repos: StoredFactoryRepo[]
   clonedAt?: string
 }
 
-export function basicFactory({ cloneUrl: _, clonedAt, repos, ...factory }: StoredFactory): Factory {
+export function basicFactory({
+  cloneUrl: _,
+  autoStartBacklog: __,
+  clonedAt,
+  repos,
+  ...factory
+}: StoredFactory): Factory {
   return {
     ...factory,
     repos: repos.map(({ repo, name }) => ({ repo, name })),
@@ -3586,6 +3595,12 @@ export async function openStore({
       : 'ask'
   }
 
+  const backlogStartsBeforeSaving = (): BacklogStarts => {
+    const factoryIds = store.query(
+      queryDb(factories.select('id').where({ autoStartBacklog: true })),
+    )
+    return { ...noBacklogStarts, enabled: factoryIds.length > 0, factoryIds }
+  }
   const machineDefaults: MachineSettings = {
     ...defaultMachineSettings,
     maxWorkingRuns: defaultWorkingRuns(totalMemory()),
@@ -3601,6 +3616,7 @@ export async function openStore({
       ...machineDefaults,
       ...(legacy && { appearance: legacy.appearance as Appearance }),
       ...pick(values, Object.keys(defaultMachineSettings)),
+      ...(values.backlogStarts === undefined && { backlogStarts: backlogStartsBeforeSaving() }),
       billing: {
         ...defaultMachineSettings.billing,
         ...(values.billing as Partial<MachineSettings['billing']> | undefined),

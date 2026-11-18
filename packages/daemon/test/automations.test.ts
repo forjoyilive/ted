@@ -828,7 +828,12 @@ describe('Automations', () => {
   test('a Task Lead creates up to 10 Tasks in Backlog, with a reminder past 3, and waits for a child it made', async () => {
     const client = await startTed()
     const factory = (await client.ok<Factory[]>('GET', '/factories')).find((f) => f.key === 'NB')
-    await client.ok('PUT', `/factories/${factory?.id}/auto-start-backlog`, { enabled: true })
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: true,
+      all: false,
+      groupIds: [],
+      factoryIds: [factory?.id],
+    })
     const make = (...args: string[]) => ({ run: ['ted', 'task', 'create', ...args] })
     const task = await client.ok<Task>('POST', '/tasks', {
       factory: 'NB',
@@ -1955,7 +1960,12 @@ describe('Factory GitHub intake enforcement', () => {
       }),
     )
     await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: { label: 'ready' } })
-    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: true,
+      all: false,
+      groupIds: [],
+      factoryIds: [factory.id],
+    })
     const create_ = (n: number, ...extra: string[]) => ({
       run: [
         'ted',

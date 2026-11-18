@@ -393,7 +393,12 @@ describe('Split it', () => {
     expect(third.stage).toBe('backlog')
     expect((await getTask(client, task.id)).stage).toBe('clarify')
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
-    await client.ok('PUT', `/factories/${factory?.id}/auto-start-backlog`, { enabled: true })
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: true,
+      all: false,
+      groupIds: [],
+      factoryIds: [factory?.id],
+    })
     await waitUntil(
       async () => (await getTask(client, third.id)).stage === 'done' || undefined,
       'the blocked piece to start and merge',

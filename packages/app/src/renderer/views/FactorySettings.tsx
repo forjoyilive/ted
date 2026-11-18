@@ -69,7 +69,6 @@ import {
   NotesSection,
   NotificationsSection,
   PermissionsSection,
-  Toggle,
   WorkflowSection,
 } from './FactorySettingsSections.tsx'
 import { GitHubIntakeSection } from './GitHubIntakeSection.tsx'
@@ -694,22 +693,6 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
   const nameId = useId()
   const keyId = useId()
   const iconId = useId()
-  const [autoStartBacklog, setAutoStartBacklog] = useState(factory.autoStartBacklog)
-  const [savingAutoStart, setSavingAutoStart] = useState(false)
-  const [autoStartError, setAutoStartError] = useState<string>()
-  useEffect(() => setAutoStartBacklog(factory.autoStartBacklog), [factory.autoStartBacklog])
-  async function saveAutoStart(enabled: boolean) {
-    setSavingAutoStart(true)
-    setAutoStartError(undefined)
-    try {
-      const saved = await ted.setFactoryAutoStartBacklog(factory.id, enabled)
-      setAutoStartBacklog(saved.autoStartBacklog)
-    } catch (failure) {
-      setAutoStartError(readableError(failure))
-    } finally {
-      setSavingAutoStart(false)
-    }
-  }
   const [name, setName] = useState(factory.name)
   const [error, setError] = useState<string>()
   useEffect(() => setName(factory.name), [factory.name])
@@ -775,29 +758,6 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
             readOnly
           />
         </div>
-      </div>
-      <div className={styles.autoStartRow} data-setting="factory.general.auto-start">
-        <div className={styles.field}>
-          <span className={styles.label}>Start Backlog Tasks automatically</span>
-          <span className={styles.caption}>
-            Start the next eligible Task when a working-Run slot is free. Uses priority and manual
-            order, skips blocked Tasks, and gives Queued work precedence.
-          </span>
-          <span className={styles.caption}>
-            Takes effect immediately. Turning this off leaves started Tasks running.
-          </span>
-          {autoStartError !== undefined && (
-            <span className={styles.fieldError} role="alert">
-              {autoStartError}
-            </span>
-          )}
-        </div>
-        <Toggle
-          label="Start Backlog Tasks automatically"
-          checked={autoStartBacklog}
-          disabled={savingAutoStart}
-          onChange={(enabled) => saveAutoStart(enabled)}
-        />
       </div>
     </section>
   )

@@ -7,28 +7,31 @@ import {
   ctx,
   daemonClient,
   launchApp,
-  openFactoryView,
+  openAllTasks,
   setUpAppTests,
   waitFor,
 } from './app-harness.ts'
 
 setUpAppTests()
 
-describe('automatic Backlog starting settings', () => {
-  test('saves immediately without the repository Save dialog', async () => {
+describe('automatic Backlog starts', () => {
+  test('All Tasks turns them on for a chosen Factory and saves on this machine at once', async () => {
     await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
     const window = await launchApp()
     await window.setViewportSize({ width: 1280, height: 800 })
-    await openFactoryView(window, 'widgets', 'Settings')
+    await openAllTasks(window)
+    await window.getByRole('button', { name: 'Backlog starts: Off' }).click()
     const autoStart = window.getByRole('switch', { name: 'Start Backlog Tasks automatically' })
-    expect(await autoStart.getAttribute('aria-checked')).toBe('false')
     await autoStart.click()
     await waitFor(async () => (await autoStart.getAttribute('aria-checked')) === 'true')
+    await window.getByRole('checkbox', { name: /widgets/ }).click()
     const client = await daemonClient()
-    expect((await client.listFactories())[0]?.autoStartBacklog).toBe(true)
-    expect(await window.getByRole('button', { name: 'Review and save…' }).count()).toBe(0)
-    await autoStart.click()
-    await waitFor(async () => (await autoStart.getAttribute('aria-checked')) === 'false')
+    const [factory] = await client.listFactories()
+    await waitFor(async () => {
+      const { backlogStarts } = await client.getSettings()
+      return backlogStarts.enabled && backlogStarts.factoryIds.includes(factory?.id ?? '')
+    })
+    expect(await window.getByRole('button', { name: 'Backlog starts: widgets' }).count()).toBe(1)
     if (process.env.TED_SETTINGS_SCREENSHOT) {
       await mkdir(path.dirname(process.env.TED_SETTINGS_SCREENSHOT), { recursive: true })
       await window.screenshot({ path: process.env.TED_SETTINGS_SCREENSHOT })

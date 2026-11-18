@@ -57,7 +57,7 @@ A Stage a Factory or the Library adds by hand: an id in `order`, a Stage file wi
 _Avoid_: Plugin Stage, extra step
 
 **Backlog**:
-The holding Stage at the start of a Workflow where Tasks wait to be started by the human, an Automation, or the Factory’s automatic Backlog starting option. Nothing runs on a Task in Backlog.
+The holding Stage at the start of a Workflow where Tasks wait to be started by the human, an Automation, or automatic Backlog starts (Settings → General → Backlog starts). Nothing runs on a Task in Backlog.
 _Avoid_: Icebox, queue
 
 **Cleanup**:

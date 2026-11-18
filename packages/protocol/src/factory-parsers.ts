@@ -1,7 +1,6 @@
 import { parseAgentFileChanges, parseKeepAgentFiles } from './agent-file-parsers.ts'
 import type {
   AddFactoryRequest,
-  AutoStartBacklogRequest,
   CheckRepoRequest,
   CreateFactoryRequest,
   FactoryLayout,
@@ -394,12 +393,6 @@ function repoSource(given: unknown): RepoSource {
 function newRepo(given: unknown): NewFactoryRepo {
   const repo = (typeof given === 'object' && given !== null ? given : {}) as Record<string, unknown>
   return { source: repoSource(repo.source), name: typeof repo.name === 'string' ? repo.name : '' }
-}
-
-export function parseAutoStartBacklogRequest(value: unknown): AutoStartBacklogRequest {
-  const body = record(value)
-  if (typeof body.enabled !== 'boolean') throw new HttpError(400, 'enabled must be true or false')
-  return { enabled: body.enabled }
 }
 
 export function parseCreateFactoryRequest(value: unknown): CreateFactoryRequest {

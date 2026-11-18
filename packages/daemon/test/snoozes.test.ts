@@ -129,9 +129,19 @@ describe('Backlog snoozes', () => {
       snoozedUntil: until,
       markers: [{ kind: 'snoozed', until }],
     })
-    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: true,
+      all: false,
+      groupIds: [],
+      factoryIds: [factory.id],
+    })
     expect((await get(client, task)).stage).toBe('backlog')
-    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: false })
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: false,
+      all: false,
+      groupIds: [],
+      factoryIds: [],
+    })
     await client.ok('PATCH', '/settings', { overnightMode: true })
     expect((await get(client, task)).stage).toBe('backlog')
     await client.ok('PATCH', '/settings', { overnightMode: false })
