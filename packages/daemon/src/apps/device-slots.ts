@@ -103,6 +103,7 @@ export interface DeviceSlots<R extends SlotRecord> {
     input: { runId?: string; shutDown?: string; reason?: string },
   ): Promise<{ udid: string } | { waiting: string }>
   wait(commentId: string, app: SimulatorApp): Promise<SimulatorWait>
+  list(commentId: string, app: SimulatorApp): void
   withdraw(commentId: string): void
   withRequest<T>(
     comment: Comment,
@@ -524,6 +525,17 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     })
   }
 
+  function list(commentId: string, app: SimulatorApp): void {
+    if (!recordOf(app.taskId, app.repo, app.name)) return
+    if (commentId.startsWith(lineTicket)) {
+      if (!line.includes(commentId)) line.push(commentId)
+      pool.wait(commentId, waiterOf(app, false))
+      return
+    }
+    const comment = store.getComment(commentId)
+    if (comment) pool.wait(commentId, waiterOf(app, comment.answer === undefined))
+  }
+
   function withdraw(commentId: string): void {
     pool.unwait(commentId)
     if (commentId.startsWith(lineTicket)) {
@@ -606,6 +618,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     shutDown,
     acquire,
     wait,
+    list,
     withdraw,
     withRequest,
     remove,

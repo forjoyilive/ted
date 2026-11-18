@@ -513,6 +513,7 @@ export function createEmulators(options: {
     },
     acquire: deviceSlots.acquire,
     wait: deviceSlots.wait,
+    list: deviceSlots.list,
     withdraw: deviceSlots.withdraw,
     withRequest: deviceSlots.withRequest,
     shutDown(taskId, repo, name) {

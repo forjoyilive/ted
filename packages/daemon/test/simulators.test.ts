@@ -104,13 +104,17 @@ async function stubCalls(): Promise<string[][]> {
     .map((l) => JSON.parse(l) as string[])
 }
 
-async function start(simulators: { supported?: boolean; idleMs?: number } = {}) {
+async function start(
+  simulators: { supported?: boolean; idleMs?: number } = {},
+  disk?: { freeBytes: () => Promise<number>; checkEveryMs: number },
+) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
     apps: { pollMs: 50, readyTimeoutMs: 20_000, stopGraceMs: 3_000 },
     simulators: { supported: true, pollMs: 100, ...simulators },
+    ...(disk !== undefined && { disk }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -301,24 +305,26 @@ describe('iOS simulator Apps', () => {
     )
   })
 
-  test('one simulator App builds at a time: the next waits until the first prints TED_APP_READY', async () => {
-    const client = await start()
+  test('one simulator App builds at a time: the next waits until the first prints TED_APP_READY, and stays listed as waiting across a restart while new work is held', async () => {
+    let free = 500e9
+    const disk = { freeBytes: async () => free, checkEveryMs: 20 }
+    const first = await start({}, disk)
     const built = path.join(scratch, 'built')
     await addFactory(
-      client,
+      first,
       `${tellCpus()}; until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
     )
-    const task = await taskWithWorktree(client)
-    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
+    const task = await taskWithWorktree(first)
+    await first.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
 
-    const watch = await client.ok<TaskApp>('POST', `/tasks/${task.id}/apps/start`, {
+    const watch = await first.ok<TaskApp>('POST', `/tasks/${task.id}/apps/start`, {
       name: 'Watch',
     })
     expect(watch).toMatchObject({
       state: 'waiting',
       waitingOn: { displayId: 'NB-1', app: 'iPhone' },
     })
-    expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toMatchObject([
+    expect((await first.ok<SimulatorSlots>('GET', '/simulators')).waiting).toMatchObject([
       {
         taskId: task.id,
         displayId: 'NB-1',
@@ -328,6 +334,17 @@ describe('iOS simulator Apps', () => {
       },
     ])
 
+    free = 0
+    await daemon?.stop()
+    const client = await start({}, disk)
+    const listed = await waitUntil(async () => {
+      const { waiting } = await client.ok<SimulatorSlots>('GET', '/simulators')
+      return waiting.length > 0 ? waiting : undefined
+    }, 'the waiting Watch App to be listed after the restart')
+    expect(listed).toMatchObject([{ taskId: task.id, displayId: 'NB-1', app: 'Watch' }])
+    expect((await apps(client, task)).find((a) => a.name === 'Watch')?.state).toBe('waiting')
+
+    free = 500e9
     await writeFile(built, '')
     await waitUntil(
       async () =>
