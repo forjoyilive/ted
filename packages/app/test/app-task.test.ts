@@ -43,6 +43,16 @@ describe('Ted app', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
     const header = thread.locator('header')
     await header.getByText('· Not started').waitFor()
+    const client = await daemonClient()
+    const [factory] = await client.listFactories()
+    if (!factory) throw new Error('no Factory')
+    const longName = 'A Factory with a very long name '.repeat(8).trim()
+    await client.renameFactory(factory.id, longName)
+    await header.getByText(longName, { exact: true }).waitFor()
+    const headerBox = await header.boundingBox()
+    const stageBox = await header.getByText('· Not started').boundingBox()
+    if (!headerBox || !stageBox) throw new Error('the header has no layout')
+    expect(stageBox.x + stageBox.width).toBeLessThanOrEqual(headerBox.x + headerBox.width)
 
     await ted('task', 'start', 'NB-1')
 

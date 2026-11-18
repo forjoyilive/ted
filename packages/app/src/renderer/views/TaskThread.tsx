@@ -965,7 +965,9 @@ export function TaskThread({
             <span className={styles.taskMeta}>
               {factories.some((f) => f.id === task.factoryId) && (
                 <>
-                  <FactoryName factories={factories} factoryId={task.factoryId} />
+                  <span className={styles.metaFactory}>
+                    <FactoryName factories={factories} factoryId={task.factoryId} />
+                  </span>
                   {'  ·  '}
                 </>
               )}

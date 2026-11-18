@@ -227,6 +227,12 @@
   white-space: pre;
 }
 
+.metaFactory {
+  display: inline-flex;
+  max-width: 16em;
+  vertical-align: bottom;
+}
+
 .taskTitle {
   flex: 1;
   min-width: 0;
