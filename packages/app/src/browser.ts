@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   type BrowserCommand,
+  type BrowserResult,
   type DaemonClient,
   DaemonRequestError,
   type PreviewSize,
@@ -359,9 +360,10 @@ export function createTaskBrowsers(
       return {
         url: page.view.webContents.getURL(),
         text: `Preview size: ${previewSizeLabel(size)}`,
+        ...historyOf(page),
       }
     }
-    return runOnPage(
+    const result = await runOnPage(
       page,
       { request: command.request, expiresAt: command.expiresAt, url: command.app.url as string },
       {
@@ -370,6 +372,7 @@ export function createTaskBrowsers(
         closeAfterPartialInput: () => close(command.taskId, false),
       },
     )
+    return { ...result, ...historyOf(page) }
   }
   const invalidate = () => {
     generation++
@@ -526,5 +529,14 @@ export function createTaskBrowsers(
       hide()
       for (const id of sessions.keys()) close(id)
     },
+  }
+}
+
+function historyOf(page: Page): Pick<BrowserResult, 'canGoBack' | 'canGoForward'> {
+  const contents = page.view.webContents
+  if (contents.isDestroyed()) return {}
+  return {
+    canGoBack: contents.navigationHistory.canGoBack(),
+    canGoForward: contents.navigationHistory.canGoForward(),
   }
 }
