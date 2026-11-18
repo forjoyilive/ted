@@ -50,10 +50,30 @@ export interface BootedSimulator {
   platform?: 'android'
 }
 
+export type DeviceWait =
+  | { kind: 'answer' }
+  | { kind: 'build'; displayId: string; app: string }
+  | { kind: 'device' }
+  | { kind: 'busy' }
+  | { kind: 'line' }
+
+export interface WaitingDevice {
+  taskId: string
+  displayId: string
+  title: string
+  repo: string
+  app: string
+  device: string
+  platform?: 'android'
+  place: number
+  waitingFor: DeviceWait
+}
+
 export interface SimulatorSlots {
   supported: boolean
   limit: number
   booted: BootedSimulator[]
+  waiting: WaitingDevice[]
 }
 
 export type DevicePlatform = 'ios' | 'android'
@@ -140,6 +160,10 @@ export function isLoopbackUrl(text: string): boolean {
 export const deviceSlotLimits = { min: 1, max: 20 } as const
 
 export function devicesLine(slots: SimulatorSlots): string | undefined {
-  if (!slots.supported || slots.booted.length === 0) return undefined
-  return `Simulators and emulators ${slots.booted.length} of ${slots.limit} running`
+  if (!slots.supported) return undefined
+  const running = slots.booted.length
+  const waiting = slots.waiting.length
+  if (running === 0 && waiting === 0) return undefined
+  const line = `Simulators and emulators ${running} of ${slots.limit} running`
+  return waiting === 0 ? line : `${line} · ${waiting} waiting`
 }

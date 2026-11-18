@@ -102,6 +102,7 @@ describe('iOS simulator Apps', () => {
       lastUsedAt: '2026-11-09T10:00:00Z',
       recording: false,
     })),
+    waiting: [],
   })
 
   test('the row says whether its simulator is booted or why it was shut down', () => {
@@ -144,6 +145,22 @@ describe('iOS simulator Apps', () => {
     expect(devicesLine(booted(3))).toBe('Simulators and emulators 3 of 3 running')
     expect(devicesLine(booted(0))).toBeUndefined()
     expect(devicesLine({ ...booted(1), supported: false })).toBeUndefined()
+    const waiter = {
+      taskId: 't9',
+      displayId: 'NB-49',
+      title: 'Another Task',
+      repo: 'app',
+      app: 'iPhone',
+      device: 'iPhone 17',
+      place: 1,
+      waitingFor: { kind: 'device' as const },
+    }
+    expect(devicesLine({ ...booted(3), waiting: [waiter, { ...waiter, place: 2 }] })).toBe(
+      'Simulators and emulators 3 of 3 running · 2 waiting',
+    )
+    expect(devicesLine({ ...booted(0), waiting: [waiter] })).toBe(
+      'Simulators and emulators 0 of 3 running · 1 waiting',
+    )
     const slots: RunSlots = {
       working: 4,
       limit: 6,
@@ -180,6 +197,7 @@ describe('Android emulator Apps', () => {
       lastUsedAt: '2026-11-09T10:00:00Z',
       recording: false,
     })),
+    waiting: [],
   })
 
   test('the row says whether the emulator has a window, and ▶ asks only when every slot is taken', () => {

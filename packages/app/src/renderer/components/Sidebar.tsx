@@ -64,6 +64,8 @@ interface SidebarProps {
   footer?: SidebarFooter
   runsOpen?: boolean
   onOpenRuns?: () => void
+  devicesOpen?: boolean
+  onOpenDevices?: () => void
   onOpenFailed?: () => void
   usage?: ReactNode
   guide?: ReactNode
@@ -266,6 +268,8 @@ export function Sidebar({
   footer = {},
   runsOpen = false,
   onOpenRuns,
+  devicesOpen = false,
+  onOpenDevices,
   onOpenFailed,
   usage,
   guide,
@@ -864,7 +868,20 @@ export function Sidebar({
               ))}
             {footer.paused !== undefined && <p className={styles.runs}>{footer.paused}</p>}
             {footer.overnight !== undefined && <p className={styles.runs}>{footer.overnight}</p>}
-            {footer.devices !== undefined && <p className={styles.simulators}>{footer.devices}</p>}
+            {footer.devices !== undefined &&
+              (onOpenDevices ? (
+                <ActionButton
+                  type="button"
+                  className={styles.runsButton}
+                  aria-haspopup="dialog"
+                  aria-expanded={devicesOpen}
+                  onClick={onOpenDevices}
+                >
+                  {footer.devices}
+                </ActionButton>
+              ) : (
+                <p className={styles.simulators}>{footer.devices}</p>
+              ))}
             {footer.update !== undefined && (
               <ActionButton
                 type="button"

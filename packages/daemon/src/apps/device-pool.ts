@@ -14,6 +14,17 @@ export interface TurnHolder {
   app: string
 }
 
+export interface PoolWaiter {
+  key: string
+  taskId: string
+  displayId: string
+  repo: string
+  app: string
+  device: string
+  platform?: 'android'
+  asking: boolean
+}
+
 export interface DevicePool {
   limit(): number
   serial<T>(work: () => Promise<T>): Promise<T>
@@ -25,6 +36,9 @@ export interface DevicePool {
   shutDownFor(slotId: string, forTask: string): Promise<string>
   changed(): void
   readonly line: string[]
+  wait(id: string, waiter: PoolWaiter): void
+  unwait(id: string): void
+  waiters(): PoolWaiter[]
   takeTurn(holder: TurnHolder): boolean
   startTurn(holder: TurnHolder): boolean
   turnFree(key: string): boolean
@@ -44,6 +58,7 @@ export function createDevicePool(options: {
   const now = options.now ?? Date.now
   const members: PoolMember[] = []
   const line: string[] = []
+  const waiters = new Map<string, PoolWaiter>()
   let queue: Promise<unknown> = Promise.resolve()
   let turn: (TurnHolder & { at: number }) | undefined
 
@@ -92,6 +107,20 @@ export function createDevicePool(options: {
       for (const member of members) member.notify()
     },
     line,
+    wait(id, waiter) {
+      if (waiters.get(id)?.asking === waiter.asking) return
+      waiters.set(id, waiter)
+      for (const member of members) member.notify()
+    },
+    unwait(id) {
+      if (!waiters.delete(id)) return
+      for (const member of members) member.notify()
+    },
+    waiters() {
+      const inLine = line.flatMap((id) => waiters.get(id) ?? [])
+      const rest = [...waiters].flatMap(([id, w]) => (line.includes(id) ? [] : [w]))
+      return [...inLine, ...rest]
+    },
     takeTurn,
     startTurn: (holder) => !options.oneAtATime() || (line.length === 0 && takeTurn(holder)),
     turnFree,

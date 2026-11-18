@@ -7,13 +7,15 @@ import type {
   BootedSimulator,
   Comment,
   DaemonEvent,
+  DeviceWait,
   SimulatorAsk,
   SimulatorSlots,
+  WaitingDevice,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { TedStore } from '../store/index.ts'
-import type { DevicePool, PoolMember, TurnHolder } from './device-pool.ts'
+import type { DevicePool, PoolMember, PoolWaiter, TurnHolder } from './device-pool.ts'
 
 export interface SimulatorApp {
   taskId: string
@@ -192,9 +194,46 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     })
   }
 
+  const waiterOf = (app: SimulatorApp, asking: boolean): PoolWaiter => ({
+    key: keyOf(app.taskId, app.repo, app.name),
+    taskId: app.taskId,
+    displayId: app.displayId,
+    repo: app.repo,
+    app: app.name,
+    device: app.device,
+    ...(driver.words.platform !== undefined && { platform: driver.words.platform }),
+    asking,
+  })
+
+  function waitingFor(waiter: PoolWaiter, index: number, live: BootedSimulator[]): DeviceWait {
+    if (waiter.asking) return { kind: 'answer' }
+    const holder = pool.holder()
+    if (holder !== undefined && holder.key !== waiter.key) {
+      return { kind: 'build', displayId: holder.displayId, app: holder.app }
+    }
+    const own = live.some(
+      (b) => b.taskId === waiter.taskId && b.repo === waiter.repo && b.app === waiter.app,
+    )
+    if (!own && live.length >= limit()) return { kind: 'device' }
+    return index === 0 ? { kind: 'busy' } : { kind: 'line' }
+  }
+
   function slots(): SimulatorSlots {
     const list = pool.live().sort((a, b) => a.lastUsedAt.localeCompare(b.lastUsedAt))
-    return { supported, limit: limit(), booted: list }
+    const waiting = pool.waiters().map(
+      (waiter, index): WaitingDevice => ({
+        taskId: waiter.taskId,
+        displayId: store.getTask(waiter.taskId)?.displayId ?? waiter.displayId,
+        title: store.getTask(waiter.taskId)?.title ?? '',
+        repo: waiter.repo,
+        app: waiter.app,
+        device: waiter.device,
+        ...(waiter.platform !== undefined && { platform: waiter.platform }),
+        place: index + 1,
+        waitingFor: waitingFor(waiter, index, list),
+      }),
+    )
+    return { supported, limit: limit(), booted: list, waiting }
   }
 
   function notify(): void {
@@ -345,8 +384,12 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
 
   async function waitInLine(ticket: string, app: SimulatorApp): Promise<SimulatorWait> {
     const record = recordOf(app.taskId, app.repo, app.name)
-    if (!record) return { state: 'gone' }
+    if (!record) {
+      pool.unwait(ticket)
+      return { state: 'gone' }
+    }
     if (!line.includes(ticket)) line.push(ticket)
+    pool.wait(ticket, waiterOf(app, false))
     const blocked = () =>
       (!isLive(record) && (line[0] !== ticket || liveCount() >= limit())) ||
       !pool.turnFree(holderOf(app).key)
@@ -361,6 +404,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       if (!isLive(record)) await boot(record)
       line.splice(line.indexOf(ticket), 1)
       humanTickets.delete(ticket)
+      pool.unwait(ticket)
       return { state: 'granted', udid: driver.slotId(record) as string } as const
     })
   }
@@ -380,6 +424,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
         const ticket = `${lineTicket}${randomUUID()}`
         line.push(ticket)
         if (by === 'human') humanTickets.add(ticket)
+        pool.wait(ticket, waiterOf(app, false))
         return { waiting: ticket }
       }
       const turn = () => pool.startTurn(holderOf(app))
@@ -430,16 +475,25 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
           .join(' '),
         simulator: ask,
       })
+      pool.wait(comment.id, waiterOf(app, true))
       return { waiting: comment.id }
     })
   }
 
   async function wait(commentId: string, app: SimulatorApp): Promise<SimulatorWait> {
-    if (commentId.startsWith(lineTicket)) return waitInLine(commentId, app)
+    const result = commentId.startsWith(lineTicket)
+      ? await waitInLine(commentId, app)
+      : await waitForAnswer(commentId, app)
+    if (result.state !== 'pending') pool.unwait(commentId)
+    return result
+  }
+
+  async function waitForAnswer(commentId: string, app: SimulatorApp): Promise<SimulatorWait> {
     const comment = store.getComment(commentId)
     const answer = comment?.answer
     const record = recordOf(app.taskId, app.repo, app.name)
     if (!comment || !record) return { state: 'gone' }
+    pool.wait(commentId, waiterOf(app, answer === undefined))
     if (answer) {
       const id = driver.slotId(record)
       if (id === undefined) return { state: 'gone' }
@@ -471,6 +525,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   }
 
   function withdraw(commentId: string): void {
+    pool.unwait(commentId)
     if (commentId.startsWith(lineTicket)) {
       const at = line.indexOf(commentId)
       if (at !== -1) line.splice(at, 1)

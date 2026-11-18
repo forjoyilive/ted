@@ -44,6 +44,7 @@ import { openMovedTaskEvent } from './components/ArchiveDialogs.tsx'
 import { startsAutomatically } from './components/BacklogStarts.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { buttonPosition } from './components/ContextMenu.tsx'
+import { DevicesPopover } from './components/DevicesPopover.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FactoryColorsProvider } from './components/FactoryIcon.tsx'
 import { FindBar } from './components/FindBar.tsx'
@@ -271,6 +272,8 @@ export function App({ start }: { start?: AppStart | undefined }) {
   const deviceSlots = simulators?.supported === true ? simulators : emulators
   const devicesFooter = deviceSlots && devicesLine(deviceSlots)
   const [runsOpen, setRunsOpen] = useState(false)
+  const [devicesOpen, setDevicesOpen] = useState(false)
+  const closeDevices = useCallback(() => setDevicesOpen(false), [])
   const [usageOpen, setUsageOpen] = useState(false)
   const closeUsage = useCallback(() => setUsageOpen(false), [])
   useEffect(() => {
@@ -1374,7 +1377,14 @@ export function App({ start }: { start?: AppStart | undefined }) {
           runsOpen={runsOpen}
           onOpenRuns={() => {
             setUsageOpen(false)
+            setDevicesOpen(false)
             setRunsOpen((open) => !open)
+          }}
+          devicesOpen={devicesOpen}
+          onOpenDevices={() => {
+            setUsageOpen(false)
+            setRunsOpen(false)
+            setDevicesOpen((open) => !open)
           }}
           guide={guide}
           usage={
@@ -1391,6 +1401,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
               open={usageOpen}
               onToggle={() => {
                 setRunsOpen(false)
+                setDevicesOpen(false)
                 setUsageOpen((open) => !open)
               }}
               onClose={closeUsage}
@@ -1406,6 +1417,23 @@ export function App({ start }: { start?: AppStart | undefined }) {
           onAddFactory={() => setAddFactoryOpen(true)}
           onRemoveFactory={setRemoving}
         />
+        {devicesOpen && deviceSlots && devicesFooter !== undefined && (
+          <DevicesPopover
+            slots={deviceSlots}
+            onClose={closeDevices}
+            onOpenTask={(taskId) => {
+              const found = tasks.find((t) => t.id === taskId)
+              if (found) openTask(found)
+            }}
+            onShow={async (device) => {
+              await ted.showApp(device.taskId, { repo: device.repo, name: device.app })
+            }}
+            onStop={async (device) => {
+              await ted.stopApp(device.taskId, { repo: device.repo, name: device.app })
+            }}
+            onOpenLimits={() => dispatch({ type: 'open-settings', section: 'limits' })}
+          />
+        )}
         {runsOpen && slots && (
           <WorkingRunsPopover
             slots={slots}
