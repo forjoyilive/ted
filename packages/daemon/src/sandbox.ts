@@ -4,6 +4,7 @@ import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { outsideTedEnv } from '@ted/protocol'
+import { protectedPaths } from './protected-folders.ts'
 import { redactSecrets } from './redact.ts'
 
 export interface SandboxScope {
@@ -167,7 +168,11 @@ export function createSandbox(options: {
       }
       if (platform === 'darwin') {
         return {
-          argv: [ready, ...seatbeltArgs(paths, sockets, scope.electron === true), ...argv],
+          argv: [
+            ready,
+            ...seatbeltArgs(paths, sockets, scope.electron === true, await personalFolders(env)),
+            ...argv,
+          ],
           env: added,
           fds: [],
           close: async () => {},
@@ -264,6 +269,10 @@ async function sandboxPaths(
   }
 }
 
+async function personalFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
+  return protectedPaths(await real(env.HOME?.startsWith('/') ? env.HOME : homedir()))
+}
+
 async function allowedSockets(
   entries: readonly string[],
   env: NodeJS.ProcessEnv,
@@ -294,6 +303,7 @@ function seatbeltArgs(
   paths: SandboxPaths,
   sockets: readonly string[],
   electron: boolean,
+  personal: readonly string[],
 ): string[] {
   const params: string[] = []
   const param = (prefix: string, values: readonly string[]) =>
@@ -318,6 +328,7 @@ function seatbeltArgs(
     '(deny file-write*)',
     `(allow file-write* (literal "/dev/null") (literal "/dev/zero") (literal "/dev/ptmx") (literal "/dev/dtracehelper") (regex #"^/dev/tty") (regex #"^/dev/fd/") ${paths.sharedTmp === undefined ? '' : `(subpath "${paths.sharedTmp}")`})`,
     `(deny file-write* file-read-data file-read-xattr ${param('H', [paths.tedHome])})`,
+    `(deny file-write* file-read-data file-read-xattr ${param('P', personal)})`,
     `(allow file-read-data file-read-xattr ${param('R', [...paths.readable, ...own])})`,
     `(allow file-write* ${param('W', own)})`,
     ...(paths.saves === undefined

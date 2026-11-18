@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   type Billing,
   isModelName,
@@ -7,6 +8,8 @@ import {
   type PlanWindowKind,
   type RunState,
 } from '@ted/protocol'
+import { nodeEntry, shellQuote } from '../node-entry.ts'
+import { protectedFolders } from '../protected-folders.ts'
 import {
   type Agent,
   type AuthCheck,
@@ -149,6 +152,29 @@ const modeFlag = { auto: 'auto', bypass: 'bypassPermissions' } as const
 
 const tedCommand = ['Bash(ted *)']
 
+const protectedReads = protectedFolders.map((folder) => `Read(~/${folder}/**)`)
+
+// Electron, Chromium and Swift builds can't start inside this sandbox (macOS refuses a nested
+// sandbox and Mach service registration), so Claude Code reruns them outside it.
+const sandbox = {
+  enabled: true,
+  autoAllowBashIfSandboxed: false,
+  allowUnsandboxedCommands: true,
+  filesystem: { allowWrite: ['/'], denyRead: protectedFolders.map((folder) => `~/${folder}`) },
+  network: {
+    allowedDomains: ['*'],
+    allowLocalBinding: true,
+    allowAllUnixSockets: true,
+    allowMachLookup: ['*'],
+  },
+}
+
+function homeGuard(): string {
+  const guard = nodeEntry(fileURLToPath(new URL('./claude-home-guard.ts', import.meta.url)))
+  const words = [guard.command, ...guard.args].map(shellQuote).join(' ')
+  return `input=$(cat); printf '%s' "$input" | grep -qE '"dangerouslyDisableSandbox" *: *true' || exit 0; printf '%s' "$input" | ELECTRON_RUN_AS_NODE=1 ${words}`
+}
+
 const toolTitles: Record<string, string> = {
   Bash: 'Run a command',
   Edit: 'Edit a file',
@@ -196,7 +222,7 @@ function promptFrom(message: ClaudeLine): PermissionPrompt | undefined {
 const userMessage = (text: string) =>
   JSON.stringify({ type: 'user', message: { role: 'user', content: text } })
 
-export function claudeAgent(binary: string): Agent {
+export function claudeAgent(binary: string, platform: NodeJS.Platform = process.platform): Agent {
   return {
     kind: 'claude',
     binary,
@@ -206,6 +232,7 @@ export function claudeAgent(binary: string): Agent {
       }
       const sessionId = resume ?? randomUUID()
       const settingsPath = path.join(runDir, 'settings.json')
+      const guarded = platform === 'darwin'
       const hooks = Object.fromEntries(
         Object.keys(stateByHook).map((event) => [
           event,
@@ -218,6 +245,14 @@ export function claudeAgent(binary: string): Agent {
                   : { type: 'command', command: 'true' },
               ],
             },
+            ...(guarded && event === 'PreToolUse'
+              ? [
+                  {
+                    matcher: 'Bash',
+                    hooks: [{ type: 'command', command: homeGuard(), timeout: 60 }],
+                  },
+                ]
+              : []),
           ],
         ]),
       )
@@ -261,7 +296,16 @@ export function claudeAgent(binary: string): Agent {
           'settings.json': JSON.stringify(
             tools === 'none'
               ? { disableAllHooks: true }
-              : { ...(permissions === 'auto' && { permissions: { allow: tedCommand } }), hooks },
+              : {
+                  ...((permissions === 'auto' || guarded) && {
+                    permissions: {
+                      ...(permissions === 'auto' && { allow: tedCommand }),
+                      ...(guarded && { deny: protectedReads }),
+                    },
+                  }),
+                  ...(guarded && { sandbox }),
+                  hooks,
+                },
             null,
             2,
           ),

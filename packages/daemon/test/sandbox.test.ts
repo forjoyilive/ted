@@ -48,8 +48,11 @@ afterEach(async () => {
   for (const dir of [tedHome, outside]) await rm(dir, { recursive: true, force: true })
 })
 
-async function inSandbox(script: string, sockets: string[] = []) {
-  const sandbox = createSandbox({ tedHome, env: () => process.env })
+async function inSandbox(script: string, sockets: string[] = [], home?: string) {
+  const sandbox = createSandbox({
+    tedHome,
+    env: () => (home === undefined ? process.env : { ...process.env, HOME: home }),
+  })
   const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), sockets })
   const [command, ...args] = argv
   return execFileAsync(command, [...args, script], {
@@ -191,6 +194,42 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     } finally {
       await rm(homeFile, { force: true })
     }
+  })
+
+  test('it can’t read or write the personal folders macOS guards, except its own folders in one', async () => {
+    const home = await realpath(outside)
+    await mkdir(path.join(home, 'Desktop'))
+    await writeFile(path.join(home, 'Desktop', 'secret.txt'), 'secret')
+    await mkdir(path.join(home, 'Library', 'Mobile Documents'), { recursive: true })
+    await writeFile(path.join(home, 'Library', 'Mobile Documents', 'cloud.txt'), 'cloud')
+    tedHome = path.join(home, 'Documents', 'ted-home')
+    worktree = path.join(tedHome, 'worktrees', 'NB-1', 'widgets')
+    clone = path.join(tedHome, 'repos', 'k', 'widgets')
+    tmp = path.join(tedHome, 'sandbox', 'NB-1', 'tmp-1')
+    for (const dir of [worktree, clone, tmp]) await mkdir(dir, { recursive: true })
+    await writeFile(path.join(worktree, 'own.txt'), 'own')
+    await writeFile(path.join(home, 'Documents', 'letter.txt'), 'letter')
+
+    const result = await inSandbox(
+      [
+        tryRead(path.join(home, 'Desktop', 'secret.txt')),
+        tryRead(path.join(home, 'Library', 'Mobile Documents', 'cloud.txt')),
+        tryRead(path.join(home, 'Documents', 'letter.txt')),
+        `ls '${path.join(home, 'Documents')}' >/dev/null 2>&1 && echo listed || echo refused`,
+        tryRead(path.join(worktree, 'own.txt')),
+        tryWrite(path.join(worktree, 'new.txt')),
+      ].join('; '),
+      [],
+      home,
+    )
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'read',
+      'wrote',
+    ])
   })
 
   test('it can’t hand work to launchd or write preferences through cfprefsd', async () => {
