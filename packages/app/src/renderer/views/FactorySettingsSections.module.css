@@ -760,15 +760,15 @@
 }
 
 .commandRow {
-  grid-template-columns: 16px 140px minmax(0, 1fr) 56px 190px auto;
+  grid-template-columns: 16px 140px minmax(0, 1fr) 56px 190px 140px;
 }
 
 .commandRowRepo {
-  grid-template-columns: 16px 120px minmax(0, 1fr) 110px 56px 190px auto;
+  grid-template-columns: 16px 120px minmax(0, 1fr) 110px 56px 190px 140px;
 }
 
 .instructionRow {
-  grid-template-columns: 16px 170px minmax(0, 1fr) 220px auto;
+  grid-template-columns: 16px 170px minmax(0, 1fr) 220px 140px;
 }
 
 .scrollTable .commandRow,

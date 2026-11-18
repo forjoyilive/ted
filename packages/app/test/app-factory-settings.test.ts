@@ -145,6 +145,44 @@ describe('Factory settings sections', () => {
     await dialog.getByRole('button', { name: 'Cancel' }).click()
     await dialog.waitFor({ state: 'detached' })
   })
+
+  test('each Checks list’s headings line up with the cells of its rows', async () => {
+    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
+    await pushFiles(origin, {
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Typecheck, run: pnpm typecheck }',
+        '      - { name: Docs drift, instruction: "Check the docs.", fix: true }',
+        '',
+      ].join('\n'),
+    })
+    await addFactory(origin, 'NB')
+    const window = await launchApp()
+    await window.setViewportSize({ width: 1280, height: 900 })
+    await openFactoryView(window, 'widgets', 'Settings')
+    await window
+      .getByRole('navigation', { name: 'Factory settings' })
+      .getByRole('button', { name: 'Checks' })
+      .click()
+    const section = window.getByRole('region', { name: 'Checks', exact: true })
+    for (const list of ['Command Checks', 'Instruction Checks']) {
+      const items = section.getByRole('list', { name: list })
+      await items.getByRole('listitem').first().waitFor()
+      const offsets = await items.evaluate((ul) => {
+        const lefts = (row: Element | null | undefined) =>
+          [...(row?.children ?? [])].map((cell) => Math.round(cell.getBoundingClientRect().left))
+        return {
+          head: lefts(ul.previousElementSibling),
+          row: lefts(ul.querySelector('li')?.firstElementChild),
+        }
+      })
+      expect(offsets.head.length).toBeGreaterThan(3)
+      expect(offsets.row).toEqual(offsets.head)
+    }
+  })
 })
 
 describe('Library settings', () => {
