@@ -106,5 +106,6 @@ export function runFiles(runDir: string) {
     env: path.join(runDir, 'env.json'),
     readTo: path.join(runDir, 'read-offset.json'),
     asleep: path.join(runDir, 'asleep.json'),
+    tmp: path.join(runDir, 'tmp'),
   }
 }
