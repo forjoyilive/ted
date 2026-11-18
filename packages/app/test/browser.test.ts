@@ -482,6 +482,12 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await expect
     .poll(() => onAdmin('document.elementFromPoint(5, 5)?.textContent'))
     .toBe('Tap target')
+  await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
+  await expect.poll(() => onAdmin('document.visibilityState')).toBe('visible')
+  // A tap sent before the reattached view is shown and has drawn a frame can be lost, and is never resent.
+  await onAdmin(
+    'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
+  )
   await app.evaluate(({ webContents }, url) => {
     const page = webContents.getAllWebContents().find((c) => c.getURL() === url)
     // sendInputEvent skips Chromium's touch emulation; a mouse event sent this way never answers.
