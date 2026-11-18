@@ -15,6 +15,7 @@ import type {
 } from '@ted/protocol'
 import { chatRequestKinds } from '@ted/protocol'
 import { type AgentCommand, type AgentPower, agentPowers } from '@ted/protocol/agent-files'
+import { type LocalFolderState, parseLocalFolderState } from '@ted/protocol/local-folder'
 import { isArray, isObject, isOneOf, isString, parseJson } from '@ted/protocol/parse'
 import { type AgentKind, agentKinds } from '@ted/protocol/run'
 import {
@@ -58,6 +59,11 @@ export interface OutsideRun {
   command: string
   folder: string
   always?: true
+  local?: LocalFolderState
+}
+
+export interface OutsideFolderAsked extends LocalFolderState {
+  allowedButHeld?: true
 }
 
 export type ChatAgentEvent =
@@ -101,6 +107,7 @@ export interface ChatStore {
   request(id: string): ChatRequest | undefined
   post(input: NewChatRequest): ChatRequest
   answer(id: string, answer: CommentAnswer): ChatRequest
+  outsideFolderChecked(id: string, folder: OutsideFolderAsked): void
   allowances(factoryId: string): OutsideCommandAllowance[]
   allowance(key: AllowanceKey): OutsideCommandAllowance | undefined
   allow(
@@ -189,6 +196,16 @@ function outsideRunOf(text: string | null): OutsideRun | undefined {
   }
 }
 
+function folderAskedOf(text: string | null): OutsideFolderAsked | undefined {
+  if (text === null) return undefined
+  const parsed = parseJson(text)
+  const state = parseLocalFolderState(parsed)
+  if (!state) return undefined
+  return isObject(parsed) && parsed.allowedButHeld === true
+    ? { ...state, allowedButHeld: true }
+    : state
+}
+
 function allowanceOf(row: typeof outsideCommandAllowances.Type): OutsideCommandAllowance {
   return {
     id: row.id,
@@ -207,6 +224,18 @@ function stored<T>(text: string | null): T | undefined {
   return text === null ? undefined : (JSON.parse(text) as T)
 }
 
+function askedEvents(id: string, ask: OutsideCommandAsk) {
+  const { localFolder, allowedButHeld, ...shown } = ask
+  const folder: OutsideFolderAsked | undefined = localFolder && {
+    ...localFolder,
+    ...(allowedButHeld && { allowedButHeld }),
+  }
+  return [
+    events.chatOutsideCommandAsked({ id, ask: JSON.stringify(shown) }),
+    ...(folder ? [events.chatOutsideFolderChecked({ id, folder: JSON.stringify(folder) })] : []),
+  ]
+}
+
 export function createChatStore(options: {
   store: Store<typeof schema>
   commit: Store<typeof schema>['commit']
@@ -220,7 +249,19 @@ export function createChatStore(options: {
     const round = stored<Round>(row.round)
     const proposal = stored<Proposal>(row.proposal)
     const agentDraft = stored<AgentDraft>(row.agentDraft)
-    const outsideCommand = stored<OutsideCommandAsk>(row.outsideCommand)
+    const asked = stored<OutsideCommandAsk>(row.outsideCommand)
+    const folder = folderAskedOf(row.outsideFolder)
+    const outsideCommand =
+      asked && folder
+        ? {
+            ...asked,
+            localFolder: {
+              check: folder.check,
+              ...(folder.updateFailed !== undefined && { updateFailed: folder.updateFailed }),
+            },
+            ...(folder.allowedButHeld && { allowedButHeld: true as const }),
+          }
+        : asked
     const answer = stored<CommentAnswer>(row.answer)
     return {
       id: row.id,
@@ -263,13 +304,17 @@ export function createChatStore(options: {
     },
     agentRecorded: chatAgentEvents,
     commandRan({ outside, ...ran }) {
+      const { local, ...shown } = outside ?? { command: '', folder: '' }
       commit(
         events.chatCommandRan({
           ...ran,
           exitCode: ran.exitCode ?? null,
         }),
         ...(outside
-          ? [events.chatOutsideCommandRan({ id: ran.id, outside: JSON.stringify(outside) })]
+          ? [events.chatOutsideCommandRan({ id: ran.id, outside: JSON.stringify(shown) })]
+          : []),
+        ...(local
+          ? [events.chatOutsideFolderRan({ id: ran.id, folder: JSON.stringify(local) })]
           : []),
       )
       if (running.get(ran.runId)?.id === ran.id) running.delete(ran.runId)
@@ -284,7 +329,11 @@ export function createChatStore(options: {
       const done = store
         .query(queryDb(chatCommands.where({ runId }).orderBy('startedAt', 'asc')))
         .map((row): ChatCommandItem => {
-          const outside = outsideRunOf(row.outside)
+          const shown = outsideRunOf(row.outside)
+          const local = parseLocalFolderState(
+            row.outsideFolder === null ? undefined : parseJson(row.outsideFolder),
+          )
+          const outside = shown && (local ? { ...shown, local } : shown)
           return {
             kind: 'command',
             id: row.id,
@@ -321,14 +370,18 @@ export function createChatStore(options: {
         ...(agentDraft === undefined
           ? []
           : [events.chatAgentDraftPosted({ id, draft: JSON.stringify(agentDraft) })]),
-        ...(outsideCommand === undefined
-          ? []
-          : [events.chatOutsideCommandAsked({ id, ask: JSON.stringify(outsideCommand) })]),
+        ...(outsideCommand === undefined ? [] : askedEvents(id, outsideCommand)),
       )
       options.changed(input.chatId)
       const posted = request(id)
       if (!posted) throw new Error(`no chat request ${id}`)
       return posted
+    },
+    outsideFolderChecked(id, folder) {
+      const found = request(id)
+      if (!found) throw new Error(`no chat request ${id}`)
+      commit(events.chatOutsideFolderChecked({ id, folder: JSON.stringify(folder) }))
+      options.changed(found.chatId)
     },
     answer(id, answer) {
       const found = request(id)

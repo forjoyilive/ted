@@ -2,6 +2,7 @@
 // ActivityRun.tsx and ChatTimelineItems.tsx. Ted changed: CSS Modules and RunChat items, its own
 // grouping of calls (tool-groups.ts), and Edit rows that expand to their diff.
 import type { RunChat as Chat, ChatDiff, ChatItem, MessageBox, RunSummary } from '@ted/protocol'
+import { localFolderLine, repoShortName } from '@ted/protocol/local-folder'
 import { memo, type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChatState } from '../data.ts'
@@ -255,6 +256,7 @@ function CommandRow({
 }) {
   const { outside } = item
   const running = item.status === 'running'
+  const local = outside?.local && localFolderLine(outside.local, repoShortName(outside.folder))
   return (
     <Collapsible
       label={running ? 'Ted is running' : 'Ted ran'}
@@ -267,6 +269,14 @@ function CommandRow({
         <p className={styles.outsideLine} data-outside-command={item.name}>
           <code>{outside.command}</code>
           {` in ${outside.folder}`}
+        </p>
+      )}
+      {local && (
+        <p
+          className={`${styles.localFolder} ${styles[local.tone] ?? ''}`}
+          data-local-folder={local.tone}
+        >
+          {local.text}
         </p>
       )}
       {(!running || outside) && (

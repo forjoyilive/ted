@@ -1,4 +1,9 @@
 import type { ChatRequest } from '@ted/protocol'
+import {
+  localFolderCardAction,
+  localFolderCardText,
+  repoShortName,
+} from '@ted/protocol/local-folder'
 import { useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { dotted } from '../plans.ts'
@@ -27,6 +32,11 @@ export function OutsideCommandCard({
     .split(' ')
     .map((word) => (/^<[a-z][a-z0-9-]*>$/.test(word) ? (ask.argument ?? word) : word))
     .join(' ')
+  const local = ask.localFolder
+  const action = local ? localFolderCardAction(local, ask.folder).kind : 'run'
+  const status = local && localFolderCardText(local, ask.folder, repoShortName(ask.repo))
+  const runLabel = action === 'update' ? 'Update and run' : action === 'hold' ? 'Run anyway' : 'Run'
+  const branch = local?.check.branch
 
   async function send(run: boolean) {
     setSending(true)
@@ -55,13 +65,15 @@ export function OutsideCommandCard({
         Run <code className={styles.name}>{ask.name}</code> outside the sandbox?
       </p>
       <p className={draft.note}>
-        {ask.allowedBefore !== undefined
-          ? 'The command changed since you allowed it, so Ted asks again. '
-          : ask.allowedFolder !== undefined
-            ? 'The folder changed since you allowed this command, so Ted asks again. '
-            : ''}
+        {ask.allowedButHeld
+          ? 'You allowed this command always, but Ted asks because the folder is out of date. '
+          : ask.allowedBefore !== undefined
+            ? 'The command changed since you allowed it, so Ted asks again. '
+            : ask.allowedFolder !== undefined
+              ? 'The folder changed since you allowed this command, so Ted asks again. '
+              : ''}
         This command runs on your Mac with your login environment. It can push, publish and use your
-        keychain. It runs only if you click Run.
+        keychain. It runs only if you click {runLabel}.
       </p>
       <div className={draft.group}>
         <span className={draft.label}>Command</span>
@@ -81,25 +93,35 @@ export function OutsideCommandCard({
         <span className={draft.label}>Folder</span>
         <code className={styles.folder}>{ask.folder}</code>
         <span className={draft.hint}>
-          {ask.allowedFolder !== undefined
-            ? `The local folder set for ${ask.repo}. You allowed it in ${ask.allowedFolder}.`
-            : `The local folder set for ${ask.repo}.`}
+          {`The local folder set for ${ask.repo}${branch !== undefined ? `, on ${branch}` : ''}.`}
+          {ask.allowedFolder !== undefined && ` You allowed it in ${ask.allowedFolder}.`}
         </span>
+        {status && (
+          <p
+            className={`${styles.status} ${styles[status.tone] ?? ''}`}
+            data-local-folder={status.tone}
+          >
+            {status.text}
+            {status.fix !== undefined && <span className={styles.fix}>{status.fix}</span>}
+          </p>
+        )}
       </div>
-      <label className={draft.power}>
-        <input
-          type="checkbox"
-          checked={always}
-          disabled={sending}
-          onChange={(event) => setAlways(event.target.checked)}
-        />
-        <span>
-          <span className={draft.powerName}>Always allow this command</span>
-          <span className={draft.hint}>
-            {`${agentName} runs ${ask.command} in any chat of this Factory without asking${ask.argument !== undefined ? ', with any plain argument' : ''}. Ted asks again if the command or the folder changes. Remove it from ${agentName}’s settings.`}
+      {!ask.allowedButHeld && (
+        <label className={draft.power}>
+          <input
+            type="checkbox"
+            checked={always}
+            disabled={sending}
+            onChange={(event) => setAlways(event.target.checked)}
+          />
+          <span>
+            <span className={draft.powerName}>Always allow this command</span>
+            <span className={draft.hint}>
+              {`${agentName} runs ${ask.command} in any chat of this Factory without asking${ask.argument !== undefined ? ', with any plain argument' : ''}. Ted asks again if the command or the folder changes, or when the folder is out of date and Ted can’t update it. Remove it from ${agentName}’s settings.`}
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      )}
       {error !== undefined && (
         <p className={chat.error} role="alert">
           {error}
@@ -111,7 +133,7 @@ export function OutsideCommandCard({
           Don’t run
         </Button>
         <Button variant="primary" disabled={sending} pending={sending} onClick={() => send(true)}>
-          Run
+          {runLabel}
         </Button>
       </div>
     </section>

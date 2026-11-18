@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import {
   type ChatRequest,
   type Coordinator,
@@ -31,6 +33,7 @@ import {
 } from './helpers.ts'
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..')
+const execFileAsync = promisify(execFile)
 
 let home: string,
   scratch: string,
@@ -332,6 +335,190 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     [],
   )
 }, 120_000)
+
+test('a local folder that is behind is updated before the command runs, one with uncommitted changes holds even an Always-allowed command, and Run anyway works after a failed update', async () => {
+  const bin = path.join(scratch, 'bin')
+  const log = path.join(scratch, 'pnpm.log')
+  await mkdir(bin)
+  await writeFile(
+    path.join(bin, 'pnpm'),
+    `#!/bin/sh\nprintf '%s|%s\\n' "$(git rev-parse HEAD)" "$*" >> '${log}'\necho "pnpm $*"\n`,
+  )
+  await chmod(path.join(bin, 'pnpm'), 0o755)
+  vi.stubEnv('PATH', `${bin}${path.delimiter}${process.env.PATH ?? ''}`)
+  const ran = async () => (await readFile(log, 'utf8').catch(() => '')).trim().split('\n')
+  await commitToOrigin(scratch, {
+    '.ted/agents.yaml': await readFile(path.join(repoRoot, '.ted/agents.yaml'), 'utf8'),
+    '.ted/agents/release.md': await readFile(path.join(repoRoot, '.ted/agents/release.md'), 'utf8'),
+  })
+  const local = path.join(scratch, 'local')
+  const git = async (...args: string[]) =>
+    (
+      await execFileAsync('git', args, {
+        cwd: local,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: 'Test',
+          GIT_AUTHOR_EMAIL: 'test@example.com',
+          GIT_COMMITTER_NAME: 'Test',
+          GIT_COMMITTER_EMAIL: 'test@example.com',
+        },
+      })
+    ).stdout.trim()
+  await execFileAsync('git', ['clone', '--quiet', origin, local])
+  const folder = await realpath(local)
+  const behindBy = await git('rev-parse', 'HEAD')
+  await commitToOrigin(scratch, { 'scripts/release.ts': 'build\n' })
+  const latest = async () =>
+    (await execFileAsync('git', ['rev-parse', 'main'], { cwd: origin })).stdout.trim()
+
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
+  })
+  const app = api(daemon.port, { appKey: daemon.appToken })
+  const ok = async <T>(method: string, route: string, body?: JsonObject): Promise<T> => {
+    const res = await app.call(method, route, body)
+    if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+    return res.body as T
+  }
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const factory = await ok<Factory>('POST', '/dev/factories', {
+    repo: origin,
+    key: 'NB',
+    localFolder: local,
+  })
+  const chat = (steps: unknown[]) =>
+    ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
+      agentId: 'release',
+      agent: 'claude',
+      text: JSON.stringify({ steps: [{ everyMessage: [{ endTurn: true }] }, ...steps] }),
+    })
+  const asked = (chatId: string) =>
+    waitUntil(
+      async () =>
+        (await ok<Coordinator>('GET', `/coordinator-chats/${chatId}`)).requests?.find(
+          (r: ChatRequest) => r.kind === 'outside-command' && r.answer === undefined,
+        ),
+      'an outside command card',
+    )
+  const said = (chatId: string, text: string) =>
+    waitUntil(
+      async () =>
+        JSON.stringify(
+          (await ok<RunChat>('GET', `/coordinator-chats/${chatId}/chat`)).items,
+        ).includes(text) || undefined,
+      text,
+    )
+
+  const first = await chat([
+    { run: ['ted', 'agent', 'run-outside', 'build', '1.2.3'] },
+    { waitFor: path.join(scratch, 'built') },
+    { endTurn: true },
+  ])
+  const card = await asked(first.id)
+  expect(card.outsideCommand?.localFolder?.check).toMatchObject({
+    checked: true,
+    branch: 'main',
+    head: behindBy,
+    target: await latest(),
+    behind: 1,
+  })
+  await commitToOrigin(scratch, { 'scripts/next.ts': 'next\n' })
+  const moved = await app.call(
+    'POST',
+    `/coordinator-chats/${first.id}/requests/${card.id}/outside-command`,
+    { run: true, always: true },
+  )
+  expect(moved.status).toBe(409)
+  expect(JSON.stringify(moved.body)).toContain('since this card was shown')
+  expect(await git('rev-parse', 'HEAD')).toBe(behindBy)
+  expect((await asked(first.id)).outsideCommand?.localFolder?.check).toMatchObject({
+    target: await latest(),
+    behind: 2,
+  })
+  await ok('POST', `/coordinator-chats/${first.id}/requests/${card.id}/outside-command`, {
+    run: true,
+    always: true,
+  })
+  await waitUntil(
+    async () => (await ran()).includes(`${await latest()}|release build 1.2.3`) || undefined,
+    'the build in the updated folder',
+  )
+  expect(await git('rev-parse', 'HEAD')).toBe(await latest())
+  await writeFile(path.join(scratch, 'built'), '')
+  await said(first.id, 'Ted updated the local folder from')
+
+  await commitToOrigin(scratch, { 'scripts/release.ts': 'build publish\n' })
+  await writeFile(path.join(local, 'README.md'), 'edited\n')
+  const kept = await git('rev-parse', 'HEAD')
+  const second = await chat([{ waitFor: path.join(scratch, 'second') }, { endTurn: true }])
+  const working = await waitUntil(async () => {
+    const now = await ok<Coordinator>('GET', `/coordinator-chats/${second.id}`)
+    return now.status === 'working' && (await app.call('GET', `/runs/${now.runId}`)).status === 200
+      ? now
+      : undefined
+  }, 'the second chat’s Run to start')
+  const reply = await api(daemon.port, tokens.issue(working.runId)).call(
+    'POST',
+    '/chat-outside-commands',
+    {
+      name: 'build',
+      argument: '1.2.4',
+    },
+  )
+  expect(JSON.stringify(reply.body)).toContain(
+    'You’re allowed to run `build` always, but its local folder is 1 commit behind main and Ted can’t update it because 1 file has uncommitted changes',
+  )
+  const held = await asked(second.id)
+  expect(held.outsideCommand).toMatchObject({
+    allowedButHeld: true,
+    localFolder: { check: { behind: 1, uncommitted: 1 } },
+  })
+  await ok('POST', `/coordinator-chats/${second.id}/requests/${held.id}/outside-command`, {
+    run: true,
+    always: false,
+  })
+  await waitUntil(
+    async () => (await ran()).includes(`${kept}|release build 1.2.4`) || undefined,
+    'the build in the untouched folder',
+  )
+  expect(await git('rev-parse', 'HEAD')).toBe(kept)
+  expect(await readFile(path.join(folder, 'README.md'), 'utf8')).toBe('edited\n')
+  await writeFile(path.join(scratch, 'second'), '')
+  await said(second.id, 'Ted couldn’t update it because 1 file has uncommitted changes')
+
+  await git('checkout', '--quiet', '--', 'README.md')
+  await commitToOrigin(scratch, { 'clash.txt': 'from origin\n' })
+  await writeFile(path.join(local, 'clash.txt'), 'mine\n')
+  const third = await chat([{ waitFor: path.join(scratch, 'third') }, { endTurn: true }])
+  const thirdRun = await waitUntil(async () => {
+    const now = await ok<Coordinator>('GET', `/coordinator-chats/${third.id}`)
+    return now.status === 'working' && (await app.call('GET', `/runs/${now.runId}`)).status === 200
+      ? now
+      : undefined
+  }, 'the third chat’s Run to start')
+  await api(daemon.port, tokens.issue(thirdRun.runId)).call('POST', '/chat-outside-commands', {
+    name: 'build',
+    argument: '1.2.5',
+  })
+  const failed = await asked(third.id)
+  expect(failed.outsideCommand?.localFolder?.updateFailed).toBeDefined()
+  await ok('POST', `/coordinator-chats/${third.id}/requests/${failed.id}/outside-command`, {
+    run: true,
+    always: false,
+  })
+  await waitUntil(
+    async () => (await ran()).includes(`${kept}|release build 1.2.5`) || undefined,
+    'Run anyway after a failed update',
+  )
+  expect(await git('rev-parse', 'HEAD')).toBe(kept)
+  expect(await readFile(path.join(folder, 'clash.txt'), 'utf8')).toBe('mine\n')
+  await writeFile(path.join(scratch, 'third'), '')
+  await said(third.id, 'Ted couldn’t update it because Ted’s update failed')
+}, 180_000)
 
 test('an Agent draft can’t give Run outside commands; only the user adds it in settings', () => {
   const base = {

@@ -766,6 +766,7 @@ export {
   listSorts,
   type StatusFilter,
 } from './list-view.ts'
+export type { LocalFolderCheck, LocalFolderState, LocalFolderUpdate } from './local-folder.ts'
 export type { AgentRunCount, MemoryGroup, MemoryPart, MemoryUse } from './memory.ts'
 export {
   emptyMessageDraft,
