@@ -66,6 +66,7 @@ export function createDevicePool(options: {
   let turn: (TurnHolder & { at: number }) | undefined
   const builds = new Map<string, number>()
   const buildsNow = () => {
+    current()
     for (const [key, at] of builds) if (now() - at >= turnMs) builds.delete(key)
     return builds
   }
@@ -73,6 +74,7 @@ export function createDevicePool(options: {
   const live = () => members.flatMap((m) => m.live())
   const current = () => {
     if (turn !== undefined && now() - turn.at >= turnMs) {
+      builds.delete(turn.key)
       turn = undefined
       queueMicrotask(notifyWaiters)
     }

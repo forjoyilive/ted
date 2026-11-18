@@ -387,3 +387,20 @@ test('the pool counts device builds until their turn ends or runs out', () => {
   expect(pool.building('t2/android')).toBe(false)
   expect(pool.beginBuild('t3/ios')).toBe(1)
 })
+
+test('when a build turn runs out its build stops counting, even if it launched after the turn began', () => {
+  let at = 0
+  const pool = createDevicePool({
+    limit: () => 2,
+    oneAtATime: () => true,
+    turnMs: 1000,
+    now: () => at,
+  })
+  expect(pool.takeTurn({ key: 't1/ios', displayId: 'NB-1', app: 'iPhone' })).toBe(true)
+  at = 200
+  expect(pool.beginBuild('t1/ios')).toBe(1)
+  at = 1000
+  expect(pool.takeTurn({ key: 't2/ios', displayId: 'NB-2', app: 'iPhone' })).toBe(true)
+  expect(pool.building('t1/ios')).toBe(false)
+  expect(pool.beginBuild('t2/ios')).toBe(1)
+})
