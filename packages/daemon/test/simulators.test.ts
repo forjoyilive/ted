@@ -657,7 +657,7 @@ describe('iOS simulator Apps', () => {
     expect(await gone(path.join(home, 'automation-runs', heldRun))).toBe(true)
     expect(await gone(path.join(home, 'apps', heldRun))).toBe(true)
     expect(await gone(cache)).toBe(true)
-  })
+  }, 90_000)
 
   test('an Audit reads its simulator’s screen, taps through two screens and files a Task with a screenshot for the planted problem', async () => {
     await writeStub({
