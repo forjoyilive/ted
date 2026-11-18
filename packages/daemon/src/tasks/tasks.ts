@@ -1902,6 +1902,7 @@ export function createTasks(options: {
             rank: task.rank,
             priority: task.priority,
             factoryId: task.factoryId,
+            ...(isCleanup(task.stage) && { skipsBusy: true as const }),
             ...(heldAt !== undefined && continuationFlags(heldAt, clock.now())),
           },
         ]

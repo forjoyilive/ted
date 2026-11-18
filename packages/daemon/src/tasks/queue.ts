@@ -51,15 +51,18 @@ export interface SlotUse {
   busy?: boolean
 }
 
+function sortKind(e: QueueEntry): QueueKind {
+  if (e.kind === 'coordinator' || e.kind === 'side-chat') return 'planning'
+  if (e.kind === 'task' && e.skipsBusy) return 'continuation'
+  return e.kind
+}
+
 export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
   const priorityRank = (e: QueueEntry) =>
     e.kind === 'task' || e.kind === 'continuation' ? priorities.indexOf(e.priority ?? 'none') : 0
   return [...entries].sort(
     (a, b) =>
-      queueKinds.indexOf(a.kind === 'coordinator' || a.kind === 'side-chat' ? 'planning' : a.kind) -
-        queueKinds.indexOf(
-          b.kind === 'coordinator' || b.kind === 'side-chat' ? 'planning' : b.kind,
-        ) ||
+      queueKinds.indexOf(sortKind(a)) - queueKinds.indexOf(sortKind(b)) ||
       Number(b.recent === true) - Number(a.recent === true) ||
       priorityRank(a) - priorityRank(b) ||
       a.rank - b.rank ||

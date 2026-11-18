@@ -237,7 +237,7 @@ test('the sidebar names slot usage and its limit, including above-limit and queu
   expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 of 6 slots in use')
   expect(runsLine({ ...slots, working: 0 })).toBe('0 of 6 slots in use · 1 queued')
   expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 of 6 slots in use')
-  expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toContain('this computer is busy')
+  expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toContain('computer is busy')
 })
 
 test('the sidebar counts running and waiting Checks beside the agents', () => {
@@ -252,10 +252,10 @@ test('the sidebar counts running and waiting Checks beside the agents', () => {
     busy: { loadRatio: 1.4 },
   }
   expect(runsLine(slots)).toBe(
-    '1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · this computer is busy',
+    '1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · computer is busy',
   )
   expect(nowLine(slots)).toBe(
-    'Now: 1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · this computer is busy',
+    'Now: 1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · computer is busy',
   )
   const { busy: _, ...calm } = slots
   expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, running: 1 } })).toBe(
@@ -273,8 +273,8 @@ test('hovering a busy hold names each resource that holds, with its figure and m
       'CPU load: 1.30 per core · waits at 1, starts again below 0.75',
     ].join('\n'),
   )
-  expect(
-    statusDetail({ kind: 'queued', hold: 'this computer is busy', busy: { loadRatio: 2 } }),
-  ).toBe('CPU load: 2.00 per core · waits at 1, starts again below 0.75')
+  expect(statusDetail({ kind: 'queued', hold: 'computer is busy', busy: { loadRatio: 2 } })).toBe(
+    'CPU load: 2.00 per core · waits at 1, starts again below 0.75',
+  )
   expect(statusDetail({ kind: 'queued', place: 2 })).toBeUndefined()
 })

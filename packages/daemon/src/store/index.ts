@@ -1772,6 +1772,7 @@ export async function openStore({
                 rank,
                 priority: task.priority as Priority,
                 factoryId: task.factoryId,
+                ...(isCleanup(task.stage) && { skipsBusy: true as const }),
               },
             ]
           : []
@@ -2234,9 +2235,10 @@ export async function openStore({
       (comment) => comment.answerHeld && comment.answerQueuedAt !== null,
     )
     const queuedContinuation = pendingMessages.some((message) => message.waitForSlot) || heldAnswer
-    const queuedAfter =
-      pendingMessages.find((message) => message.waitForSlot && message.after !== undefined)
-        ?.after ?? (heldAnswer ? 'answer' : undefined)
+    const skipsBusy =
+      isCleanup(stage) ||
+      heldAnswer ||
+      pendingMessages.some((message) => message.waitForSlot && message.after !== undefined)
     const place =
       queued || queuedContinuation
         ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
@@ -2314,7 +2316,7 @@ export async function openStore({
             ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Providers.` }
             : place > 0
               ? newWorkHeld === undefined
-                ? { place, ...(queuedAfter !== undefined && { after: queuedAfter }) }
+                ? { place, ...(skipsBusy && { skipsBusy: true as const }) }
                 : { hold: newWorkHeld }
               : { hold: 'Waiting for a Provider' },
       }),
