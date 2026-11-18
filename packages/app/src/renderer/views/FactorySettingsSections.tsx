@@ -5,9 +5,12 @@ import type {
   AgentStageId,
   CheckInput,
   CheckTry,
+  CheckTryRequest,
+  CheckTryTask,
   ClarifyDepth,
   Effort,
   FactorySettingsView,
+  InstructionCheckInput,
   InvalidSettings,
   LayerKind,
   LibraryInvalid,
@@ -15,7 +18,8 @@ import type {
   StageId,
   StageRowView,
 } from '@ted/protocol'
-import { cleanupStepProblem } from '@ted/protocol/factory-settings'
+import { cleanupStepProblem, defaultInstructionCheckTimeout } from '@ted/protocol/factory-settings'
+import { agentKinds } from '@ted/protocol/run'
 import {
   handsOff,
   hasClarifyRounds,
@@ -31,18 +35,22 @@ import { Button } from '../components/Button.tsx'
 import { FactoryNotificationChoices } from '../components/FactoryNotifications.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { Loading } from '../components/Loading.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
 import grow from '../components/TextGrow.module.css'
-import { useEventValue, useSettings } from '../data.ts'
+import { useEventValue, useSettings, useTasks } from '../data.ts'
 import {
   agentEdited,
   type CleanupStepDraft,
   cleanupStepInput,
   driftLine,
+  instructionRunText,
+  instructionTryRequest,
   lastRunText,
   lastValidLine,
+  moveItem,
   type SettingsDraft,
   type StageDraft,
   stageEdited,
@@ -51,6 +59,8 @@ import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.t
 import { OvernightNotice } from '../overnight.tsx'
 import { usePendingAction } from '../pending-action.ts'
 import type { SettingId } from '../settings-search.ts'
+import { useStages } from '../stages.tsx'
+import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import base from './FactorySettings.module.css'
 import styles from './FactorySettingsSections.module.css'
@@ -752,6 +762,50 @@ export function DriftNotice({
   )
 }
 
+type CheckList = 'command' | 'instruction'
+
+const defaultCommandTimeout = '10m'
+
+function useRowKeys(length: number, prefix: string) {
+  const state = useRef<{ keys: string[]; next: number }>({ keys: [], next: 0 })
+  const fresh = () => `${prefix}-${state.current.next++}`
+  while (state.current.keys.length < length) state.current.keys.push(fresh())
+  if (state.current.keys.length > length) state.current.keys.length = length
+  return {
+    keys: state.current.keys,
+    add() {
+      const key = fresh()
+      state.current.keys.push(key)
+      return key
+    },
+    remove(index: number) {
+      state.current.keys.splice(index, 1)
+    },
+    move(from: number, to: number) {
+      state.current.keys = moveItem(state.current.keys, from, to)
+    },
+  }
+}
+
+interface RowControls {
+  open: boolean
+  focusName: boolean
+  dragging: boolean
+  canDrop: boolean
+  running: boolean
+  starting: boolean
+  now: number
+  onDragStart: () => void
+  onDragEnd: () => void
+  onDrop: () => void
+  onMove: (step: -1 | 1) => void
+  onToggle: () => void
+  onRemove: () => void
+  onStop: (name: string) => void
+  onOutput: (name: string) => void
+  handleRef: (element: HTMLButtonElement | null) => void
+}
+
 function ChecksSectionView({
   view,
   draft,
@@ -766,18 +820,29 @@ function ChecksSectionView({
   const starting = usePendingAction(`check-try:${view.factoryId}`)
   const [now, setNow] = useState(Date.now())
   const [error, setError] = useState<string>()
-  const [output, setOutput] = useState<string>()
-  const keys = useRef<string[]>([])
-  const counter = useRef(0)
-  while (keys.current.length < draft.checks.length) keys.current.push(`check-${counter.current++}`)
-  if (keys.current.length > draft.checks.length) keys.current.length = draft.checks.length
+  const [output, setOutput] = useState<{ title: string; text: string }>()
+  const [open, setOpen] = useState<string>()
+  const [added, setAdded] = useState<string>()
+  const [dragging, setDragging] = useState<{ list: CheckList; index: number }>()
+  const [picking, setPicking] = useState<InstructionCheckInput>()
+  const [focusHandle, setFocusHandle] = useState<string>()
+  const handles = useRef(new Map<string, HTMLButtonElement>())
+  const commandKeys = useRowKeys(draft.checks.length, 'check')
+  const instructionKeys = useRowKeys(draft.instructionChecks.length, 'instruction')
   const running = tries.some((t) => t.state === 'running')
   useEffect(() => {
     if (!running) return
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [running])
+  useEffect(() => {
+    if (focusHandle === undefined) return
+    handles.current.get(focusHandle)?.focus()
+    setFocusHandle(undefined)
+  }, [focusHandle])
   const multiRepo = draft.repos.length > 1
+  const reviewer =
+    draft.agents.reviewer ?? view.agents.find((row) => row.role === 'reviewer')?.inherited
   const setCheck = (index: number, fields: Partial<CheckInput>) =>
     onDraft((d) => ({
       ...d,
@@ -788,18 +853,64 @@ function ChecksSectionView({
         return next
       }),
     }))
+  const setInstruction = (
+    index: number,
+    change: (check: InstructionCheckInput) => InstructionCheckInput,
+  ) =>
+    onDraft((d) => ({
+      ...d,
+      instructionChecks: d.instructionChecks.map((c, i) => {
+        if (i !== index) return c
+        const next = change(c)
+        for (const key of ['timeout', 'agent', 'model'] as const)
+          if (next[key] === '') delete next[key]
+        return next
+      }),
+    }))
 
-  function runNow(check: CheckInput) {
+  function move(list: CheckList, from: number, to: number) {
+    const rows = list === 'command' ? commandKeys : instructionKeys
+    if (to < 0 || to >= rows.keys.length || to === from) return
+    const key = rows.keys[from]
+    rows.move(from, to)
+    onDraft((d) =>
+      list === 'command'
+        ? { ...d, checks: moveItem(d.checks, from, to) }
+        : { ...d, instructionChecks: moveItem(d.instructionChecks, from, to) },
+    )
+    setFocusHandle(key)
+  }
+
+  function remove(list: CheckList, index: number) {
+    if (list === 'command') {
+      commandKeys.remove(index)
+      onDraft((d) => ({ ...d, checks: d.checks.filter((_, i) => i !== index) }))
+    } else {
+      instructionKeys.remove(index)
+      onDraft((d) => ({
+        ...d,
+        instructionChecks: d.instructionChecks.filter((_, i) => i !== index),
+      }))
+    }
+    setOpen(undefined)
+  }
+
+  function add(list: CheckList) {
+    const key = list === 'command' ? commandKeys.add() : instructionKeys.add()
+    onDraft((d) =>
+      list === 'command'
+        ? { ...d, checks: [...d.checks, { name: '', run: '' }] }
+        : { ...d, instructionChecks: [...d.instructionChecks, { name: '', instruction: '' }] },
+    )
+    setOpen(key)
+    setAdded(key)
+  }
+
+  function tryNow(request: CheckTryRequest) {
     return starting.run(async () => {
       setError(undefined)
       try {
-        await ted.tryCheck(view.factoryId, {
-          name: check.name.trim(),
-          run: check.run.trim(),
-          ...(check.repo !== undefined && { repo: check.repo }),
-          ...(check.timeout !== undefined &&
-            check.timeout.trim() !== '' && { timeout: check.timeout.trim() }),
-        })
+        await ted.tryCheck(view.factoryId, request)
         setNow(Date.now())
       } catch (failure) {
         setError(readableError(failure))
@@ -807,159 +918,703 @@ function ChecksSectionView({
     })
   }
 
+  const controls = (list: CheckList, index: number, key: string): RowControls => ({
+    open: open === key,
+    focusName: added === key,
+    dragging: dragging?.list === list && dragging.index === index,
+    canDrop: dragging?.list === list && dragging.index !== index,
+    running,
+    starting: starting.pending,
+    now,
+    onDragStart: () => setDragging({ list, index }),
+    onDragEnd: () => setDragging(undefined),
+    onDrop: () => {
+      if (dragging?.list === list) move(list, dragging.index, index)
+      setDragging(undefined)
+    },
+    onMove: (step) => move(list, index, index + step),
+    onToggle: () => {
+      setOpen(open === key ? undefined : key)
+      setAdded(undefined)
+    },
+    onRemove: () => remove(list, index),
+    onStop: (name) =>
+      void ted
+        .stopCheckTry(view.factoryId, name)
+        .catch((failure) => setError(readableError(failure))),
+    onOutput: (name) =>
+      void ted.checkTryOutput(view.factoryId, name).then(
+        (shown) =>
+          setOutput({
+            title: list === 'command' ? 'Check output' : `${name} report`,
+            text: shown.text || 'No output.',
+          }),
+        (failure) => setError(readableError(failure)),
+      ),
+    handleRef: (element) => {
+      if (element) handles.current.set(key, element)
+      else handles.current.delete(key)
+    },
+  })
+
   return (
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="checks">
       <SectionHeading
         id="checks"
         setting="factory.checks"
         title="Checks"
-        help="Commands Ted runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree."
+        help="Checks run at Validate. Instruction Checks that may fix run first, then the commands one after another, then the other Instruction Checks."
       />
-      <div className={styles.table}>
-        <div className={styles.scrollTable}>
-          <div className={`${multiRepo ? styles.checkRowRepo : styles.checkRow} ${styles.headRow}`}>
+      <div className={styles.checkList}>
+        <ListHeading
+          title="Commands"
+          caption="Run now tries one on the base branch in a scratch worktree."
+        />
+        <div className={styles.table}>
+          <div className={styles.scrollTable}>
+            <div
+              className={`${multiRepo ? styles.commandRowRepo : styles.commandRow} ${styles.checkHead}`}
+            >
+              <span />
+              <span>Name</span>
+              <span>Command</span>
+              {multiRepo && <span>Repo</span>}
+              <span>Timeout</span>
+              <span>Last run</span>
+              <span className={base.visuallyHidden}>Actions</span>
+            </div>
+            <ul className={styles.checkItems} aria-label="Command Checks">
+              {draft.checks.map((check, index) => {
+                const key = commandKeys.keys[index] ?? `check-${index}`
+                return (
+                  <CommandCheckRow
+                    key={key}
+                    check={check}
+                    repos={draft.repos.map((r) => r.name)}
+                    last={tries.find((t) => t.instruction !== true && t.name === check.name.trim())}
+                    controls={controls('command', index, key)}
+                    onChange={(fields) => setCheck(index, fields)}
+                    onRun={() =>
+                      tryNow({
+                        name: check.name.trim(),
+                        run: check.run.trim(),
+                        ...(check.repo !== undefined && { repo: check.repo }),
+                        ...(check.timeout !== undefined &&
+                          check.timeout.trim() !== '' && { timeout: check.timeout.trim() }),
+                      })
+                    }
+                  />
+                )
+              })}
+            </ul>
+          </div>
+          <div className={styles.builtInRow}>
+            <span>Ted settings</span>
+            <span className={styles.builtInText}>Built in.</span>
+            <span className={base.spacer} />
+            <Help align="end">
+              Added at Validate when a Task changes .ted/. It checks the Ted settings files, like
+              ted workflow check.
+            </Help>
+          </div>
+        </div>
+        <div>
+          <ActionButton type="button" className={base.link} onClick={() => add('command')}>
+            + Add command Check
+          </ActionButton>
+        </div>
+      </div>
+      <div className={styles.checkList}>
+        <ListHeading
+          title="Instruction Checks"
+          caption="An agent reads the Task’s changes and reports pass or fail. Run now tries one on a Task you choose, without changing it."
+        />
+        <div className={`${styles.table} ${styles.scrollTable}`}>
+          <div className={`${styles.instructionRow} ${styles.checkHead}`}>
+            <span />
             <span>Name</span>
-            <span>Command</span>
-            {multiRepo && <span>Repo</span>}
-            <span>Timeout</span>
+            <span>Instruction</span>
             <span>Last run</span>
             <span className={base.visuallyHidden}>Actions</span>
           </div>
-          {draft.checks.map((check, index) => {
-            const last = tries.find((t) => t.name === check.name.trim())
-            const ready = check.name.trim() !== '' && check.run.trim() !== ''
-            return (
-              <div
-                key={keys.current[index]}
-                className={multiRepo ? styles.checkRowRepo : styles.checkRow}
-              >
-                <input
-                  aria-label="Check name"
-                  className={styles.cellInput}
-                  placeholder="Name"
-                  value={check.name}
-                  onChange={(event) => setCheck(index, { name: event.target.value })}
+          <ul className={styles.checkItems} aria-label="Instruction Checks">
+            {draft.instructionChecks.map((check, index) => {
+              const key = instructionKeys.keys[index] ?? `instruction-${index}`
+              return (
+                <InstructionCheckRow
+                  key={key}
+                  check={check}
+                  reviewer={reviewer}
+                  last={tries.find((t) => t.instruction === true && t.name === check.name.trim())}
+                  controls={controls('instruction', index, key)}
+                  onChange={(change) => setInstruction(index, change)}
+                  onRun={() => setPicking(check)}
                 />
-                <input
-                  aria-label={`${check.name || 'Check'} command`}
-                  className={`${styles.cellInput} ${base.mono}`}
-                  placeholder="npm test"
-                  value={check.run}
-                  onChange={(event) => setCheck(index, { run: event.target.value })}
-                />
-                {multiRepo && (
-                  <Select
-                    fullWidth
-                    aria-label={`${check.name || 'Check'} repo`}
-                    controlClassName={styles.cellSelect}
-                    value={check.repo ?? draft.repos[0]?.name ?? ''}
-                    onChange={(event) =>
-                      setCheck(index, {
-                        repo: event.target.value === draft.repos[0]?.name ? '' : event.target.value,
-                      })
-                    }
-                  >
-                    {draft.repos.map((repo) => (
-                      <option key={repo.name} value={repo.name}>
-                        {repo.name}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-                <input
-                  aria-label={`${check.name || 'Check'} timeout`}
-                  className={styles.cellInput}
-                  placeholder="10m"
-                  value={check.timeout ?? ''}
-                  onChange={(event) => setCheck(index, { timeout: event.target.value })}
-                />
-                <span className={lastRunClass(last)}>
-                  {last ? lastRunText(last, now) : <span className={styles.dash}>Never</span>}
-                  {last && last.state !== 'running' && (
-                    <>
-                      {' · '}
-                      <ActionButton
-                        type="button"
-                        className={base.link}
-                        onClick={() =>
-                          ted.checkTryOutput(view.factoryId, last.name).then(
-                            (shown) => setOutput(shown.text || 'No output.'),
-                            (failure: unknown) => setError(readableError(failure)),
-                          )
-                        }
-                      >
-                        Output
-                      </ActionButton>
-                    </>
-                  )}
-                </span>
-                <span className={styles.actions}>
-                  {last?.state === 'running' ? (
-                    <Button
-                      size="small"
-                      onClick={() =>
-                        ted
-                          .stopCheckTry(view.factoryId, last.name)
-                          .catch((failure: unknown) => setError(readableError(failure)))
-                      }
-                    >
-                      Stop
-                    </Button>
-                  ) : (
-                    <Button
-                      size="small"
-                      disabled={!ready || running || starting.pending}
-                      title={running ? 'Another check is running.' : undefined}
-                      onClick={() => runNow(check)}
-                    >
-                      Run now
-                    </Button>
-                  )}
-                  <ActionButton
-                    type="button"
-                    className={base.iconButton}
-                    aria-label={`Remove ${check.name || 'this check'}`}
-                    onClick={() => {
-                      keys.current.splice(index, 1)
-                      return onDraft((d) => ({
-                        ...d,
-                        checks: d.checks.filter((_, i) => i !== index),
-                      }))
-                    }}
-                  >
-                    <CloseIcon size={12} />
-                  </ActionButton>
-                </span>
-              </div>
-            )
-          })}
+              )
+            })}
+          </ul>
+          {draft.instructionChecks.length === 0 && (
+            <p className={styles.emptyList}>No instruction Checks.</p>
+          )}
         </div>
-        <div className={styles.builtInRow}>
-          <span>Ted settings</span>
-          <span className={styles.builtInText}>Built in.</span>
-          <span className={base.spacer} />
-          <Help align="end">
-            Added at Validate when a Task changes .ted/. It checks the Ted settings files, like ted
-            workflow check.
-          </Help>
+        <div>
+          <ActionButton type="button" className={base.link} onClick={() => add('instruction')}>
+            + Add instruction Check
+          </ActionButton>
         </div>
-      </div>
-      <div>
-        <ActionButton
-          type="button"
-          className={base.link}
-          onClick={() => onDraft((d) => ({ ...d, checks: [...d.checks, { name: '', run: '' }] }))}
-        >
-          + Add check
-        </ActionButton>
       </div>
       {error !== undefined && (
         <p className={base.fieldError} role="alert">
           {error}
         </p>
       )}
-      {output !== undefined && <OutputDialog text={output} onClose={() => setOutput(undefined)} />}
+      {output !== undefined && (
+        <OutputDialog
+          title={output.title}
+          text={output.text}
+          onClose={() => setOutput(undefined)}
+        />
+      )}
+      {picking !== undefined && (
+        <RunOnTaskDialog
+          factoryId={view.factoryId}
+          name={picking.name.trim()}
+          onClose={() => setPicking(undefined)}
+          onRun={(taskId) => {
+            setPicking(undefined)
+            return tryNow(instructionTryRequest(picking, taskId))
+          }}
+        />
+      )}
     </section>
+  )
+}
+
+function ListHeading({ title: heading, caption }: { title: string; caption: string }) {
+  return (
+    <div className={styles.listHeading}>
+      <h3 className={styles.listTitle}>{heading}</h3>
+      <span className={styles.listCaption}>{caption}</span>
+    </div>
+  )
+}
+
+function DragHandle({ controls }: { controls: RowControls }) {
+  return (
+    <button
+      ref={controls.handleRef}
+      type="button"
+      className={`${base.handle} ${styles.grip}`}
+      draggable
+      aria-label="Drag to reorder, or use the arrow keys"
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move'
+        controls.onDragStart()
+      }}
+      onDragEnd={controls.onDragEnd}
+      onKeyDown={(event) => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+        event.preventDefault()
+        event.stopPropagation()
+        controls.onMove(event.key === 'ArrowUp' ? -1 : 1)
+      }}
+    >
+      ⠿
+    </button>
+  )
+}
+
+function CheckItem({
+  name,
+  controls,
+  children,
+}: {
+  name: string
+  controls: RowControls
+  children: ReactNode
+}) {
+  return (
+    <li
+      aria-label={name}
+      className={[
+        controls.open ? styles.checkOpen : styles.checkBlock,
+        controls.dragging && styles.checkDragging,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      onDragOver={(event) => {
+        if (controls.canDrop) event.preventDefault()
+      }}
+      onDrop={(event) => {
+        if (!controls.canDrop) return
+        event.preventDefault()
+        controls.onDrop()
+      }}
+    >
+      {children}
+    </li>
+  )
+}
+
+function RowActions({
+  controls,
+  last,
+  ready,
+  runLabel,
+  onRun,
+}: {
+  controls: RowControls
+  last: CheckTry | undefined
+  ready: boolean
+  runLabel: string
+  onRun: () => void
+}) {
+  return (
+    <span className={styles.actions}>
+      <ActionButton
+        type="button"
+        className={base.link}
+        aria-expanded={controls.open}
+        onClick={controls.onToggle}
+      >
+        {controls.open ? 'Close' : 'Edit'}
+      </ActionButton>
+      {last?.state === 'running' ? (
+        <Button size="small" onClick={() => controls.onStop(last.name)}>
+          Stop
+        </Button>
+      ) : (
+        <Button
+          size="small"
+          disabled={!ready || controls.running || controls.starting}
+          title={controls.running ? 'Another check is running.' : undefined}
+          onClick={onRun}
+        >
+          {runLabel}
+        </Button>
+      )}
+    </span>
+  )
+}
+
+function useNameFocus(focus: boolean, open: boolean) {
+  const name = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (focus && open) name.current?.focus()
+  }, [focus, open])
+  return name
+}
+
+function EditorField({ label, id, children }: { label: string; id: string; children: ReactNode }) {
+  return (
+    <span className={styles.editorField}>
+      <label className={styles.editorLabel} htmlFor={id}>
+        {label}
+      </label>
+      {children}
+    </span>
+  )
+}
+
+function CommandCheckRow({
+  check,
+  repos,
+  last,
+  controls,
+  onChange,
+  onRun,
+}: {
+  check: CheckInput
+  repos: string[]
+  last: CheckTry | undefined
+  controls: RowControls
+  onChange: (fields: Partial<CheckInput>) => void
+  onRun: () => void
+}) {
+  const id = useId()
+  const nameRef = useNameFocus(controls.focusName, controls.open)
+  const multiRepo = repos.length > 1
+  const name = check.name.trim()
+  const timeout = check.timeout?.trim() ?? ''
+  return (
+    <CheckItem name={name || 'New command Check'} controls={controls}>
+      <div className={multiRepo ? styles.commandRowRepo : styles.commandRow}>
+        <DragHandle controls={controls} />
+        <span className={styles.checkName}>
+          {name || <span className={styles.dash}>Untitled</span>}
+        </span>
+        <span className={`${styles.truncated} ${base.mono}`} title={check.run.trim() || undefined}>
+          {check.run.trim() || <span className={styles.dash}>No command</span>}
+        </span>
+        {multiRepo && <span className={styles.truncated}>{check.repo ?? repos[0]}</span>}
+        <span className={timeout === '' ? styles.dash : undefined}>
+          {timeout || defaultCommandTimeout}
+        </span>
+        <span className={lastRunClass(last)}>
+          {last ? lastRunText(last, controls.now) : <span className={styles.dash}>Never</span>}
+          {last && last.state !== 'running' && (
+            <>
+              {' · '}
+              <ActionButton
+                type="button"
+                className={base.link}
+                onClick={() => controls.onOutput(last.name)}
+              >
+                Output
+              </ActionButton>
+            </>
+          )}
+        </span>
+        <RowActions
+          controls={controls}
+          last={last}
+          ready={name !== '' && check.run.trim() !== ''}
+          runLabel="Run now"
+          onRun={onRun}
+        />
+      </div>
+      {controls.open && (
+        <div className={styles.checkEditor}>
+          <div
+            className={`${styles.editorFields} ${multiRepo ? styles.commandFieldsRepo : styles.commandFields}`}
+          >
+            <EditorField label="Name" id={`${id}-name`}>
+              <input
+                ref={nameRef}
+                id={`${id}-name`}
+                className={styles.cellInput}
+                value={check.name}
+                onChange={(event) => onChange({ name: event.target.value })}
+              />
+            </EditorField>
+            <EditorField label="Command" id={`${id}-run`}>
+              <input
+                id={`${id}-run`}
+                className={`${styles.cellInput} ${base.mono}`}
+                placeholder="npm test"
+                value={check.run}
+                onChange={(event) => onChange({ run: event.target.value })}
+              />
+            </EditorField>
+            {multiRepo && (
+              <EditorField label="Repo" id={`${id}-repo`}>
+                <Select
+                  fullWidth
+                  id={`${id}-repo`}
+                  controlClassName={styles.cellSelect}
+                  value={check.repo ?? repos[0] ?? ''}
+                  onChange={(event) =>
+                    onChange({ repo: event.target.value === repos[0] ? '' : event.target.value })
+                  }
+                >
+                  {repos.map((repo) => (
+                    <option key={repo} value={repo}>
+                      {repo}
+                    </option>
+                  ))}
+                </Select>
+              </EditorField>
+            )}
+            <EditorField label="Timeout" id={`${id}-timeout`}>
+              <input
+                id={`${id}-timeout`}
+                className={styles.cellInput}
+                placeholder={defaultCommandTimeout}
+                value={check.timeout ?? ''}
+                onChange={(event) => onChange({ timeout: event.target.value })}
+              />
+            </EditorField>
+          </div>
+          <div className={styles.editorFoot}>
+            <ActionButton type="button" className={base.dangerLink} onClick={controls.onRemove}>
+              Remove
+            </ActionButton>
+          </div>
+        </div>
+      )}
+    </CheckItem>
+  )
+}
+
+function InstructionCheckRow({
+  check,
+  reviewer,
+  last,
+  controls,
+  onChange,
+  onRun,
+}: {
+  check: InstructionCheckInput
+  reviewer: AgentChoiceInput | undefined
+  last: CheckTry | undefined
+  controls: RowControls
+  onChange: (change: (check: InstructionCheckInput) => InstructionCheckInput) => void
+  onRun: () => void
+}) {
+  const id = useId()
+  const nameRef = useNameFocus(controls.focusName, controls.open)
+  const name = check.name.trim()
+  const firstLine = check.instruction.trim().split('\n')[0] ?? ''
+  const reviewerAgent = agentKinds.find((kind) => kind === reviewer?.agent)
+  const shownAgent = check.agent === undefined ? reviewerAgent : check.agent
+  const set = (fields: Partial<InstructionCheckInput>) => onChange((c) => ({ ...c, ...fields }))
+  return (
+    <CheckItem name={name || 'New instruction Check'} controls={controls}>
+      <div className={styles.instructionRow}>
+        <DragHandle controls={controls} />
+        <span className={styles.checkName}>
+          {name || <span className={styles.dash}>Untitled</span>}
+          {check.fix === true && <span className={styles.fixTag}>may fix</span>}
+        </span>
+        <span className={styles.truncated} title={check.instruction.trim() || undefined}>
+          {firstLine || <span className={styles.dash}>No instruction</span>}
+        </span>
+        <span className={lastRunClass(last)} title={last?.noReport}>
+          {last ? (
+            instructionRunText(last, controls.now)
+          ) : (
+            <span className={styles.dash}>Never</span>
+          )}
+          {last && last.state !== 'running' && (
+            <>
+              {' · '}
+              <ActionButton
+                type="button"
+                className={base.link}
+                onClick={() => controls.onOutput(last.name)}
+              >
+                Report
+              </ActionButton>
+            </>
+          )}
+        </span>
+        <RowActions
+          controls={controls}
+          last={last}
+          ready={name !== '' && check.instruction.trim() !== ''}
+          runLabel="Run now…"
+          onRun={onRun}
+        />
+      </div>
+      {controls.open && (
+        <div className={styles.checkEditor}>
+          <div className={`${styles.editorFields} ${styles.instructionTop}`}>
+            <EditorField label="Name" id={`${id}-name`}>
+              <input
+                ref={nameRef}
+                id={`${id}-name`}
+                className={styles.cellInput}
+                value={check.name}
+                onChange={(event) => set({ name: event.target.value })}
+              />
+            </EditorField>
+            <EditorField label="Timeout" id={`${id}-timeout`}>
+              <input
+                id={`${id}-timeout`}
+                className={styles.cellInput}
+                placeholder={defaultInstructionCheckTimeout}
+                value={check.timeout ?? ''}
+                onChange={(event) => set({ timeout: event.target.value })}
+              />
+            </EditorField>
+          </div>
+          <EditorField label="Instruction for the agent" id={`${id}-instruction`}>
+            <textarea
+              id={`${id}-instruction`}
+              className={`${styles.fileText} ${styles.instructionText} ${grow.text}`}
+              placeholder="What should the agent look at, and what counts as a fail?"
+              value={check.instruction}
+              onChange={(event) => set({ instruction: event.target.value })}
+            />
+          </EditorField>
+          <div className={styles.fixLine}>
+            <input
+              id={`${id}-fix`}
+              type="checkbox"
+              checked={check.fix === true}
+              aria-describedby={`${id}-fix-caption`}
+              onChange={(event) => {
+                const checked = event.target.checked
+                onChange(({ fix: _, ...rest }) => (checked ? { ...rest, fix: true } : rest))
+              }}
+            />
+            <label htmlFor={`${id}-fix`}>May fix what it finds</label>
+            <span id={`${id}-fix-caption`} className={styles.fixCaption}>
+              · edits and commits in the Task’s worktree, and runs before the commands
+            </span>
+          </div>
+          <div className={`${styles.editorFields} ${styles.agentFields}`}>
+            <EditorField label="Provider" id={`${id}-agent`}>
+              <Select
+                fullWidth
+                id={`${id}-agent`}
+                controlClassName={styles.cellSelect}
+                value={check.agent ?? ''}
+                onChange={(event) =>
+                  onChange(({ model: _, ...rest }) => ({ ...rest, agent: event.target.value }))
+                }
+              >
+                <option value="">
+                  {reviewerAgent ? `Reviewer’s (${agentLabels[reviewerAgent]})` : 'Reviewer’s'}
+                </option>
+                <AgentOptions current={check.agent} same />
+              </Select>
+            </EditorField>
+            <EditorField label="Model" id={`${id}-model`}>
+              <ModelSelect
+                fullWidth
+                id={`${id}-model`}
+                controlClassName={styles.cellSelect}
+                inputClassName={`${styles.cellInput} ${base.mono}`}
+                defaultLabel="Reviewer’s model"
+                agent={shownAgent === 'same' ? undefined : shownAgent}
+                value={check.model ?? ''}
+                onChange={(model) => set({ model })}
+              />
+            </EditorField>
+            <EditorField label="Effort" id={`${id}-effort`}>
+              <Select
+                fullWidth
+                id={`${id}-effort`}
+                controlClassName={styles.cellSelect}
+                value={check.effort ?? ''}
+                onChange={(event) => {
+                  const effort = efforts.find((e) => e === event.target.value)
+                  onChange(({ effort: _, ...rest }) =>
+                    effort === undefined ? rest : { ...rest, effort },
+                  )
+                }}
+              >
+                <option value="">Reviewer’s effort</option>
+                {efforts.map((effort) => (
+                  <option key={effort} value={effort}>
+                    {effort}
+                  </option>
+                ))}
+              </Select>
+            </EditorField>
+          </div>
+          <div className={styles.editorFoot}>
+            <ActionButton type="button" className={base.dangerLink} onClick={controls.onRemove}>
+              Remove
+            </ActionButton>
+          </div>
+        </div>
+      )}
+    </CheckItem>
+  )
+}
+
+function RunOnTaskDialog({
+  factoryId,
+  name,
+  onRun,
+  onClose,
+}: {
+  factoryId: string
+  name: string
+  onRun: (taskId: string) => void
+  onClose: () => void
+}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const headingId = useId()
+  const textId = useId()
+  const [found, setFound] = useState<CheckTryTask[]>()
+  const [error, setError] = useState<string>()
+  const [chosen, setChosen] = useState<string>()
+  const tasks = useTasks()
+  const stages = useStages()
+  useEffect(() => {
+    dialog.current?.showModal()
+  }, [])
+  useEffect(() => {
+    let current = true
+    ted.checkTryTasks(factoryId).then(
+      (list) => {
+        if (!current) return
+        setFound(list)
+        setChosen((choice) => choice ?? list[0]?.id)
+      },
+      (failure) => {
+        if (current) setError(readableError(failure))
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [factoryId])
+  return (
+    <dialog
+      ref={dialog}
+      className={base.dialog}
+      aria-labelledby={headingId}
+      aria-describedby={textId}
+      onCancel={(event) => {
+        event.preventDefault()
+        onClose()
+      }}
+    >
+      <div className={base.dialogBody}>
+        <h2 id={headingId} className={base.dialogHeading}>
+          Run {name} on a Task
+        </h2>
+        <p id={textId} className={styles.pickerText}>
+          An agent reads the Task’s changes and reports. It doesn’t change the Task, open a failure
+          case or post in its thread. The report shows here.
+        </p>
+        {error !== undefined ? (
+          <p className={base.fieldError} role="alert">
+            {error}
+          </p>
+        ) : found === undefined ? (
+          <Loading label="Loading Tasks…" />
+        ) : found.length === 0 ? (
+          <p className={styles.pickerText}>
+            No open Task in this Factory has a worktree with changes.
+          </p>
+        ) : (
+          <>
+            <fieldset className={styles.taskPicker}>
+              <legend className={base.visuallyHidden}>Task</legend>
+              {found.map((task) => {
+                const stage = tasks.find((t) => t.id === task.id)?.stage
+                return (
+                  <label key={task.id} className={styles.taskOption}>
+                    <input
+                      type="radio"
+                      name={headingId}
+                      checked={chosen === task.id}
+                      onChange={() => setChosen(task.id)}
+                    />
+                    <span className={base.mono}>{task.displayId}</span>
+                    <span className={styles.truncated}>{task.title}</span>
+                    {stage !== undefined && (
+                      <span className={styles.stageChip}>{stages.name(stage, factoryId)}</span>
+                    )}
+                  </label>
+                )
+              })}
+            </fieldset>
+            <p className={styles.pickerText}>
+              Open Tasks in this Factory that have a worktree with changes.
+            </p>
+          </>
+        )}
+      </div>
+      <footer className={base.dialogFooter}>
+        <span className={base.spacer} />
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="primary"
+          disabled={chosen === undefined || found === undefined || found.length === 0}
+          onClick={() => {
+            if (chosen !== undefined) onRun(chosen)
+          }}
+        >
+          Run
+        </Button>
+      </footer>
+    </dialog>
   )
 }
 
@@ -971,7 +1626,15 @@ function lastRunClass(last: CheckTry | undefined): string {
   return styles.lastRun ?? ''
 }
 
-function OutputDialog({ text, onClose }: { text: string; onClose: () => void }) {
+function OutputDialog({
+  title: heading,
+  text,
+  onClose,
+}: {
+  title: string
+  text: string
+  onClose: () => void
+}) {
   const dialog = useRef<HTMLDialogElement>(null)
   const headingId = useId()
   useEffect(() => {
@@ -989,7 +1652,7 @@ function OutputDialog({ text, onClose }: { text: string; onClose: () => void }) 
     >
       <div className={base.dialogBody}>
         <h2 id={headingId} className={base.dialogHeading}>
-          Check output
+          {heading}
         </h2>
         <pre className={styles.output}>{text}</pre>
       </div>
@@ -1664,7 +2327,10 @@ export const WorkflowSection = memo(
   WorkflowSectionView,
   sameDraft('stages', 'stageFiles', 'keepStageFiles', 'cleanup'),
 )
-export const ChecksSection = memo(ChecksSectionView, sameDraft('checks', 'repos'))
+export const ChecksSection = memo(
+  ChecksSectionView,
+  sameDraft('checks', 'instructionChecks', 'repos', 'agents'),
+)
 export const CleanupSection = memo(CleanupSectionView, sameDraft('cleanup'))
 export const AgentsSection = memo(AgentsSectionView, sameDraft('agents'))
 export function NotificationsSection({ factoryId }: { factoryId: string }) {

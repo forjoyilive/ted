@@ -3,10 +3,12 @@ import type {
   AgentRole,
   CheckInput,
   CheckTry,
+  CheckTryRequest,
   CleanupSettingsInput,
   CleanupStepInput,
   FactorySettingsChanges,
   FactorySettingsView,
+  InstructionCheckInput,
   LibraryInvalid,
   RepoSettingsInput,
   RepoSettingsView,
@@ -137,6 +139,7 @@ export interface SettingsDraft {
   stageFiles: Partial<Record<AgentStageId, string | null>>
   keepStageFiles: AgentStageId[]
   checks: CheckInput[]
+  instructionChecks: InstructionCheckInput[]
   cleanup: CleanupDraft
   agents: Record<AgentRole, AgentChoiceInput | null>
   agentFiles: AgentDraft[]
@@ -220,6 +223,7 @@ export function settingsDraft(view: FactorySettingsView): SettingsDraft {
     stageFiles,
     keepStageFiles: [],
     checks: view.checks.map((check) => ({ ...check })),
+    instructionChecks: view.instructionChecks.map((check) => ({ ...check })),
     cleanup: cleanupDraft(view.cleanup),
     agents,
     agentFiles: agentDrafts(view.agentFiles),
@@ -276,6 +280,31 @@ function checkKey(check: CheckInput): string {
   })
 }
 
+function instructionKey(check: InstructionCheckInput): string {
+  return JSON.stringify({
+    was: check.was,
+    name: check.name.trim(),
+    instruction: check.instruction.trim(),
+    fix: check.fix === true,
+    timeout: check.timeout?.trim() || undefined,
+    agent: check.agent || undefined,
+    model: check.model?.trim() || undefined,
+    effort: check.effort || undefined,
+  })
+}
+
+function listEdits<T extends { was?: number }>(
+  draft: readonly T[],
+  loaded: readonly T[],
+  key: (item: T) => string,
+): number {
+  const before = new Map(loaded.map((c) => [c.was, key(c)]))
+  const edited =
+    draft.filter((c) => c.was === undefined || before.get(c.was) !== key(c)).length +
+    loaded.filter((c) => !draft.some((d) => d.was === c.was)).length
+  return Math.max(edited, 1)
+}
+
 function limitValue(text: string): number | null {
   const trimmed = text.trim()
   return trimmed === '' ? null : Number(trimmed)
@@ -303,6 +332,12 @@ export function settingsChanges(
   if (kept.length > 0) changes.keepStageFiles = kept
   if (draft.checks.map(checkKey).join('\n') !== loaded.checks.map(checkKey).join('\n')) {
     changes.checks = draft.checks
+  }
+  if (
+    draft.instructionChecks.map(instructionKey).join('\n') !==
+    loaded.instructionChecks.map(instructionKey).join('\n')
+  ) {
+    changes.instructionChecks = draft.instructionChecks
   }
   const cleanup = cleanupInput(draft.cleanup)
   if (JSON.stringify(cleanup) !== JSON.stringify(cleanupInput(loaded.cleanup))) {
@@ -343,12 +378,9 @@ export function unsavedChanges(draft: SettingsDraft, loaded: SettingsDraft): Uns
   const changes = settingsChanges(draft, loaded)
   let yaml = changeCount(draft.repos, loaded.repos)
   for (const stage of Object.values(changes.stages ?? {})) yaml += Object.keys(stage ?? {}).length
-  if (changes.checks) {
-    const before = new Map(loaded.checks.map((c) => [c.was, checkKey(c)]))
-    const edited =
-      draft.checks.filter((c) => c.was === undefined || before.get(c.was) !== checkKey(c)).length +
-      loaded.checks.filter((c) => !draft.checks.some((d) => d.was === c.was)).length
-    yaml += Math.max(edited, 1)
+  if (changes.checks) yaml += listEdits(draft.checks, loaded.checks, checkKey)
+  if (changes.instructionChecks) {
+    yaml += listEdits(draft.instructionChecks, loaded.instructionChecks, instructionKey)
   }
   if (changes.cleanup) yaml += cleanupEdits(changes.cleanup, cleanupInput(loaded.cleanup))
   yaml += Object.keys(changes.agents ?? {}).length
@@ -382,7 +414,7 @@ export function unsavedSections(
   const sections = new Set<FactorySectionId>()
   if (changeCount(draft.repos, loaded.repos) > 0) sections.add('repos')
   if (changes.stages || changes.stageFiles || changes.keepStageFiles) sections.add('workflow')
-  if (changes.checks) sections.add('checks')
+  if (changes.checks || changes.instructionChecks) sections.add('checks')
   if (changes.cleanup) sections.add('cleanup')
   if (changes.agents) sections.add('agents')
   if (changes.agentFiles || changes.keepAgentFiles) sections.add('agent-files')
@@ -450,6 +482,49 @@ export function lastRunText(checkTry: CheckTry, now: number): string {
         ? `✗ Command not found · ${since}`
         : `✗ Exit ${checkTry.exitCode ?? '?'} · ${since}`
   }
+}
+
+export function instructionRunText(checkTry: CheckTry, now: number): string {
+  const on = checkTry.taskDisplayId === undefined ? '' : ` on ${checkTry.taskDisplayId}`
+  const since = ago(checkTry.finishedAt ?? checkTry.startedAt, now)
+  switch (checkTry.state) {
+    case 'running':
+      return `Running${on} · ${duration(now - Date.parse(checkTry.startedAt))}`
+    case 'passed':
+      return `✓ Passed${on} · ${since}`
+    case 'timed-out':
+      return `✗ Timed out${on} · ${since}`
+    case 'stopped':
+      return `Stopped${on} · ${since}`
+    default:
+      return `✗ ${checkTry.noReport === undefined ? 'Failed' : 'No report'}${on} · ${since}`
+  }
+}
+
+export function instructionTryRequest(
+  check: InstructionCheckInput,
+  taskId: string,
+): CheckTryRequest {
+  const timeout = check.timeout?.trim() ?? ''
+  const model = check.model?.trim() ?? ''
+  return {
+    name: check.name.trim(),
+    instruction: check.instruction.trim(),
+    taskId,
+    ...(timeout !== '' && { timeout }),
+    ...(check.agent !== undefined && check.agent !== '' && { agent: check.agent }),
+    ...(model !== '' && { model }),
+    ...(check.effort !== undefined && { effort: check.effort }),
+  }
+}
+
+export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
+  const next = [...items]
+  if (to < 0 || to >= items.length || from === to) return next
+  const [moved] = next.splice(from, 1)
+  if (moved === undefined) return [...items]
+  next.splice(to, 0, moved)
+  return next
 }
 
 export function duration(ms: number): string {

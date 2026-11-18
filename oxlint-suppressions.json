@@ -905,9 +905,6 @@
     }
   },
   "packages/app/src/renderer/views/FactorySettingsSections.tsx": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 2
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 7
     }
