@@ -1527,7 +1527,7 @@ function AppEditor({
           Run command{' '}
           <Help>
             {app.kind === 'ios-simulator'
-              ? 'Ted passes the Task’s simulator as $TED_SIMULATOR_UDID. Build with xcodebuild -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" so the build stays in the Task’s own folders.'
+              ? 'Ted passes the Task’s simulator as $TED_SIMULATOR_UDID. Build with xcodebuild -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" so the build stays in the Task’s own folders. Add SWIFTC_DISABLE_SANDBOX=YES if the code uses Swift macros, such as SwiftUI’s @State. For an Expo app, run node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh first, with PODS_ROOT and PLATFORM_NAME=iphonesimulator set and an xcodebuild wrapper on PATH that adds -IDEPackageSupportDisableManifestSandbox=1 and keeps $TMPDIR, because Xcode’s own ExpoModulesJSI step can’t pass that flag in the sandbox.'
               : app.kind === 'android-emulator'
                 ? 'Ted passes the Task’s emulator as $ANDROID_SERIAL and $TED_EMULATOR_SERIAL, and points $GRADLE_USER_HOME at the Task’s own cache folder.'
                 : 'Ted passes a free port as $PORT.'}
