@@ -35,6 +35,7 @@ function makeSession() {
           ) => void,
         ) => {},
       ),
+      onBeforeSendHeaders: vi.fn(),
     },
     clearStorageData: vi.fn(async (options?: { storages: string[] }) => {
       if (!options) clearAllStorage()
