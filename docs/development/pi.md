@@ -14,7 +14,7 @@ Effort maps by name to `--thinking`: low, medium, high, xhigh and max; ultra bec
 
 ## Models
 
-Pi names a model `provider/id`, for example `ollama/gemma4:12b`. Type it under Other… in the model picker; the picker lists no models of its own for Pi. When no model is set on the request or in Ted’s defaults, Ted uses the default model in Pi’s own settings. When none of these names a model, Ted holds the work and asks the user to set one in the default model fields.
+Pi names a model `provider/id`, for example `ollama/gemma4:12b`. The model picker lists the models Pi reports (`get_available_models`, the same list as `pi --list-models`); a model it doesn’t list can be typed under Other…. When Pi can’t start, such as inside a sandboxed Ted Dev, Ted can’t list its models; type one under Other…. When no model is set on the request or in Ted’s defaults, Ted uses the default model in Pi’s own settings. When none of these names a model, Ted holds the work and asks the user to set one in the default model fields.
 
 ## The user’s setup
 
@@ -24,7 +24,7 @@ Side chats and Automation drafts start Pi with no tools: `--no-tools --no-mcp --
 
 ## Permission modes
 
-In a Bypass Factory Pi runs as before, with no sandbox. Everywhere else, including planning chats, Automations, Coordinator chats, side chats and Automation drafts in any Factory, Ted runs the `pi` process inside its own OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux). A blocked action fails as a command error in the Run’s chat; nobody is asked. Network stays on.
+In a Bypass Factory Pi runs with no sandbox, and so do side chats that belong to a Bypass Factory. Everywhere else, including planning chats, Automations, Coordinator chats and Automation drafts in any Factory, Ted runs the `pi` process inside its own OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux). A blocked action fails as a command error in the Run’s chat; nobody is asked. Network stays on.
 
 In a Task, Pi can write the Task’s worktrees and the git data it needs to commit, and its own Run folders. Outside a Task it writes only its Run folders and a worktree the Run owns. Pi takes lock files beside `settings.json` and `auth.json` even to read them, so at each agent start Ted copies `~/.pi/agent` (or `PI_CODING_AGENT_DIR`), without its `sessions` folder, to the Run’s `pi-agent` folder and points `PI_CODING_AGENT_DIR` there. The Run may write the copy; the user’s own folder stays read-only and unchanged, so a refreshed Pi sign-in isn’t saved, and commands can read the copied `auth.json`. The repo’s `.pi/` folder stays trusted and runs inside the sandbox. `ted` works inside the sandbox: it finds the daemon through `TED_HOME/public/daemon.json`, which holds no token. Ted’s Runs don’t appear in Pi’s resume list.
 
