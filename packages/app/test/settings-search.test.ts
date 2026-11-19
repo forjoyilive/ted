@@ -139,7 +139,7 @@ test('Factory settings carry the Factory’s name and are left out without a Fac
     where: 'widgets › Settings › Intake',
     target: { section: 'intake' },
   })
-  expect(find('bypass').map((hit) => hit.id)).toEqual(['factory.permissions'])
+  expect(find('bypass').map((hit) => hit.id)).toEqual(['factory.permissions', 'factory.sandbox'])
   expect(find('deletes its tasks').map((hit) => hit.id)).toEqual(['factory.danger-zone.remove'])
   expect(find('fewer rounds').map((hit) => hit.id)).toEqual(['factory.workflow.p1-only'])
   expect(find('only you can accept').map((hit) => hit.id)).toEqual([
