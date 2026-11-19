@@ -62,6 +62,7 @@ const lastWins = [
   'permissions',
   'max_working_runs',
   'sandbox_sockets',
+  'sandbox_reads',
   'repos',
   'order',
 ] as const

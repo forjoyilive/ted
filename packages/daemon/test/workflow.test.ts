@@ -342,6 +342,26 @@ describe('layers', () => {
     }
   })
 
+  test('sandbox_reads lists files and folders, and the later layer’s list wins', async () => {
+    const good = factory({
+      'workflow.yaml': 'version: 1\nsandbox_reads: [/srv/fixtures, ~/.npmrc, $GRADLE_HOME]\n',
+    })
+    const { settings } = resolveWorkflow([
+      await defaults(),
+      library({ 'workflow.yaml': 'version: 1\nsandbox_reads: [/srv/other]\n' }),
+      good,
+    ])
+    expect(good.problems).toEqual([])
+    expect(settings.sandbox_reads).toEqual(['/srv/fixtures', '~/.npmrc', '$GRADLE_HOME'])
+
+    for (const bad of ['.npmrc', '/srv/../etc', '$HOME/.aws', '~', 'yes']) {
+      const layer = factory({ 'workflow.yaml': `version: 1\nsandbox_reads: ['${bad}']\n` })
+      expect(layer.problems.map((p) => p.message)).toEqual([
+        '`sandbox_reads` must be a list of files or folders: absolute, starting with ~/, or a whole $NAME',
+      ])
+    }
+  })
+
   test('Factory notes come from the Factory layer', async () => {
     const workflow = resolveWorkflow([
       await defaults(),

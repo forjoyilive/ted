@@ -7,7 +7,7 @@ import type { Banners } from '../banners.ts'
 import { freshFolder, makeCopy, removeCopy } from '../code-copy.ts'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
-import type { Sandbox, SandboxScope } from '../sandbox.ts'
+import { type Sandbox, type SandboxGrants, type SandboxScope, sandboxGrants } from '../sandbox.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
@@ -31,7 +31,7 @@ export interface Checkout {
   env: Record<string, string>
   commit?: string
   repos: CheckoutRepo[]
-  sockets: readonly string[]
+  grants: SandboxGrants
 }
 
 export interface Checkouts {
@@ -94,7 +94,7 @@ export function createCheckouts(options: {
   function checkoutOf(
     input: { runId: string; automationId: string; name: string; factory: StoredFactory },
     repos: CheckoutRepo[],
-    sockets: readonly string[],
+    grants: SandboxGrants,
     commit: string | undefined,
   ): Checkout {
     const only = repos.length === 1 ? repos[0] : undefined
@@ -107,7 +107,7 @@ export function createCheckouts(options: {
       env: repos[0]?.env ?? {},
       ...(commit !== undefined && { commit }),
       repos,
-      sockets,
+      grants,
     }
   }
 
@@ -116,7 +116,7 @@ export function createCheckouts(options: {
       writable: checkout.repos.map((r) => r.worktree),
       readable: [...new Set(checkout.repos.map((r) => r.clone))],
       cache: cacheOf(checkout.automationId),
-      sockets: checkout.sockets,
+      ...checkout.grants,
     }
   }
 
@@ -171,7 +171,7 @@ export function createCheckouts(options: {
         repos = made.map((m) => repoOf(m.entry, folder, m.clone))
         const primary = made.find((m) => m.entry.primary)
         const commit = primary ? await git.headCommit(primary.worktree) : undefined
-        const checkout = checkoutOf(input, repos, workflow.settings.sandbox_sockets ?? [], commit)
+        const checkout = checkoutOf(input, repos, sandboxGrants(workflow.settings), commit)
         await setUp(checkout, entries, input.signal)
         live.set(input.runId, checkout)
         return checkout
@@ -192,7 +192,7 @@ export function createCheckouts(options: {
           return repoOf(e, folder, clone)
         })
       if (repos.length === 0) return undefined
-      const checkout = checkoutOf(input, repos, workflow.settings.sandbox_sockets ?? [], undefined)
+      const checkout = checkoutOf(input, repos, sandboxGrants(workflow.settings), undefined)
       live.set(input.runId, checkout)
       return checkout
     },

@@ -324,6 +324,7 @@ const rootOrder = [
   'permissions',
   'max_working_runs',
   'sandbox_sockets',
+  'sandbox_reads',
   'repos',
   'order',
   'stages',
