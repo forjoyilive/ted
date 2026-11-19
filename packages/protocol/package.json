@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./time": "./src/time.ts",
     "./parse": "./src/parse.ts",
+    "./outside-sandbox": "./src/outside-sandbox.ts",
     "./task": "./src/task.ts",
     "./task-move": "./src/task-move.ts",
     "./stage": "./src/stage.ts",

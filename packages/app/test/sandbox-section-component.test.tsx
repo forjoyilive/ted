@@ -43,7 +43,10 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   let settings: MachineSettings = {
     ...defaultMachineSettings,
     factoryPermissions: { factory: 'bypass' },
-    appsOutsideSandbox: { factory: ['Ted Dev'], other: ['Web'] },
+    appsOutsideSandbox: {
+      factory: [{ repo: 'ted', app: 'Ted Dev', declaration: 'a'.repeat(64) }],
+      other: [{ repo: 'web', app: 'Web', declaration: 'b'.repeat(64) }],
+    },
   }
   const api = bridge({
     getSettings: () => settings,
@@ -54,7 +57,11 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   })
   render(
     <SandboxSection
-      view={{ ...view, sandboxSockets: ['/a.sock'], electronApps: [{ repo: 'ted', name: 'Desk' }] }}
+      view={{
+        ...view,
+        sandboxSockets: [{ name: 'a', path: '/a.sock' }],
+        electronApps: [{ repo: 'ted', name: 'Desk' }],
+      }}
       {...links}
     />,
   )
@@ -65,7 +72,7 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   expect(rows.map((row) => row.textContent)).toEqual([
     expect.stringContaining('Bypass'),
     expect.stringContaining('App “Ted Dev” runs outside the sandbox'),
-    expect.stringContaining('Socket /a.sock'),
+    expect.stringContaining('Socket a at /a.sock'),
     expect.stringContaining('Electron App “Desk”'),
   ])
   await user().click(
@@ -74,25 +81,29 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   expect(links.onOpenPermissions).toHaveBeenCalled()
   await user().click(screen.getByRole('button', { name: 'Stop allowing' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', {
-    appsOutsideSandbox: { other: ['Web'] },
+    appsOutsideSandbox: { other: [{ repo: 'web', app: 'Web', declaration: 'b'.repeat(64) }] },
   })
   api.emit({ type: 'settings-changed', settings })
   expect(await screen.findByText('1 thing runs outside the sandbox.')).toBeTruthy()
 })
 
-test('a socket inherited from the Library says where to turn it off', async () => {
+test('a socket the Library names says who may use it and where to turn it off', async () => {
   bridge({})
   render(
     <SandboxSection
-      view={{ ...view, sandboxSockets: ['/lib.sock'], sandboxSocketsFrom: 'library' }}
+      view={{
+        ...view,
+        sandboxSockets: [{ name: 'lib', path: '/lib.sock' }],
+        sandboxSocketsFrom: 'library',
+      }}
       {...links}
     />,
   )
   expect(await screen.findByText('Nothing runs outside the sandbox.')).toBeTruthy()
   const row = screen.getByRole('listitem')
-  expect(row.textContent).toContain('From sandbox_sockets in the Library’s workflow.yaml.')
-  expect(row.textContent).toContain('Settings → Library')
-  expect(row.textContent).toContain('sandbox_sockets: []')
+  expect(row.textContent).toContain('list socket:lib in sandbox_access')
+  expect(row.textContent).toContain('Named in sandbox_sockets in the Library’s workflow.yaml')
+  expect(row.textContent).toContain('Remove it in Settings → Library to turn it off.')
 })
 
 test('access groups on Apps, Checks and setup widen the sandbox and link to where they are set', async () => {
@@ -167,4 +178,21 @@ test('outbound network for the whole Factory is a row, and the network group say
   ])
   expect(rows[0]).toContain('Network for every sandboxed command')
   expect(rows[1]).toContain('Its commands can connect to any host')
+})
+
+test('shared-tmp on a Check says its commands can reach the shared /tmp', async () => {
+  bridge({})
+  render(
+    <SandboxSection
+      view={{
+        ...view,
+        checks: [{ was: 0, name: 'Build', run: 'make', sandboxAccess: ['shared-tmp'] }],
+      }}
+      {...links}
+    />,
+  )
+  const row = await screen.findByText(/Build Check has/)
+  const item = row.closest('li') as HTMLElement
+  expect(item.textContent).toContain('shared-tmp')
+  expect(item.textContent).toContain('Its commands can read and write /tmp.')
 })

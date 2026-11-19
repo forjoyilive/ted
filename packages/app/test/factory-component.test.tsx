@@ -438,7 +438,12 @@ test('Apps, setup and Checks add and remove sandbox access groups, and the save 
   const repos = within(await screen.findByRole('region', { name: 'Repos' }))
   const setup = within(repos.getByRole('group', { name: 'Sandbox access for Setup command' }))
   expect(setup.getByText('ios-xcode')).toBeTruthy()
-  expect(setup.queryByRole('button', { name: 'Add group…' })).toBeNull()
+  await u.click(setup.getByRole('button', { name: 'Add group…' }))
+  expect(await screen.findAllByRole('menuitem')).toHaveLength(2)
+  expect(screen.getByRole('menuitem', { name: /^shared-tmp/ })).toBeTruthy()
+  expect(screen.getByRole('menuitem', { name: /^electron/ })).toBeTruthy()
+  await u.keyboard('{Escape}')
+  expect(screen.queryByRole('menuitem')).toBeNull()
   await u.click(setup.getByRole('button', { name: 'Remove ios-xcode' }))
   expect(setup.getByText('None')).toBeTruthy()
 

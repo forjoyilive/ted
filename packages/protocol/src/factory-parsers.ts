@@ -51,10 +51,10 @@ import {
   settingsMergeMethods,
   type WorktreeCommandInput,
 } from './factory-settings.ts'
-import { isOneOf, type Untyped } from './parse.ts'
+import { isOneOf, isString, type Untyped } from './parse.ts'
 import { previewPresets } from './preview-size.ts'
 import { permissionModes } from './run.ts'
-import { type SandboxGroup, sandboxGroupNames } from './sandbox-groups.ts'
+import { isSandboxAccess, type SandboxAccess } from './sandbox-groups.ts'
 import { handsOff, isBuiltInStage, isStageId, mergesHere, stageFileId, validates } from './stage.ts'
 import {
   type AgentStageId,
@@ -271,11 +271,11 @@ function command(given: unknown, field: string): WorktreeCommandInput | undefine
   }
 }
 
-function sandboxAccess(given: Untyped, field: string): SandboxGroup[] | undefined {
+function sandboxAccess(given: Untyped, field: string): SandboxAccess[] | undefined {
   if (given === undefined) return undefined
   const groups = list(given, field).map((name) => {
-    if (!isOneOf(name, sandboxGroupNames)) {
-      throw new HttpError(400, `${field} has an unknown sandbox access group`)
+    if (!isString(name) || !isSandboxAccess(name)) {
+      throw new HttpError(400, `${field} has an unknown sandbox access group or socket name`)
     }
     return name
   })

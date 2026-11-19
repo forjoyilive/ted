@@ -17,6 +17,7 @@ import {
   stopDaemonIn,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
+import { approveAppsOutsideSandbox } from '../../daemon/test/support/outside-sandbox-approvals.ts'
 import {
   checkGuestNetwork,
   checkHeldRefusal,
@@ -96,6 +97,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     async () => (await client.listTasks()).find((t) => t.id === task.id && t.leadRunId),
     'Task Lead',
   )
+  await approveAppsOutsideSandbox(client, task, ['Web'])
   await client.startApp(task.id, { name: 'Web' })
   const running = await waitUntil(
     async () => (await client.listApps(task.id)).find((a) => a.state === 'running'),

@@ -28,6 +28,7 @@ export {
   isLoopbackUrl,
   isSimulatorApp,
   type RecordAppRequest,
+  type RestartAppRequest,
   type SimulatorAsk,
   type SimulatorSlots,
   type StartAppRequest,
@@ -48,7 +49,12 @@ export {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
-export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
+export {
+  parseAppRef,
+  parseRecordAppRequest,
+  parseRestartAppRequest,
+  parseStartAppRequest,
+} from './app-parsers.ts'
 export {
   type AsanaConfiguration,
   type AsanaStatus,
@@ -819,6 +825,14 @@ export {
   parseOutsideCommandAnswer,
   parseRunOutsideCommandRequest,
 } from './outside-command.ts'
+export {
+  approvedOutsideSandbox,
+  type OutsideSandboxApproval,
+  type OutsideSandboxApprovals,
+  parseOutsideSandboxApprovalsRequest,
+  readOutsideSandboxApprovals,
+  withOutsideSandboxApproval,
+} from './outside-sandbox.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
@@ -911,8 +925,24 @@ export {
   parseStartSubAgentRequest,
 } from './run-parsers.ts'
 export * from './sandbox-access.ts'
-export type { SandboxGroup, SandboxGroupInfo } from './sandbox-groups.ts'
-export { isSandboxGroup, sandboxGroupNames, sandboxGroups } from './sandbox-groups.ts'
+export type {
+  NamedSocket,
+  SandboxAccess,
+  SandboxGroup,
+  SandboxGroupInfo,
+  SocketAccess,
+} from './sandbox-groups.ts'
+export {
+  accessGroups,
+  accessSockets,
+  isSandboxAccess,
+  isSandboxGroup,
+  isSocketName,
+  sandboxGroupNames,
+  sandboxGroups,
+  socketAccess,
+  socketOf,
+} from './sandbox-groups.ts'
 export * from './sandbox-openings.ts'
 export {
   type AutomationSchedule,

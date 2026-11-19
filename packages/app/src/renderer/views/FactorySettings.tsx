@@ -9,7 +9,7 @@ import type {
   RepoSettingsInput,
   RepoSettingsView,
   RepoSource,
-  SandboxGroup,
+  SandboxAccess,
   SaveSettingsResult,
   SettingsMergeMethod,
   Task,
@@ -1214,7 +1214,7 @@ function CommandField({
   const update = (next: {
     run: string
     timeout?: string | undefined
-    sandboxAccess?: SandboxGroup[] | undefined
+    sandboxAccess?: SandboxAccess[] | undefined
   }) => {
     if (next.run === '' && (next.timeout ?? '') === '') return onChange(undefined)
     const setup: NonNullable<RepoSettingsInput['setup']> = { run: next.run }

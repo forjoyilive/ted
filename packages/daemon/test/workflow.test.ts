@@ -7,6 +7,7 @@ import { applyChanges, repoSettingsFrom } from '../src/workflow/edit.ts'
 import {
   boardStages,
   checkLayer,
+  inheritedFrom,
   type LayerFiles,
   readDefaultLayer,
   resolveAgentChoices,
@@ -318,28 +319,61 @@ describe('layers', () => {
     expect(settings.max_working_runs).toBeUndefined()
   })
 
-  test('sandbox_sockets lists socket paths, and the later layer’s list wins', async () => {
-    const good = factory({
+  test('only the Library names sockets; a Factory can’t, and the old list form grants nothing', async () => {
+    const named = library({
       'workflow.yaml':
-        'version: 1\nsandbox_sockets: [/var/run/docker.sock, ~/.colima/docker.sock, $SSH_AUTH_SOCK]\n',
+        'version: 1\nsandbox_sockets:\n  docker: /var/run/docker.sock\n  colima: ~/.colima/docker.sock\n  ssh-agent: $SSH_AUTH_SOCK\n',
     })
-    const { settings } = resolveWorkflow([
-      await defaults(),
-      library({ 'workflow.yaml': 'version: 1\nsandbox_sockets: [/run/a.sock]\n' }),
-      good,
+    const repo = factory({
+      'workflow.yaml': 'version: 1\nsandbox_sockets: { db: /run/db.sock }\n',
+    })
+    const { settings } = resolveWorkflow([await defaults(), named, repo])
+    expect(named.problems).toEqual([])
+    expect(repo.problems.map((p) => [p.severity, p.line, p.message])).toEqual([
+      [
+        'error',
+        2,
+        '`sandbox_sockets` can only be set in your Library (Settings → Library), so a repo can’t open a socket on its own. Ask for a socket the Library names with `socket:<name>` in `sandbox_access`',
+      ],
     ])
-    expect(good.problems).toEqual([])
     expect(settings.sandbox_sockets).toEqual([
-      '/var/run/docker.sock',
-      '~/.colima/docker.sock',
-      '$SSH_AUTH_SOCK',
+      { name: 'docker', path: '/var/run/docker.sock' },
+      { name: 'colima', path: '~/.colima/docker.sock' },
+      { name: 'ssh-agent', path: '$SSH_AUTH_SOCK' },
     ])
 
-    for (const bad of ['docker.sock', '/run/../a.sock', '$HOME/a.sock', '~', 'yes']) {
-      const layer = factory({ 'workflow.yaml': `version: 1\nsandbox_sockets: ['${bad}']\n` })
-      expect(layer.problems.map((p) => p.message)).toEqual([
-        '`sandbox_sockets` must be a list of socket paths: absolute, starting with ~/, or a whole $NAME',
+    for (const kind of ['library', 'factory'] as const) {
+      const old = checkLayer({
+        kind,
+        files: { 'workflow.yaml': 'version: 1\nsandbox_sockets: [/var/run/docker.sock]\n' },
+      })
+      expect(old.settings.sandbox_sockets).toBeUndefined()
+      expect(old.problems.map((p) => [p.severity, p.message])).toEqual([
+        [
+          'warning',
+          'a list of `sandbox_sockets` no longer grants anything, because it let every command reach those sockets. Name each socket in your Library (Settings → Library, `sandbox_sockets: { <name>: <path> }`), then add `socket:<name>` to `sandbox_access` on each App, Check or worktree setup that uses it. Listed here: /var/run/docker.sock',
+        ],
       ])
+    }
+    expect(
+      resolveWorkflow([
+        await defaults(),
+        named,
+        factory({ 'workflow.yaml': 'version: 1\nsandbox_sockets: [/run/a.sock]\n' }),
+      ]).settings.sandbox_sockets,
+    ).toHaveLength(3)
+
+    const message =
+      '`sandbox_sockets` must map socket names (lowercase letters, digits and -) to socket paths: absolute, starting with ~/, or a whole $NAME'
+    for (const bad of [
+      'docker: docker.sock',
+      'docker: /run/../a.sock',
+      'docker: $HOME/a.sock',
+      'Docker: /run/a.sock',
+      'docker: yes',
+    ]) {
+      const layer = library({ 'workflow.yaml': `version: 1\nsandbox_sockets: { ${bad} }\n` })
+      expect(layer.problems.map((p) => p.message)).toEqual([message])
     }
   })
 
@@ -692,7 +726,7 @@ describe('checking a layer', () => {
       '      - name: Sim',
       '        kind: command',
       '        run: xcodebuild',
-      '        sandbox_access: [ios-xcode, android-gradle]',
+      '        sandbox_access: [ios-xcode, android-gradle, electron, socket:docker, socket:Bad]',
       'stages:',
       '  validate:',
       '    checks:',
@@ -706,8 +740,9 @@ describe('checking a layer', () => {
     ].join('\n')
     const checked = checkLayer({ kind: 'factory', files: { 'workflow.yaml': yaml } })
     expect(problems({ 'workflow.yaml': yaml })).toEqual([
-      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode, network',
-      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode, network',
+      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode, shared-tmp, electron, network, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, network, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 13 78 `socket:Bad` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, network, or socket:<name> for a socket your Library names',
       'error .ted/workflow.yaml 22 9 an instruction check runs no command in the sandbox, so it takes no `sandbox_access`',
     ])
     expect(checked.settings.repos?.[0]?.worktree?.setup).toEqual({
@@ -719,6 +754,40 @@ describe('checking a layer', () => {
       run: 'xcodebuild',
       sandbox_access: ['ios-xcode'],
     })
+  })
+
+  test('asking for a socket the Library doesn’t name is a warning, and the entry is kept', () => {
+    const below = library({
+      'workflow.yaml': 'version: 1\nsandbox_sockets: { docker: /var/run/docker.sock }\n',
+    })
+    const yaml = [
+      'version: 1',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: E2E',
+      '        run: pnpm e2e',
+      '        sandbox_access: [electron, socket:docker, socket:db]',
+      '',
+    ].join('\n')
+    const checked = checkLayer({
+      kind: 'factory',
+      files: { 'workflow.yaml': yaml },
+      inherited: inheritedFrom([below]),
+    })
+    expect(checked.problems.map((p) => [p.severity, p.line, p.column, p.message])).toEqual([
+      [
+        'warning',
+        7,
+        51,
+        'your Library names no socket `db`, so this command gets none until it does: add `db: <path>` under `sandbox_sockets` in the Library',
+      ],
+    ])
+    expect(checked.settings.stages.validate?.checks?.[0]?.sandbox_access).toEqual([
+      'electron',
+      'socket:docker',
+      'socket:db',
+    ])
   })
 
   test('a bad Stage id in order or stages is an error at its line', () => {

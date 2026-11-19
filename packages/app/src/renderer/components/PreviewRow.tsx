@@ -104,7 +104,9 @@ function Preview({
           variant="primary"
           disabled={busy || yours || task.archived !== undefined}
           onClick={() =>
-            confirm(() => act(() => ted.startApp(task.id, { repo: app.repo, name: app.name })))
+            confirm((confirmed) =>
+              act(() => ted.startApp(task.id, { repo: app.repo, name: app.name, ...confirmed })),
+            )
           }
         >
           {yours ? (app.state === 'running' ? 'Running' : 'Starting…') : `Open ${app.name}`}
@@ -130,7 +132,9 @@ function Preview({
           variant="primary"
           disabled={busy || task.archived !== undefined}
           onClick={() =>
-            confirm(() => act(() => ted.startApp(task.id, { repo: app.repo, name: app.name })))
+            confirm((confirmed) =>
+              act(() => ted.startApp(task.id, { repo: app.repo, name: app.name, ...confirmed })),
+            )
           }
         >
           {again ? 'Run again' : 'Run'}

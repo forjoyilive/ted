@@ -13,7 +13,7 @@ import {
   isCleanupCommand,
   previewPresets,
   type RepoSettingsInput,
-  type SandboxGroup,
+  type SandboxAccess,
   type WorkflowProblem,
   type WorktreeCommandInput,
 } from '@ted/protocol'
@@ -629,7 +629,11 @@ function setCommand(
   }
 }
 
-function setAccess(doc: Document, map: YAMLMap, access: readonly SandboxGroup[] | undefined): void {
+function setAccess(
+  doc: Document,
+  map: YAMLMap,
+  access: readonly SandboxAccess[] | undefined,
+): void {
   if (access === undefined) return
   const groups = [...new Set(access)]
   if (groups.length === 0) return void map.delete('sandbox_access')

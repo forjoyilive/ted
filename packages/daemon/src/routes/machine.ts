@@ -27,6 +27,7 @@ import {
   type MachineSettings,
   parseBannerActionInput,
   parseChangeAgentAvailabilityRequest,
+  parseOutsideSandboxApprovalsRequest,
   parseSetBacklogStartsRequest,
   priorities,
   quitChoices,
@@ -516,23 +517,7 @@ export const settingParsers: {
   factoryPermissions() {
     throw new HttpError(400, 'Change permission mode through Factory settings on this computer')
   },
-  appsOutsideSandbox(value) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new HttpError(400, 'appsOutsideSandbox must be an object of App names by Factory ID')
-    }
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([factoryId, names]) => {
-        if (
-          !Array.isArray(names) ||
-          names.length > 100 ||
-          names.some((n) => typeof n !== 'string' || n.trim() === '' || n.length > 200)
-        ) {
-          throw new HttpError(400, 'appsOutsideSandbox lists App names for each Factory')
-        }
-        return [factoryId, [...new Set(names.map((n: string) => n.trim()))]]
-      }),
-    )
-  },
+  appsOutsideSandbox: parseOutsideSandboxApprovalsRequest,
   billing(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'billing must be an object of billing by Provider')

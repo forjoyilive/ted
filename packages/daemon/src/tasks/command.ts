@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { SandboxGroup } from '@ted/protocol'
+import type { SandboxAccess } from '@ted/protocol'
 import { markProcessRoot, type ProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import { type Sandbox, type SandboxScope, withSandboxEnv } from '../sandbox.ts'
@@ -24,7 +24,7 @@ export async function runTaskCommand(
     sandbox?: CommandSandbox
     prepareLaunch?: () => Promise<CommandLaunch>
     root?: ProcessRoot
-    groups?: readonly SandboxGroup[]
+    groups?: readonly SandboxAccess[]
     owner?: string
   },
 ): Promise<CommandResult> {
@@ -66,7 +66,7 @@ export async function runTaskCommand(
       },
     })
     if (owner !== undefined && result.outcome !== 'interrupted') {
-      await appendRefusalHints(input.log, groups, owner)
+      await appendRefusalHints(input.log, groups, owner, wrapped.missingSockets)
     }
     return result
   } catch (error) {

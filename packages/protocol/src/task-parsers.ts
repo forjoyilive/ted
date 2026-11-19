@@ -10,7 +10,7 @@ import { maxCommitBody } from './commit-title.ts'
 import { isArray, isOneOf, isString, type Untyped } from './parse.ts'
 import { proposalCycle } from './proposal.ts'
 import { agentKindList } from './run.ts'
-import { isSandboxGroup, type SandboxGroup, sandboxGroupNames } from './sandbox-groups.ts'
+import { isSandboxAccess, type SandboxAccess, sandboxGroupNames } from './sandbox-groups.ts'
 import { parseRemovedAgents, parseSetupAgents } from './setup-agents.ts'
 import { isHoldingStage, isStageId } from './stage.ts'
 import type {
@@ -746,15 +746,15 @@ function setupProposal(value: unknown): SetupProposal {
   }
 }
 
-function setupAccess(value: Untyped, what: string): SandboxGroup[] | undefined {
+function setupAccess(value: Untyped, what: string): SandboxAccess[] | undefined {
   if (value === undefined) return undefined
-  const known = sandboxGroupNames.join(', ')
+  const known = `${sandboxGroupNames.join(', ')} or socket:<name>`
   if (!isArray(value)) {
     throw new HttpError(400, `${what}’s sandboxAccess must be a list of access groups: ${known}`)
   }
-  const groups: SandboxGroup[] = []
+  const groups: SandboxAccess[] = []
   for (const name of value) {
-    if (!isString(name) || !isSandboxGroup(name)) {
+    if (!isString(name) || !isSandboxAccess(name)) {
       throw new HttpError(
         400,
         `${what} asks for ${String(name)}, which isn’t an access group: ${known}`,
@@ -765,7 +765,7 @@ function setupAccess(value: Untyped, what: string): SandboxGroup[] | undefined {
   return groups.length > 0 ? groups : undefined
 }
 
-function withAccess(groups: SandboxGroup[] | undefined): Pick<SetupAppTried, 'sandboxAccess'> {
+function withAccess(groups: SandboxAccess[] | undefined): Pick<SetupAppTried, 'sandboxAccess'> {
   return groups === undefined ? {} : { sandboxAccess: groups }
 }
 

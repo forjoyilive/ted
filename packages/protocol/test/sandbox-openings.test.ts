@@ -15,14 +15,14 @@ test('a Factory with nothing open has no rows and a closed summary', () => {
   expect(sandboxSummary(openings)).toEqual({ kind: 'closed' })
 })
 
-test('sockets and Electron Apps widen the sandbox without running anything outside it', () => {
+test('Library sockets and Electron Apps widen the sandbox without running anything outside it', () => {
   const openings = sandboxOpenings({
     ...none,
-    sockets: ['/a.sock', '/a.sock'],
+    sockets: [{ name: 'a', path: '/a.sock' }],
     electronApps: [{ repo: 'ted', name: 'Ted Dev' }],
   })
   expect(openings).toEqual([
-    { kind: 'socket', unsandboxed: false, socket: '/a.sock', from: 'factory' },
+    { kind: 'socket', unsandboxed: false, socket: 'a', path: '/a.sock', from: 'library' },
     { kind: 'electron-app', unsandboxed: false, repo: 'ted', app: 'Ted Dev' },
   ])
   expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
@@ -32,8 +32,8 @@ test('unsandboxed items come first and are counted', () => {
   const openings = sandboxOpenings({
     ...none,
     permissions: 'bypass',
-    appsOutsideSandbox: ['Ted Dev'],
-    sockets: ['/a.sock'],
+    appsOutsideSandbox: [{ repo: 'ted', app: 'Ted Dev', declaration: 'a'.repeat(64) }],
+    sockets: [{ name: 'a', path: '/a.sock' }],
   })
   expect(openings.map((o) => o.kind)).toEqual(['bypass', 'app-outside', 'socket'])
   expect(sandboxSummary(openings)).toEqual({ kind: 'unsandboxed', count: 2 })
@@ -50,10 +50,10 @@ test('Pi’s unsandboxed fallback shows only in an Auto Factory', () => {
   ).toEqual(['bypass'])
 })
 
-test('a socket row names the layer its list comes from', () => {
-  expect(sandboxOpenings({ ...none, sockets: ['/a.sock'], socketsFrom: 'library' })).toEqual([
-    { kind: 'socket', unsandboxed: false, socket: '/a.sock', from: 'library' },
-  ])
+test('a socket row names the layer that names it', () => {
+  expect(
+    sandboxOpenings({ ...none, sockets: [{ name: 'a', path: '/a.sock' }], socketsFrom: 'ted' }),
+  ).toEqual([{ kind: 'socket', unsandboxed: false, socket: 'a', path: '/a.sock', from: 'ted' }])
 })
 
 test('each access group an App, Check or setup has is its own row, and widens the sandbox', () => {

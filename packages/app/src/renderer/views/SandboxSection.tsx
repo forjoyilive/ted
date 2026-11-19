@@ -1,6 +1,7 @@
 import type { LayerKind } from '@ted/protocol'
 import type { FactorySettingsView } from '@ted/protocol/factory-settings'
 import { accessHolderLabel } from '@ted/protocol/sandbox-access'
+import { type SandboxAccess, socketOf } from '@ted/protocol/sandbox-groups'
 import {
   type SandboxOpening,
   type SandboxSummary,
@@ -55,12 +56,14 @@ export function SandboxSection({
     access: settingsAccessHolders(view),
   })
 
-  const stopAllowing = async (app: string) => {
+  const stopAllowing = async (repo: string, app: string) => {
     setBusy(app)
     setError(undefined)
     try {
       const current = await ted.getSettings()
-      const kept = (current.appsOutsideSandbox[view.factoryId] ?? []).filter((a) => a !== app)
+      const kept = (current.appsOutsideSandbox[view.factoryId] ?? []).filter(
+        (a) => a.repo !== repo || a.app !== app,
+      )
       const { [view.factoryId]: _, ...others } = current.appsOutsideSandbox
       await ted.updateSettings({
         appsOutsideSandbox: kept.length > 0 ? { ...others, [view.factoryId]: kept } : others,
@@ -85,7 +88,7 @@ export function SandboxSection({
           <Button
             size="small"
             disabled={busy !== undefined}
-            onClick={() => void stopAllowing(opening.app)}
+            onClick={() => void stopAllowing(opening.repo, opening.app)}
           >
             Stop allowing
           </Button>
@@ -202,7 +205,7 @@ function SummaryLine({ summary }: { summary: SandboxSummary }) {
 function rowKey(opening: SandboxOpening): string {
   switch (opening.kind) {
     case 'app-outside':
-      return `app-outside:${opening.app}`
+      return `app-outside:${opening.repo}:${opening.app}`
     case 'socket':
       return `socket:${opening.socket}`
     case 'electron-app':
@@ -232,7 +235,7 @@ function describe(opening: SandboxOpening): OpeningText {
       return {
         name: `App “${opening.app}” runs outside the sandbox`,
         what: 'When you start it with ▶, it runs as you: it can read and change any file and use the network.',
-        where: `Approved on ${machine} when you chose to always run it outside the sandbox.`,
+        where: `Approved on ${machine} when you chose to always run it outside the sandbox. Ted asks again if its command changes.`,
       }
     case 'pi-unsandboxed':
       return {
@@ -244,16 +247,17 @@ function describe(opening: SandboxOpening): OpeningText {
       return {
         name: (
           <>
-            Socket <code className={styles.code}>{opening.socket}</code>
+            Socket <code className={styles.code}>{opening.socket}</code> at{' '}
+            <code className={styles.code}>{opening.path}</code>
           </>
         ),
-        what: 'Sandboxed commands can connect to this socket and use whatever listens on it.',
+        what: `Apps, Checks and worktree setup that list socket:${opening.socket} in sandbox_access can connect to it and use whatever listens on it.`,
         where: <SocketSource from={opening.from} />,
       }
     case 'electron-app':
       return {
         name: `Electron App “${opening.app}”`,
-        what: 'Its sandbox can reach launchservicesd, which Electron needs to start.',
+        what: 'It gets the electron access group: its sandbox can reach launchservicesd and the window server, which Electron needs to start and open a window.',
         where: (
           <>
             From <code className={styles.code}>electron: true</code> on the App in the{' '}
@@ -280,12 +284,7 @@ function describe(opening: SandboxOpening): OpeningText {
             has <code className={styles.code}>{opening.group}</code>
           </>
         ),
-        what:
-          opening.group === 'ios-xcode'
-            ? 'Its commands can write where Xcode, SwiftPM, actool and ibtool keep temp files. These folders are shared with your other apps on this Mac.'
-            : opening.group === 'network'
-              ? 'Its commands can connect to any host, for example to install packages or call an outside service.'
-              : 'Its commands get this extra sandbox access.',
+        what: accessWhat(opening.group),
         where: (
           <>
             From <code className={styles.code}>sandbox_access</code> in{' '}
@@ -317,22 +316,28 @@ function NetworkSource({ from }: { from: LayerKind }) {
   )
 }
 
+function accessWhat(group: SandboxAccess): string {
+  if (group === 'ios-xcode')
+    return 'Its commands can write where Xcode, SwiftPM, actool and ibtool keep temp files. These folders are shared with your other apps on this Mac.'
+  if (group === 'shared-tmp')
+    return 'Its commands can read and write /tmp. This folder is shared with your other apps on this Mac.'
+  if (group === 'electron')
+    return 'Its commands can reach launchservicesd and the window server, so Electron can start and open windows.'
+  if (group === 'network')
+    return 'Its commands can connect to any host, for example to install packages or call an outside service.'
+  const socket = socketOf(group)
+  if (socket !== undefined)
+    return `Its commands can connect to the socket your Library names ${socket}.`
+  return 'Its commands get this extra sandbox access.'
+}
+
 function SocketSource({ from }: { from: LayerKind }) {
   const key = <code className={styles.code}>sandbox_sockets</code>
-  const file = <code className={styles.code}>.ted/workflow.yaml</code>
-  if (from === 'factory') {
-    return (
-      <>
-        From {key} in {file}. Remove the entry in a Task to turn it off.
-      </>
-    )
-  }
   return (
     <>
-      From {key} in {from === 'library' ? 'the Library’s' : 'Ted’s default'}{' '}
-      <code className={styles.code}>workflow.yaml</code>. Remove it
-      {from === 'library' ? ' in Settings → Library' : ''}, or set{' '}
-      <code className={styles.code}>sandbox_sockets: []</code> in this Factory’s {file} in a Task.
+      Named in {key} in {from === 'library' ? 'the Library’s' : 'Ted’s default'}{' '}
+      <code className={styles.code}>workflow.yaml</code> on {machine}
+      {from === 'library' ? '. Remove it in Settings → Library to turn it off.' : '.'}
     </>
   )
 }
