@@ -31,6 +31,7 @@ import { unarchiveOrAsk } from '../components/ArchiveDialogs.tsx'
 import { AsanaSourceField, TaskSyncField } from '../components/AsanaImportPreview.tsx'
 import { AutopilotField } from '../components/Autopilot.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
+import { useStartsOnItsOwn } from '../components/BacklogStarts.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { ChangesSection } from '../components/ChangesSection.tsx'
@@ -678,6 +679,7 @@ export function TaskThread({
   onCloseApp?: (() => void) | undefined
 }) {
   const stages = useStages()
+  const startsOnItsOwn = useStartsOnItsOwn()
   const runList = useTaskRunsState(
     task.id,
     task.leadRunId !== undefined || task.runs.length > 0 || task.tabs.length > 0,
@@ -927,6 +929,7 @@ export function TaskThread({
               detailed
               tall
               hideWaiting={openJumps.length > 0}
+              startsAutomatically={startsOnItsOwn(task)}
             />
             <AnswerPill requests={openJumps} onJump={jumpToRequest} />
             {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
