@@ -264,7 +264,7 @@ import { chatItems } from '../runs/conversations.ts'
 import { parsedOutput } from '../runs/parsed-output.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
-import type { Sandbox, SandboxScope } from '../sandbox.ts'
+import { type Sandbox, type SandboxGrants, type SandboxScope, sandboxGrants } from '../sandbox.ts'
 import type {
   BlockersCleared,
   CleanupCommandResult,
@@ -1028,7 +1028,7 @@ export function createTasks(options: {
     worktreesDir,
     logsDir,
     sandbox: options.sandbox,
-    sandboxSockets: async (taskId) => sandboxSockets(find(taskId)),
+    sandboxGrants: async (taskId) => taskSandboxGrants(find(taskId)),
     startCache: (factoryId, cache) => seeds.startCache(factoryId, cache),
     env: () => options.env?.() ?? process.env,
   })
@@ -1231,8 +1231,8 @@ export function createTasks(options: {
     return problem
   }
 
-  async function sandboxSockets(task: StoredTask): Promise<readonly string[]> {
-    return (await taskWorkflow(task, { fetch: false })).workflow.settings.sandbox_sockets ?? []
+  async function taskSandboxGrants(task: StoredTask): Promise<SandboxGrants> {
+    return sandboxGrants((await taskWorkflow(task, { fetch: false })).workflow.settings)
   }
 
   async function sandboxScope(
@@ -1246,7 +1246,7 @@ export function createTasks(options: {
       writable: [...new Set(live.map((r) => r.worktree))],
       readable: [...new Set(live.map((r) => clonePath(reposDir, r)))],
       cache,
-      sockets: await sandboxSockets(task),
+      ...(await taskSandboxGrants(task)),
     }
   }
 

@@ -21,7 +21,7 @@ import { clonePath } from './factories.ts'
 import * as git from './git.ts'
 import { acquireFactoryPermissions, factoryPermissions } from './permissions.ts'
 import { redactSecrets } from './redact.ts'
-import type { Sandbox } from './sandbox.ts'
+import { type Sandbox, type SandboxGrants, sandboxGrants } from './sandbox.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import { type CheckSlots, checkCpusEnv } from './tasks/check-slots.ts'
 import { defaultCheckTimeout, readOutput } from './tasks/checks.ts'
@@ -152,7 +152,7 @@ export function createCheckTries(options: {
   function launcher(
     factory: StoredFactory,
     entry: FactoryRepoEntry,
-    sockets: readonly string[],
+    grants: SandboxGrants,
   ): () => Promise<CommandLaunch> {
     return async () => {
       const release = await acquireFactoryPermissions(store, factory.id)
@@ -169,7 +169,7 @@ export function createCheckTries(options: {
               writable: [path.join(factoryDir(factory.id), 'worktrees', entry.name)],
               readable: [clonePath(reposDir, entry)],
               cache: path.join(folder, 'cache'),
-              sockets,
+              ...grants,
             },
             tmpRoot: path.join(folder, 'tmp'),
           },
@@ -299,7 +299,7 @@ export function createCheckTries(options: {
     started: CheckTry,
     abort: AbortController,
     shownWaiting: boolean,
-    sockets: readonly string[],
+    grants: SandboxGrants,
   ): Promise<void> {
     const log = logFile(factory.id, request.name)
     await mkdir(path.dirname(log), { recursive: true, mode: 0o700 })
@@ -316,7 +316,7 @@ export function createCheckTries(options: {
       if (problem !== undefined) {
         await writeFile(log, `${redactSecrets(problem)}\n`, { mode: 0o600 })
       }
-      const prepareLaunch = launcher(factory, entry, sockets)
+      const prepareLaunch = launcher(factory, entry, grants)
       const prepared = !release
         ? { failed: 'stopped' as const }
         : problem !== undefined
@@ -498,7 +498,7 @@ export function createCheckTries(options: {
         const waits = options.checkSlots.full()
         const shown = waits ? { ...started, waiting: true } : started
         await update(factoryId, shown)
-        const sockets = workflow.settings.sandbox_sockets ?? []
+        const grants = sandboxGrants(workflow.settings)
         placeholder.done = execute(
           factory,
           entry,
@@ -506,7 +506,7 @@ export function createCheckTries(options: {
           started,
           placeholder.abort,
           waits,
-          sockets,
+          grants,
         )
           .catch((error: unknown) => console.error('a check tried from settings failed:', error))
           .finally(() => {

@@ -61,9 +61,9 @@ afterEach(async () => {
 
 async function inSandbox(
   script: string,
-  options: { sockets?: string[]; home?: string; groups?: SandboxGroup[] } = {},
+  options: { sockets?: string[]; home?: string; reads?: string[]; groups?: SandboxGroup[] } = {},
 ) {
-  const { sockets = [], home, groups } = options
+  const { sockets = [], home, reads = [], groups } = options
   const sandbox = createSandbox({
     tedHome,
     env: () => (home === undefined ? process.env : { ...process.env, HOME: home }),
@@ -71,6 +71,7 @@ async function inSandbox(
   const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], {
     ...scope(),
     sockets,
+    reads,
     ...(groups !== undefined && { groups }),
   })
   const [command, ...args] = argv
@@ -630,6 +631,79 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'read',
       'wrote',
     ])
+  })
+
+  test('it reads no credentials in the home folder, only Git’s settings, toolchains and what the Factory lists', async () => {
+    const home = await realpath(outside)
+    const files = {
+      ssh: path.join(home, '.ssh', 'id_ed25519'),
+      aws: path.join(home, '.aws', 'credentials'),
+      gh: path.join(home, '.config', 'gh', 'hosts.yml'),
+      npmrc: path.join(home, '.npmrc'),
+      gitCredentials: path.join(home, '.config', 'git', 'credentials'),
+      gemCredentials: path.join(home, '.gem', 'credentials'),
+      gitconfig: path.join(home, '.gitconfig'),
+      xdgGitconfig: path.join(home, '.config', 'git', 'config'),
+      gem: path.join(home, '.gem', 'ruby', '3.3.0', 'bin', 'pod'),
+      nvm: path.join(home, '.nvm', 'alias', 'default'),
+      desktop: path.join(home, 'Desktop', 'notes.txt'),
+    }
+    for (const file of Object.values(files)) {
+      await mkdir(path.dirname(file), { recursive: true })
+      await writeFile(file, 'x')
+    }
+    const script = [
+      ...Object.values(files).map(tryRead),
+      `ls '${home}' >/dev/null 2>&1 && echo listed || echo refused`,
+      `'${process.execPath}' -e "console.log('node ran')"`,
+    ].join('; ')
+
+    const plain = await inSandbox(script, { home })
+    expect(plain.stdout.trim().split('\n')).toEqual([
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'read',
+      'read',
+      'read',
+      'read',
+      'refused',
+      'refused',
+      'node ran',
+    ])
+
+    const listed = await inSandbox(script, { home, reads: ['~/.config/gh', '~/Desktop'] })
+    expect(listed.stdout.trim().split('\n')).toEqual([
+      'refused',
+      'refused',
+      'read',
+      'refused',
+      'refused',
+      'refused',
+      'read',
+      'read',
+      'read',
+      'read',
+      'refused',
+      'refused',
+      'node ran',
+    ])
+  })
+
+  test('a file outside the base read set can’t be read or listed', async () => {
+    await writeFile(path.join(outside, 'secret.txt'), 'secret')
+    const result = await inSandbox(
+      [
+        tryRead(path.join(outside, 'secret.txt')),
+        `ls '${outside}' >/dev/null 2>&1 && echo listed || echo refused`,
+        tryRead('/etc/hosts'),
+        tryRead('/usr/bin/true'),
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused', 'read', 'read'])
   })
 
   test('a scope limited to its own temp folder can’t write /private/tmp or the per-user temp folder', async () => {

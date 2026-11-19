@@ -4,7 +4,7 @@ Ted (“Totally Excellent Development”) runs software factories: agents carry 
 
 ## Language
 
-These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview and banner. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
+These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview, banner and sandbox opening. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
 
 **Controller**:
 The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when Ted uses several machines.
@@ -43,6 +43,10 @@ _Avoid_: Local path, working copy, checkout
 **Factory key**:
 The short code at the start of a Factory’s Task IDs, such as NB in NB-41; unique on the machine and fixed once the Factory is added.
 _Avoid_: Prefix, project key
+
+**Sandbox opening**:
+A setting that widens what sandboxed commands can reach or allows something to run outside the sandbox, listed in Factory settings → Sandbox. An opening that widens access keeps commands in the sandbox; one marked Unsandboxed allows commands outside it.
+_Avoid_: Escape hatch, sandbox bypass (when meaning any opening)
 
 **Workflow**:
 The ordered list of Stages a Factory runs Tasks through, with each Stage’s settings.
