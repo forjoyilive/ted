@@ -681,6 +681,7 @@ export type * from './guide.ts'
 export {
   type AgentHealth,
   type AgentHealthState,
+  type AgentModels,
   agentDisplayNames,
   agentHealthStates,
   agentProblem,

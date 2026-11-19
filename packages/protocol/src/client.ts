@@ -172,7 +172,7 @@ import type {
   GitHubSetupStepResult,
 } from './github-setup.ts'
 import type { FactoryGuide } from './guide.ts'
-import type { AgentHealth } from './health.ts'
+import type { AgentHealth, AgentModels } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type {
   LinearIntakeChoices,
@@ -1611,6 +1611,10 @@ export class DaemonClient {
 
   agentHealth(): Promise<AgentHealth[]> {
     return this.#request('GET', '/agents/health')
+  }
+
+  agentModels(agent: AgentKind): Promise<AgentModels> {
+    return this.#request('GET', `/agents/${encodeURIComponent(agent)}/models`)
   }
 
   apiCost(): Promise<ApiCostReport> {

@@ -16,6 +16,7 @@ import {
 } from './pi-chat.ts'
 import type { PiPlan } from './pi-driver.ts'
 import { piHealth, piSavedModel } from './pi-health.ts'
+import { piModels } from './pi-models.ts'
 
 const driver = fileURLToPath(new URL('./pi-driver.ts', import.meta.url))
 
@@ -167,6 +168,7 @@ export function piAgent(binary: string): Agent {
       authArgs: ['--list-models'],
       auth: () => ({ signedIn: false }),
       inspect: piHealth,
+      models: piModels,
       signIn: () => 'pi',
       update: 'npm install -g @earendil-works/pi-coding-agent@latest',
       install: 'npm install -g @earendil-works/pi-coding-agent',

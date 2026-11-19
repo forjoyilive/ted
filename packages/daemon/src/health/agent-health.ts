@@ -50,6 +50,7 @@ export interface AgentHealthMonitor {
   planUsage(kind: AgentKind, windows: readonly PlanWindow[]): void
   setOnline(online: boolean): void
   fix(kind: AgentKind): Promise<AgentHealth>
+  models(kind: AgentKind): Promise<string[]>
   onReady(listener: (kind: AgentKind) => void): void
   onPaused(listener: (kind: AgentKind, state: AgentHealthState) => void): void
   onProbe(listener: (kind: AgentKind) => boolean): void
@@ -166,6 +167,26 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       return done('wrong-credential', account)
     }
     return done('ready', account)
+  }
+
+  const listing = new Map<AgentKind, Promise<string[]>>()
+
+  function models(kind: AgentKind): Promise<string[]> {
+    const running = listing.get(kind)
+    if (running) return running
+    const agent = agents.get(kind)
+    const list = agent.health.models
+    if (!list || !enabled(kind) || inspected.get(kind)?.state === 'too-old')
+      return Promise.resolve([])
+    const env = agent.environment(options.runEnv(), billing(kind))
+    const binary = findBinSync(agent.binary, env)
+    if (!binary) return Promise.resolve([])
+    const asked = list({ binary, env, cwd: home })
+      .then((found) => found ?? [])
+      .catch(() => [])
+      .finally(() => listing.delete(kind))
+    listing.set(kind, asked)
+    return asked
   }
 
   function compose(kind: AgentKind): AgentHealth | undefined {
@@ -591,6 +612,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       for (const kind of agentKinds) publish(kind)
     },
     fix,
+    models,
     onReady(listener) {
       readyListeners.add(listener)
     },

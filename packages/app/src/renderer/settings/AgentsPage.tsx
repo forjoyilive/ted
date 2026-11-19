@@ -28,6 +28,7 @@ import { Help } from '../components/Help.tsx'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { useAgentHealthState, useApiCost, useEventValue } from '../data.ts'
+import { refreshPiModels } from '../pi-models.ts'
 import { ago, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { timePreferences } from '../time.ts'
@@ -536,7 +537,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
   const check = async () => {
     setChecking(true)
     try {
-      await ted.checkAgentHealth()
+      await Promise.all([ted.checkAgentHealth(), refreshPiModels()])
     } catch (error) {
       console.error(error)
     } finally {

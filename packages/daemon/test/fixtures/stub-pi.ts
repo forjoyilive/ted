@@ -29,13 +29,21 @@ if (argv.includes('--version')) {
   console.log(state.version ?? '1.5.2')
   process.exit(0)
 }
-if (argv.includes('--list-models')) {
-  if (state.models === 0) {
-    console.log('No models available. Log in to a provider first.')
-  } else {
-    console.log('provider    model        context  max-out  thinking  images')
-    for (let n = 0; n < (state.models ?? 2); n++)
-      console.log(`stub        model-${n}      128K     16K      yes       no    `)
+if (argv.includes('--no-session')) {
+  for await (const line of lfLines(process.stdin)) {
+    const command = JSON.parse(line)
+    if (command.type !== 'get_available_models') continue
+    const models = Array.from({ length: state.models ?? 2 }, (_, n) => ({
+      id: `model-${n}`,
+      name: `Model ${n}`,
+      provider: 'stub',
+      contextWindow: 128_000,
+      reasoning: true,
+      input: ['text'],
+    }))
+    process.stdout.write(
+      `${JSON.stringify({ id: command.id, type: 'response', command: command.type, success: true, data: { models } })}\n`,
+    )
   }
   process.exit(0)
 }

@@ -382,7 +382,7 @@ test('Antigravity ACP failures offer repair guidance instead of sign-in and reco
   }, 'API-key billing to need a key, not the plan notice')
 })
 
-test('Pi is Ready once it lists a model, stays Ready offline, and says when it is too old or lists no models', async () => {
+test('Pi is Ready once it lists a model, stays Ready offline, says when it is too old or lists no models, and serves its models', async () => {
   let online = true
   const client = await start({ pi: true, online: () => online })
   const pi = await waitUntil(async () => {
@@ -390,6 +390,13 @@ test('Pi is Ready once it lists a model, stays Ready offline, and says when it i
     return health?.state === 'ready' ? health : undefined
   }, 'Pi to be Ready')
   expect(pi).toMatchObject({ version: '1.5.2', minimumVersion: '1.5.2', path: stubPiPath })
+  const models = async () =>
+    (await client.ok<{ models: string[] }>('GET', '/agents/pi/models')).models
+  expect(await models()).toEqual(['stub/model-0', 'stub/model-1'])
+  expect(await client.ok<{ models: string[] }>('GET', '/agents/claude/models')).toEqual({
+    models: [],
+  })
+  expect((await client.call('GET', '/agents/nobody/models')).status).toBe(404)
 
   online = false
   await waitUntil(
@@ -409,13 +416,16 @@ test('Pi is Ready once it lists a model, stays Ready offline, and says when it i
     version: '1.4.0',
     fix: { label: 'Update', command: 'npm install -g @earendil-works/pi-coding-agent@latest' },
   })
+  expect(await models()).toEqual([])
   await writeFile(stub, JSON.stringify({ models: 0 }))
   expect(await checked()).toMatchObject({
     state: 'unavailable',
     reason: 'Pi lists no models. Add a model to Pi, then choose Check again.',
   })
-  await writeFile(stub, '{}')
+  expect(await models()).toEqual([])
+  await writeFile(stub, JSON.stringify({ models: 3 }))
   expect((await checked())?.state).toBe('ready')
+  expect(await models()).toEqual(['stub/model-0', 'stub/model-1', 'stub/model-2'])
 })
 
 test('off agents skip routine checks and setup banners until re-enabled', async () => {

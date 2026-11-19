@@ -37,6 +37,7 @@ test('signed-out agent shows its Fix commands and follows Ready health events', 
   expect(api.request).toHaveBeenCalledWith('copyText', 'claude auth login')
   await user().click(c.getByRole('button', { name: 'Check again' }))
   expect(api.request).toHaveBeenCalledWith('checkAgentHealth')
+  expect(api.request).toHaveBeenCalledWith('agentModels', 'pi')
   await act(async () =>
     api.emit({
       type: 'agent-health-changed',
