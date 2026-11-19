@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AgentStageId, Attachment, Task } from '@ted/protocol'
 import { isCleanup, stageDisplayName } from '@ted/protocol/stage'
-import { writingGuidance } from '../writing.ts'
+import { disclosure, disclosureGuidance, writingGuidance } from '../writing.ts'
 import { type CleanupInstructionStep, type CleanupStep, isCommandStep } from './check.ts'
 import type { ResolvedWorkflow } from './resolve.ts'
 
@@ -78,6 +78,7 @@ export async function fixedPromptTexts(): Promise<string[]> {
   return [
     ...(await Promise.all([preambleText(), subAgentPreamble()]).catch(() => [])),
     writingGuidance,
+    disclosureGuidance,
   ]
 }
 
@@ -116,17 +117,24 @@ export async function subAgentPreamble(): Promise<string> {
   )
 }
 
-export async function subAgentPrompt(displayId: string, instructions: string): Promise<string> {
+export async function subAgentPrompt(
+  displayId: string,
+  instructions: string,
+  disclose: boolean,
+): Promise<string> {
   return [
     await subAgentPreamble(),
+    ...disclosure(disclose),
     `# Your instructions from the Task Lead of ${displayId}\n\n${instructions.trim()}`,
   ].join('\n\n')
 }
 
-export async function tedSubAgentPrompt(instructions: string): Promise<string> {
-  return [await subAgentPreamble(), `# Your instructions from Ted\n\n${instructions.trim()}`].join(
-    '\n\n',
-  )
+export async function tedSubAgentPrompt(instructions: string, disclose: boolean): Promise<string> {
+  return [
+    await subAgentPreamble(),
+    ...disclosure(disclose),
+    `# Your instructions from Ted\n\n${instructions.trim()}`,
+  ].join('\n\n')
 }
 
 export async function loopCheckInstructions(): Promise<string> {
@@ -137,6 +145,7 @@ export async function taskLeadPrompt(
   task: Task & { original?: string },
   workflow: ResolvedWorkflow,
   stage: AgentStageId,
+  disclose: boolean,
   attachmentFile?: (attachment: Attachment) => string,
   setupReport?: string,
   repos?: PromptRepos,
@@ -144,6 +153,7 @@ export async function taskLeadPrompt(
   return [
     ...(setupReport !== undefined ? [setupReport] : []),
     await preambleText(),
+    ...disclosure(disclose),
     ...(repos && repos.factory.length > 1 ? [reposText(repos)] : []),
     stageFileText(workflow, stage),
     ...(workflow.notes?.trim() ? [factoryNotesText(workflow.notes)] : []),

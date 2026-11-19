@@ -29,14 +29,28 @@ const factory = (files: LayerFiles) => checkLayer({ kind: 'factory', files })
 describe('Ted defaults', () => {
   test('sub-agent instructions carry writing guidance for delegated work and Ted reviews', async () => {
     for (const prompt of [
-      await subAgentPrompt('NB-1', 'Investigate login failures.'),
-      await tedSubAgentPrompt('Review the change.'),
+      await subAgentPrompt('NB-1', 'Investigate login failures.', false),
+      await tedSubAgentPrompt('Review the change.', false),
     ]) {
       expect(prompt).toContain('## Write clearly for the user')
       expect(prompt).toContain(
         'Plain language must preserve technical meaning, risks and uncertainty.',
       )
       expect(prompt).toContain('session numbers, process IDs, log file names')
+    }
+  })
+
+  test('sub-agent instructions ask for the AI disclosure line only when the setting is on', async () => {
+    for (const disclose of [true, false]) {
+      for (const prompt of [
+        await subAgentPrompt('NB-1', 'Investigate login failures.', disclose),
+        await tedSubAgentPrompt('Review the change.', disclose),
+      ]) {
+        if (disclose) {
+          expect(prompt).toContain('From Opus 5.5 via Ted:')
+          expect(prompt).toContain('Pull request titles don’t get it.')
+        } else expect(prompt).not.toContain('via Ted:')
+      }
     }
   })
 

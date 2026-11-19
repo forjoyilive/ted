@@ -52,6 +52,17 @@ test('a setting is found by its name, group, page and description, with its page
   expect(find('connect another mac')).toEqual([])
 })
 
+test('the AI disclosure switch is found by “disclosure” and “via Ted”', () => {
+  for (const query of ['disclosure', 'via ted']) {
+    expect(find(query)).toContainEqual(
+      expect.objectContaining({
+        id: 'app.integrations.disclosure.preface',
+        where: 'Settings › Integrations',
+      }),
+    )
+  }
+})
+
 test('the Providers page is found by its name and by “agent”', () => {
   for (const query of ['Providers', 'agent']) {
     expect(find(query)).toContainEqual(
