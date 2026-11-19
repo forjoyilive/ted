@@ -476,7 +476,9 @@ test('a round question that allows several answers sends every ticked choice', a
   )
   const u = user()
   const f = within(screen.getByRole('group', { name: /Which views/ }))
-  expect(f.getByText('Pick any that apply.')).toBeTruthy()
+  expect(f.getByText('Pick any that apply.').parentElement?.firstElementChild?.textContent).toBe(
+    'Which views?',
+  )
   expect(f.queryAllByRole('radio')).toHaveLength(0)
   expect(f.getAllByText('Recommended').map((tag) => tag.parentElement?.textContent)).toEqual([
     'Board Recommended',

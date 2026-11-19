@@ -40,16 +40,22 @@
   flex-shrink: 0;
 }
 
-.promptText {
+.promptBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
+}
+
+.promptText {
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
 
 .hint {
-  margin: -4px 0 2px;
   color: var(--text-caption);
   font-size: var(--text-12);
+  font-weight: var(--weight-regular);
 }
 
 .options {

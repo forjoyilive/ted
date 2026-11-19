@@ -102,9 +102,11 @@ function Question({
       <fieldset className={styles.fieldset} disabled={disabled}>
         <legend className={styles.prompt}>
           <span className={styles.number}>{number}.</span>
-          <span className={styles.promptText}>{question.question}</span>
+          <span className={styles.promptBody}>
+            <span className={styles.promptText}>{question.question}</span>
+            {several && <span className={styles.hint}>Pick any that apply.</span>}
+          </span>
         </legend>
-        {several && <p className={styles.hint}>Pick any that apply.</p>}
         {question.choices ? (
           <>
             <div className={styles.options}>
