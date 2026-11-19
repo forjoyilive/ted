@@ -217,8 +217,11 @@ export {
   bannerId,
   bannerOrder,
   bannerSeverities,
+  dismissClears,
   isShowing,
   type RaiseBanner,
+  repoAddedProblem,
+  repoAddedText,
 } from './banner.ts'
 export { parseBannerActionInput } from './banner-parsers.ts'
 export {

@@ -158,7 +158,7 @@ export async function withDaemon<T>(
       if (child.exitCode === daemonAlreadyRunningExitCode) child = undefined
       else if (!(await anotherDaemonStarting(home)))
         throw new DaemonDidNotStartError(
-          `Ted’s daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
+          `Ted’s daemon stopped as it started (${child.signalCode ?? `exit code ${child.exitCode}`}); see ${tedPaths(home).daemonOutput}`,
         )
     }
     if (Date.now() > deadline) {

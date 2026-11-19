@@ -36,6 +36,28 @@ test('a custom range parses only real dates in order, and survives being remembe
   expect(rememberedDashboard(storage).range).toBe('30d')
 })
 
+test('a remembered custom range that ends after today falls back to Last 30 days', () => {
+  const stored = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => void stored.set(key, value),
+  }
+  const now = new Date(2026, 10, 19, 12).getTime()
+  rememberDashboard(
+    { panel: 'cost', range: { from: '2026-11-18', to: '2026-11-20' }, factoryIds: ['nb'] },
+    storage,
+  )
+  expect(rememberedDashboard(storage, now)).toEqual({
+    panel: 'cost',
+    range: '30d',
+    factoryIds: ['nb'],
+  })
+  rememberDashboard({ range: { from: '2026-11-18', to: '2026-11-19' } }, storage)
+  expect(rememberedDashboard(storage, now).range).toEqual({ from: '2026-11-18', to: '2026-11-19' })
+  rememberDashboard({ range: '7d' }, storage)
+  expect(rememberedDashboard(storage, now).range).toBe('7d')
+})
+
 test('a custom range is labelled by its dates and compared with the same number of days', () => {
   const now = new Date(2026, 10, 19)
   expect(customRangeLabel({ from: '2026-11-03', to: '2026-11-15' }, now)).toBe('3 Nov – 15 Nov')
