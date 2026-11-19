@@ -1,15 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { constants, type Stats } from 'node:fs'
-import {
-  access,
-  type FileHandle,
-  lstat,
-  mkdir,
-  open,
-  readFile,
-  readlink,
-  realpath,
-} from 'node:fs/promises'
+import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { outsideTedEnv } from '@ted/protocol'
@@ -253,7 +244,7 @@ export function createSandbox(options: {
       const personal = await personalFolders(env)
       const hidden = scope.hideProtected === true ? await existingFolders(personal) : []
       const listed = await listedPaths('sandbox_reads', scope.reads ?? [], env)
-      const reads = await linuxReads(env, listed, personal)
+      const reads = await linuxReads(env, listed, [...personal, paths.tedHome])
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -560,7 +551,7 @@ interface LinuxReads {
 async function linuxReads(
   env: NodeJS.ProcessEnv,
   listed: readonly string[],
-  personal: readonly string[],
+  refused: readonly string[],
 ): Promise<LinuxReads> {
   const home = await homeFolder(env)
   const reals = new Set<string>()
@@ -571,12 +562,12 @@ async function linuxReads(
     const resolved = await realpath(asGiven).catch(() => undefined)
     if (resolved === undefined || resolved === '/') return
     if (!keepHome && inside(resolved, home)) return
-    if (personal.some((dir) => inside(dir, resolved))) return
+    if (refused.some((dir) => inside(dir, resolved))) return
     reals.add(resolved)
     if (asGiven === resolved) return
-    const target = await readlink(asGiven).catch(() => undefined)
-    if (target === undefined) given.set(asGiven, resolved)
-    else links.set(asGiven, target)
+    const link = await lstat(asGiven).catch(() => undefined)
+    if (link?.isSymbolicLink() === true) links.set(asGiven, resolved)
+    else given.set(asGiven, resolved)
   }
   for (const candidate of await readCandidates(env, 'linux', undefined)) await add(candidate, false)
   for (const entry of listed) await add(entry, true)

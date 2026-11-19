@@ -971,10 +971,11 @@ describe('the folders a sandbox opens', () => {
     )
   })
 
-  test('on Linux, a linked folder in the read set is mounted where it really is and linked to there', async () => {
-    const tools = path.join(outside, 'tools-1.2')
-    await mkdir(tools)
-    await symlink('tools-1.2', path.join(outside, 'tools'))
+  test('on Linux, a chain of linked folders in the read set is linked straight to where it really is', async () => {
+    const tools = path.join(outside, 'versions', 'v1')
+    await mkdir(tools, { recursive: true })
+    await symlink('v1', path.join(outside, 'versions', 'current'))
+    await symlink('versions/current', path.join(outside, 'tools'))
     const sandbox = createSandbox({
       tedHome,
       env: () => ({ PATH: `/usr/bin:${path.join(outside, 'tools')}` }),
@@ -987,7 +988,28 @@ describe('the folders a sandbox opens', () => {
     const after = (flag: string) =>
       argv.flatMap((arg, i) => (arg === flag ? [`${argv[i + 1]} ${argv[i + 2]}`] : []))
     expect(after('--ro-bind')).toContain(`${realTools} ${realTools}`)
-    expect(after('--symlink')).toContain(`tools-1.2 ${path.join(outside, 'tools')}`)
+    expect(after('--symlink')).toContain(`${realTools} ${path.join(outside, 'tools')}`)
+  })
+
+  test('on Linux, a sandbox_reads entry that leads into TED_HOME through a link isn’t mounted', async () => {
+    const userHome = await mkdtemp(path.join(outside, 'home-'))
+    await mkdir(path.join(userHome, '.config'))
+    await symlink(tedHome, path.join(userHome, '.config', 'ted-alias'))
+    await writeFile(path.join(tedHome, 'credentials'), 'secret')
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', HOME: userHome }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      reads: ['~/.config/ted-alias/credentials', '~/.config/ted-alias'],
+    })
+    const joined = argv.join(' ')
+    expect(joined).not.toContain('ted-alias')
+    expect(joined).not.toContain(path.join(await realpath(tedHome), 'credentials'))
   })
 
   test('on Linux, a scope that hides protected folders covers each one that exists in HOME', async () => {
