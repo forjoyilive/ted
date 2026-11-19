@@ -359,7 +359,7 @@ function stageMap(doc: Document, root: YAMLMap, id: string): YAMLMap {
 }
 
 const instructionKeys = ['instruction', 'fix', 'agent', 'model', 'effort']
-const commandKeys = ['run', 'repo']
+const commandKeys = ['run', 'repo', 'sandbox_access']
 
 function writeChecks(
   doc: Document,
@@ -592,14 +592,14 @@ function setCommand(
   const run = command?.run.trim() ?? ''
   const timeout = command?.timeout?.trim() ?? ''
   if (run === '') return void tree.delete(key)
-  if (timeout === '') {
+  const node = tree.get(key, true)
+  if (timeout === '' && !(isMap(node) && node.has('sandbox_access'))) {
     setKeepingStyle(tree, key, run)
     return
   }
-  const node = tree.get(key, true)
   if (isMap(node)) {
     setKeepingStyle(node, 'run', run)
-    setKeepingStyle(node, 'timeout', timeout)
+    setOrDelete(node, 'timeout', timeout || undefined)
   } else {
     const map = doc.createNode({ run, timeout }) as YAMLMap
     map.flow = true
@@ -631,6 +631,7 @@ const keyOrder = [
   'preview',
   'repo',
   'timeout',
+  'sandbox_access',
   'agent',
   'model',
   'effort',

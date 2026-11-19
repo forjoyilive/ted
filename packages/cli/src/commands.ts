@@ -1,5 +1,5 @@
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util'
-import { agentKinds, tedEnv } from '@ted/protocol'
+import { agentKinds, type SandboxGroupInfo, sandboxGroups, tedEnv } from '@ted/protocol'
 
 export class UsageError extends Error {}
 
@@ -1339,6 +1339,15 @@ export const commands = [
     options: options(),
   },
   {
+    name: 'sandbox groups',
+    handler: 'sandboxGroups',
+    min: 0,
+    max: 0,
+    help: '  ted sandbox groups                         List the sandbox access groups and what each opens',
+    callers: 'Everyone',
+    options: options(),
+  },
+  {
     name: 'dev seed',
     handler: 'seedDemo',
     min: 0,
@@ -1534,6 +1543,17 @@ export function helpText(table: readonly CommandDefinition[] = commands): string
     ...table.flatMap((entry) => (entry.help ? [entry.help] : [])),
     '',
     'Inside a Run, commands act on the Run’s own Task (TED_TASK).',
+  ].join('\n')
+}
+
+export function sandboxGroupsText(groups: readonly SandboxGroupInfo[] = sandboxGroups): string {
+  return [
+    'Sandbox access groups. List them under sandbox_access on an App, a command check, or a repo’s worktree setup or teardown in .ted/workflow.yaml.',
+    ...groups.flatMap((group) => [
+      '',
+      `${group.name}: ${group.summary}`,
+      ...group.opens.map((line) => `  - ${line}`),
+    ]),
   ].join('\n')
 }
 
