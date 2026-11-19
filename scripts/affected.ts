@@ -442,14 +442,27 @@ export function selectionText(
 export function leftOutText(
   run: readonly Pick[],
   electron: ReadonlySet<string>,
-  sandbox: string,
+  sandbox: string | undefined,
+  sandboxSkipped: ReadonlyMap<string, readonly string[]> = new Map(),
 ): string | undefined {
-  const skipped = run.filter((pick) => electron.has(pick.file))
-  if (skipped.length === 0) return undefined
+  const app = sandbox === undefined ? [] : run.filter((pick) => electron.has(pick.file))
+  if (app.length === 0 && sandboxSkipped.size === 0) return undefined
   return [
-    `${sandbox} can’t start Electron, so the Affected tests Check left the Electron app tests out.`,
+    ...(app.length === 0
+      ? []
+      : [
+          `${sandbox} can’t start Electron, so the Affected tests Check left the Electron app tests out.`,
+        ]),
+    ...(sandboxSkipped.size === 0
+      ? []
+      : [
+          'Ted’s sandbox made some tests skip themselves, so the Affected tests Check left these files out.',
+        ]),
     'Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>',
-    ...skipped.map((pick) => `  ${pick.file}  ${pick.why}`),
+    ...app.map((pick) => `  ${pick.file}  ${pick.why}`),
+    ...[...sandboxSkipped]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([file, reasons]) => `  ${file}  skipped: ${reasons.join('; ')}`),
   ].join('\n')
 }
 
