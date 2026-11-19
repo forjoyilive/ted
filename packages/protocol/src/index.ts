@@ -1178,6 +1178,7 @@ export {
   type SetupFileLine,
   type SetupProposal,
   type SetupStageLine,
+  type SetupWorktreeAccess,
   type SignOffChanges,
   type SizeCheck,
   type SizeCheckInput,

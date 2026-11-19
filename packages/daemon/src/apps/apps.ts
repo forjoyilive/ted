@@ -23,6 +23,7 @@ import {
   isEmulatorApp,
   isSimulatorApp,
   type OutsideSandboxApproval,
+  type SandboxGroup,
   type SimulatorSlots,
   type TaskApp,
   tedEnv,
@@ -39,6 +40,7 @@ import { markProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import { type LaunchAuthority, launchAuthority } from '../runs/launch-authority.ts'
 import { type Sandbox, type SandboxScope, SandboxUnavailable, withSandboxEnv } from '../sandbox.ts'
+import { appendRefusalHints } from '../sandbox-hints.ts'
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { TedStore } from '../store/index.ts'
 import { checkCpus } from '../tasks/check-slots.ts'
@@ -228,6 +230,7 @@ interface Instance {
   restart?: boolean
   sandboxed?: boolean
   declaration?: string
+  groups?: SandboxGroup[]
   waitingFor?: string
   readyAt?: string
   builtAt?: string
@@ -849,6 +852,8 @@ export function createApps(options: AppsOptions): Apps {
         ...(sandboxed.shell !== undefined && { sandboxed: true }),
         ...(sandboxed.shell === undefined &&
           by === 'human' && { declaration: outsideSandboxApproval(repo, app).declaration }),
+        ...(sandboxed.shell !== undefined &&
+          app.sandboxAccess !== undefined && { groups: app.sandboxAccess }),
         ...(logFrom !== undefined && { readyFrom: logFrom }),
       }
       try {
@@ -991,6 +996,13 @@ export function createApps(options: AppsOptions): Apps {
         ...(exit?.code !== undefined && exit.code !== null && { code: exit.code }),
         ...(exit?.signal !== undefined && exit.signal !== null && { signal: exit.signal }),
         ...(exit?.error !== undefined && { problem: exit.error }),
+      }
+      if (instance.sandboxed === true) {
+        await appendRefusalHints(
+          appFiles(dir).log,
+          instance.groups ?? [],
+          `the App “${instance.name}”`,
+        )
       }
       thread.appExited({
         taskId,

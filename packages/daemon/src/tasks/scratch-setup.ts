@@ -53,6 +53,7 @@ export async function runScratchSetup(input: {
     const log = path.join(input.logDir, `setup-${repo.name}.log`)
     const result = await runTaskCommand({
       label: 'setup',
+      owner: `the worktree setup of repo ${repo.name}`,
       command: repo.setup,
       cwd: repo.worktree,
       env: worktreeCommandEnv(repo.env, {}, input.env),

@@ -7,8 +7,10 @@ import {
   type RunChecksRequest,
 } from './checks.ts'
 import { maxCommitBody } from './commit-title.ts'
+import { isArray, isOneOf, isString, type Untyped } from './parse.ts'
 import { proposalCycle } from './proposal.ts'
 import { agentKindList } from './run.ts'
+import { isSandboxGroup, type SandboxGroup, sandboxGroupNames } from './sandbox-groups.ts'
 import { parseRemovedAgents, parseSetupAgents } from './setup-agents.ts'
 import { isHoldingStage, isStageId } from './stage.ts'
 import type {
@@ -58,6 +60,7 @@ import {
   type SetActivityRequest,
   type SetClarifyDepthRequest,
   type SetTaskReposRequest,
+  type SetupAppTried,
   type SetupProposal,
   type SizeCheckInput,
   type StageId,
@@ -686,6 +689,7 @@ function setupProposal(value: unknown): SetupProposal {
       passed,
       durationMs: Math.round(durationMs),
       ...(reason !== undefined && { reason }),
+      ...withAccess(setupAccess(check.sandboxAccess, name)),
     }
   })
   const apps = setupList(input.apps, 'Apps').map((app) => {
@@ -704,7 +708,20 @@ function setupProposal(value: unknown): SetupProposal {
       ready: needed(app.ready, `how ${name} became ready`, 200),
       passed,
       ...(reason !== undefined && { reason }),
+      ...withAccess(setupAccess(app.sandboxAccess, name)),
     }
+  })
+  const worktree = setupList(input.worktree, 'worktree steps').map((line) => {
+    const step = line.step
+    if (!isOneOf(step, ['setup', 'teardown'])) {
+      throw new HttpError(400, 'each worktree step is setup or teardown')
+    }
+    const repo = shortText(line.repo, `the worktree ${step}’s repo`, 100)
+    if (line.sandboxAccess === undefined) {
+      throw new HttpError(400, `the worktree ${step} lists its sandboxAccess`)
+    }
+    const access = setupAccess(line.sandboxAccess, `the worktree ${step}`) ?? []
+    return { ...(repo !== undefined && { repo }), step, sandboxAccess: access }
   })
   const agents = input.agents === undefined ? undefined : parseSetupAgents(input.agents, badRequest)
   const files = setupList(input.files, 'files').map((file) => {
@@ -723,9 +740,33 @@ function setupProposal(value: unknown): SetupProposal {
     checks,
     apps,
     ...(agents !== undefined && agents.length > 0 && { agents }),
+    ...(worktree.length > 0 && { worktree }),
     files,
     ...(defaults !== undefined && { defaults }),
   }
+}
+
+function setupAccess(value: Untyped, what: string): SandboxGroup[] | undefined {
+  if (value === undefined) return undefined
+  const known = sandboxGroupNames.join(', ')
+  if (!isArray(value)) {
+    throw new HttpError(400, `${what}’s sandboxAccess must be a list of access groups: ${known}`)
+  }
+  const groups: SandboxGroup[] = []
+  for (const name of value) {
+    if (!isString(name) || !isSandboxGroup(name)) {
+      throw new HttpError(
+        400,
+        `${what} asks for ${String(name)}, which isn’t an access group: ${known}`,
+      )
+    }
+    if (!groups.includes(name)) groups.push(name)
+  }
+  return groups.length > 0 ? groups : undefined
+}
+
+function withAccess(groups: SandboxGroup[] | undefined): Pick<SetupAppTried, 'sandboxAccess'> {
+  return groups === undefined ? {} : { sandboxAccess: groups }
 }
 
 function badRequest(message: string): never {

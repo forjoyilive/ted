@@ -503,6 +503,7 @@ export function createLocalLifecycle(options: {
     )
     return runTaskCommand({
       label: input.kind,
+      owner: `the worktree ${input.kind} of repo ${target.repo.name}`,
       command: input.command,
       cwd: target.file,
       env: worktreeCommandEnv(input.env, { TED_TASK: task.displayId }, options.env()),
