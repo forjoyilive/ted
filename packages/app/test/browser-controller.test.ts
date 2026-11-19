@@ -468,6 +468,50 @@ test('ending the requesting Run cancels a delayed click without replay', async (
   ).toBe(false)
 })
 
+test('ending the Run cancels its next click after the previous reply finishes late', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+    electron,
+  )
+  controllers.push(controller)
+  await transport.send('snapshot', 'one', 'snapshot')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const ref = (transport.replies[0]?.result?.text ?? '').split(' ')[0]
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  let finishReply: (() => void) | undefined
+  vi.mocked(transport.client.replyBrowser).mockImplementationOnce(async (_owner, id, reply) => {
+    transport.replies.push({ id, ...reply })
+    await new Promise<void>((resolve) => {
+      finishReply = resolve
+    })
+  })
+  await transport.send('first', 'one', 'snapshot', {}, 5_000, 'run')
+  await vi.waitFor(() => expect(finishReply).toBeTypeOf('function'))
+  let release: ((value: { x: number; y: number }) => void) | undefined
+  contents.executeJavaScriptInIsolatedWorld.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve
+      }),
+  )
+  await transport.send('click', 'one', 'click', { ref }, 5_000, 'run')
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+  finishReply?.()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  controller.ended('run')
+  release?.({ x: 10, y: 10 })
+  await vi.waitFor(() =>
+    expect(transport.replies.some((r) => r.id === 'click' && r.error)).toBe(true),
+  )
+  expect(
+    contents.debugger.sendCommand.mock.calls.some(([method]) => method.startsWith('Input.')),
+  ).toBe(false)
+})
+
 test.each(['App stop', 'App restart', 'Task deletion', 'Factory deletion'])(
   'retained sessions are cleared after cancellation then %s',
   async (lifecycle) => {
