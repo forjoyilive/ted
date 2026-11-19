@@ -478,11 +478,6 @@ test('ending the Run cancels its next click after the previous reply finishes la
     electron,
   )
   controllers.push(controller)
-  await transport.send('snapshot', 'one', 'snapshot')
-  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
-  const ref = (transport.replies[0]?.result?.text ?? '').split(' ')[0]
-  const contents = mocks.views[0]?.webContents
-  if (!contents) throw new Error('Missing browser contents')
   let finishReply: (() => void) | undefined
   vi.mocked(transport.client.replyBrowser).mockImplementationOnce(async (_owner, id, reply) => {
     transport.replies.push({ id, ...reply })
@@ -492,6 +487,9 @@ test('ending the Run cancels its next click after the previous reply finishes la
   })
   await transport.send('first', 'one', 'snapshot', {}, 5_000, 'run')
   await vi.waitFor(() => expect(finishReply).toBeTypeOf('function'))
+  const ref = (transport.replies[0]?.result?.text ?? '').split(' ')[0]
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
   let release: ((value: { x: number; y: number }) => void) | undefined
   contents.executeJavaScriptInIsolatedWorld.mockImplementationOnce(
     () =>
