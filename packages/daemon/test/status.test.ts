@@ -270,6 +270,23 @@ describe('taskStatus', () => {
     })
   })
 
+  test('a sub-agent waiting for a Run slot makes the Task Queued after its Task Lead ends', () => {
+    const reviewer = at({ stage: 'validate', queuedSubAgents: [{ id: 'r1' }] })
+    expect(taskStatus(reviewer)).toEqual({ kind: 'queued', hold: 'Waiting for a Run slot' })
+    expect(taskStatuses(reviewer)).toEqual(['queued'])
+    expect(
+      taskStatus(at({ queuedSubAgents: [{ id: 'r1', hold: 'codex is off.' }, { id: 'r2' }] })),
+    ).toEqual({ kind: 'queued', hold: 'codex is off.' })
+    expect(taskStatus({ ...reviewer, runs: ['working'] })).toEqual({ kind: 'working' })
+    expect(taskStatus({ ...reviewer, queue: { place: 2 } })).toEqual({ kind: 'queued', place: 2 })
+    expect(taskStatus({ ...reviewer, blockedBy: ['NB-2'] })).toEqual({
+      kind: 'blocked',
+      by: 'NB-2',
+    })
+    expect(taskStatus({ ...reviewer, openRequests: 1 })).toEqual({ kind: 'waiting-on-you' })
+    expect(taskStatus(at({ stage: 'validate', queuedSubAgents: [] }))).toBeUndefined()
+  })
+
   test('a blocked Task in Backlog has no status; the blocker is a marker', () => {
     const facts = at({ stage: 'backlog', blockedBy: ['NB-41'], needsPlanning: true })
     expect(taskStatus(facts)).toBeUndefined()
