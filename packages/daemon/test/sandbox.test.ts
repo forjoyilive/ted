@@ -711,6 +711,13 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused', 'read', 'read'])
   })
 
+  test('it reads the DNS settings in /etc/resolv.conf, but nothing else in /private/var/run', async () => {
+    const result = await inSandbox(
+      [tryRead('/etc/resolv.conf'), tryRead('/private/var/run/utmpx')].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual(['read', 'refused'])
+  })
+
   test('a scope limited to its own temp folder can’t write /private/tmp or the per-user temp folder', async () => {
     const sandbox = createSandbox({ tedHome, env: () => process.env })
     const shared = path.join('/private/tmp', `ted-sandbox-${randomUUID()}`)
