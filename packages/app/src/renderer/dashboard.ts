@@ -51,7 +51,10 @@ export const dashboardPanels = ['overview', 'stages', 'cost'] as const
 export type DashboardPanel = (typeof dashboardPanels)[number]
 const knownPanel = (value: unknown) => dashboardPanels.find((p) => p === value)
 
-export function rememberedDashboard(storage: Pick<Storage, 'getItem'> = localStorage): Remembered {
+export function rememberedDashboard(
+  storage: Pick<Storage, 'getItem'> = localStorage,
+  now = Date.now(),
+): Remembered {
   let stored: unknown
   try {
     stored = JSON.parse(storage.getItem(storageKey) ?? '{}')
@@ -59,7 +62,11 @@ export function rememberedDashboard(storage: Pick<Storage, 'getItem'> = localSto
     stored = {}
   }
   const value = (stored ?? {}) as Record<string, unknown>
-  const range = dashboardRange(value.range) ?? '30d'
+  const restored = dashboardRange(value.range)
+  const range =
+    restored === undefined || (!isPreset(restored) && restored.to > localCalendarDate(now))
+      ? '30d'
+      : restored
   const panel = knownPanel(value.panel)
   const ids = Array.isArray(value.factoryIds)
     ? value.factoryIds.filter((id): id is string => typeof id === 'string')
