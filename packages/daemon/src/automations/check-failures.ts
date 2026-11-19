@@ -27,6 +27,31 @@ export function failingTestFiles(output: string): string[] {
   return [...found].sort().slice(0, maxFailingFiles)
 }
 
+const errorLine =
+  /\b(?:error|fatal)\b|\berr!|\bERR_[A-Z_]+|\bE(?:PERM|ACCES|NOENT|NOSPC|EXIST|BUSY)\b/i
+const logPathLine = /complete log of this run can be found in/i
+const emptyErrorLine = /^(?:npm )?(?:error|err!)$/i
+
+export function setupErrorSummary(output: string, max = 300): string {
+  const lines = output
+    .replace(ansi, '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '' && !logPathLine.test(l))
+  const isError = (l: string) => errorLine.test(l)
+  const last = lines.findLastIndex(isError)
+  let picked: string[]
+  if (last === -1) {
+    picked = lines.slice(-1)
+  } else {
+    let first = last
+    while (first > 0 && isError(lines[first - 1] ?? '')) first--
+    picked = lines.slice(first, last + 1).filter((l) => !emptyErrorLine.test(l))
+  }
+  const text = picked.join(' · ')
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
 export function sandboxSkipped(output: string): string[] {
   const found = new Set<string>()
   for (const line of output.replace(ansi, '').split('\n')) {
