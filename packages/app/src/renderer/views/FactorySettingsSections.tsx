@@ -38,6 +38,7 @@ import { CloseIcon } from '../components/icons.tsx'
 import { Loading } from '../components/Loading.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { PiAutoNote } from '../components/PiAutoNote.tsx'
+import { AccessChips, SandboxAccessField, sandboxAccessHelp } from '../components/SandboxAccess.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
 import grow from '../components/TextGrow.module.css'
@@ -1240,7 +1241,8 @@ function CommandCheckRow({
       <div className={multiRepo ? styles.commandRowRepo : styles.commandRow}>
         <DragHandle controls={controls} />
         <span className={styles.checkName}>
-          {name || <span className={styles.dash}>Untitled</span>}
+          {name || <span className={styles.dash}>Untitled</span>}{' '}
+          <AccessChips groups={check.sandboxAccess} />
         </span>
         <span className={`${styles.truncated} ${base.mono}`} title={check.run.trim() || undefined}>
           {check.run.trim() || <span className={styles.dash}>No command</span>}
@@ -1323,6 +1325,16 @@ function CommandCheckRow({
                 onChange={(event) => onChange({ timeout: event.target.value })}
               />
             </EditorField>
+          </div>
+          <div className={styles.editorAccess}>
+            <span className={styles.editorLabel}>
+              Sandbox access <Help>{sandboxAccessHelp}</Help>
+            </span>
+            <SandboxAccessField
+              label={`Check ${name}`}
+              groups={check.sandboxAccess}
+              onChange={(sandboxAccess) => onChange({ sandboxAccess })}
+            />
           </div>
           <div className={styles.editorFoot}>
             <ActionButton type="button" className={base.dangerLink} onClick={controls.onRemove}>

@@ -1049,3 +1049,10 @@
   align-self: end;
   min-height: var(--button-height);
 }
+
+.access {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}

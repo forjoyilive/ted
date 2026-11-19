@@ -6,6 +6,7 @@ import type { DeclaredSendBackCause, FindingSeverity } from './checks.ts'
 import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
+import type { SandboxAccessChange } from './sandbox-access.ts'
 import type { SetupAgentProposal } from './setup-agents.ts'
 import type { AgentStageId, StageId } from './stage.ts'
 import { RequestValidationError } from './validation.ts'
@@ -972,6 +973,7 @@ export interface CommentGate {
   pullRequests?: MergeRow[]
   changes?: SignOffChanges
   noCi?: string[]
+  sandboxAccess?: SandboxAccessChange[]
 }
 
 export interface MergeRow {

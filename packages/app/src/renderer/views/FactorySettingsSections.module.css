@@ -947,3 +947,9 @@
 .taskOption:first-of-type {
   border-top: none;
 }
+
+.editorAccess {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

@@ -1,0 +1,71 @@
+.field {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--button-height);
+}
+
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-pill);
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.remove {
+  border: 0;
+  padding: 0 0 0 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.none {
+  color: var(--text-caption);
+}
+
+.changes {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+}
+
+.changesTitle {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.changeList {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.changesNote {
+  margin: 6px 0 0;
+  font-size: var(--text-12);
+}

@@ -4,6 +4,7 @@ export type SandboxGroup = (typeof sandboxGroupNames)[number]
 
 export interface SandboxGroupInfo {
   name: SandboxGroup
+  label: string
   summary: string
   opens: readonly string[]
 }
@@ -11,6 +12,7 @@ export interface SandboxGroupInfo {
 export const sandboxGroups: readonly SandboxGroupInfo[] = [
   {
     name: 'ios-xcode',
+    label: 'Xcode and SwiftPM builds',
     summary:
       'What Xcode, SwiftPM, actool and ibtool write outside TMPDIR. This is shared access on the user’s Mac: every process of the user uses these folders.',
     opens: [

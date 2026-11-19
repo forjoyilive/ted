@@ -9,6 +9,7 @@ import type {
   RepoSettingsInput,
   RepoSettingsView,
   RepoSource,
+  SandboxGroup,
   SaveSettingsResult,
   SettingsMergeMethod,
   Task,
@@ -34,6 +35,7 @@ import { FactoryIconPicker } from '../components/FactoryIconPicker.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { Skeleton } from '../components/Loading.tsx'
+import { AccessChips, SandboxAccessField, sandboxAccessHelp } from '../components/SandboxAccess.tsx'
 import { Select } from '../components/Select.tsx'
 import { SettingsSearch } from '../components/SettingsSearch.tsx'
 import { useEventValue } from '../data.ts'
@@ -536,6 +538,7 @@ export function FactorySettings({
                       view={view}
                       onOpenPermissions={() => openSection('permissions')}
                       onOpenRepos={() => openSection('repos')}
+                      onOpenChecks={() => openSection('checks')}
                       onOpenProviders={() => dispatch({ type: 'open-settings', section: 'agents' })}
                     />
                   )}
@@ -1207,10 +1210,16 @@ function CommandField({
   const id = useId()
   const run = value?.run ?? ''
   const timeout = value?.timeout
-  const update = (next: { run: string; timeout?: string | undefined }) => {
+  const access = value?.sandboxAccess
+  const update = (next: {
+    run: string
+    timeout?: string | undefined
+    sandboxAccess?: SandboxGroup[] | undefined
+  }) => {
     if (next.run === '' && (next.timeout ?? '') === '') return onChange(undefined)
     const setup: NonNullable<RepoSettingsInput['setup']> = { run: next.run }
     if (next.timeout) setup.timeout = next.timeout
+    if (next.sandboxAccess) setup.sandboxAccess = next.sandboxAccess
     return onChange(setup)
   }
   return (
@@ -1223,7 +1232,7 @@ function CommandField({
         className={`${styles.input} ${styles.mono}`}
         placeholder={placeholder}
         value={run}
-        onChange={(event) => update({ run: event.target.value, timeout })}
+        onChange={(event) => update({ run: event.target.value, timeout, sandboxAccess: access })}
       />
       {(defaultTimeout !== undefined || timeout !== undefined) && run !== '' && (
         <span className={styles.timeout}>
@@ -1233,10 +1242,24 @@ function CommandField({
             className={styles.timeoutInput}
             placeholder={defaultTimeout ?? '15m'}
             value={timeout ?? ''}
-            onChange={(event) => update({ run, timeout: event.target.value })}
+            onChange={(event) =>
+              update({ run, timeout: event.target.value, sandboxAccess: access })
+            }
           />
           <Help>A duration such as 30s, 15m or 1h.</Help>
         </span>
+      )}
+      {run !== '' && (
+        <div className={styles.access}>
+          <span className={styles.label}>
+            Sandbox access <Help>{sandboxAccessHelp}</Help>
+          </span>
+          <SandboxAccessField
+            label={label}
+            groups={access}
+            onChange={(sandboxAccess) => update({ run, timeout, sandboxAccess })}
+          />
+        </div>
       )}
     </div>
   )
@@ -1457,7 +1480,9 @@ function Apps({
               <span className={styles.appName} title={app.name || undefined}>
                 {app.name || 'Unnamed App'}
               </span>
-              <span className={styles.appKind}>{appKindLabels[app.kind]}</span>
+              <span className={styles.appKind}>
+                {appKindLabels[app.kind]} <AccessChips groups={app.sandboxAccess} />
+              </span>
               <span className={styles.appRun}>{app.run}</span>
               <ActionButton type="button" className={styles.link} onClick={() => setEditing(index)}>
                 Edit
@@ -1547,6 +1572,16 @@ function AppEditor({
           className={`${styles.input} ${styles.mono}`}
           value={app.run}
           onChange={(event) => onChange({ ...app, run: event.target.value })}
+        />
+      </div>
+      <div className={styles.field}>
+        <span className={styles.label}>
+          Sandbox access <Help>{sandboxAccessHelp}</Help>
+        </span>
+        <SandboxAccessField
+          label={`App ${app.name}`}
+          groups={app.sandboxAccess}
+          onChange={(sandboxAccess) => onChange({ ...app, sandboxAccess })}
         />
       </div>
       {(app.kind === 'ios-simulator' || app.kind === 'android-emulator') && (

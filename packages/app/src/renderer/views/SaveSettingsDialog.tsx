@@ -9,6 +9,8 @@ import type {
 } from '@ted/protocol'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
+import { AccessChanges } from '../components/SandboxAccess.tsx'
+import { settingsAccessChanges } from '../factory-settings.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './FactorySettings.module.css'
 
@@ -99,6 +101,10 @@ export function SaveSettingsDialog({
           The changes must merge before Ted can use them. Tasks use updated Workflow settings when
           they next enter a Stage.
         </p>
+        <AccessChanges
+          title="Sandbox access changes"
+          changes={settingsAccessChanges(view, changes)}
+        />
         {!preview && error === undefined && <p className={styles.caption}>Preparing the diff…</p>}
         {preview?.files.map((file) => (
           <FileDiff key={file.path} file={file} />

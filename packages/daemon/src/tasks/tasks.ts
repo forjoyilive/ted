@@ -86,6 +86,7 @@ import type {
   Run,
   RunMessage,
   RunSlots,
+  SandboxAccessChange,
   SandboxGroup,
   SaveSettingsResult,
   SendBack,
@@ -282,6 +283,7 @@ import type {
   TedStore,
 } from '../store/index.ts'
 import { messageOf } from '../text.ts'
+import { workflowAccessChanges } from '../workflow/access.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import {
   type AgentChoice,
@@ -1571,6 +1573,27 @@ export function createTasks(options: {
       (r) => !r.removed && (repoEntry(entries, r)?.name ?? r.name) === (entries[0]?.name ?? ''),
     )
     return { repo, baseBranch: repo && repoEntry(entries, repo)?.baseBranch, repos: entries.length }
+  }
+
+  async function signOffAccess(
+    task: StoredTask,
+    workflow: ResolvedWorkflow,
+  ): Promise<SandboxAccessChange[]> {
+    const { repo, baseBranch } = primaryRepo(task, workflow)
+    if (!repo) return []
+    try {
+      const base = `origin/${baseBranch ?? (await git.defaultBranch(repo.worktree))}`
+      const from = await git.mergeBase(repo.worktree, base, 'HEAD')
+      const read = (commit: string) =>
+        git.showFile(repo.worktree, commit, '.ted/workflow.yaml').catch(() => undefined)
+      return workflowAccessChanges(await read(from), await read('HEAD'))
+    } catch (error) {
+      console.error(
+        `couldn’t compare sandbox access for ${task.displayId}:`,
+        redactSecrets(textOf(error)),
+      )
+      return []
+    }
   }
 
   async function settingsFingerprint(worktree: string): Promise<string> {
@@ -4456,6 +4479,7 @@ export function createTasks(options: {
     }))
     const noCi = ready.flatMap(({ target }) => (target.hasCi ? [] : [target.name]))
     const changes = await signOffChanges(task)
+    const access = await signOffAccess(task, (await taskWorkflow(task, { fetch: false })).workflow)
     await requireObligations(find(task.id))
     const count = rows.length
     store.postComment({
@@ -4472,6 +4496,7 @@ export function createTasks(options: {
         pullRequests: rows,
         ...(changes && { changes }),
         ...(noCi.length > 0 && { noCi }),
+        ...(access.length > 0 && { sandboxAccess: access }),
       },
     })
   }
@@ -13772,6 +13797,7 @@ export function createTasks(options: {
             workflow.stages.includes(stageWith('merges')) &&
             workflow.settings.stages.merge?.gate !== true
           const noCi = mergesOnApproval ? await reposWithoutCi(find(task.id), resolution) : []
+          const access = leadsToMerge ? await signOffAccess(current, workflow) : []
           const design = outcome.design
           const requestedFor =
             signsOffCode(stage) || entersMerge(stage, workflow.next(stage), workflow.stages)
@@ -13791,6 +13817,7 @@ export function createTasks(options: {
               ...gateButtons(workflow, stage),
               ...(changes && { changes }),
               ...(noCi.length > 0 && { noCi }),
+              ...(access.length > 0 && { sandboxAccess: access }),
             },
             ...(design && { attachments: designFiles(design) }),
             ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),
