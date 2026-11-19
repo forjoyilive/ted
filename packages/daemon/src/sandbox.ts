@@ -144,6 +144,7 @@ export function createSandbox(options: {
         const found = await userTemp
         if (found !== undefined) {
           const saves = path.join(found, 'TemporaryItems')
+          paths.unlisted = [found, saves]
           if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
           const [first = ''] = path.relative(found, paths.tedHome).split(path.sep)
           if (!inside(paths.tedHome, found) && !xcodeTempNames.test(first)) paths.userTemp = found
@@ -220,9 +221,10 @@ interface SandboxPaths {
   sharedTmp?: string
   saves?: string
   userTemp?: string
+  unlisted?: string[]
 }
 
-const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService|actool'
+const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtoold'
 const xcodeTempNames = /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8})$/
 
 function escapeRegex(text: string): string {
@@ -324,6 +326,13 @@ function seatbeltArgs(
         return `(remote unix-socket (path-literal (param "${prefix}${i}")))`
       })
       .join(' ')
+  const literalPath = (prefix: string, values: readonly string[]) =>
+    values
+      .map((value, i) => {
+        params.push('-D', `${prefix}${i}=${value}`)
+        return `(literal (param "${prefix}${i}"))`
+      })
+      .join(' ')
   const ownSockets = own.map((_, i) => `(remote unix-socket (subpath (param "W${i}")))`).join(' ')
   const profile = [
     '(version 1)',
@@ -345,6 +354,9 @@ function seatbeltArgs(
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
         ]),
+    ...(paths.unlisted === undefined
+      ? []
+      : [`(deny file-read-data ${literalPath('U', paths.unlisted)})`]),
     '(deny appleevent-send)',
     '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
     '(allow mach-lookup (global-name "com.apple.lsd.mapdb"))',

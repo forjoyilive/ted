@@ -24,6 +24,17 @@ test('modelOptions gives only the current value for an agent without a list', ()
   expect(modelOptions(undefined, '')).toEqual([])
 })
 
+test('modelOptions puts a listed set, such as Pi’s models, in place of the built-in list', () => {
+  expect(modelOptions('pi', 'zai/glm-5.2', [], ['ollama/gemma4:12b', 'zai/glm-5.2'])).toEqual([
+    'ollama/gemma4:12b',
+    'zai/glm-5.2',
+  ])
+  expect(modelOptions('pi', 'old/model', [], ['ollama/gemma4:12b'])).toEqual([
+    'ollama/gemma4:12b',
+    'old/model',
+  ])
+})
+
 test('withoutStageName drops a leading Stage name that repeats the Stage shown beside it', () => {
   expect(withoutStageName('Clarify: reading how Tasks are stopped', 'Clarify')).toBe(
     'Reading how Tasks are stopped',

@@ -1,4 +1,5 @@
 import { type FocusEvent, useEffect, useId, useRef, useState } from 'react'
+import { refreshPiModels, usePiModels } from '../pi-models.ts'
 import { modelOptions } from '../task-fields.ts'
 import { CloseIcon } from './icons.tsx'
 import styles from './ModelSelect.module.css'
@@ -39,7 +40,12 @@ export function ModelSelect({
   const selectId = id ?? ownId
   const [typed, setTyped] = useState<string>()
   const refocus = useRef(false)
-  const models = modelOptions(agent, value, extra)
+  const pi = agent === 'pi'
+  const piModels = usePiModels(pi)
+  const models = modelOptions(agent, value, extra, pi ? piModels : undefined)
+  const refresh = () => {
+    if (pi) void refreshPiModels()
+  }
 
   useEffect(() => {
     if (typed !== undefined || !refocus.current) return
@@ -57,6 +63,8 @@ export function ModelSelect({
         fullWidth={fullWidth}
         disabled={disabled}
         value={value}
+        onFocus={refresh}
+        onMouseDown={refresh}
         onChange={(event) => {
           if (event.target.value === other) setTyped('')
           else onChange(event.target.value)
