@@ -581,12 +581,8 @@ function seatbeltArgs(
     // Without it, ibtool runs ibtoold itself, inside the sandbox.
     '(deny ipc-posix-shm* (ipc-posix-name-prefix "ib"))',
     '(deny appleevent-send)',
-    '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
-    '(allow mach-lookup (global-name "com.apple.lsd.mapdb"))',
-    // Electron aborts at launch unless it can check in with launchservicesd.
-    ...(electron
-      ? ['(allow mach-lookup (global-name "com.apple.coreservices.launchservicesd"))']
-      : []),
+    '(deny mach-lookup)',
+    `(allow mach-lookup ${macServiceFilters(electron ? [...macServices, ...macElectronServices] : macServices)})`,
     '(deny user-preference-write)',
     '(deny network-outbound (remote unix-socket))',
     `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets, ...sockets])})`,
@@ -654,6 +650,42 @@ function runtimeDir(env: NodeJS.ProcessEnv): string | undefined {
 }
 
 const macSystemSockets = ['/private/var/run/mDNSResponder', '/private/var/run/syslog']
+
+type MacService = { name: string } | { prefix: string } | { regex: string }
+
+const macServices: readonly MacService[] = [
+  { name: 'com.apple.system.opendirectoryd.libinfo' },
+  { name: 'com.apple.system.opendirectoryd.membership' },
+  { name: 'com.apple.bsd.dirhelper' },
+  { name: 'com.apple.system.notification_center' },
+  { name: 'com.apple.system.logger' },
+  { name: 'com.apple.logd' },
+  { name: 'com.apple.SystemConfiguration.configd' },
+  { name: 'com.apple.SystemConfiguration.DNSConfiguration' },
+  { name: 'com.apple.trustd' },
+  { name: 'com.apple.trustd.agent' },
+  { name: 'com.apple.lsd.mapdb' },
+  { name: 'com.apple.FSEvents' },
+  { prefix: 'com.apple.CoreSimulator.' },
+  { regex: '\\.MachPortRendezvousServer\\.[0-9]+$' },
+]
+
+const macElectronServices: readonly MacService[] = [
+  { name: 'com.apple.coreservices.launchservicesd' },
+  { name: 'com.apple.windowserver.active' },
+]
+
+function macServiceFilters(services: readonly MacService[]): string {
+  return services
+    .map((service) =>
+      'name' in service
+        ? `(global-name "${service.name}")`
+        : 'prefix' in service
+          ? `(global-name-prefix "${service.prefix}")`
+          : `(global-name-regex #"${service.regex}")`,
+    )
+    .join(' ')
+}
 
 interface LinuxSockets {
   masks: string[]
