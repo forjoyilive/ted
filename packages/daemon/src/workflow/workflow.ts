@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AgentStageId, Attachment, Task } from '@ted/protocol'
 import { isCleanup, stageDisplayName } from '@ted/protocol/stage'
-import { disclosure, disclosureGuidance, writingGuidance } from '../writing.ts'
+import { baseGuidance, guidanceTexts } from '../guidance.ts'
 import { type CleanupInstructionStep, type CleanupStep, isCommandStep } from './check.ts'
 import type { ResolvedWorkflow } from './resolve.ts'
 
@@ -68,17 +68,18 @@ function indent(text: string): string {
     .join('\n')
 }
 
+async function defaultFile(name: string): Promise<string> {
+  return (await readFile(new URL(name, defaults), 'utf8')).trim()
+}
+
 export async function preambleText(): Promise<string> {
-  return [(await readFile(new URL('preamble.md', defaults), 'utf8')).trim(), writingGuidance].join(
-    '\n\n',
-  )
+  return [await defaultFile('preamble.md'), ...baseGuidance].join('\n\n')
 }
 
 export async function fixedPromptTexts(): Promise<string[]> {
   return [
     ...(await Promise.all([preambleText(), subAgentPreamble()]).catch(() => [])),
-    writingGuidance,
-    disclosureGuidance,
+    ...guidanceTexts,
   ]
 }
 
@@ -112,27 +113,28 @@ export async function setupInstructions(): Promise<(stage: AgentStageId) => stri
 }
 
 export async function subAgentPreamble(): Promise<string> {
-  return [(await readFile(new URL('sub-agent.md', defaults), 'utf8')).trim(), writingGuidance].join(
-    '\n\n',
-  )
+  return [await defaultFile('sub-agent.md'), ...baseGuidance].join('\n\n')
 }
 
 export async function subAgentPrompt(
   displayId: string,
   instructions: string,
-  disclose: boolean,
+  guidance: readonly string[],
 ): Promise<string> {
   return [
-    await subAgentPreamble(),
-    ...disclosure(disclose),
+    await defaultFile('sub-agent.md'),
+    ...guidance,
     `# Your instructions from the Task Lead of ${displayId}\n\n${instructions.trim()}`,
   ].join('\n\n')
 }
 
-export async function tedSubAgentPrompt(instructions: string, disclose: boolean): Promise<string> {
+export async function tedSubAgentPrompt(
+  instructions: string,
+  guidance: readonly string[],
+): Promise<string> {
   return [
-    await subAgentPreamble(),
-    ...disclosure(disclose),
+    await defaultFile('sub-agent.md'),
+    ...guidance,
     `# Your instructions from Ted\n\n${instructions.trim()}`,
   ].join('\n\n')
 }
@@ -145,15 +147,15 @@ export async function taskLeadPrompt(
   task: Task & { original?: string },
   workflow: ResolvedWorkflow,
   stage: AgentStageId,
-  disclose: boolean,
+  guidance: readonly string[],
   attachmentFile?: (attachment: Attachment) => string,
   setupReport?: string,
   repos?: PromptRepos,
 ): Promise<string> {
   return [
     ...(setupReport !== undefined ? [setupReport] : []),
-    await preambleText(),
-    ...disclosure(disclose),
+    await defaultFile('preamble.md'),
+    ...guidance,
     ...(repos && repos.factory.length > 1 ? [reposText(repos)] : []),
     stageFileText(workflow, stage),
     ...(workflow.notes?.trim() ? [factoryNotesText(workflow.notes)] : []),

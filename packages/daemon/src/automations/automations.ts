@@ -35,6 +35,7 @@ import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { type Clock, systemClock, type Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
+import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { MemoryWatch } from '../memory-kills.ts'
@@ -64,7 +65,6 @@ import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import type { Workflows } from '../workflow/workflows.ts'
-import { disclosure, writingGuidance } from '../writing.ts'
 import { agentRunsAfter, checkAgentPrompt } from './check-agent.ts'
 import {
   checkFailureText,
@@ -642,6 +642,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         startTasks: check.startTasks,
         openTasks: openTasks.slice(-recentTasksShown),
         instructions: automation.prompt,
+        guidance: promptGuidance(store.settings()),
       })
       await runs.start({
         onStarting: () => saved.checkAgentStarted(id),
@@ -798,26 +799,18 @@ export function createAutomations(options: AutomationsOptions): Automations {
       return `- ${task.displayId} · ${task.title.replace(/\s*\n\s*/g, ' ')} · ${state}${source}`
     })
     const [intake, githubIntake] = intakeLines(store, factory.id)
-    return [
-      `# You are an Automation Run in Ted`,
-      writingGuidance,
-      ...disclosure(store.settings().aiDisclosure),
-      `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in Ted. Use Ted commands for Task workflow actions.`,
-      [
-        `You are “${automation.name}”, an Automation in the ${factory.name} Factory (repos: ${repos.join(', ')}). Ted started this Run ${why[firing.trigger]}. You run outside any Task, usually to bring new work in as Tasks.`,
-        '',
-        '- Create a Task with `ted task create --source <URL of the item it came from> "<title>"`. Every Task you create needs `--source`. Add `--description "<text>"` for context, and `--start` only if your instructions say new Tasks should start; otherwise they wait in Backlog.',
-        '- Ted refuses a source it already tracks and says why. Leave those, except a Done Task whose problem came back: your instructions say when to create a Follow-up with `ted task create --follow-up <Task ID> --source <URL> "<title>"`.',
-        '- `ted task list` lists the Tasks. `ted automation list`, `show` and `history` read Automations; you can’t change them.',
-        '- To ask the human something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; Ted sends you their answer. `ted comment "<text>"` posts a note.',
-        '- When you are done, end your turn with a short final message whose first line says what you did. Ted stops this Run when you go idle with no open question.',
-      ].join('\n'),
-      ...(checkout === undefined ? [] : [checkout]),
-      `## Tasks this Automation has created\n\n${lines.length > 0 ? lines.join('\n') : 'None yet.'}`,
+    return automationRunPrompt({
+      name: automation.name,
+      factoryName: factory.name,
+      repos,
+      why: why[firing.trigger],
+      ...(checkout !== undefined && { checkout }),
+      taskLines: lines,
       intake,
       githubIntake,
-      `## Your instructions\n\n${automation.prompt.trim()}`,
-    ].join('\n\n')
+      instructions: automation.prompt,
+      guidance: promptGuidance(store.settings()),
+    })
   }
 
   function finalMessage(runId: string): string | undefined {
@@ -1895,4 +1888,36 @@ export function createAutomations(options: AutomationsOptions): Automations {
       saved.dropFiring(firing.id)
     }
   }
+}
+
+export function automationRunPrompt(input: {
+  name: string
+  factoryName: string
+  repos: readonly string[]
+  why: string
+  checkout?: string
+  taskLines: readonly string[]
+  intake: string | undefined
+  githubIntake: string | undefined
+  instructions: string
+  guidance: readonly string[]
+}): string {
+  return [
+    `# You are an Automation Run in Ted`,
+    ...input.guidance,
+    [
+      `You are “${input.name}”, an Automation in the ${input.factoryName} Factory (repos: ${input.repos.join(', ')}). Ted started this Run ${input.why}. You run outside any Task, usually to bring new work in as Tasks.`,
+      '',
+      '- Create a Task with `ted task create --source <URL of the item it came from> "<title>"`. Every Task you create needs `--source`. Add `--description "<text>"` for context, and `--start` only if your instructions say new Tasks should start; otherwise they wait in Backlog.',
+      '- Ted refuses a source it already tracks and says why. Leave those, except a Done Task whose problem came back: your instructions say when to create a Follow-up with `ted task create --follow-up <Task ID> --source <URL> "<title>"`.',
+      '- `ted task list` lists the Tasks. `ted automation list`, `show` and `history` read Automations; you can’t change them.',
+      '- To ask the human something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; Ted sends you their answer. `ted comment "<text>"` posts a note.',
+      '- When you are done, end your turn with a short final message whose first line says what you did. Ted stops this Run when you go idle with no open question.',
+    ].join('\n'),
+    ...(input.checkout === undefined ? [] : [input.checkout]),
+    `## Tasks this Automation has created\n\n${input.taskLines.length > 0 ? input.taskLines.join('\n') : 'None yet.'}`,
+    input.intake,
+    input.githubIntake,
+    `## Your instructions\n\n${input.instructions.trim()}`,
+  ].join('\n\n')
 }

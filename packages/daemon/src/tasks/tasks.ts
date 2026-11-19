@@ -249,6 +249,7 @@ import {
   subIssueNote,
   withoutTracked,
 } from '../github/sub-issues.ts'
+import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
@@ -6287,7 +6288,7 @@ export function createTasks(options: {
               withOriginal(task, current),
               resolution.workflow,
               task.stage as AgentStageId,
-              store.settings().aiDisclosure,
+              promptGuidance(store.settings()),
               attachmentFile,
               setupReport,
               {
