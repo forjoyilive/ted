@@ -2,6 +2,7 @@ import {
   parseAppRef,
   parseDeviceRequest,
   parseRecordAppRequest,
+  parseRestartAppRequest,
   parseStartAppRequest,
 } from '@ted/protocol'
 import { jsonRoute, type Route } from './route.ts'
@@ -67,7 +68,7 @@ export const appRoutes: Route[] = [
       return [200, await tasks.stopApp(ref, request)]
     },
   }),
-  jsonRoute(parseAppRef, {
+  jsonRoute(parseRestartAppRequest, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/apps\/restart$/,
     async handle({ body: request, params: [ref = ''] }, { tasks }) {

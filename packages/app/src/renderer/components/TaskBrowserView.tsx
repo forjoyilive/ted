@@ -15,7 +15,7 @@ import { readableError, ted } from '../ted.ts'
 import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
 import { CommentFiles } from './CommentFiles.tsx'
-import { OutsideSandboxDialog } from './OutsideSandboxDialog.tsx'
+import { type Confirmed, confirmedOf, OutsideSandboxDialog } from './OutsideSandboxDialog.tsx'
 import { PreviewSizeMenu } from './PreviewSizeMenu.tsx'
 import { Select } from './Select.tsx'
 import styles from './TaskBrowserView.module.css'
@@ -81,10 +81,10 @@ export function TaskBrowserView({
           setHistory({ back: state.canGoBack === true, forward: state.canGoForward === true })
       })
       .catch(() => {})
-  const start = (next: TaskApp) => {
+  const start = (next: TaskApp, confirmed: Confirmed = {}) => {
     onSwitch({ repo: next.repo, name: next.name })
     return ted
-      .startApp(task.id, { repo: next.repo, name: next.name })
+      .startApp(task.id, { repo: next.repo, name: next.name, ...confirmed })
       .catch((error: unknown) => setStatus(readableError(error)))
   }
   const choose = (next: TaskApp) => {
@@ -439,8 +439,10 @@ export function TaskBrowserView({
       {confirming && (
         <OutsideSandboxDialog
           task={task}
-          app={confirming.name}
-          onRun={() => start(confirming).then(() => setConfirming(undefined))}
+          app={confirming}
+          onRun={() =>
+            start(confirming, confirmedOf(confirming)).then(() => setConfirming(undefined))
+          }
           onCancel={() => setConfirming(undefined)}
         />
       )}

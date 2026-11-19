@@ -26,6 +26,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { approveAppsOutsideSandboxBy } from './support/outside-sandbox-approvals.ts'
 
 const image = 'system-images;android-35;google_apis;arm64-v8a'
 const avd = 'Ted_Dev_NB-1_widgets_android'
@@ -117,6 +118,7 @@ async function taskWithWorktree(client: Client, title = '{"steps": [{"endTurn": 
   const task = await client.ok<Task>('POST', '/tasks', { title, factory: 'NB' })
   await client.ok('POST', `/tasks/${task.id}/start`)
   await waitUntil(async () => (await taskNow(client, task)).leadRunId, 'the Task Lead Run')
+  await approveAppsOutsideSandboxBy(client, task)
   return task
 }
 

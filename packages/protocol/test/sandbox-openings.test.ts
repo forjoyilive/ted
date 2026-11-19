@@ -32,7 +32,7 @@ test('unsandboxed items come first and are counted', () => {
   const openings = sandboxOpenings({
     ...none,
     permissions: 'bypass',
-    appsOutsideSandbox: ['Ted Dev'],
+    appsOutsideSandbox: [{ repo: 'ted', app: 'Ted Dev', declaration: 'a'.repeat(64) }],
     sockets: ['/a.sock'],
   })
   expect(openings.map((o) => o.kind)).toEqual(['bypass', 'app-outside', 'socket'])

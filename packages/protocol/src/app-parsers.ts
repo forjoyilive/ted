@@ -1,4 +1,5 @@
-import type { AppRef, RecordAppRequest, StartAppRequest } from './app.ts'
+import type { AppRef, RecordAppRequest, RestartAppRequest, StartAppRequest } from './app.ts'
+import { isObject, isString, type Untyped } from './parse.ts'
 import { RequestValidationError as HttpError } from './validation.ts'
 
 export function parseAppRef(body: unknown): AppRef {
@@ -27,7 +28,21 @@ export function parseStartAppRequest(body: unknown): StartAppRequest {
     ...parseAppRef(body),
     ...(typeof fields.shutDown === 'string' && { shutDown: fields.shutDown }),
     ...(reason !== '' && { reason }),
+    ...confirmedDeclaration(body),
   }
+}
+
+function confirmedDeclaration(body: Untyped): Pick<RestartAppRequest, 'declaration'> {
+  const value = isObject(body) ? body.declaration : undefined
+  if (value === undefined) return {}
+  if (!isString(value) || !/^[0-9a-f]{64}$/.test(value)) {
+    throw new HttpError(400, 'declaration must be the SHA-256 of the App you confirmed')
+  }
+  return { declaration: value }
+}
+
+export function parseRestartAppRequest(body: Untyped): RestartAppRequest {
+  return { ...parseAppRef(body), ...confirmedDeclaration(body) }
 }
 
 export function parseRecordAppRequest(body: unknown): RecordAppRequest {

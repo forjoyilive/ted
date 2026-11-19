@@ -19,6 +19,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { approveAppsOutsideSandboxBy } from './support/outside-sandbox-approvals.ts'
 import { insideTedSandbox } from './support/ted-sandbox.ts'
 
 const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
@@ -212,6 +213,7 @@ describe('Low priority for the work Ted starts', () => {
       JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'Web'] }, { endTurn: true }] }),
     )
     expect(await appLevel(client, task, 'task-lead')).toBe(low)
+    await approveAppsOutsideSandboxBy(client, task)
     await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Web' })
     expect(await appLevel(client, task, 'human')).toBe(own)
   })

@@ -8,7 +8,9 @@ roundTrip(P.parseStartAppRequest, {
   repo: 'ted',
   shutDown: 'simulator',
   reason: 'Try app',
+  declaration: 'a'.repeat(64),
 })
+roundTrip(P.parseRestartAppRequest, { name: 'Dev', repo: 'ted', declaration: 'b'.repeat(64) })
 roundTrip(P.parseRecordAppRequest, { name: 'Dev', repo: 'ted', action: 'start' })
 roundTrip(P.parseRecordAppRequest, { name: 'Dev', repo: 'ted', action: 'stop' })
 roundTrip(P.parseStartSubAgentRequest, {
@@ -365,6 +367,16 @@ rejects(
 rejects(P.parseProfileRequest, { seconds: 121 }, 'whole number from 5 to 120')
 rejects(P.parseProfileRequest, { seconds: '30' }, 'whole number from 5 to 120')
 rejects(P.parseStartAppRequest, { name: 'Dev', shutDown: 2 }, 'shutDown must name')
+rejects(
+  P.parseStartAppRequest,
+  { name: 'Dev', declaration: 'API' },
+  'declaration must be the SHA-256 of the App you confirmed',
+)
+rejects(
+  P.parseRestartAppRequest,
+  { name: 'Dev', declaration: 7 },
+  'declaration must be the SHA-256 of the App you confirmed',
+)
 rejects(P.parseRecordAppRequest, { name: 'Dev', action: 'other' }, 'action must be')
 rejects(P.parseStartSubAgentRequest, { prompt: '' }, 'prompt file is empty')
 rejects(P.parseSendSubAgentRequest, { text: ' ' }, 'text is required')
