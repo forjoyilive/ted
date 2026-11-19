@@ -526,6 +526,11 @@ describe('check runner integration with stub processes', () => {
     ]) {
       copyFileSync(path.join(import.meta.dirname, file), path.join(scripts, file))
     }
+    mkdirSync(path.join(root, 'packages/protocol/src'), { recursive: true })
+    copyFileSync(
+      path.join(import.meta.dirname, '../packages/protocol/src/parse.ts'),
+      path.join(root, 'packages/protocol/src/parse.ts'),
+    )
     writeFileSync(
       path.join(support, 'suite-lock.ts'),
       `
