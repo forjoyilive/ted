@@ -1,11 +1,20 @@
-import { execFile } from 'node:child_process'
+import { type ChildProcess, execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, expect, test } from 'vitest'
-import { discardCopy, makeCopy } from '../src/code-copy.ts'
+import { discardCopy, makeCopy, removeCopy } from '../src/code-copy.ts'
 import type { StoredFactory } from '../src/store/index.ts'
 import type { FactoryRepoEntry } from '../src/tasks/repos.ts'
 import { makeOriginRepo } from './helpers.ts'
@@ -128,4 +137,57 @@ test('discarding a copy leaves a linked folder alone and removes a plain one', a
   await discardCopy([], plain, { root: sandboxRoot, name: 'plain' })
   expect(existsSync(plain)).toBe(false)
   expect(existsSync(path.join(sandboxRoot, 'plain'))).toBe(false)
+})
+
+test('removing a copy ends the processes left in it and its sandbox folder before deleting them', async () => {
+  scratch = await mkdtemp(path.join(tmpdir(), 'ted-code-copy-'))
+  const root = path.join(await realpath(scratch), 'copies')
+  const sandboxRoot = path.join(await realpath(scratch), 'sandbox')
+  await mkdir(path.join(root, 'run-1', 'app'), { recursive: true })
+  await mkdir(path.join(sandboxRoot, 'run-1'), { recursive: true })
+  await mkdir(path.join(root, 'run-2'), { recursive: true })
+  const exited = (child: ChildProcess) =>
+    new Promise<NodeJS.Signals | null>((resolve) =>
+      child.once('exit', (_, signal) => resolve(signal)),
+    )
+  const inCopy = spawn('sleep', ['60'], { stdio: 'ignore' })
+  const inSandbox = spawn('sleep', ['60'], { stdio: 'ignore' })
+  const elsewhere = spawn('sleep', ['60'], { stdio: 'ignore' })
+  const ended = [exited(inCopy), exited(inSandbox)]
+  const running = new Set([inCopy.pid, inSandbox.pid, elsewhere.pid])
+  for (const child of [inCopy, inSandbox, elsewhere])
+    child.once('exit', () => running.delete(child.pid))
+  const seen: boolean[] = []
+  const list = async () => {
+    seen.push(existsSync(path.join(root, 'run-1')))
+    return [
+      { pid: inCopy.pid ?? 0, path: path.join(root, 'run-1', 'app') },
+      { pid: inSandbox.pid ?? 0, path: path.join(sandboxRoot, 'run-1') },
+      { pid: elsewhere.pid ?? 0, path: path.join(root, 'run-2') },
+    ].filter(({ pid }) => running.has(pid))
+  }
+  try {
+    await removeCopy([], root, 'run-1', {
+      sandbox: { root: sandboxRoot, name: 'run-1' },
+      processes: { list, graceMs: 2_000 },
+    })
+    expect(await Promise.all(ended)).toEqual(['SIGTERM', 'SIGTERM'])
+    expect(running.has(elsewhere.pid)).toBe(true)
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every(Boolean)).toBe(true)
+    expect(existsSync(path.join(root, 'run-1'))).toBe(false)
+  } finally {
+    for (const child of [inCopy, inSandbox, elsewhere]) child.kill('SIGKILL')
+  }
+})
+
+test('removing a copy that is already gone looks for no processes', async () => {
+  scratch = await mkdtemp(path.join(tmpdir(), 'ted-code-copy-'))
+  let listed = 0
+  const list = async () => {
+    listed += 1
+    return []
+  }
+  await removeCopy([], scratch, 'missing', { processes: { list } })
+  expect(listed).toBe(0)
 })
