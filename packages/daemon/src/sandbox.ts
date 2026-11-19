@@ -557,7 +557,6 @@ async function linuxReads(
 ): Promise<LinuxReads> {
   const home = await homeFolder(env)
   const reals = new Set<string>()
-  const given = new Map<string, string>()
   const links = new Map<string, string>()
   const add = async (candidate: string, keepHome: boolean) => {
     const asGiven = path.resolve(candidate)
@@ -566,10 +565,7 @@ async function linuxReads(
     if (!keepHome && inside(resolved, home)) return
     if (refused.some((dir) => inside(dir, resolved))) return
     reals.add(resolved)
-    if (asGiven === resolved) return
-    const link = await lstat(asGiven).catch(() => undefined)
-    if (link?.isSymbolicLink() === true) links.set(asGiven, resolved)
-    else given.set(asGiven, resolved)
+    if (asGiven !== resolved) links.set(asGiven, resolved)
   }
   for (const candidate of await readCandidates(env, 'linux', undefined)) await add(candidate, false)
   for (const entry of listed) await add(entry, true)
@@ -578,11 +574,8 @@ async function linuxReads(
     [...links.keys()].some((link) => link !== dest && inside(link, dest))
   const depth = ([, dest]: [string, string]) => dest.split('/').length
   return {
-    binds: [
-      ...[...reals].map((dir): [string, string] => [dir, dir]),
-      ...[...given].map(([dest, source]): [string, string] => [source, dest]),
-    ]
-      .filter(([, dest]) => !shown(dest) && !links.has(dest))
+    binds: [...reals]
+      .flatMap((dir): [string, string][] => (shown(dir) || links.has(dir) ? [] : [[dir, dir]]))
       .sort((x, y) => depth(x) - depth(y)),
     links: [...links].flatMap(([dest, target]): [string, string][] =>
       shown(dest) || reals.has(dest) ? [] : [[target, dest]],

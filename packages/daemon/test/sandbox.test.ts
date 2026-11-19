@@ -1071,6 +1071,31 @@ describe('the folders a sandbox opens', () => {
     expect(joined).not.toContain(path.join(await realpath(tedHome), 'credentials'))
   })
 
+  test('on Linux, a sandbox_reads entry reached through a link is only a link, so a TED_HOME inside it stays hidden', async () => {
+    const holder = path.join(outside, 'holder')
+    await mkdir(path.join(holder, 'inner'), { recursive: true })
+    await rm(tedHome, { recursive: true, force: true })
+    await makeHome(path.join(holder, 'inner'))
+    const userHome = await mkdtemp(path.join(outside, 'home-'))
+    await symlink(holder, path.join(userHome, 'x'))
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', HOME: userHome }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), reads: ['~/x/inner'] })
+    const realInner = await realpath(path.join(holder, 'inner'))
+    const alias = path.join(userHome, 'x', 'inner')
+    const after = (flag: string) =>
+      argv.flatMap((arg, i) => (arg === flag ? [`${argv[i + 1]} ${argv[i + 2]}`] : []))
+    expect(after('--ro-bind')).toContain(`${realInner} ${realInner}`)
+    expect(after('--ro-bind').some((pair) => pair.endsWith(` ${alias}`))).toBe(false)
+    expect(after('--symlink')).toContain(`${realInner} ${alias}`)
+    expect(argv.lastIndexOf(await realpath(tedHome))).toBeGreaterThan(argv.indexOf(realInner))
+  })
+
   test('on Linux, a scope that hides protected folders covers each one that exists in HOME', async () => {
     const userHome = await mkdtemp(path.join(outside, 'home-'))
     await mkdir(path.join(userHome, 'Documents'))
