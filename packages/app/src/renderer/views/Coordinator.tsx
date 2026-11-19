@@ -109,7 +109,7 @@ export function CoordinatorStart({
             <AgentHeading agent={agent} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
-          {lead && <PiAutoNote agent={lead.agent} factoryId={factory.id} alwaysWaits />}
+          {lead && <PiAutoNote agent={lead.agent} factoryId={factory.id} alwaysAuto />}
           <AgentDescriptionLine agent={agent} />
         </header>
         {isCoordinator(agent) ? (

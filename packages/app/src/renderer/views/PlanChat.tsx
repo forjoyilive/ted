@@ -298,7 +298,7 @@ function NewPlanChat({
             <span className={styles.spacer} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
-          {lead && <PiAutoNote agent={lead.agent} factoryId={factory.id} alwaysWaits />}
+          {lead && <PiAutoNote agent={lead.agent} factoryId={factory.id} alwaysAuto />}
           {picked && <AgentDescriptionLine agent={agent} />}
         </header>
         <div className={styles.intro}>

@@ -319,6 +319,52 @@ function ApiCostSection({
   )
 }
 
+export function PiSandboxSection({
+  health,
+  allowed,
+  onAllow,
+}: {
+  health: AgentHealth
+  allowed: boolean
+  onAllow: (allowed: boolean) => void
+}) {
+  const problem = health.sandboxProblem
+  return (
+    <div className={styles.section}>
+      <h3 className={styles.sectionTitle}>Sandbox</h3>
+      {problem === undefined ? (
+        <p className={styles.line}>
+          In Auto Factories, Pi runs inside Ted’s sandbox. It can change only the Task’s worktrees
+          and its own Run folder, and it can’t read your personal folders. Network stays on.
+        </p>
+      ) : (
+        <>
+          <div className={styles.planNotice} role="note" aria-label="Pi sandbox">
+            <p className={styles.line}>Ted can’t sandbox Pi here: {problem}</p>
+            <p className={styles.line}>
+              Without a sandbox, Pi runs every command in Auto Factories without asking, like in a
+              Bypass Factory.
+            </p>
+            <div className={styles.switchRow}>
+              <Switch
+                label="Run Pi without a sandbox in Auto Factories"
+                checked={allowed}
+                onChange={onAllow}
+              />
+              <span>Run Pi without a sandbox in Auto Factories</span>
+            </div>
+          </div>
+          <p className={styles.line}>
+            {allowed
+              ? 'You allowed Pi to run without a sandbox. Turn this off to make Pi work wait again.'
+              : 'Pi work in Auto Factories waits until you turn this on.'}
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
 function AgentCard({
   health,
   enabled,
@@ -333,6 +379,8 @@ function AgentCard({
   onBilling,
   planAccepted,
   onAcceptPlan,
+  piUnsandboxedAllowed,
+  onAllowPiUnsandboxed,
   apiCost,
   checking,
   error,
@@ -351,6 +399,8 @@ function AgentCard({
   onBilling: (billing: Billing) => void
   planAccepted: boolean
   onAcceptPlan: () => void
+  piUnsandboxedAllowed: boolean
+  onAllowPiUnsandboxed: (allowed: boolean) => void
   checking: boolean
   error: string | undefined
 }) {
@@ -479,6 +529,13 @@ function AgentCard({
             />
           )}
           <PlanUsageSection health={health} />
+          {health.agent === 'pi' && (
+            <PiSandboxSection
+              health={health}
+              allowed={piUnsandboxedAllowed}
+              onAllow={onAllowPiUnsandboxed}
+            />
+          )}
         </>
       )}
     </section>
@@ -678,6 +735,10 @@ export function AgentsPage({ settings }: SettingsPageProps) {
               void ted
                 .updateSettings({ antigravityPlanAccepted: true })
                 .catch((error: unknown) => console.error(error))
+            }
+            piUnsandboxedAllowed={settings.piUnsandboxedAllowed}
+            onAllowPiUnsandboxed={(piUnsandboxedAllowed) =>
+              void ted.updateSettings({ piUnsandboxedAllowed }).catch(console.error)
             }
             checking={checking}
             error={errors[h.agent]}
