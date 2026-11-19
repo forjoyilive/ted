@@ -146,7 +146,7 @@ export function createSandbox(options: {
           const saves = path.join(found, 'TemporaryItems')
           if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
           const [first = ''] = path.relative(found, paths.tedHome).split(path.sep)
-          if (!inside(paths.tedHome, found) && !swiftpmTempName.test(first)) paths.userTemp = found
+          if (!inside(paths.tedHome, found) && !xcodeTempNames.test(first)) paths.userTemp = found
         }
       }
       const sockets = await allowedSockets(scope.sockets ?? [], env)
@@ -223,7 +223,7 @@ interface SandboxPaths {
 }
 
 const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService'
-const swiftpmTempName = /^TemporaryDirectory\.[A-Za-z0-9]{6}$/
+const xcodeTempNames = /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8})$/
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -340,9 +340,10 @@ function seatbeltArgs(
     ...(paths.userTemp === undefined
       ? []
       : [
-          // SwiftPM makes these with mkdtemp("TemporaryDirectory.XXXXXX") in the per-user temp folder, ignoring TMPDIR.
-          // Seatbelt regexes have no {n} repeat, so the six characters are written out.
+          // SwiftPM (TemporaryDirectory.XXXXXX) and Swift Build (swbuild.tmp.XXXXXXXX) mkdtemp in the per-user temp folder, ignoring TMPDIR.
+          // Seatbelt regexes have no {n} repeat, so the random characters are written out.
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
+          `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
         ]),
     '(deny appleevent-send)',
     '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
