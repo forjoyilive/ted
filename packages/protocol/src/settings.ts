@@ -133,6 +133,7 @@ export interface MachineSettings {
   linearSync: boolean
   asanaSync: boolean
   githubIssueSync: boolean
+  aiDisclosure: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
   trackerSyncGroups: TrackerGroupLists
@@ -197,6 +198,7 @@ export const defaultMachineSettings: MachineSettings = {
   linearSync: true,
   asanaSync: true,
   githubIssueSync: false,
+  aiDisclosure: true,
   linearSyncTeams: {},
   linearSyncDeclined: {},
   trackerSyncGroups: {},

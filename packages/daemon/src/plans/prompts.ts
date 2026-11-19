@@ -3,7 +3,7 @@ import type { AgentCommand, AgentPower } from '@ted/protocol/agent-files'
 import { chatCommandLines, proposalFormat, roundFormat } from '../chats/powers.ts'
 import type { StoredFactory } from '../store/index.ts'
 import type { FactoryRepoEntry } from '../tasks/repos.ts'
-import { writingGuidance } from '../writing.ts'
+import { disclosure, writingGuidance } from '../writing.ts'
 
 export const planOpening = '## What the human wants to plan'
 
@@ -44,6 +44,7 @@ export function taskDetachedNote(displayId: string, reason: string): string {
 export function plannerInstructions(input: {
   role: string
   powers: readonly AgentPower[]
+  disclose: boolean
   factory: StoredFactory
   entries: readonly FactoryRepoEntry[]
   folder: string
@@ -51,7 +52,7 @@ export function plannerInstructions(input: {
   earlier?: string
   commands?: readonly AgentCommand[]
 }): string {
-  const { role, powers, factory, entries, folder, task, earlier } = input
+  const { role, powers, disclose, factory, entries, folder, task, earlier } = input
   const ask = powers.includes('ask')
   const propose = powers.includes('propose_tasks')
   const run = chatCommandLines(powers, input.commands)
@@ -62,6 +63,7 @@ export function plannerInstructions(input: {
   return [
     role.trim(),
     writingGuidance,
+    ...disclosure(disclose),
     `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in Ted. Use Ted commands for Task workflow actions.`,
     [
       `This chat is in the ${factory.name} Factory.${powers.includes('read_code') ? ` ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.` : ''}`,

@@ -9,7 +9,7 @@ import {
   isLive,
   needsSlot,
 } from '../apps.ts'
-import { useEmulators, useSimulators, useTaskApps } from '../data.ts'
+import { useEmulators, useSimulators, useTaskAppsState } from '../data.ts'
 import { isPromise } from '../pending-action.ts'
 import { useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -18,6 +18,7 @@ import styles from './Apps.module.css'
 import { Button } from './Button.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
 import { CameraIcon, OpenIcon, PlayIcon, RestartIcon, StopIcon } from './icons.tsx'
+import { Loading, LoadingError } from './Loading.tsx'
 import { useOutsideSandbox } from './OutsideSandboxDialog.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 
@@ -36,10 +37,21 @@ export function AppsSection({
   shown: ShownApp | undefined
   onOpenApp: (app: ShownApp) => void
 }) {
-  const apps = useTaskApps(task.id)
+  const { apps, error, retry } = useTaskAppsState(task.id)
   const simulators = useSimulators()
   const emulators = useEmulators()
   const hosted = hostedPreviews(task)
+  if (apps === undefined) {
+    return (
+      <DetailsSection id="apps">
+        {error === undefined ? (
+          <Loading label="Loading Apps…" />
+        ) : (
+          <LoadingError error={`Couldn’t load Apps: ${error}`} retry={retry} />
+        )}
+      </DetailsSection>
+    )
+  }
   if (apps.length === 0 && hosted.length === 0) {
     return (
       <DetailsSection id="apps">

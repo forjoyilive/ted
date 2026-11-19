@@ -370,6 +370,7 @@ export function createPlans(options: PlansOptions): Plans {
     return `${plannerInstructions({
       role: agent.instructions,
       powers: agent.powers,
+      disclose: store.settings().aiDisclosure,
       factory,
       entries,
       folder: folderOf(plan.id),

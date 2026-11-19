@@ -476,6 +476,7 @@ export const settingParsers: {
   linearSync: onOff('linearSync'),
   asanaSync: onOff('asanaSync'),
   githubIssueSync: onOff('githubIssueSync'),
+  aiDisclosure: onOff('aiDisclosure'),
   lowPriorityWork: onOff('lowPriorityWork'),
   antigravityPlanAccepted: onOff('antigravityPlanAccepted'),
   startNewTasks: onOff('startNewTasks'),
