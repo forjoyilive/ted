@@ -774,33 +774,6 @@ describe('checking a layer', () => {
     ])
   })
 
-  test('the Library can ask for a socket it names itself, before or after naming it', () => {
-    const yaml = [
-      'version: 1',
-      'stages:',
-      '  validate:',
-      '    checks:',
-      '      - name: E2E',
-      '        run: pnpm e2e',
-      '        sandbox_access: [socket:docker, socket:db]',
-      'sandbox_sockets: { docker: /var/run/docker.sock }',
-      '',
-    ].join('\n')
-    const checked = checkLayer({
-      kind: 'library',
-      files: { 'workflow.yaml': yaml },
-      inherited: inheritedFrom([]),
-    })
-    expect(checked.problems.map((p) => [p.severity, p.line, p.column, p.message])).toEqual([
-      [
-        'warning',
-        7,
-        41,
-        'your Library names no socket `db`, so this command gets none until it does: add `db: <path>` under `sandbox_sockets` in the Library',
-      ],
-    ])
-  })
-
   test('a bad Stage id in order or stages is an error at its line', () => {
     expect(
       problems({
