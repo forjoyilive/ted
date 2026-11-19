@@ -16,7 +16,12 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { createSandbox, SandboxUnavailable, unixSocketPaths } from '../src/sandbox.ts'
+import {
+  createSandbox,
+  SandboxUnavailable,
+  unixSocketPaths,
+  withSandboxEnv,
+} from '../src/sandbox.ts'
 import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const execFileAsync = promisify(execFile)
@@ -62,7 +67,7 @@ async function inSandbox(script: string, sockets: string[] = [], home?: string) 
   const [command, ...args] = argv
   return execFileAsync(command, [...args, script], {
     cwd: worktree,
-    env: { ...process.env, ...env },
+    env: withSandboxEnv(process.env, env),
   }).then(
     ({ stdout }) => ({ code: 0, stdout }),
     (error: { code?: number; stdout?: string }) => ({
@@ -124,7 +129,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(worktree, 'a.txt')),
         'echo x > "$TMPDIR/b.txt" && echo wrote',
         'mkdir -p "$npm_config_cache" && echo x > "$npm_config_cache/c" && echo wrote',
-        'echo x > "$TED_DERIVED_DATA/d" && test -d "$TED_SWIFTPM_CACHE" && test -d "$CLANG_MODULE_CACHE_PATH" && test "$TED_SANDBOX" = 1 && test "$MAC_CHROMIUM_TMPDIR" = "$TMPDIR" && echo wrote',
+        'echo x > "$TED_DERIVED_DATA/d" && test -d "$TED_SWIFTPM_CACHE" && test -d "$CLANG_MODULE_CACHE_PATH" && test "$TED_SANDBOX" = 1 && test "$MAC_CHROMIUM_TMPDIR" = "$TMPDIR" && case "$JAVA_TOOL_OPTIONS" in *"-Djava.io.tmpdir=\\"$TMPDIR\\"") echo wrote ;; esac',
         'echo x > "$CP_HOME_DIR/e" && echo wrote',
         `mkdir '${xcodeSave}' && ${tryWrite(path.join(xcodeSave, 'x'))}`,
         `mkdir '${assetSave}' && ${tryWrite(path.join(assetSave, 'x'))}`,
@@ -960,6 +965,27 @@ describe('the folders a sandbox opens', () => {
         ].join('\n'),
       ),
     ).toEqual(['/run/docker.sock', '/home/a b/agent.sock', '/home/u/svc//./c.sock'])
+  })
+})
+
+describe('the environment a sandbox gives', () => {
+  test('the JVM’s temp folder is the sandbox’s own, after any JAVA_TOOL_OPTIONS already set', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', JAVA_TOOL_OPTIONS: '-Xmx1g' }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const { env } = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    const own = `-Djava.io.tmpdir="${env.TMPDIR}"`
+    expect(env.JAVA_TOOL_OPTIONS).toBe(own)
+    expect(withSandboxEnv({ JAVA_TOOL_OPTIONS: '-Xmx1g' }, env).JAVA_TOOL_OPTIONS).toBe(
+      `-Xmx1g ${own}`,
+    )
+    expect(withSandboxEnv({ JAVA_TOOL_OPTIONS: ' ' }, env).JAVA_TOOL_OPTIONS).toBe(own)
+    expect(withSandboxEnv({}, env).JAVA_TOOL_OPTIONS).toBe(own)
+    expect(withSandboxEnv({ JAVA_TOOL_OPTIONS: '-Xmx1g' }, {}).JAVA_TOOL_OPTIONS).toBe('-Xmx1g')
   })
 })
 
