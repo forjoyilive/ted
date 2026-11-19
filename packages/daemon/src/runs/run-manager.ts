@@ -30,13 +30,7 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import {
-  antigravityPlanNotice,
-  edition,
-  filterTedEnv,
-  isBilledAgent,
-  runTokenEnv,
-} from '@ted/protocol'
+import { antigravityPlanNotice, filterTedEnv, isBilledAgent, runTokenEnv } from '@ted/protocol'
 import { isInteger, isObject, parseJson } from '@ted/protocol/parse'
 import { chatToolPolicy } from '@ted/protocol/run'
 import { AgentDisabledError, piAutoHold } from '../agent-eligibility.ts'
@@ -49,6 +43,7 @@ import {
   type UsageSignal,
 } from '../agents/agent.ts'
 import type { AgentLaunch, Agents } from '../agents/index.ts'
+import { piNeedsBypass } from '../agents/pi.ts'
 import { RequestError } from '../errors.ts'
 import type { MakeDirectory } from '../files.ts'
 import type { IdleTimer } from '../idle.ts'
@@ -247,14 +242,15 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   // Every launch of an agent passes here, so nothing starts Antigravity on a Google plan
   // before the human has accepted Google’s terms notice, whatever agent health last said,
-  // and nothing starts Pi, which has no sandbox, for a Task outside a Bypass Factory.
+  // and nothing starts Pi, which has no sandbox, outside a Bypass Factory.
   const launchBilling = (
     kind: AgentKind,
     runId: string,
     taskId: string | undefined,
   ): Billing | undefined => {
     const settings = store.settings()
-    if (kind === 'pi' && !piMayLaunch(runId, taskId)) throw new RequestError(409, piAutoHold)
+    const piRefused = kind === 'pi' ? piRefusal(runId, taskId) : undefined
+    if (piRefused !== undefined) throw new RequestError(409, piRefused)
     if (!isBilledAgent(kind)) return undefined
     if (
       kind === 'antigravity' &&
@@ -265,8 +261,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     return settings.billing[kind]
   }
 
-  // A Run with no owner comes only from the dev Run route, which only Ted Dev may use for Pi.
-  const piMayLaunch = (runId: string, taskId: string | undefined): boolean => {
+  const piRefusal = (runId: string, taskId: string | undefined): string | undefined => {
     const firing = store.automations.firing(runId)
     const owner =
       taskId !== undefined
@@ -276,8 +271,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           store.plans.get(runId) ??
           store.automationDrafts.get(runId) ??
           (firing && { factoryId: store.automations.get(firing.automationId)?.factoryId }))
-    if (owner === undefined) return edition === 'dev'
+    if (owner === undefined) return piNeedsBypass
     return owner.factoryId !== undefined && factoryPermissions(store, owner.factoryId) === 'bypass'
+      ? undefined
+      : piAutoHold
   }
 
   const environment = (): NodeJS.ProcessEnv => {

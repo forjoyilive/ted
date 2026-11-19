@@ -8,7 +8,7 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { piAutoHold, piModelHold } from '../src/agent-eligibility.ts'
+import { piAlwaysAutoHold, piAutoHold, piModelHold } from '../src/agent-eligibility.ts'
 import type { MakeDirectory } from '../src/files.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -242,7 +242,7 @@ test('disabled Task, Planning and Coordinator choices wait without blocking enab
   await waitUntil(async () => (await client.getPlan(plan.id)).plan.runId, 're-enabled planner')
 })
 
-test('Pi work waits in an Auto Factory, then until Pi has a model, and starts once the cause clears', async () => {
+test('Pi Task work waits in an Auto Factory, then until Pi has a model, and starts once the cause clears; Pi planning and Coordinator chats keep waiting', async () => {
   const agentDir = path.join(scratch, 'pi-agent')
   const before = process.env.PI_CODING_AGENT_DIR
   process.env.PI_CODING_AGENT_DIR = agentDir
@@ -266,15 +266,15 @@ test('Pi work waits in an Auto Factory, then until Pi has a model, and starts on
       async () => (await holdOf()) === piAutoHold || undefined,
       'the Task to wait for Bypass',
     )
-    expect((await client.getPlan(plan.id)).plan.paused).toBe(piAutoHold)
-    expect((await client.coordinator(chat.id)).error).toBe(piAutoHold)
+    expect((await client.getPlan(plan.id)).plan.paused).toBe(piAlwaysAutoHold)
+    expect((await client.coordinator(chat.id)).error).toBe(piAlwaysAutoHold)
 
     await client.setFactoryPermissions(factory.id, 'bypass', true)
     await waitUntil(
       async () => (await holdOf()) === piModelHold || undefined,
       'the Task to wait for a Pi model',
     )
-    expect((await client.getPlan(plan.id)).plan.paused).toBe(piModelHold)
+    expect((await client.getPlan(plan.id)).plan.paused).toBe(piAlwaysAutoHold)
     expect((await taskOf(client, task.id)).leadRunId).toBeUndefined()
 
     await mkdir(agentDir, { recursive: true })
@@ -288,7 +288,9 @@ test('Pi work waits in an Auto Factory, then until Pi has a model, and starts on
       'the Pi Task Lead to start',
     )
     expect((await client.getRun(runId)).run.agent).toBe('pi')
-    await waitUntil(async () => (await client.getPlan(plan.id)).plan.runId, 'the Pi planner')
+    expect((await client.getPlan(plan.id)).plan.runId).toBeUndefined()
+    expect((await client.getPlan(plan.id)).plan.paused).toBe(piAlwaysAutoHold)
+    expect((await client.coordinator(chat.id)).error).toBe(piAlwaysAutoHold)
   } finally {
     if (before === undefined) delete process.env.PI_CODING_AGENT_DIR
     else process.env.PI_CODING_AGENT_DIR = before

@@ -1339,9 +1339,10 @@ test.skipIf(!realAntigravity).each([false, true])(
 
 describe('Pi', () => {
   const agent = piAgent('/nowhere/pi')
+  const bypass = { ...run, permissions: 'bypass' as const }
 
   test('launches RPC mode with its sessions in the Run folder, the model, and the effort as thinking', () => {
-    const launch = agent.launch({ ...run, model: 'ollama/gemma4:12b', effort: 'ultra' })
+    const launch = agent.launch({ ...bypass, model: 'ollama/gemma4:12b', effort: 'ultra' })
     expect(launch.args).toEqual([
       '--mode',
       'rpc',
@@ -1357,9 +1358,9 @@ describe('Pi', () => {
     expect(launch.driver).toMatch(/pi-driver\.ts$/)
     expect(JSON.parse(launch.input)).toEqual({ prompt: 'Carry on' })
     for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const)
-      expect(after(agent.launch({ ...run, effort }).args, '--thinking')).toBe(effort)
-    expect(agent.launch(run).args).not.toContain('--model')
-    expect(() => agent.launch({ ...run, model: '--unsafe' })).toThrow('model name')
+      expect(after(agent.launch({ ...bypass, effort }).args, '--thinking')).toBe(effort)
+    expect(agent.launch(bypass).args).not.toContain('--model')
+    expect(() => agent.launch({ ...bypass, model: '--unsafe' })).toThrow('model name')
   })
 
   test('a tool-free chat starts Pi without tools, MCP, extensions, skills or the repo’s files', () => {
@@ -1371,9 +1372,14 @@ describe('Pi', () => {
     expect(args).not.toContain('--approve')
   })
 
+  test('refuses to start with tools outside Bypass, because Pi has no sandbox', () => {
+    expect(() => agent.launch(run)).toThrow('Bypass')
+    expect(() => agent.launch({ ...run, tools: 'none' })).not.toThrow()
+  })
+
   test('keeps Pi’s own settings folder but not credential variables', () => {
     const { env } = agent.launch({
-      ...run,
+      ...bypass,
       env: { PATH: '/bin', PI_CODING_AGENT_DIR: '/pi', OPENAI_API_KEY: 'sk-test' },
     })
     expect(env).toEqual({ PATH: '/bin', PI_CODING_AGENT_DIR: '/pi' })
@@ -1385,11 +1391,13 @@ describe('Pi', () => {
       mkdirSync(path.join(runDir, 'pi-sessions'))
       const file = path.join(runDir, 'pi-sessions', '2026-11-18T00-00-00-000Z_abc-123.jsonl')
       writeFileSync(file, '{}\n')
-      const resumed = agent.launch({ ...run, runDir, prompt: '', resume: 'abc-123' })
+      const resumed = agent.launch({ ...bypass, runDir, prompt: '', resume: 'abc-123' })
       expect(after(resumed.args, '--session')).toBe(file)
       expect(resumed.sessionId).toBe('abc-123')
-      expect(after(agent.launch({ ...run, runDir, resume: 'gone' }).args, '--session')).toBe('gone')
-      expect(() => agent.launch({ ...run, runDir, resume: '../elsewhere' })).toThrow('session')
+      expect(after(agent.launch({ ...bypass, runDir, resume: 'gone' }).args, '--session')).toBe(
+        'gone',
+      )
+      expect(() => agent.launch({ ...bypass, runDir, resume: '../elsewhere' })).toThrow('session')
     } finally {
       rmSync(runDir, { recursive: true, force: true })
     }

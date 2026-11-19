@@ -364,6 +364,7 @@ export function createCoordinators(options: {
       factoryId: c.factoryId,
       model: c.lead.model,
       agents,
+      alwaysAuto: true,
     })
   const agentOf = (c: Pick<StoredCoordinator, 'id'>): StoredChatAgent =>
     store.chats.agent(c.id) ?? builtInAgent(options.builtInAgents, 'coordinator')

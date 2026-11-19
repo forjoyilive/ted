@@ -139,6 +139,7 @@ export function createPlans(options: PlansOptions): Plans {
       factoryId: plan.factoryId,
       model: plan.model,
       agents: options.agents,
+      alwaysAuto: true,
     })
   const saved = store.plans
   const retrying = new Set<string>()

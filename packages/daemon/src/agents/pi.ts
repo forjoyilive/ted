@@ -42,13 +42,16 @@ export function piSessionFile(sessions: string, sessionId: string): string | und
   }
 }
 
+export const piNeedsBypass = 'Pi has no sandbox, so it runs with tools only in a Bypass Factory'
+
 const modelMissing = /model.*(not found|unknown|unavailable|not available|no such)/i
 
 export function piAgent(binary: string): Agent {
   return {
     kind: 'pi',
     binary,
-    launch({ prompt, runDir, env, resume, model, effort, tools }) {
+    launch({ prompt, runDir, env, resume, model, effort, permissions, tools }) {
+      if (tools === undefined && permissions !== 'bypass') throw new Error(piNeedsBypass)
       if (model !== undefined && !isModelName(model))
         throw new Error(`“${model}” isn’t a model name`)
       if (resume !== undefined && !/^[\w-]+$/.test(resume))

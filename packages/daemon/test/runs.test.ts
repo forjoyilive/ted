@@ -1,20 +1,23 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { type RunChat, readDaemonInfo } from '@ted/protocol'
+import { type DaemonClient, type RunChat, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { hostProtocol } from '../src/runs/host-files.ts'
 import {
   api,
+  appClient,
   assistantTexts,
   hostRecords,
+  hostsStarted,
   isAlive,
   killRunHosts,
+  makeOriginRepo,
   makeTempHome,
   spawnDaemonProcess,
   stubClaudePath,
@@ -474,11 +477,34 @@ test('the host passes the Task workspace to new and resumed Antigravity sessions
   ])
 })
 
-test('a Pi Run streams its chat, takes a follow-up, stops a turn, resumes its session and counts tokens', async () => {
-  daemon = await startDaemon({ home, version: '9.9.9', piBin: stubPiPath })
-  const client = api(daemon.port, { appKey: daemon.appToken })
-  const run = await client.startRun([], cwd, 'pi')
-  const chat = async () => (await client.call('GET', `/runs/${run.id}/chat`)).body as RunChat
+async function startPiFactory(piBin: string) {
+  daemon = await startDaemon({ home, version: '9.9.9', piBin, nudgeAfterMs: 600_000 })
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('Missing daemon info')
+  const client = appClient(info, daemon.appToken)
+  const factory = await client.addFactory({ repo: await makeOriginRepo(cwd), key: 'NB' })
+  await client.setFactoryPermissions(factory.id, 'bypass', true)
+  return { client, raw: api(daemon.port, { appKey: daemon.appToken }) }
+}
+
+const piLeadOf = (client: DaemonClient, taskId: string, timeoutMs?: number) =>
+  waitUntil(
+    async () => (await client.listTasks()).find((task) => task.id === taskId)?.leadRunId,
+    'the Pi Task Lead to start',
+    timeoutMs,
+  )
+
+test('a Pi Task Lead in a Bypass Factory streams its chat, takes a follow-up, stops a turn, resumes its session and counts tokens', async () => {
+  const { client, raw } = await startPiFactory(stubPiPath)
+  await expect(raw.startRun([], cwd, 'pi')).rejects.toThrow('only in a Bypass Factory')
+  const task = await client.createTask({
+    factory: 'NB',
+    title: 'Talk with Pi',
+    lead: { agent: 'pi', model: 'stub/model-1' },
+    start: true,
+  })
+  const runId = await piLeadOf(client, task.id)
+  const chat = async () => (await raw.call('GET', `/runs/${runId}/chat`)).body as RunChat
   const said = (text: string) =>
     waitUntil(async () => {
       const now = await chat()
@@ -488,12 +514,12 @@ test('a Pi Run streams its chat, takes a follow-up, stops a turn, resumes its se
         : undefined
     }, `Pi to answer “${text}”`)
   const lines = async (file: string) =>
-    (await readFile(path.join(cwd, file), 'utf8'))
+    (await readFile(path.join(home, 'runs', runId, file), 'utf8'))
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line))
 
-  const first = await said('Hello from Pi')
+  const first = await said('Hello from Pi')
   expect(first.items).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ kind: 'tool', tool: 'Thinking', output: 'Thinking it over' }),
@@ -514,85 +540,102 @@ test('a Pi Run streams its chat, takes a follow-up, stops a turn, resumes its se
     'rpc',
     '--approve',
     '--session-dir',
-    path.join(home, 'runs', run.id, 'pi-sessions'),
+    path.join(home, 'runs', runId, 'pi-sessions'),
   ])
-  const sessionId = (await client.getRun(run.id)).run.sessionId
+  expect(launched.argv[launched.argv.indexOf('--model') + 1]).toBe('stub/model-1')
+  const sessionId = (await client.getRun(runId)).run.sessionId
   expect(sessionId).toMatch(/^[0-9a-f-]{36}$/)
 
-  await client.call('POST', `/runs/${run.id}/messages`, { text: 'Follow up' })
-  expect((await said('from Pi: Follow up')).run.tokens).toBe(68)
+  await raw.call('POST', `/runs/${runId}/messages`, { text: 'PI_FOLLOW_UP' })
+  expect((await said('from Pi: PI_FOLLOW_UP')).run.tokens).toBe(68)
 
-  await client.call('POST', `/runs/${run.id}/messages`, { text: 'STUB_WAIT for a stop' })
+  await raw.call('POST', `/runs/${runId}/messages`, { text: 'STUB_WAIT for a stop' })
   await waitUntil(
     async () =>
       (await lines('stub-pi-commands.jsonl')).some((c) => c.message?.includes('STUB_WAIT')) ||
       undefined,
     'Pi to start the long turn',
   )
-  expect((await client.call('POST', `/runs/${run.id}/interrupt`)).status).toBe(200)
+  expect((await raw.call('POST', `/runs/${runId}/interrupt`)).status).toBe(200)
   await waitUntil(
-    async () => (await client.getRun(run.id)).run.state === 'idle' || undefined,
+    async () => (await client.getRun(runId)).run.state === 'idle' || undefined,
     'Pi to stop the turn',
   )
   expect((await lines('stub-pi-commands.jsonl')).map((c) => c.type)).toEqual(
     expect.arrayContaining(['clear_queue', 'abort']),
   )
 
-  expect((await client.call('POST', `/runs/${run.id}/restart`)).status).toBe(200)
+  expect((await raw.call('POST', `/runs/${runId}/restart`)).status).toBe(200)
   await waitUntil(
     async () => (await lines('stub-pi-launches.jsonl')).length === 2 || undefined,
     'Pi to start again',
   )
   const resumed = (await lines('stub-pi-launches.jsonl'))[1].argv
   expect(resumed[resumed.indexOf('--session') + 1]).toMatch(new RegExp(`_${sessionId}\\.jsonl$`))
-  await client.call('POST', `/runs/${run.id}/messages`, { text: 'After restart' })
-  await said('from Pi: After restart')
-  expect((await client.getRun(run.id)).run.sessionId).toBe(sessionId)
+  await raw.call('POST', `/runs/${runId}/messages`, { text: 'PI_AFTER_RESTART' })
+  await said('from Pi: PI_AFTER_RESTART')
+  expect((await client.getRun(runId)).run.sessionId).toBe(sessionId)
 }, 90_000)
 
 const realPi = process.env.TED_REAL_PI_BIN
 
 test.skipIf(!realPi)(
-  'a real Pi answers, takes a follow-up and resumes its session after a restart',
+  'a real Pi side chat in a Bypass Factory answers, takes a follow-up and resumes its session after a restart',
   async () => {
     if (!realPi) throw new Error('Missing Pi path')
     const before = process.env.PI_CODING_AGENT_DIR
     process.env.PI_CODING_AGENT_DIR = path.join(homedir(), '.pi', 'agent')
     try {
-      daemon = await startDaemon({ home, version: '9.9.9', piBin: realPi })
-      const client = api(daemon.port, { appKey: daemon.appToken })
-      const res = await client.call('POST', '/dev/runs', {
-        prompt: 'Reply with one short sentence and use no tools.',
-        cwd,
-        agent: 'pi',
+      const started = await startPiFactory(realPi)
+      let client = started.client
+      const task = await client.createTask({
+        factory: 'NB',
+        title: 'Say hello',
+        lead: { agent: 'pi' },
+        start: true,
       })
-      expect(res.status).toBe(201)
-      const run = res.body as { id: string }
-      const answers = async () =>
-        ((await client.call('GET', `/runs/${run.id}/chat`)).body as RunChat).items.filter(
-          (item) => item.kind === 'agent' && item.text.trim() !== '',
-        ).length
+      const leadId = await piLeadOf(client, task.id, 120_000)
+      await hostsStarted(home)
+      if ((await client.getRun(leadId)).run.state === 'working')
+        await started.raw.call('POST', `/runs/${leadId}/interrupt`)
+
+      const opened = await client.openSideChat(leadId)
       const answered = (count: number, label: string) =>
         waitUntil(
-          async () =>
-            (await client.getRun(run.id)).run.state === 'idle' && (await answers()) >= count
-              ? true
-              : undefined,
+          async () => {
+            const side = await client.getSideChat(leadId)
+            if (side?.state === 'failed') throw new Error(side.error)
+            const answers = (side?.chat?.items ?? []).filter(
+              (item) => item.kind === 'agent' && item.text.trim() !== '',
+            )
+            return side?.state === 'ready' && answers.length >= count ? true : undefined
+          },
           label,
           120_000,
         )
+      await client.sendSideChat(leadId, 'Reply with one short sentence.')
       await answered(1, 'Pi to answer')
-      await client.call('POST', `/runs/${run.id}/messages`, { text: 'Say that again in French.' })
+      await client.sendSideChat(leadId, 'Say that again in French.')
       await answered(2, 'Pi to answer the follow-up')
-      const sessionId = (await client.getRun(run.id)).run.sessionId
-      expect((await client.call('POST', `/runs/${run.id}/restart`)).status).toBe(200)
-      await client.call('POST', `/runs/${run.id}/messages`, { text: 'And now in German.' })
-      await answered(3, 'Pi to answer after resuming')
-      expect((await client.getRun(run.id)).run.sessionId).toBe(sessionId)
+      const sessionId = (await client.getRun(opened.id)).run.sessionId
+      expect(sessionId).toBeDefined()
+
+      await daemon?.stop()
+      daemon = await startDaemon({ home, version: '9.9.9', piBin: realPi, nudgeAfterMs: 600_000 })
+      const info = await readDaemonInfo(home)
+      if (!info) throw new Error('Missing daemon info')
+      client = appClient(info, daemon.appToken)
+      await client.sendSideChat(leadId, 'And now in German.')
+      await answered(3, 'Pi to answer after the restart')
+      expect((await client.getRun(opened.id)).run.sessionId).toBe(sessionId)
+      const sessions = (await readdir(path.join(home, 'runs', opened.id, 'pi-sessions'))).filter(
+        (name) => name.endsWith('.jsonl'),
+      )
+      expect(sessions).toEqual([expect.stringMatching(new RegExp(`_${sessionId}\\.jsonl$`))])
     } finally {
       if (before === undefined) delete process.env.PI_CODING_AGENT_DIR
       else process.env.PI_CODING_AGENT_DIR = before
     }
   },
-  400_000,
+  600_000,
 )

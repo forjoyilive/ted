@@ -446,6 +446,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       factoryId: automation?.factoryId,
       model: automation?.model,
       agents,
+      alwaysAuto: true,
     })
   }
 
@@ -683,6 +684,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         factoryId: automation.factoryId,
         model: automation.model,
         agents,
+        alwaysAuto: true,
       }) ??
       store.agentPauses()[automation.agent]
     )

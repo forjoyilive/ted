@@ -41,9 +41,10 @@ if (argv.includes('--list-models')) {
   process.exit(0)
 }
 
-appendFileSync('stub-pi-launches.jsonl', `${JSON.stringify({ argv })}\n`)
-
 const sessionDir = flag('--session-dir') ?? '.'
+const runDir = path.dirname(path.resolve(sessionDir))
+appendFileSync(path.join(runDir, 'stub-pi-launches.jsonl'), `${JSON.stringify({ argv })}\n`)
+
 const opened = flag('--session')
 const sessionId = opened ? path.basename(opened, '.jsonl').split('_').at(-1) : randomUUID()
 const sessionFile = opened ?? path.join(sessionDir, `2026-11-18T00-00-00-000Z_${sessionId}.jsonl`)
@@ -54,7 +55,7 @@ if (!opened) {
 
 const send = (record: JsonObject) => process.stdout.write(`${JSON.stringify(record)}\n`)
 const record = (command: JsonObject) =>
-  appendFileSync('stub-pi-commands.jsonl', `${JSON.stringify(command)}\n`)
+  appendFileSync(path.join(runDir, 'stub-pi-commands.jsonl'), `${JSON.stringify(command)}\n`)
 
 const usage = (input: number, output: number, cost: number) => ({
   input,
