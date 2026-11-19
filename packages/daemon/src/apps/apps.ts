@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
@@ -28,6 +28,7 @@ import {
   type TaskApp,
   tedEnv,
 } from '@ted/protocol'
+import { isArray, isString, parseJson } from '@ted/protocol/parse'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
@@ -1654,19 +1655,53 @@ export function electronEnv(
 }
 
 type Answer = { kind: 'ready' } | { kind: 'waiting' } | { kind: 'untrusted'; reason: string }
-let trustedCertificates: string[] | undefined
-function answers(url: string): Promise<Answer> {
+const systemCertificatesScript =
+  "process.stdout.write(JSON.stringify(require('node:tls').getCACertificates('system')))"
+
+// Node crashes (SIGSEGV) reading the macOS keychain when a sandbox refuses com.apple.SecurityServer,
+// as it does when the daemon runs inside Ted's own sandbox, so a child reads it and may die instead.
+export function systemCertificates(): Promise<string[]> {
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      ['-e', systemCertificatesScript],
+      {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: 30_000,
+      },
+      (error, stdout) => {
+        const found = error ? undefined : parseJson(stdout)
+        if (!isArray(found)) {
+          console.error(
+            redactSecrets(
+              `couldn’t read this machine’s trusted certificates, so Apps served over HTTPS must use a certificate Node trusts: ${error?.message ?? 'unreadable output'}`,
+            ),
+          )
+          return resolve([])
+        }
+        resolve(found.filter(isString))
+      },
+    )
+  })
+}
+
+let trustedCertificates: Promise<string[]> | undefined
+async function answers(url: string): Promise<Answer> {
+  if (url.startsWith('https:')) {
+    trustedCertificates ??= systemCertificates().then((system) => [
+      ...tls.getCACertificates('default'),
+      ...system,
+    ])
+  }
+  const ca = await trustedCertificates
   return new Promise((resolve) => {
     const respond = (response: http.IncomingMessage) => {
       response.resume()
       resolve({ kind: (response.statusCode ?? 500) < 500 ? 'ready' : 'waiting' })
     }
-    trustedCertificates ??= [
-      ...tls.getCACertificates('default'),
-      ...tls.getCACertificates('system'),
-    ]
     const request = url.startsWith('https:')
-      ? https.get(url, { timeout: 1_000, ca: trustedCertificates }, respond)
+      ? https.get(url, { timeout: 1_000, ca }, respond)
       : http.get(url, { timeout: 1_000 }, respond)
     request.once('timeout', () => request.destroy())
     request.once('error', (error) =>
