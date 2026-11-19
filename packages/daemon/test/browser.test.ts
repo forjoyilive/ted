@@ -11,7 +11,6 @@ import type { AppsArea } from '../src/store/apps.ts'
 import type { TedStore } from '../src/store/index.ts'
 import {
   api,
-  approveAppsOutsideSandbox,
   commitToOrigin,
   killAppHosts,
   killRunHosts,
@@ -20,6 +19,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { approveAppsOutsideSandbox } from './support/outside-sandbox-approvals.ts'
 
 expectTypeOf<TedStore>().toExtend<AppsArea>()
 

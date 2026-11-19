@@ -20,7 +20,6 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
-  approveAppsOutsideSandboxBy,
   assistantTexts,
   commitToOrigin,
   killAppHosts,
@@ -30,6 +29,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { approveAppsOutsideSandboxBy } from './support/outside-sandbox-approvals.ts'
 import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const execFileAsync = promisify(execFile)

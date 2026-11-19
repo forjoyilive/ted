@@ -21,7 +21,6 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { checkCpus } from '../src/tasks/check-slots.ts'
 import {
   api,
-  approveAppsOutsideSandboxBy,
   assistantTexts,
   commitToOrigin,
   killAppHosts,
@@ -31,6 +30,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { approveAppsOutsideSandboxBy } from './support/outside-sandbox-approvals.ts'
 
 const runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-26-0'
 

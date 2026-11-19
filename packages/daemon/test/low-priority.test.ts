@@ -10,7 +10,6 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { lowPriorityNiceness, workCommand } from '../src/priority.ts'
 import {
   api,
-  approveAppsOutsideSandboxBy,
   assistantTexts,
   commitToOrigin,
   killAppHosts,
@@ -20,6 +19,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { approveAppsOutsideSandboxBy } from './support/outside-sandbox-approvals.ts'
 import { insideTedSandbox } from './support/ted-sandbox.ts'
 
 const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))

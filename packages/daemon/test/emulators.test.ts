@@ -17,7 +17,6 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import type { StubAndroidState } from './fixtures/stub-android.ts'
 import {
   api,
-  approveAppsOutsideSandboxBy,
   assistantTexts,
   commitToOrigin,
   killAppHosts,
@@ -27,6 +26,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { approveAppsOutsideSandboxBy } from './support/outside-sandbox-approvals.ts'
 
 const image = 'system-images;android-35;google_apis;arm64-v8a'
 const avd = 'Ted_Dev_NB-1_widgets_android'

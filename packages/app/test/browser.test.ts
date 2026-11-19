@@ -9,7 +9,6 @@ import { type ElectronApplication, _electron as electron } from 'playwright'
 import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { loadRunTokens } from '../../daemon/src/run-token.ts'
 import {
-  approveAppsOutsideSandbox,
   commitToOrigin,
   daemonAsApp,
   killAppHosts,
@@ -18,6 +17,7 @@ import {
   stopDaemonIn,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
+import { approveAppsOutsideSandbox } from '../../daemon/test/support/outside-sandbox-approvals.ts'
 import {
   checkGuestNetwork,
   checkHeldRefusal,

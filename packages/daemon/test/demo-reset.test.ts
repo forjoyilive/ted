@@ -6,13 +6,8 @@ import { parseAppRecords } from '../src/apps/host-files.ts'
 import { demoEnvironment, prepareDemo, until } from '../src/dev/demo.ts'
 import { demoVersion, markDemo } from '../src/dev/home.ts'
 import { superviseDaemon } from '../src/launch.ts'
-import {
-  approveAppsOutsideSandbox,
-  isAlive,
-  killAppHosts,
-  killRunHosts,
-  stopDaemonIn,
-} from './helpers.ts'
+import { isAlive, killAppHosts, killRunHosts, stopDaemonIn } from './helpers.ts'
+import { approveAppsOutsideSandbox } from './support/outside-sandbox-approvals.ts'
 
 const original = { ...process.env }
 let home: string | undefined
