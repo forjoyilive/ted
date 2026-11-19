@@ -185,7 +185,7 @@ How urgent a Task or Automation is (Urgent, High, Medium, Low, or None); it orde
 _Avoid_: Severity, importance
 
 **Queued**:
-The status of a started Task, or of a new Automation Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy (high CPU use or low memory) when **Wait to start new work when this computer is busy** is on; a newly started queued Task waits at the start of Intake, and an answered Task can wait in its current Stage before its Run continues. A status, not a Stage.
+The status of a started Task, or of a new Automation Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy (high CPU use or low memory) when **Wait to start new work when this computer is busy** is on; a newly started queued Task waits at the start of Intake, an answered Task can wait in its current Stage before its Run continues, and a Task can wait for a sub-agent even after its Task Lead ends. A status, not a Stage.
 _Avoid_: Pending, ready
 
 **Paused**:
