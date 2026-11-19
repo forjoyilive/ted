@@ -459,7 +459,9 @@ const systemReads = [
 
 const toolchainReads = [
   '.gitconfig',
-  '.config/git',
+  '.config/git/config',
+  '.config/git/ignore',
+  '.config/git/attributes',
   '.nvm',
   '.fnm',
   '.local/share/fnm',
@@ -468,7 +470,7 @@ const toolchainReads = [
   '.asdf',
   '.rbenv',
   '.pyenv',
-  '.gem',
+  '.gem/ruby',
   '.rustup',
   '.cargo/bin',
   '.bun/bin',
