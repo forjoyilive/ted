@@ -217,8 +217,11 @@ export {
   bannerId,
   bannerOrder,
   bannerSeverities,
+  dismissClears,
   isShowing,
   type RaiseBanner,
+  repoAddedProblem,
+  repoAddedText,
 } from './banner.ts'
 export { parseBannerActionInput } from './banner-parsers.ts'
 export {
@@ -418,6 +421,7 @@ export type {
   DashboardBucket,
   DashboardChange,
   DashboardCost,
+  DashboardCustomRange,
   DashboardDuration,
   DashboardFactoryPeriod,
   DashboardFlow,
@@ -426,6 +430,7 @@ export type {
   DashboardOpenState,
   DashboardOpenTask,
   DashboardPeriod,
+  DashboardPreset,
   DashboardRange,
   DashboardReport,
   DashboardSample,
@@ -445,7 +450,7 @@ export type {
   FlowTask,
   FlowTestEvidence,
 } from './dashboard.ts'
-export { dashboardRange, dashboardRanges } from './dashboard.ts'
+export { customRange, dashboardRange, dashboardRanges, localCalendarDate } from './dashboard.ts'
 export {
   type Backup,
   type BackupKind,

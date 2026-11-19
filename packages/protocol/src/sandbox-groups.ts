@@ -14,13 +14,14 @@ export const sandboxGroups: readonly SandboxGroupInfo[] = [
     name: 'ios-xcode',
     label: 'Xcode and SwiftPM builds',
     summary:
-      'What Xcode, SwiftPM, actool and ibtool write outside TMPDIR. This is shared access on the user’s Mac: every process of the user uses these folders.',
+      'What Xcode, SwiftPM, actool and ibtool write outside TMPDIR, and the iOS Simulator runtimes Xcode reads. This is shared access on the user’s Mac: every process of the user uses these folders.',
     opens: [
       'Per-user temp folder: TemporaryItems/NSIRD_(xcodebuild|SWBBuildService|XCBBuildService|actool|ibtool|ibtoold|swift-build|swift-run|swift-test)_*',
       'Per-user temp folder: SwiftPM’s TemporaryDirectory.XXXXXX and Swift Build’s swbuild.tmp.XXXXXXXX',
       'Per-user temp folder: actool’s and ibtoold’s temp items, and ibtoold-<pid> pipes',
       '~/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading: plain .dia files',
       'Runs with others-execute added to the umask, so its ibtoold pipes stay apart from the user’s own',
+      'Reads iOS Simulator runtimes mounted at /private/var/run/com.apple.security.cryptexd/mnt/com.apple.iPhoneOS.SimulatorRuntime-*',
     ],
   },
   {

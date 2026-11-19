@@ -66,12 +66,14 @@ async function inSandbox(
     home?: string
     reads?: string[]
     groups?: SandboxAccess[]
+    simulatorRuntimes?: string
   } = {},
 ) {
-  const { sockets = [], home, reads = [], groups } = options
+  const { sockets = [], home, reads = [], groups, simulatorRuntimes } = options
   const sandbox = createSandbox({
     tedHome,
     env: () => (home === undefined ? process.env : { ...process.env, HOME: home }),
+    ...(simulatorRuntimes !== undefined && { simulatorRuntimes }),
   })
   const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], {
     ...scope(),
@@ -557,6 +559,39 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     }
   })
 
+  test('ios-xcode reads iPhoneOS Simulator runtime mounts and nothing else beside them', async () => {
+    const mounts = await realpath(outside)
+    const runtime = path.join(mounts, 'com.apple.iPhoneOS.SimulatorRuntime-v24.2.8117.0.wYKdh7')
+    const profile = path.join(runtime, 'Library', 'Info.plist')
+    const watch = path.join(mounts, 'com.apple.watchOS.SimulatorRuntime-v24.2.1.0.AbCdEf', 'a')
+    const other = path.join(mounts, 'com.apple.iPhoneOS.SimulatorRuntimeX', 'a')
+    for (const file of [profile, watch, other]) {
+      await mkdir(path.dirname(file), { recursive: true })
+      await writeFile(file, 'x')
+    }
+    const script = [
+      tryRead(profile),
+      `ls '${runtime}' >/dev/null 2>&1 && echo read || echo refused`,
+      tryRead(watch),
+      tryRead(other),
+      `ls '${mounts}' >/dev/null 2>&1 && echo read || echo refused`,
+      tryWrite(profile),
+      tryWrite(path.join(runtime, 'new')),
+    ].join('; ')
+    const granted = await inSandbox(script, { groups: xcode, simulatorRuntimes: mounts })
+    expect(granted.stdout.trim().split('\n')).toEqual([
+      'read',
+      'read',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+    ])
+    const without = await inSandbox(script, { simulatorRuntimes: mounts })
+    expect(without.stdout.trim().split('\n').slice(0, 2)).toEqual(['refused', 'refused'])
+  })
+
   test('git reads the worktree through the Task’s clone', async () => {
     const git = (cwd: string, ...args: string[]) =>
       execFileAsync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.com', ...args], {
@@ -722,6 +757,13 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       ].join('; '),
     )
     expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused', 'read', 'read'])
+  })
+
+  test('it reads the DNS settings in /etc/resolv.conf, but nothing else in /private/var/run', async () => {
+    const result = await inSandbox(
+      [tryRead('/etc/resolv.conf'), tryRead('/private/var/run/utmpx')].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual(['read', 'refused'])
   })
 
   test('a scope limited to its own temp folder can’t write /private/tmp or the per-user temp folder', async () => {

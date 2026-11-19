@@ -147,6 +147,21 @@ describe('banners in the store', () => {
     expect(() => banners.dismiss('nothing:app')).toThrow(/no such banner/)
   })
 
+  test('dismissing a repo-added warning clears it for good', () => {
+    const banners = createBanners({ store })
+    banners.raise({
+      problem: 'repo-added',
+      factoryId: 'f1',
+      subject: 'acme/api',
+      severity: 'warning',
+      text: 'acme/api was added · Set up its checks and Apps with a setup Task',
+    })
+
+    banners.dismiss('repo-added:f1:acme/api')
+
+    expect(banners.list().some((b) => b.problem === 'repo-added')).toBe(false)
+  })
+
   test('a dismissal survives new text but not the problem clearing and coming back', () => {
     const banners = createBanners({ store })
     banners.raise({ problem: 'rate-limit', severity: 'warning', text: 'checking again at 14:05' })

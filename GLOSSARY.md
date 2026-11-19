@@ -229,7 +229,7 @@ A command with a name that an Agent’s settings list under `outside_commands` i
 _Avoid_: Escape hatch, unsandboxed command
 
 **Sandbox access group**:
-A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` opens what Xcode writes outside its temp folder, which is shared access on the user’s Mac. `shared-tmp` opens the shared `/private/tmp` (`/tmp`) folder for reading and writing on macOS, for tools that ignore `TMPDIR`; on Linux it changes nothing, because `/tmp` is already the command’s own temp folder. `electron` opens the macOS services Electron needs to start and open windows; an App with `electron: true` gets it automatically. `network` lets the command connect to any host, overriding the Factory’s `sandbox_network` level for that command; network defaults and platform limits are in `docs/agents/platform.md`. The same access list can name a Library socket with `socket:<name>`; its path comes only from `sandbox_sockets` in the user’s Library.
+A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` opens what Xcode writes outside its temp folder and lets it read iOS Simulator runtimes on macOS; this is shared access on the user’s Mac. `shared-tmp` opens the shared `/private/tmp` (`/tmp`) folder for reading and writing on macOS, for tools that ignore `TMPDIR`; on Linux it changes nothing, because `/tmp` is already the command’s own temp folder. `electron` opens the macOS services Electron needs to start and open windows; an App with `electron: true` gets it automatically. `network` lets the command connect to any host, overriding the Factory’s `sandbox_network` level for that command; network defaults and platform limits are in `docs/agents/platform.md`. The same access list can name a Library socket with `socket:<name>`; its path comes only from `sandbox_sockets` in the user’s Library.
 _Avoid_: Sandbox permission, allowance, entitlement
 
 **Chat**:
@@ -327,7 +327,7 @@ The wide column in the middle of the app’s window, left of a Task’s details.
 _Avoid_: Main pane, content area
 
 **Banner**:
-A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears. A banner either stops work (red, can’t be dismissed) or is a warning (amber, hidden for 24 hours by ×). Banners are never Inbox items.
+A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears. A banner either stops work (red, can’t be dismissed) or is a warning (amber, hidden for 24 hours by ×, except the repo-added warning, which × clears for good). Banners are never Inbox items.
 _Avoid_: Alert, error bar, toast
 
 **Onboarding**:

@@ -560,7 +560,7 @@
   },
   "packages/app/src/renderer/dashboard.ts": {
     "anti-slop/no-known-value-widening": {
-      "count": 6
+      "count": 1
     },
     "anti-slop/no-runtime-typeof": {
       "count": 1
@@ -3905,11 +3905,6 @@
   "packages/protocol/src/daemon-info.ts": {
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 2
-    }
-  },
-  "packages/protocol/src/dashboard.ts": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 1
     }
   },
   "packages/protocol/src/data-parsers.ts": {
