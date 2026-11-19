@@ -299,10 +299,11 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
   })
 
-  test('it reaches Unix sockets only in its own folders and the ones the Factory lists', async () => {
+  test('it reaches Unix sockets only in its own folders and the ones the Factory lists', async (context) => {
     const own = path.join(tmp, 'o.s')
     const listed = path.join(outside, 'listed.sock')
     const other = path.join(outside, 'other.sock')
+    skipLongSockets(context, [own, listed, other])
     const servers = await Promise.all([own, listed, other].map(listen))
     try {
       const result = await inSandbox(
