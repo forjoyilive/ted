@@ -252,8 +252,10 @@ export function createSandbox(options: {
       const table = await socketTable()
       const linux = await linuxSockets(table, paths, sockets, env)
       const binds = bwrapBinds(paths)
-      const hidden =
-        scope.hideProtected === true ? await existingFolders(await personalFolders(env)) : []
+      const personal = await personalFolders(env)
+      const hidden = scope.hideProtected === true ? await existingFolders(personal) : []
+      const listed = await listedPaths('sandbox_reads', scope.reads ?? [], env)
+      const reads = await linuxReads(env, listed, [...personal, paths.tedHome])
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -269,7 +271,7 @@ export function createSandbox(options: {
       return {
         argv: [
           ready,
-          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, ownNetwork(scope)),
+          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, reads, ownNetwork(scope)),
           '--',
           ...argv,
         ],
@@ -495,8 +497,33 @@ const toolchainReads = [
   'Library/Android/sdk',
 ]
 
-async function baseReads(env: NodeJS.ProcessEnv, userTemp: string | undefined): Promise<string[]> {
-  const home = await real(env.HOME?.startsWith('/') ? env.HOME : homedir())
+const linuxSystemReads = [
+  '/usr',
+  '/bin',
+  '/sbin',
+  '/lib',
+  '/lib32',
+  '/lib64',
+  '/libx32',
+  '/etc',
+  '/opt',
+  '/nix',
+  '/snap',
+  '/sys',
+  '/etc/resolv.conf',
+  '/run/systemd/resolve',
+]
+
+async function homeFolder(env: NodeJS.ProcessEnv): Promise<string> {
+  return real(env.HOME?.startsWith('/') ? env.HOME : homedir())
+}
+
+async function readCandidates(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  userTemp: string | undefined,
+): Promise<string[]> {
+  const home = await homeFolder(env)
   const fromEnv = ['DEVELOPER_DIR', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT'].flatMap(
     (name) => (env[name]?.startsWith('/') === true ? [env[name]] : []),
   )
@@ -506,22 +533,63 @@ async function baseReads(env: NodeJS.ProcessEnv, userTemp: string | undefined): 
     .flatMap((dir) =>
       path.basename(dir) === 'bin' && !inside(home, dir) ? [dir, path.dirname(dir)] : [dir],
     )
-  const candidates = [
-    ...systemReads,
+  return [
+    ...(platform === 'darwin' ? systemReads : linuxSystemReads),
     ...toolchainReads.map((name) => path.join(home, name)),
     ...fromEnv,
     ...onPath,
     corepackHome(env),
     ...(userTemp === undefined ? [] : [path.join(userTemp, 'xcrun_db')]),
-  ]
+  ].filter((candidate) => !/["\n\r\0]/.test(candidate))
+}
+
+async function baseReads(env: NodeJS.ProcessEnv, userTemp: string | undefined): Promise<string[]> {
+  const home = await homeFolder(env)
   const found = new Set<string>()
-  for (const candidate of candidates) {
-    if (/["\n\r\0]/.test(candidate)) continue
+  for (const candidate of await readCandidates(env, 'darwin', userTemp)) {
     const resolved = await realpath(candidate).catch(() => undefined)
     if (resolved === undefined || resolved === '/' || inside(resolved, home)) continue
     found.add(resolved)
   }
   return [...found]
+}
+
+interface LinuxReads {
+  binds: [string, string][]
+  links: [string, string][]
+}
+
+async function linuxReads(
+  env: NodeJS.ProcessEnv,
+  listed: readonly string[],
+  refused: readonly string[],
+): Promise<LinuxReads> {
+  const home = await homeFolder(env)
+  const reals = new Set<string>()
+  const links = new Map<string, string>()
+  const add = async (candidate: string, keepHome: boolean) => {
+    const asGiven = path.resolve(candidate)
+    const resolved = await realpath(asGiven).catch(() => undefined)
+    if (resolved === undefined || resolved === '/') return
+    if (!keepHome && inside(resolved, home)) return
+    if (refused.some((dir) => inside(dir, resolved))) return
+    reals.add(resolved)
+    if (asGiven !== resolved) links.set(asGiven, resolved)
+  }
+  for (const candidate of await readCandidates(env, 'linux', undefined)) await add(candidate, false)
+  for (const entry of listed) await add(entry, true)
+  const shown = (dest: string) =>
+    [...reals].some((dir) => dir !== dest && inside(dir, dest)) ||
+    [...links.keys()].some((link) => link !== dest && inside(link, dest))
+  const depth = ([, dest]: [string, string]) => dest.split('/').length
+  return {
+    binds: [...reals]
+      .flatMap((dir): [string, string][] => (shown(dir) || links.has(dir) ? [] : [[dir, dir]]))
+      .sort((x, y) => depth(x) - depth(y)),
+    links: [...links].flatMap(([dest, target]): [string, string][] =>
+      shown(dest) || reals.has(dest) ? [] : [[target, dest]],
+    ),
+  }
 }
 
 function seatbeltArgs(
@@ -638,6 +706,7 @@ function bwrapArgs(
   binds: readonly Bind[],
   byFd: boolean,
   hidden: readonly string[],
+  reads: LinuxReads,
   ownNetwork: boolean,
 ): string[] {
   const runtime = runtimeDir(env)
@@ -650,9 +719,8 @@ function bwrapArgs(
     '--die-with-parent',
     '--unshare-pid',
     ...(ownNetwork ? ['--unshare-net'] : []),
-    '--ro-bind',
-    '/',
-    '/',
+    ...reads.binds.flatMap(([source, dest]) => ['--ro-bind', source, dest]),
+    ...reads.links.flatMap(([target, dest]) => ['--symlink', target, dest]),
     '--dev',
     '/dev',
     '--proc',
