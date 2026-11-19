@@ -39,7 +39,7 @@ These hold in every area; the area files have the detail:
 
 - Only `packages/daemon/src/tasks/` starts Tasks or changes their Stage. Ted pushes branches and merges pull requests; agents do neither (`tasks.md`, `merge-and-github.md`).
 - A shipped event is never edited; a change is a new versioned event (`store-and-events.md`).
-- Anything that lets a Run make Ted run repo code goes through the OS sandbox. When the sandbox is missing, refuse; never run unsandboxed (`platform.md`).
+- Anything that lets a Run make Ted run repo code goes through the OS sandbox. When the sandbox is missing, refuse; never run unsandboxed, except a Pi Run the human allowed in Settings → Providers (`platform.md`).
 - Code that deletes files under `TED_HOME` checks the name and real path first and never follows links (`platform.md`).
 - Every GitHub request goes through the `Gh` runner, and nothing reads the `gh` token (`merge-and-github.md`).
 - The Linear key and other credentials never go into `process.env`, a Run’s environment, a log line or the store (`trackers-and-intake.md`).

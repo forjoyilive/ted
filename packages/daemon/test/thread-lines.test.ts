@@ -1,7 +1,10 @@
 import type { CheckRun } from '@ted/protocol'
-import { describe, expect, test } from 'vitest'
-import type { LoggedEvent } from '../src/store/index.ts'
+import { describe, expect, expectTypeOf, test } from 'vitest'
+import type { LoggedEvent, TedStore } from '../src/store/index.ts'
+import type { RequestsArea } from '../src/store/requests.ts'
 import { runNowAgents, threadEvents } from '../src/tasks/thread.ts'
+
+expectTypeOf<TedStore>().toExtend<RequestsArea>()
 
 let seq = 0
 const at = (minute: number) => `2026-11-08T10:${String(minute).padStart(2, '0')}:00.000Z`

@@ -15,6 +15,7 @@ import type {
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
 import { type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { appsTabMark } from '../apps.ts'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import {
@@ -92,6 +93,7 @@ import {
   useComments,
   useFailures,
   useStageEntries,
+  useTaskApps,
   useTaskBriefState,
   useTaskRuns,
   useTaskRunsState,
@@ -1297,6 +1299,7 @@ export function TaskDetails({
   const factory = factories.find((f) => f.id === task.factoryId)
   const tab = useDetailsTab()
   const runs = useTaskRuns(task.id)
+  const apps = useTaskApps(task.id)
   const [pick, setPick] = useState(0)
   useEffect(() => {
     const onPick = (event: Event) => {
@@ -1338,6 +1341,7 @@ export function TaskDetails({
         onSelect={showDetailsTab}
         changeCount={changeCount}
         runWorking={runs.some((run) => runIconState(run) === 'working')}
+        appMark={appsTabMark(apps)}
       />
       <div className={styles.tabBody}>
         {tab === 'details' && (

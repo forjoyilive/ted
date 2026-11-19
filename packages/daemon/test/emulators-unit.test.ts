@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { defaultMachineSettings } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import {
   androidSize,
   formatScreen,
@@ -14,7 +14,10 @@ import {
 } from '../src/apps/android-screen.ts'
 import { createDevicePool } from '../src/apps/device-pool.ts'
 import { type AndroidResult, type AndroidTools, createEmulators } from '../src/apps/emulators.ts'
+import type { AppsArea } from '../src/store/apps.ts'
 import type { TedStore } from '../src/store/index.ts'
+
+expectTypeOf<TedStore>().toExtend<AppsArea>()
 
 let dir: string
 

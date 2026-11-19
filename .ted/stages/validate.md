@@ -29,7 +29,7 @@ Do not run the full test suite unless asked to or unless strictly necessary.
 
 ## Done when
 
-There are no blocking findings and the note is posted. Then report the outcome with what the review and the screenshots found, for the human’s confirmation row: `ted outcome advance --review pass --review-notes <n>`, adding `--visual pass --visual-notes <n>` when you judged screenshots. The notes go into the Review brief.
+There are no blocking findings and the note is posted. Then report the outcome with what the review and the screenshots found, for the human’s confirmation row: `ted outcome advance --review pass --review-notes <n>`, adding `--visual pass --visual-notes <n>` when you judged screenshots. `<n>` is how many notes you posted, such as `--review-notes 2`, not their text. The notes go into the Review brief.
 
 ## Send back when
 

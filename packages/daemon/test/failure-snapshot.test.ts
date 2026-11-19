@@ -1,9 +1,12 @@
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { expect, test } from 'vitest'
-import { openStore } from '../src/store/index.ts'
+import { expect, expectTypeOf, test } from 'vitest'
+import type { ChecksArea } from '../src/store/checks.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import { createFailureCases } from '../src/tasks/failure-cases.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 test.each(['changed', 'unavailable', 'restored', 'identical'])(
   'final acceptance rejects superseded CI: %s',

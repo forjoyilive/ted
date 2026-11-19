@@ -3,9 +3,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { RequestPurpose } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import { eventlogFile } from '../src/store/files.ts'
 import { type NewComment, openStore, type TedStore } from '../src/store/index.ts'
+import type { RequestsArea } from '../src/store/requests.ts'
+
+expectTypeOf<TedStore>().toExtend<RequestsArea>()
 
 let directory: string
 let store: TedStore

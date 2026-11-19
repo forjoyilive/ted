@@ -185,7 +185,7 @@ How urgent a Task or Automation is (Urgent, High, Medium, Low, or None); it orde
 _Avoid_: Severity, importance
 
 **Queued**:
-The status of a started Task, or of a new Automation Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy (high CPU use or low memory) when **Wait to start new work when this computer is busy** is on; a newly started queued Task waits at the start of Intake, and an answered Task can wait in its current Stage before its Run continues. A status, not a Stage.
+The status of a started Task, or of a new Automation Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy (high CPU use or low memory) when **Wait to start new work when this computer is busy** is on; a newly started queued Task waits at the start of Intake, an answered Task can wait in its current Stage before its Run continues, and a Task can wait for a sub-agent even after its Task Lead ends. A status, not a Stage.
 _Avoid_: Pending, ready
 
 **Paused**:
@@ -221,7 +221,7 @@ A command with a name that an Agent’s settings list in `agents.yaml`. A chat w
 _Avoid_: Tool, script, task
 
 **Outside command**:
-A command with a name that an Agent’s settings list under `outside_commands` in `agents.yaml`, written as plain words with at most one argument slot such as `<version>`. A chat whose Agent has Run outside commands asks for one with `ted agent run-outside <name> [argument]`; Ted runs it on this Mac, outside the sandbox, in the repo’s local folder, only after the user clicks Run on its card, or at once when the user ticked Always allow for that exact command and folder. It is the only way anything an agent starts can push, publish or use the keychain.
+A command with a name that an Agent’s settings list under `outside_commands` in `agents.yaml`, written as plain words with at most one argument slot such as `<version>`. A chat whose Agent has Run outside commands asks for one with `ted agent run-outside <name> [argument]`; Ted runs it on this Mac, outside the sandbox, in the repo’s local folder, only after the user clicks Run on its card, or at once when the user ticked Always allow for that exact command and folder.
 _Avoid_: Escape hatch, unsandboxed command
 
 **Chat**:

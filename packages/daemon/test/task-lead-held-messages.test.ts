@@ -2,9 +2,10 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { Task } from '@ted/protocol'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, expectTypeOf, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TasksArea } from '../src/store/tasks.ts'
 import { killRunHosts, stubClaudePath, stubCodexPath, waitUntil } from './helpers.ts'
 import {
   claudeStarts,
@@ -17,6 +18,8 @@ import {
   useTaskLeadHarness,
   waitForRun,
 } from './support/task-lead.ts'
+
+expectTypeOf<TedStore>().toExtend<TasksArea>()
 
 useTaskLeadHarness()
 

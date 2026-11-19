@@ -3,13 +3,16 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { CheckRun, FailureCase, Task } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
-import { expect, test } from 'vitest'
+import { expect, expectTypeOf, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
-import { openStore } from '../src/store/index.ts'
+import type { ChecksArea } from '../src/store/checks.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import { api, commitToOrigin, waitUntil } from './helpers.ts'
 import { ctx, getTask, run, useMergeHarness } from './merge-harness.ts'
 import { offeredChoice } from './support/failure-choice.ts'
 import { backInValidate, long, restart, setup } from './support/validate-diagnosis.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 useMergeHarness()
 

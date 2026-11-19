@@ -13,11 +13,14 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, expectTypeOf, test } from 'vitest'
 import { discardCopy, makeCopy, removeCopy } from '../src/code-copy.ts'
+import type { StoreContext } from '../src/store/context.ts'
 import type { StoredFactory } from '../src/store/index.ts'
 import type { FactoryRepoEntry } from '../src/tasks/repos.ts'
 import { makeOriginRepo } from './helpers.ts'
+
+expectTypeOf<StoreContext>().toHaveProperty('store')
 
 const execFileAsync = promisify(execFile)
 const gitEnv = {

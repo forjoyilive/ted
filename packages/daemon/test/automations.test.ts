@@ -18,11 +18,12 @@ import type {
   WaitingRequest,
 } from '@ted/protocol'
 import { defaultMachineSettings, tedPaths } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { openStore } from '../src/store/index.ts'
+import type { AppsArea } from '../src/store/apps.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import { checkCpus } from '../src/tasks/check-slots.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import { startStubLinear } from './fixtures/stub-linear.ts'
@@ -41,6 +42,8 @@ import {
 } from './helpers.ts'
 import { eventWait } from './support/event-wait.ts'
 import { ManualClock } from './support/manual-clock.ts'
+
+expectTypeOf<TedStore>().toExtend<AppsArea>()
 
 let home: string
 let cleanup: () => Promise<void>

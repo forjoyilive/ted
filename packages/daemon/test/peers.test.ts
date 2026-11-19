@@ -2,10 +2,15 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { shortReference } from '@ted/protocol/reference'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test, vi } from 'vitest'
+import type { AgentsArea } from '../src/store/agents.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { RequestsArea } from '../src/store/requests.ts'
 import { createPeers, type Peers } from '../src/tasks/peers.ts'
 import type { Caller } from '../src/tasks/tasks.ts'
+
+expectTypeOf<TedStore>().toExtend<RequestsArea>()
+expectTypeOf<TedStore>().toExtend<AgentsArea>()
 
 let dir: string
 let store: TedStore

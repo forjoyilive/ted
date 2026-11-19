@@ -3,10 +3,16 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { agentStageIds, type DaemonEvent, type Task } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from 'vitest'
+import type { StoreContext } from '../src/store/context.ts'
+import type { FactoriesArea } from '../src/store/factories.ts'
 import { eventlogFile } from '../src/store/files.ts'
-import { type NewTreeTask, openStore } from '../src/store/index.ts'
+import type { NewTreeTask, TedStore } from '../src/store/index.ts'
+import { openStore } from '../src/store/open.ts'
 import { events } from '../src/store/schema.ts'
+
+expectTypeOf<TedStore>().toExtend<FactoriesArea>()
+expectTypeOf<StoreContext>().toHaveProperty('store')
 
 let dir: string
 const repo = { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] }

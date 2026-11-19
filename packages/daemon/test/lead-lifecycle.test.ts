@@ -2,10 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Run } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test, vi } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
 import { createRunOutput } from '../src/runs/run-output.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { RunsArea } from '../src/store/runs.ts'
+import type { TasksArea } from '../src/store/tasks.ts'
 import {
   createLeadLifecycle,
   type LeadLifecycleOptions,
@@ -13,6 +15,9 @@ import {
 } from '../src/tasks/lead-lifecycle.ts'
 import { resolveWorkflow } from '../src/workflow/resolve.ts'
 import { ManualClock } from './support/manual-clock.ts'
+
+expectTypeOf<TedStore>().toExtend<TasksArea>()
+expectTypeOf<TedStore>().toExtend<RunsArea>()
 
 let home: string
 let store: TedStore
@@ -155,6 +160,9 @@ function harness(overrides: Partial<LeadLifecycleOptions> = {}) {
     stopRequested: () => false,
     wake: () => {},
     background: (_what, operation) => {
+      work.push(operation())
+    },
+    recover: (_taskId, _what, operation) => {
       work.push(operation())
     },
     hasAnswerText: (comment) => comment.answer !== undefined,

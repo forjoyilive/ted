@@ -98,6 +98,7 @@ export interface LeadLifecycleOptions {
   stopRequested(taskId: string): boolean
   wake(): void
   background(what: string, work: () => Promise<void>): void
+  recover(taskId: string, what: string, work: () => Promise<void>): void
   hasAnswerText(comment: Comment): boolean
   refreshSteering(runId: string): Promise<void>
   memoryFreed(): Promise<boolean>
@@ -878,7 +879,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       }
       const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
       if (run?.state === 'finished' && run.ended && run.ended.how !== 'stopped') {
-        background(`check why Run ${run.id} stopped`, () => leadStopped(run))
+        options.recover(task.id, `check why Run ${run.id} stopped`, () => leadStopped(run))
       }
     }
     silenceTimer = clock.interval(checkSilence, Math.min(60_000, Math.max(50, stallAfterMs / 4)))

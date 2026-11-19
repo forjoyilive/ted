@@ -12,12 +12,13 @@ import {
   type ThreadEvent,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { type DaemonOptions, type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { revokeInput } from '../src/runs/input-permits.ts'
 import type { RunManager } from '../src/runs/run-manager.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { RequestsArea } from '../src/store/requests.ts'
 import {
   api,
   assistantTexts,
@@ -31,6 +32,8 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<RequestsArea>()
 
 const transport = {
   loseCheckpoint: false,

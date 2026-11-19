@@ -4,14 +4,17 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { executionIds } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test, vi } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
 import { addWorktree } from '../src/git.ts'
 import { eventlogFile } from '../src/store/files.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { RunsArea } from '../src/store/runs.ts'
 import { createTaskExecution } from '../src/tasks/execution.ts'
 import { createSubAgents, type SubAgentDeps, type SubAgents } from '../src/tasks/sub-agents.ts'
 import { makeOriginRepo } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<RunsArea>()
 
 let dir: string
 let store: TedStore

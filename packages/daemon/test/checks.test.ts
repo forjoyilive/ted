@@ -16,9 +16,10 @@ import type {
 } from '@ted/protocol'
 import { defaultMachineSettings, tedPaths } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { openStore } from '../src/store/index.ts'
+import type { ChecksArea } from '../src/store/checks.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import { checkCpus } from '../src/tasks/check-slots.ts'
 import {
   api,
@@ -33,6 +34,8 @@ import {
   waitUntil,
 } from './helpers.ts'
 import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 let home: string
 let cleanup: () => Promise<void>
@@ -671,13 +674,12 @@ describe('Instruction Checks at Validate', () => {
     ).toMatchObject([{ cause: 'check', checkRunId: failed?.id }])
   }, 120_000)
 
-  test('an instruction Check that names Pi in an Auto Factory ends at once as no report, with the reason', async () => {
+  test('an instruction Check that names Pi without a model ends at once as no report, with the reason', async () => {
     await workflow(
       [
         '      - name: Pi check',
         `        instruction: ${yamlText(steps({ endTurn: true }))}`,
         '        agent: pi',
-        '        model: stub/model-1',
       ].join('\n'),
     )
     const client = await startTed()
@@ -690,7 +692,7 @@ describe('Instruction Checks at Validate', () => {
       'the no-report question',
       60_000,
     )
-    expect(asked.body).toContain('Pi can’t run in an Auto Factory yet.')
+    expect(asked.body).toContain('Choose a model for Pi in Settings before Pi work starts.')
     const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
     expect(runs.some((r) => r.name === 'Check · Pi check')).toBe(false)
   }, 120_000)

@@ -8,12 +8,14 @@ import {
   type TaskGitHubSource,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { searchConversations } from '../src/conversation-search.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { search } from '../src/search.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { RunsArea } from '../src/store/runs.ts'
+import type { TasksArea } from '../src/store/tasks.ts'
 import {
   appClient,
   commitToOrigin,
@@ -25,6 +27,9 @@ import {
   stubCodexPath,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<TasksArea>()
+expectTypeOf<TedStore>().toExtend<RunsArea>()
 
 const repo = (name: string) => [{ repo: `acme/${name}`, name, cloneUrl: `/x/${name}.git` }]
 const entry = { layers: [], order: agentStageIds.map((stage) => ({ stage, enabled: true })) }
