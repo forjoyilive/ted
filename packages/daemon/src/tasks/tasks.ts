@@ -6246,6 +6246,7 @@ export function createTasks(options: {
               withOriginal(task, current),
               resolution.workflow,
               task.stage as AgentStageId,
+              store.settings().aiDisclosure,
               attachmentFile,
               setupReport,
               {

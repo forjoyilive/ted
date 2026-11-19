@@ -270,6 +270,16 @@ const entries = {
     name: 'Task Sync',
     help: 'For each Task allowed to sync, Ted comments on its Asana task with each pull request it opens, and completes the Asana task once they all merge. When a task is completed in Asana, Ted archives its Task or asks you.',
   },
+  'app.integrations.disclosure': {
+    name: 'AI disclosure',
+    help: 'Marks what agents post to Asana, Linear and GitHub as written by AI.',
+    heading: true,
+  },
+  'app.integrations.disclosure.preface': {
+    name: 'Start what agents post with “From <model> via Ted:”',
+    help: 'Ted asks every agent it starts to begin comments, new issues and tasks, their descriptions and pull request descriptions with a line naming its model, such as “From Opus 5.5 via Ted:”. Pull request titles stay as they are. A change applies to agents started after it; a Run already going keeps its instructions. When off, Ted says nothing about it, and agents follow their other instructions.',
+    keywords: 'ai disclosure preface model label attribution comment',
+  },
 
   'app.library.workflow': { name: 'Workflow', heading: true },
   'app.library.workflow.cleanup': {

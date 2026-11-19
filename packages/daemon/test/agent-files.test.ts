@@ -46,7 +46,11 @@ describe('Ted’s built-in Agents', () => {
   test('chat prompts put the Agent’s instructions inside Ted’s own text', async () => {
     const workflow = resolveWorkflow([await readDefaultLayer()])
     const builtIn = workflow.agent('coordinator')
-    const coordinator = coordinatorInstructions(builtIn?.instructions ?? '', builtIn?.powers ?? [])
+    const coordinator = coordinatorInstructions(
+      builtIn?.instructions ?? '',
+      builtIn?.powers ?? [],
+      false,
+    )
     expect(coordinator).toMatch(
       /^# You are the Coordinator for one Ted Factory\nHelp the human compare Tasks/,
     )
@@ -55,6 +59,7 @@ describe('Ted’s built-in Agents', () => {
     const planner = plannerInstructions({
       role: 'Plan only the database changes.',
       powers: ['ask', 'propose_tasks', 'read_code'],
+      disclose: false,
       factory: { id: 'f', name: 'Widgets', repo: 'acme/widgets' } as never,
       entries: [],
       folder: '/tmp/plan',
@@ -64,44 +69,62 @@ describe('Ted’s built-in Agents', () => {
     expect(planner).toContain('ted task propose --file <file>')
   })
 
+  test('chat prompts ask for the AI disclosure line only when the setting is on', () => {
+    const line = 'From Opus 5.5 via Ted:'
+    expect(coordinatorInstructions('Watch.', [], true)).toContain(line)
+    expect(coordinatorInstructions('Watch.', [], false)).not.toContain('via Ted:')
+    const planner = (disclose: boolean) =>
+      plannerInstructions({
+        role: 'Plan.',
+        powers: [],
+        disclose,
+        factory: { id: 'f', name: 'Widgets', repo: 'acme/widgets' } as never,
+        entries: [],
+        folder: '/tmp/plan',
+      })
+    expect(planner(true)).toContain(line)
+    expect(planner(false)).not.toContain('via Ted:')
+  })
+
   test('a chat’s preamble lists only the commands its powers allow', () => {
     const role = 'Watch the releases.'
-    const none = coordinatorInstructions(role, [])
+    const none = coordinatorInstructions(role, [], false)
     expect(none).toContain('You have no Ted commands in this chat.')
     for (const text of ['ted coordinator', 'ted ask', 'ted task propose', 'working folder'])
       expect(none).not.toContain(text)
 
-    const manage = coordinatorInstructions(role, ['manage_tasks'])
+    const manage = coordinatorInstructions(role, ['manage_tasks'], false)
     expect(manage).toContain('ted coordinator tasks')
     expect(manage).toContain('Start means Backlog to Queued')
     expect(manage).not.toContain('ted ask')
     expect(manage).not.toContain('ted coordinator automation')
 
-    const automations = coordinatorInstructions(role, ['manage_automations'])
+    const automations = coordinatorInstructions(role, ['manage_automations'], false)
     expect(automations).toContain('ted coordinator automation draft --operation <unique-id>')
     expect(automations).toContain('You can never turn on “Start the Tasks it creates”')
     expect(automations).not.toContain('ted coordinator tasks')
 
-    const ask = coordinatorInstructions(role, ['ask'])
+    const ask = coordinatorInstructions(role, ['ask'], false)
     expect(ask).toContain('ted ask "<question>"')
     expect(ask).toContain('ted ask --round <file>')
     expect(ask).toContain('After you ask, end your turn')
     expect(ask).not.toContain('ted coordinator')
     expect(ask).not.toContain('ted task propose')
 
-    const propose = coordinatorInstructions(role, ['propose_tasks'])
+    const propose = coordinatorInstructions(role, ['propose_tasks'], false)
     expect(propose).toContain('ted task propose --file <file>')
     expect(propose).not.toContain('ted ask')
 
     const where =
       'Your working folder is a fresh checkout of acme/widgets at the latest base branch.'
-    expect(coordinatorInstructions(role, ['read_code'], where)).toContain(where)
-    expect(coordinatorInstructions(role, ['ask'], where)).not.toContain(where)
+    expect(coordinatorInstructions(role, ['read_code'], false, where)).toContain(where)
+    expect(coordinatorInstructions(role, ['ask'], false, where)).not.toContain(where)
 
     const plannerWith = (powers: Parameters<typeof plannerInstructions>[0]['powers']) =>
       plannerInstructions({
         role: 'Plan.',
         powers,
+        disclose: false,
         factory: { id: 'f', name: 'Widgets', repo: 'acme/widgets' } as never,
         entries: [],
         folder: '/tmp/plan',
@@ -122,21 +145,28 @@ describe('Ted’s built-in Agents', () => {
       { name: 'test', command: 'pnpm vitest run\n  packages/protocol' },
       { name: 'web-lint', command: 'pnpm lint', repo: 'web' },
     ]
-    const runs = coordinatorInstructions(role, ['read_code', 'run_commands'], where, commands)
+    const runs = coordinatorInstructions(
+      role,
+      ['read_code', 'run_commands'],
+      false,
+      where,
+      commands,
+    )
     expect(runs).toContain('- ted agent run <name>: Ted runs one of the commands below')
     expect(runs).toContain('  - test: `pnpm vitest run packages/protocol`')
     expect(runs).toContain('  - web-lint (in web): `pnpm lint`')
     expect(runs).toContain('run repo code other than through ted agent run')
-    expect(coordinatorInstructions(role, ['read_code'], where, commands)).not.toContain(
+    expect(coordinatorInstructions(role, ['read_code'], false, where, commands)).not.toContain(
       'ted agent run',
     )
-    expect(coordinatorInstructions(role, ['read_code', 'run_commands'], where, [])).not.toContain(
-      'ted agent run',
-    )
+    expect(
+      coordinatorInstructions(role, ['read_code', 'run_commands'], false, where, []),
+    ).not.toContain('ted agent run')
 
     const planner = plannerInstructions({
       role: 'Plan.',
       powers: ['read_code', 'run_commands'],
+      disclose: false,
       factory: { id: 'f', name: 'Widgets', repo: 'acme/widgets' } as never,
       entries: [],
       folder: '/tmp/plan',
