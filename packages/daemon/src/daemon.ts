@@ -121,7 +121,13 @@ export interface DaemonOptions {
   ciStuckMs?: { noChecks: number; pending: number }
   settingsMergeWaitMs?: number
   stallAfterMs?: number
-  apps?: { pollMs?: number; readyTimeoutMs?: number; stopGraceMs?: number; logBytes?: number }
+  apps?: {
+    pollMs?: number
+    readyTimeoutMs?: number
+    hostStartMs?: number
+    stopGraceMs?: number
+    logBytes?: number
+  }
   runs?: { stopGraceMs?: number; inputAckMs?: number }
   simulators?: { supported?: boolean; pollMs?: number; idleMs?: number }
   emulators?: { supported?: boolean; pollMs?: number; idleMs?: number; bootTimeoutMs?: number }
