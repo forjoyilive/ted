@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { ModelSelect } from '../src/renderer/components/ModelSelect.tsx'
 import { bridge, user } from './support/component.ts'
@@ -36,6 +36,28 @@ test('with Pi chosen, the picker lists Pi’s models, refreshes when opened, kee
   listed = undefined
   await user().click(select)
   await waitFor(() => expect(shown(select)).toEqual(['Default model', 'zai/glm-5.2', 'Other…']))
+})
+
+test('an open picker follows Pi’s refreshed list and picks the model it shows', async () => {
+  let listed = ['ollama/gemma4:12b', 'zai/glm-5.3']
+  bridge({ agentModels: () => ({ models: listed }) })
+  const onChange = vi.fn()
+  render(<ModelSelect agent="pi" value="" onChange={onChange} aria-label="Model" />)
+  const select = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Model' })
+  await waitFor(() => expect(shown(select)).toContain('ollama/gemma4:12b'))
+
+  listed = ['zai/glm-5.3']
+  await user().click(select)
+  const popup = screen.getByRole('listbox', { name: 'Model' })
+  await waitFor(() =>
+    expect(
+      within(popup)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Default model', 'zai/glm-5.3', 'Other…']),
+  )
+  await user().click(within(popup).getByRole('option', { name: 'zai/glm-5.3' }))
+  expect(onChange).toHaveBeenCalledWith('zai/glm-5.3')
 })
 
 test('the picker doesn’t ask Pi for models when another Provider is chosen', () => {

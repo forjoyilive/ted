@@ -3,6 +3,7 @@ import { isModelName } from '@ted/protocol'
 import { isArray, isObject, isString, parseJson } from '@ted/protocol/parse'
 
 export const piModelsTimeoutMs = 30_000
+export const piModelsMaxBytes = 8 * 1024 * 1024
 
 const request = 'ted-models'
 
@@ -25,6 +26,7 @@ export function piModels(options: {
   env: NodeJS.ProcessEnv
   cwd: string
   timeoutMs?: number
+  maxBytes?: number
 }): Promise<string[] | undefined> {
   return new Promise((resolve) => {
     let settled = false
@@ -54,6 +56,7 @@ export function piModels(options: {
         buffered = buffered.slice(end + 1)
         end = buffered.indexOf('\n')
       }
+      if (buffered.length > (options.maxBytes ?? piModelsMaxBytes)) finish(undefined)
     })
     child.stdin.end(`${JSON.stringify({ type: 'get_available_models', id: request })}\n`)
   })

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import type { AgentHealth } from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AgentsPage } from '../src/renderer/settings/AgentsPage.tsx'
 import { LeadSelects } from '../src/renderer/views/PlanChat.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 import { createdAt } from './support/fixtures.ts'
 
 const signedOut: AgentHealth = {
@@ -20,11 +20,12 @@ const signedOut: AgentHealth = {
 }
 
 test('signed-out agent shows its Fix commands and follows Ready health events', async () => {
+  const checking = deferred<AgentHealth[]>()
   const api = bridge({
     agentHealth: () => [signedOut],
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
     library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
-    checkAgentHealth: vi.fn(),
+    checkAgentHealth: () => checking.promise,
     copyText: vi.fn(),
   })
   render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
@@ -37,7 +38,9 @@ test('signed-out agent shows its Fix commands and follows Ready health events', 
   expect(api.request).toHaveBeenCalledWith('copyText', 'claude auth login')
   await user().click(c.getByRole('button', { name: 'Check again' }))
   expect(api.request).toHaveBeenCalledWith('checkAgentHealth')
-  expect(api.request).toHaveBeenCalledWith('agentModels', 'pi')
+  expect(api.request).not.toHaveBeenCalledWith('agentModels', 'pi')
+  await act(async () => checking.resolve([]))
+  await waitFor(() => expect(api.request).toHaveBeenCalledWith('agentModels', 'pi'))
   await act(async () =>
     api.emit({
       type: 'agent-health-changed',

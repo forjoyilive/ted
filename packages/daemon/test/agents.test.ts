@@ -1793,7 +1793,7 @@ describe('Pi’s model list', () => {
     expect(piModelsReply('not json')).toBeUndefined()
   })
 
-  test('asks Pi over RPC, and gives undefined when Pi is missing or exits without answering', async () => {
+  test('asks Pi over RPC, and gives undefined when Pi is missing, exits without answering or floods its output', async () => {
     const piHome = mkdtempSync(path.join(home, 'pi-models-'))
     const env = { ...process.env, TED_HOME: piHome }
     writeFileSync(path.join(piHome, 'stub-pi.json'), JSON.stringify({ models: 1 }))
@@ -1804,5 +1804,10 @@ describe('Pi’s model list', () => {
     const silent = path.join(piHome, 'silent-pi')
     writeFileSync(silent, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
     expect(await piModels({ binary: silent, env, cwd: piHome })).toBeUndefined()
+    const flooding = path.join(piHome, 'flooding-pi')
+    writeFileSync(flooding, `#!/bin/sh\nprintf '%02000d' 0\nexec sleep 600\n`, { mode: 0o755 })
+    expect(
+      await piModels({ binary: flooding, env, cwd: piHome, maxBytes: 1000, timeoutMs: 600_000 }),
+    ).toBeUndefined()
   })
 })

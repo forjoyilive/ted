@@ -537,10 +537,11 @@ export function AgentsPage({ settings }: SettingsPageProps) {
   const check = async () => {
     setChecking(true)
     try {
-      await Promise.all([ted.checkAgentHealth(), refreshPiModels()])
+      await ted.checkAgentHealth()
     } catch (error) {
       console.error(error)
     } finally {
+      await refreshPiModels()
       setChecking(false)
     }
   }
