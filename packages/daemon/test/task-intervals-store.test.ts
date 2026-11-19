@@ -133,7 +133,12 @@ test('keeps queue holds, agent pauses and GitHub waits overlapping with independ
   tick(1)
   store.queueTask(taskId, 'work')
   tick(2)
-  store.holdWhenBusy({ loadRatio: 2 })
+  store.holdWhenBusy({
+    cpuInUse: 0.95,
+    cpuHeld: true,
+    since: '2026-01-01T00:00:00.000Z',
+    checkedAt: '2026-01-01T00:00:00.000Z',
+  })
   tick(3)
   store.pauseAgent('codex', 'offline')
   tick(4)
@@ -485,7 +490,12 @@ test('unions GitHub waits across repos and queues across the Task Lead and sub-a
   tick(3)
   store.pullRequestWaiting(taskId, 'one', undefined)
   store.dequeue(taskId)
-  store.holdWhenBusy({ loadRatio: 2 })
+  store.holdWhenBusy({
+    cpuInUse: 0.95,
+    cpuHeld: true,
+    since: '2026-01-01T00:00:00.000Z',
+    checkedAt: '2026-01-01T00:00:00.000Z',
+  })
   tick(4)
   store.pullRequestWaiting(taskId, 'two', undefined)
   store.holdNewWork('disk full')

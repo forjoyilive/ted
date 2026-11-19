@@ -3,13 +3,17 @@ import type { Priority } from './task.ts'
 export const busyHold = 'computer is busy'
 
 export const busyMarks = {
-  load: { holdAt: 1, resumeBelow: 0.75 },
-  memory: { holdBelow: 0.1, resumeAbove: 0.2 },
+  cpu: { holdAbove: 0.9, resumeBelow: 0.75 },
+  memory: { holdAbove: 0.9, resumeBelow: 0.8 },
 } as const
 
 export interface BusyHold {
-  loadRatio?: number
-  memoryAvailable?: number
+  cpuInUse?: number
+  memoryInUse?: number
+  cpuHeld?: true
+  memoryHeld?: true
+  since: string
+  checkedAt: string
 }
 
 export const chatKinds = ['coordinator', 'side-chat', 'planning'] as const

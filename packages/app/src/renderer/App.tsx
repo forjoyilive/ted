@@ -134,7 +134,7 @@ import {
   setupNoticeEvent,
 } from './setup-notice.ts'
 import { keySequences } from './shortcuts.ts'
-import { busyDetail, factoryCapLine, runsLine } from './slots.ts'
+import { factoryCapLine, runsLine } from './slots.ts'
 import { StagesProvider } from './stages.tsx'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
@@ -1355,7 +1355,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
           inboxCount={inboxCount}
           badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}
-          {...(slots?.busy !== undefined && { busy: busyDetail(slots.busy) })}
+          {...(slots?.busy !== undefined && { busy: slots.busy })}
           footer={{
             ...(slots !== undefined && { runs: runsLine(slots) }),
             ...(devicesFooter !== undefined && { devices: devicesFooter }),

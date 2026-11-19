@@ -1,6 +1,6 @@
 import { busyMarks, defaultWorkingRuns, type Priority } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { nextBusy } from '../src/busy.ts'
+import { type BusyState, createBusyHold, nextBusy } from '../src/busy.ts'
 import {
   continuationFlags,
   queueOrder,
@@ -308,48 +308,125 @@ describe('chats', () => {
   })
 })
 
-const quiet = { loadRatio: 0, memoryAvailable: 1 }
+const quiet = { cpuInUse: 0, memoryAvailable: 1 }
+const confirmMs = 15_000
+
+function readings(...steps: { cpuInUse?: number; memoryAvailable?: number; at: number }[]) {
+  let state: BusyState = {}
+  return steps.map((step) => {
+    state = nextBusy(state, { ...quiet, ...step }, confirmMs)
+    return state.hold
+  })
+}
 
 describe('nextBusy', () => {
-  test('holds at one runnable process per core, and not below it', () => {
-    expect(nextBusy(undefined, { ...quiet, loadRatio: busyMarks.load.holdAt })).toEqual({
-      loadRatio: 1,
+  test('holds for CPU only after two readings above 90%, a check apart', () => {
+    const [first, early, second] = readings(
+      { cpuInUse: 0.95, at: 0 },
+      { cpuInUse: 0.97, at: 5_000 },
+      { cpuInUse: 0.942, at: confirmMs },
+    )
+    expect(first).toBeUndefined()
+    expect(early).toBeUndefined()
+    expect(second).toMatchObject({ cpuInUse: 0.94, cpuHeld: true, memoryInUse: 0 })
+    expect(second?.memoryHeld).toBeUndefined()
+    expect(second?.since).toBe(new Date(confirmMs).toISOString())
+  })
+
+  test('a short spike, a reading at 90% or a long gap starts no CPU hold', () => {
+    expect(
+      readings(
+        { cpuInUse: 0.95, at: 0 },
+        { cpuInUse: 0.5, at: 1 },
+        { cpuInUse: 0.95, at: confirmMs },
+      ),
+    ).toEqual([undefined, undefined, undefined])
+    expect(
+      readings({ cpuInUse: busyMarks.cpu.holdAbove, at: 0 }, { cpuInUse: 0.9, at: confirmMs }),
+    ).toEqual([undefined, undefined])
+    expect(readings({ cpuInUse: 0.95, at: 0 }, { cpuInUse: 0.95, at: 10 * 60_000 })).toEqual([
+      undefined,
+      undefined,
+    ])
+  })
+
+  test('once holding for CPU, keeps holding until it is below 75%, and keeps its start', () => {
+    const [, held, easing, atMark, lifted] = readings(
+      { cpuInUse: 0.95, at: 0 },
+      { cpuInUse: 0.95, at: confirmMs },
+      { cpuInUse: 0.81, at: 2 * confirmMs },
+      { cpuInUse: busyMarks.cpu.resumeBelow, at: 3 * confirmMs },
+      { cpuInUse: 0.74, at: 4 * confirmMs },
+    )
+    expect(easing).toMatchObject({ cpuInUse: 0.81, cpuHeld: true, since: held?.since })
+    expect(easing?.checkedAt).toBe(new Date(2 * confirmMs).toISOString())
+    expect(atMark).toMatchObject({ cpuInUse: 0.75, cpuHeld: true })
+    expect(lifted).toBeUndefined()
+  })
+
+  test('holds at once above 90% of memory in use and keeps holding until it is below 80%', () => {
+    expect(readings({ memoryAvailable: 0.1, at: 0 })).toEqual([undefined])
+    const [held, atMark, lifted] = readings(
+      { memoryAvailable: 0.071, at: 0 },
+      { memoryAvailable: 0.2, at: 1 },
+      { memoryAvailable: 0.21, at: 2 },
+    )
+    expect(held).toMatchObject({ memoryInUse: 0.93, memoryHeld: true, cpuInUse: 0 })
+    expect(held?.cpuHeld).toBeUndefined()
+    expect(atMark).toMatchObject({ memoryInUse: 0.8, memoryHeld: true })
+    expect(lifted).toBeUndefined()
+  })
+
+  test('a CPU hold doesn’t keep memory held', () => {
+    const [, both, cpuOnly] = readings(
+      { cpuInUse: 0.95, memoryAvailable: 0.05, at: 0 },
+      { cpuInUse: 0.95, memoryAvailable: 0.05, at: confirmMs },
+      { cpuInUse: 0.85, memoryAvailable: 0.25, at: 2 * confirmMs },
+    )
+    expect(both).toMatchObject({ cpuHeld: true, memoryHeld: true })
+    expect(cpuOnly).toMatchObject({ cpuHeld: true, memoryInUse: 0.75 })
+    expect(cpuOnly?.memoryHeld).toBeUndefined()
+  })
+
+  test('a figure that can’t be read never holds', () => {
+    expect(
+      readings(
+        { cpuInUse: 0.95, at: 0 },
+        { cpuInUse: 0.95, at: confirmMs },
+        { cpuInUse: Number.NaN, at: 2 * confirmMs },
+      )[2],
+    ).toBeUndefined()
+    expect(
+      readings({ memoryAvailable: 0.05, at: 0 }, { memoryAvailable: Number.NaN, at: 1 })[1],
+    ).toBeUndefined()
+  })
+})
+
+describe('createBusyHold', () => {
+  test('a check within a second of the last reading returns the same hold without reading again', async () => {
+    let clock = 0
+    let reads = 0
+    const busy = createBusyHold({
+      on: () => true,
+      loadRatio: () => {
+        reads += 1
+        return 0.95
+      },
+      memoryAvailable: () => 1,
+      confirmMs,
+      now: () => clock,
     })
-    expect(nextBusy(undefined, { ...quiet, loadRatio: 4.404 })).toEqual({ loadRatio: 4.4 })
-    expect(nextBusy(undefined, { ...quiet, loadRatio: 0.99 })).toBeUndefined()
-  })
-
-  test('once holding for load, keeps holding until it is below the resume mark', () => {
-    const held = { loadRatio: 1.2 }
-    expect(nextBusy(held, { ...quiet, loadRatio: 0.99 })).toEqual({ loadRatio: 0.99 })
-    expect(nextBusy(held, { ...quiet, loadRatio: busyMarks.load.resumeBelow })).toEqual({
-      loadRatio: 0.75,
-    })
-    expect(nextBusy(held, { ...quiet, loadRatio: 0.74 })).toBeUndefined()
-    expect(nextBusy(undefined, { ...quiet, loadRatio: 0.8 })).toBeUndefined()
-  })
-
-  test('holds below 10% of memory available and keeps holding until it is above 20%', () => {
-    expect(nextBusy(undefined, { ...quiet, memoryAvailable: 0.1 })).toBeUndefined()
-    const held = nextBusy(undefined, { ...quiet, memoryAvailable: 0.071 })
-    expect(held).toEqual({ memoryAvailable: 0.07 })
-    expect(nextBusy(held, { ...quiet, memoryAvailable: 0.2 })).toEqual({ memoryAvailable: 0.2 })
-    expect(nextBusy(held, { ...quiet, memoryAvailable: 0.21 })).toBeUndefined()
-  })
-
-  test('carries each resource that holds, and a load hold doesn’t keep memory held', () => {
-    const both = nextBusy(undefined, { loadRatio: 2, memoryAvailable: 0.05 })
-    expect(both).toEqual({ loadRatio: 2, memoryAvailable: 0.05 })
-    expect(nextBusy({ loadRatio: 2 }, { loadRatio: 0.9, memoryAvailable: 0.15 })).toEqual({
-      loadRatio: 0.9,
-    })
-  })
-
-  test('a figure that can’t be read, or the zeros Windows reports, never holds', () => {
-    expect(nextBusy({ loadRatio: 2 }, { ...quiet, loadRatio: Number.NaN })).toBeUndefined()
-    expect(nextBusy({ loadRatio: 2 }, { ...quiet, loadRatio: 0 })).toBeUndefined()
-    const memory = { memoryAvailable: 0.05 }
-    expect(nextBusy(memory, { ...quiet, memoryAvailable: Number.NaN })).toBeUndefined()
+    expect(await busy.check()).toBeUndefined()
+    expect(busy.pending()).toBe(true)
+    clock = confirmMs
+    const held = await busy.check()
+    expect(held).toMatchObject({ cpuHeld: true })
+    clock += 500
+    expect(await busy.check()).toBe(held)
+    expect(reads).toBe(2)
+    clock += 500
+    expect(await busy.check()).not.toBe(held)
+    expect(reads).toBe(3)
   })
 })
 

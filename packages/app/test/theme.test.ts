@@ -108,6 +108,7 @@ describe('theme tokens', () => {
           '--status-destructive-text',
           '--status-neutral-fg',
           '--status-success-fg',
+          '--status-caution-fg',
           '--diff-added-count',
           '--diff-removed-count',
         ],

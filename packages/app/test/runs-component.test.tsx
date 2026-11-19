@@ -155,7 +155,15 @@ test('Limits turns off waiting when busy and says when starts are held', async (
   await user().unhover(help)
   await user().click(control)
   expect(a.request).toHaveBeenCalledWith('updateSettings', { waitWhenBusy: false })
-  a.state.slots = { ...a.state.slots, busy: { memoryAvailable: 0.07 } }
+  a.state.slots = {
+    ...a.state.slots,
+    busy: {
+      memoryInUse: 0.93,
+      memoryHeld: true,
+      since: '2026-01-01T00:00:00.000Z',
+      checkedAt: '2026-01-01T00:00:00.000Z',
+    } as const,
+  }
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
   expect(
     screen
@@ -163,5 +171,5 @@ test('Limits turns off waiting when busy and says when starts are held', async (
         /^Now: 1 of \d+ slots? in use · 2 checks running, 1 waiting · 1 queued · computer is busy$/,
       )
       .getAttribute('title'),
-  ).toBe('Memory available: 7% · waits below 10%, starts again above 20%')
+  ).toBe('Memory: 93% in use · waits above 90%, starts again below 80%')
 })
