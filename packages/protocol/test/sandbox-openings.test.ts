@@ -22,7 +22,7 @@ test('sockets and Electron Apps widen the sandbox without running anything outsi
     electronApps: [{ repo: 'ted', name: 'Ted Dev' }],
   })
   expect(openings).toEqual([
-    { kind: 'socket', unsandboxed: false, socket: '/a.sock' },
+    { kind: 'socket', unsandboxed: false, socket: '/a.sock', from: 'factory' },
     { kind: 'electron-app', unsandboxed: false, repo: 'ted', app: 'Ted Dev' },
   ])
   expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
@@ -48,4 +48,10 @@ test('Pi’s unsandboxed fallback shows only in an Auto Factory', () => {
       (o) => o.kind,
     ),
   ).toEqual(['bypass'])
+})
+
+test('a socket row names the layer its list comes from', () => {
+  expect(sandboxOpenings({ ...none, sockets: ['/a.sock'], socketsFrom: 'library' })).toEqual([
+    { kind: 'socket', unsandboxed: false, socket: '/a.sock', from: 'library' },
+  ])
 })

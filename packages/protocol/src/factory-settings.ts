@@ -325,6 +325,7 @@ export interface FactorySettingsView {
   maxWorkingRuns?: number
   machineMaxWorkingRuns: number
   sandboxSockets: string[]
+  sandboxSocketsFrom?: LayerKind
   electronApps: ElectronApp[]
   notes: string
   invalid?: InvalidSettings

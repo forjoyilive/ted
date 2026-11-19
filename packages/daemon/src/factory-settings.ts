@@ -154,6 +154,15 @@ const knownFile = (file: string) =>
   stageFileId(file) !== undefined ||
   agentFileId(file) !== undefined
 
+function socketsView(
+  base: Base,
+): Pick<FactorySettingsView, 'sandboxSockets' | 'sandboxSocketsFrom'> {
+  const layer = [...base.inherited, base.own].findLast((l) => l.settings.sandbox_sockets)
+  return layer?.settings.sandbox_sockets
+    ? { sandboxSockets: layer.settings.sandbox_sockets, sandboxSocketsFrom: layer.kind }
+    : { sandboxSockets: [] }
+}
+
 function ignoredStageFiles(files: readonly string[], base: Base): string[] {
   const { order } = resolveWorkflow([...base.inherited, base.own])
   return files.filter((name) => {
@@ -718,7 +727,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           maxWorkingRuns: base.settings.max_working_runs,
         }),
         machineMaxWorkingRuns: store.settings().maxWorkingRuns,
-        sandboxSockets: base.settings?.sandbox_sockets ?? [],
+        ...socketsView(base),
         electronApps: (base.settings?.repos ?? []).flatMap((entry, i) =>
           appDeclarations(entry.apps)
             .filter((app) => app.electron === true)

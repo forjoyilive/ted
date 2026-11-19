@@ -8,7 +8,7 @@ import { bridge, user } from './support/component.ts'
 
 const view: Pick<
   FactorySettingsView,
-  'factoryId' | 'permissions' | 'sandboxSockets' | 'electronApps'
+  'factoryId' | 'permissions' | 'sandboxSockets' | 'sandboxSocketsFrom' | 'electronApps'
 > = {
   factoryId: 'factory',
   permissions: 'auto',
@@ -64,4 +64,19 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   })
   api.emit({ type: 'settings-changed', settings })
   expect(await screen.findByText('1 thing runs outside the sandbox.')).toBeTruthy()
+})
+
+test('a socket inherited from the Library says where to turn it off', async () => {
+  bridge({})
+  render(
+    <SandboxSection
+      view={{ ...view, sandboxSockets: ['/lib.sock'], sandboxSocketsFrom: 'library' }}
+      {...links}
+    />,
+  )
+  expect(await screen.findByText('Nothing runs outside the sandbox.')).toBeTruthy()
+  const row = screen.getByRole('listitem')
+  expect(row.textContent).toContain('From sandbox_sockets in the Library’s workflow.yaml.')
+  expect(row.textContent).toContain('Settings → Library')
+  expect(row.textContent).toContain('sandbox_sockets: []')
 })

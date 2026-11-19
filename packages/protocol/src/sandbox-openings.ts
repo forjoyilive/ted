@@ -1,4 +1,5 @@
 import type { PermissionMode } from './run.ts'
+import type { LayerKind } from './workflow.ts'
 
 export interface ElectronApp {
   repo: string
@@ -10,6 +11,7 @@ export interface SandboxOpeningsInput {
   appsOutsideSandbox: readonly string[]
   piUnsandboxedAllowed: boolean
   sockets: readonly string[]
+  socketsFrom?: LayerKind
   electronApps: readonly ElectronApp[]
 }
 
@@ -17,7 +19,7 @@ export type SandboxOpening =
   | { kind: 'bypass'; unsandboxed: true }
   | { kind: 'app-outside'; unsandboxed: true; app: string }
   | { kind: 'pi-unsandboxed'; unsandboxed: true }
-  | { kind: 'socket'; unsandboxed: false; socket: string }
+  | { kind: 'socket'; unsandboxed: false; socket: string; from: LayerKind }
   | { kind: 'electron-app'; unsandboxed: false; repo: string; app: string }
 
 export type SandboxSummary =
@@ -36,7 +38,12 @@ export function sandboxOpenings(input: SandboxOpeningsInput): SandboxOpening[] {
     openings.push({ kind: 'pi-unsandboxed', unsandboxed: true })
   }
   for (const socket of new Set(input.sockets)) {
-    openings.push({ kind: 'socket', unsandboxed: false, socket })
+    openings.push({
+      kind: 'socket',
+      unsandboxed: false,
+      socket,
+      from: input.socketsFrom ?? 'factory',
+    })
   }
   for (const { repo, name } of input.electronApps) {
     openings.push({ kind: 'electron-app', unsandboxed: false, repo, app: name })

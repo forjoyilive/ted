@@ -1,3 +1,4 @@
+import type { LayerKind } from '@ted/protocol'
 import type { FactorySettingsView } from '@ted/protocol/factory-settings'
 import {
   type SandboxOpening,
@@ -21,7 +22,10 @@ export function SandboxSection({
   onOpenRepos,
   onOpenProviders,
 }: {
-  view: Pick<FactorySettingsView, 'factoryId' | 'permissions' | 'sandboxSockets' | 'electronApps'>
+  view: Pick<
+    FactorySettingsView,
+    'factoryId' | 'permissions' | 'sandboxSockets' | 'sandboxSocketsFrom' | 'electronApps'
+  >
   onOpenPermissions: () => void
   onOpenRepos: () => void
   onOpenProviders: () => void
@@ -34,6 +38,7 @@ export function SandboxSection({
     appsOutsideSandbox: settings?.appsOutsideSandbox[view.factoryId] ?? [],
     piUnsandboxedAllowed: settings?.piUnsandboxedAllowed ?? false,
     sockets: view.sandboxSockets,
+    ...(view.sandboxSocketsFrom && { socketsFrom: view.sandboxSocketsFrom }),
     electronApps: view.electronApps,
   })
 
@@ -221,13 +226,7 @@ function describe(opening: SandboxOpening): OpeningText {
           </>
         ),
         what: 'Sandboxed commands can connect to this socket and use whatever listens on it.',
-        where: (
-          <>
-            From <code className={styles.code}>sandbox_sockets</code> in{' '}
-            <code className={styles.code}>.ted/workflow.yaml</code>. Remove the entry in a Task to
-            turn it off.
-          </>
-        ),
+        where: <SocketSource from={opening.from} />,
       }
     case 'electron-app':
       return {
@@ -242,4 +241,24 @@ function describe(opening: SandboxOpening): OpeningText {
         ),
       }
   }
+}
+
+function SocketSource({ from }: { from: LayerKind }) {
+  const key = <code className={styles.code}>sandbox_sockets</code>
+  const file = <code className={styles.code}>.ted/workflow.yaml</code>
+  if (from === 'factory') {
+    return (
+      <>
+        From {key} in {file}. Remove the entry in a Task to turn it off.
+      </>
+    )
+  }
+  return (
+    <>
+      From {key} in {from === 'library' ? 'the Library’s' : 'Ted’s default'}{' '}
+      <code className={styles.code}>workflow.yaml</code>. Remove it
+      {from === 'library' ? ' in Settings → Library' : ''}, or set{' '}
+      <code className={styles.code}>sandbox_sockets: []</code> in this Factory’s {file} in a Task.
+    </>
+  )
 }
