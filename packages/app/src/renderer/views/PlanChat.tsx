@@ -30,6 +30,7 @@ import { Help } from '../components/Help.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
+import { PiAutoNote } from '../components/PiAutoNote.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { QuestionChoices, type QuestionSelection } from '../components/QuestionChoices.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
@@ -297,6 +298,7 @@ function NewPlanChat({
             <span className={styles.spacer} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
+          {lead && <PiAutoNote agent={lead.agent} factoryId={factory.id} alwaysWaits />}
           {picked && <AgentDescriptionLine agent={agent} />}
         </header>
         <div className={styles.intro}>

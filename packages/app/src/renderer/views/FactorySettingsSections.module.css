@@ -103,6 +103,10 @@
   border-top: none;
 }
 
+.agentNote {
+  padding: 0 14px 12px;
+}
+
 .headRow {
   min-height: 34px;
   border-top: none;

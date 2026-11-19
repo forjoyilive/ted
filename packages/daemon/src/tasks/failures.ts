@@ -5,7 +5,12 @@ export const failedTitle = 'The Task Lead stopped twice in 30 minutes'
 
 export const retryChoice = 'Retry'
 
-const binaries: Record<AgentKind, string> = { claude: 'claude', codex: 'codex', antigravity: 'agy' }
+const binaries: Record<AgentKind, string> = {
+  claude: 'claude',
+  codex: 'codex',
+  antigravity: 'agy',
+  pi: 'pi',
+}
 
 export const memoryReason = 'was stopped because this computer ran out of memory'
 

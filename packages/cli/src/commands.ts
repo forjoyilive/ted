@@ -1,7 +1,9 @@
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util'
-import { tedEnv } from '@ted/protocol'
+import { agentKinds, tedEnv } from '@ted/protocol'
 
 export class UsageError extends Error {}
+
+const providers = agentKinds.join('|')
 
 const flags = {
   capacity: { type: 'string' },
@@ -574,7 +576,7 @@ export const commands = [
     handler: 'startSubAgent',
     min: 0,
     max: 0,
-    help: '  ted run start [--provider claude|codex|antigravity] [--model <name>] [--effort <level>] --prompt-file <file>\n                [--name <name>] [--own-worktree]\n                                             Start a sub-agent on this Task (Task Lead only);\n                                             prints its Run ID\n  ted run start --reviewer --prompt-file <file>\n                                             Start the reviewer: Ted picks its Provider, model and\n                                             effort from the reviewer setting',
+    help: `  ted run start [--provider ${providers}] [--model <name>] [--effort <level>] --prompt-file <file>\n                [--name <name>] [--own-worktree]\n                                             Start a sub-agent on this Task (Task Lead only);\n                                             prints its Run ID\n  ted run start --reviewer --prompt-file <file>\n                                             Start the reviewer: Ted picks its Provider, model and\n                                             effort from the reviewer setting`,
     callers: 'Task Lead',
     options: options(
       'task',
@@ -1304,7 +1306,7 @@ export const commands = [
     handler: 'lead',
     min: 2,
     max: 2,
-    help: '  ted task lead <id> claude|codex|antigravity [--model <name>] [--effort <level> | --stage-effort]\n                                             Set the Task Lead’s Provider, model and effort',
+    help: `  ted task lead <id> ${providers} [--model <name>] [--effort <level> | --stage-effort]\n                                             Set the Task Lead’s Provider, model and effort`,
     callers: 'Terminal or Task Lead',
     excludes: ['default-model'],
     options: options('model', 'effort', 'stage-effort'),
@@ -1449,7 +1451,7 @@ export const commands = [
     handler: 'automationCreate',
     min: 0,
     max: 0,
-    help: '  ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>\n                [--template linear|asana|sentry|github|architecture|audit]\n                [--provider claude|codex|antigravity] [--model <name>] [--effort <level>] [--off]\n                                             Create an Automation (a template fills in what you\n                                             leave out)',
+    help: `  ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>\n                [--template linear|asana|sentry|github|architecture|audit]\n                [--provider ${providers}] [--model <name>] [--effort <level>] [--off]\n                                             Create an Automation (a template fills in what you\n                                             leave out)`,
     callers: 'Ted app only',
     options: options(
       'factory',
@@ -1468,7 +1470,7 @@ export const commands = [
     handler: 'automationEdit',
     min: 1,
     max: 1,
-    help: '  ted automation edit <id> [--name <name>] [--schedule "<cron|RRULE>"]\n                [--prompt-file <file>] [--provider claude|codex|antigravity] [--model <name>]\n                [--effort <level>] [--off]\n                                             Change an Automation',
+    help: `  ted automation edit <id> [--name <name>] [--schedule "<cron|RRULE>"]\n                [--prompt-file <file>] [--provider ${providers}] [--model <name>]\n                [--effort <level>] [--off]\n                                             Change an Automation`,
     callers: 'Ted app only',
     options: options(
       'factory',

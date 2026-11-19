@@ -9,6 +9,7 @@ import type {
 } from '@ted/protocol'
 import { agentDisplayNames } from '@ted/protocol/health'
 import { minGhVersion } from '@ted/protocol/integrations'
+import { agentKinds } from '@ted/protocol/run'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
@@ -540,12 +541,12 @@ export function FirstLaunch({
       <h1 className={styles.title}>
         Set up Ted
         <Help>
-          Ted runs Claude Code, Codex and Antigravity with your own logins. It never sees your
+          Ted runs Claude Code, Codex, Antigravity and Pi with your own logins. It never sees your
           passwords or tokens.
         </Help>
       </h1>
       <div className={styles.rows}>
-        {(['claude', 'codex', 'antigravity'] as const).map((agent) => {
+        {agentKinds.map((agent) => {
           const health = agentFor(agent)
           const good = health?.state === 'ready'
           return (

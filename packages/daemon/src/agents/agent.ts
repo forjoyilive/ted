@@ -20,6 +20,7 @@ export interface AgentLaunch {
   input: string
   files: Record<string, string>
   driver?: string
+  lines?: 'lf'
   sessionId?: string
 }
 
@@ -99,6 +100,7 @@ export interface AgentHealthSpec {
   signIn(env: NodeJS.ProcessEnv): string
   update: string
   install: string
+  ignoresOfflineAndLimits?: boolean
 }
 
 export type AgentChatEntry =
@@ -115,6 +117,7 @@ export type AgentChatEntry =
       diffs?: ChatDiff[]
       at?: string
       endedAt?: string
+      thinking?: true
     }
 
 export interface AgentChat {
@@ -137,7 +140,7 @@ export interface Agent {
     effort?: Effort
     permissions: PermissionMode
     tools?: 'none' | 'isolated'
-    billing?: Billing
+    billing?: Billing | undefined
   }): AgentLaunch
   message(text: string): string
   steer(text: string): string
@@ -172,6 +175,7 @@ export interface Agent {
   costLine(line: string): boolean
   keyHelp(source: string | undefined): string
   environment(env: NodeJS.ProcessEnv, billing: Billing): NodeJS.ProcessEnv
+  savedModel?(env: NodeJS.ProcessEnv): string | undefined
   health: AgentHealthSpec
 }
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
-import type { AutomationPromptDraft, DraftAutomationPromptRequest } from '@ted/protocol'
+import type { AgentKind, AutomationPromptDraft, DraftAutomationPromptRequest } from '@ted/protocol'
 import { chatToolPolicy } from '@ted/protocol/run'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
@@ -49,9 +49,14 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       throw new RequestError(404, 'No such Prompt draft')
     return draft
   }
+  const hold = (draft: StoredAutomationDraft, agent: AgentKind) =>
+    agentStartHold(store, agent, draft.id, {
+      factoryId: draft.factoryId,
+      model: draft.input.model,
+      agents,
+    })
   const paused = (draft: StoredAutomationDraft) =>
-    draft.input.agent &&
-    (agentStartHold(store, draft.input.agent, draft.id) ?? store.agentPauses()[draft.input.agent])
+    draft.input.agent && (hold(draft, draft.input.agent) ?? store.agentPauses()[draft.input.agent])
   const view = (draft: StoredAutomationDraft): AutomationPromptDraft => ({
     id: draft.id,
     factoryId: draft.factoryId,
@@ -249,7 +254,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         !closed &&
         !!draft &&
         !!draft.input.agent &&
-        !agentStartHold(store, draft.input.agent, draft.id) &&
+        !hold(draft, draft.input.agent) &&
         !paused(draft)
       )
     },
@@ -357,12 +362,9 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         .settings
       const defaults = resolveAgentChoices(
         settings,
-        {
-          claude: agents.installed('claude'),
-          antigravity: agents.installed('antigravity'),
-          codex: agents.installed('codex'),
-        },
+        agents.installedKinds(),
         store.settings().enabledAgents,
+        store.agentPauses(),
       ).lead
       const lead =
         input.agent === undefined

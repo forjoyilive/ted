@@ -6,9 +6,11 @@ import {
   agentProblem,
   agentShortNames,
   antigravityPlanNotice,
+  type Billing,
   bannerId,
   type DaemonEvent,
   type FixCommand,
+  isBilledAgent,
   type MachineSettings,
   offlineProblem,
   type PlanUsage,
@@ -115,7 +117,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     })
     emit({ type: 'agent-health-changed', health })
   }
-  const billing = (kind: AgentKind) => store.settings().billing[kind]
+  const billing = (kind: AgentKind): Billing =>
+    isBilledAgent(kind) ? store.settings().billing[kind] : 'subscription'
+  const pausesFor = (kind: AgentKind) => agents.get(kind).health.ignoresOfflineAndLimits !== true
 
   function fixFor(kind: AgentKind, state: AgentHealthState): FixCommand | undefined {
     const spec = agents.get(kind).health
@@ -167,14 +171,14 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   function compose(kind: AgentKind): AgentHealth | undefined {
     const found = inspected.get(kind)
     if (!found) return undefined
-    const limit = limits.get(kind)
+    const limit = pausesFor(kind) ? limits.get(kind) : undefined
     const wrongKey = wrongKeys.has(kind)
     const state: AgentHealthState =
       found.state !== 'ready'
         ? found.state
         : wrongKey
           ? 'wrong-credential'
-          : offline
+          : offline && pausesFor(kind)
             ? 'offline'
             : limit
               ? 'usage-limit'
@@ -435,7 +439,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   }
 
   function limited(kind: AgentKind, reported?: string): void {
-    if (closed) return
+    if (closed || !pausesFor(kind)) return
     const current = limits.get(kind)
     const known = current?.resetsAt
     const resetsAt =

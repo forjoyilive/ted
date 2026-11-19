@@ -96,7 +96,12 @@ export function ModelSelect({
         id={selectId}
         aria-label={label}
         className={[styles.control, inputClassName ?? styles.input].join(' ')}
-        placeholder="Model name"
+        placeholder={agent === 'pi' ? 'provider/id' : 'Model name'}
+        title={
+          agent === 'pi'
+            ? 'Pi models are written as provider/id, e.g. ollama/gemma4:12b'
+            : undefined
+        }
         size={14}
         value={typed}
         onChange={(event) => setTyped(event.target.value)}

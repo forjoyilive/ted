@@ -240,13 +240,13 @@ test('Antigravity on a Google plan shows Google’s terms and saves the choice t
 })
 
 test('each agent’s panel shows what its Runs of the last 30 days would cost on an API key', async () => {
-  const agent = (kind: 'claude' | 'codex' | 'antigravity') => ({
+  const agent = (kind: 'claude' | 'codex' | 'antigravity' | 'pi') => ({
     ...signedOut,
     agent: kind,
     pausedRuns: 0,
   })
   bridge({
-    agentHealth: () => [agent('claude'), agent('codex'), agent('antigravity')],
+    agentHealth: () => [agent('claude'), agent('codex'), agent('antigravity'), agent('pi')],
     library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     apiCost: () => ({
       days: 30,
@@ -261,6 +261,7 @@ test('each agent’s panel shows what its Runs of the last 30 days would cost on
           input: 2_400_000,
           output: 310_000,
         },
+        { agent: 'pi', runs: 2, pricedRuns: 2, cost: 0.4, input: 12_000, output: 3_000 },
       ],
     }),
   })
@@ -286,4 +287,11 @@ test('each agent’s panel shows what its Runs of the last 30 days would cost on
   const antigravity = within(screen.getByRole('region', { name: 'Antigravity' }))
   expect(antigravity.getByText('Not available')).toBeTruthy()
   expect(antigravity.getByText('Antigravity doesn’t report the tokens it uses.')).toBeTruthy()
+  const pi = within(screen.getByRole('region', { name: 'Pi' }))
+  expect(pi.getByText('Last 30 days')).toBeTruthy()
+  expect(pi.getByText('$0.40 for 2 Runs')).toBeTruthy()
+  expect(pi.getByText('12K input and 3K output tokens.')).toBeTruthy()
+  expect(pi.getByText('The cost Pi reported for each Run.')).toBeTruthy()
+  expect(pi.queryByRole('radiogroup')).toBeNull()
+  expect(pi.getByText('Not available')).toBeTruthy()
 })

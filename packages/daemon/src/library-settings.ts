@@ -5,6 +5,7 @@ import {
   type AgentChoiceInput,
   type AgentKind,
   type AgentStageId,
+  agentKinds,
   agentRoles,
   type ClarifyDepth,
   type DaemonEvent,
@@ -211,17 +212,14 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
     const own = base.own.settings
     const defaults = base.defaults.settings
     const merged = resolveWorkflow([base.defaults, base.own]).settings
-    const installed = {
-      claude: options.installed('claude'),
-      antigravity: options.installed('antigravity'),
-      codex: options.installed('codex'),
-    }
+    const installed = Object.fromEntries(agentKinds.map((kind) => [kind, options.installed(kind)]))
     return agentRoles.map((role) => {
       const choice = own[role]
       const resolved = resolveAgentChoices(
         { ...merged, [role]: defaults[role] } as typeof merged,
         installed,
         options.store.settings().enabledAgents,
+        options.store.agentPauses(),
       )
       return {
         role,

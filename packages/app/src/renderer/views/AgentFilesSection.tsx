@@ -35,6 +35,7 @@ import {
 } from '../components/ContextMenu.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { AllowanceList, useAllowances } from '../components/OutsideCommands.tsx'
+import { PiAutoNote } from '../components/PiAutoNote.tsx'
 import { Select } from '../components/Select.tsx'
 import grow from '../components/TextGrow.module.css'
 import type { SettingId } from '../settings-search.ts'
@@ -512,6 +513,7 @@ function AgentEditor({
             <AgentOptions current={settings.agent} />
           </Select>
           <p className={styles.hint}>Which Provider runs this Agent’s chats.</p>
+          <PiAutoNote agent={resolved.agent} factoryId={factoryId} />
         </div>
         <div className={styles.field}>
           <label className={base.label} htmlFor={`${id}-model`}>
