@@ -12,6 +12,7 @@ import {
   parseAssessFailureRequest,
   parseBlockTaskRequest,
   parseCancelMergeRequest,
+  parseChooseFailureFixRequest,
   parseCloseRoundRequest,
   parseCreateTaskRequest,
   parseDeleteTaskRequest,
@@ -200,6 +201,14 @@ export const taskRoutes: Route[] = [
       await tasks.requestFailureDecision(ref, caller, id),
     ],
   },
+  jsonRoute(parseChooseFailureFixRequest, {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/failures\/([^/]+)\/lead-fix$/,
+    runToken: true,
+    async handle({ body, params: [ref = '', id = ''], caller }, { tasks }) {
+      return [200, await tasks.chooseFailureFix(ref, caller, id, body.reason)]
+    },
+  }),
   jsonRoute(parseVerifyFailureRequest, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/failures\/([^/]+)\/verification$/,

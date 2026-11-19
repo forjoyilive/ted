@@ -26,6 +26,7 @@ import {
   type MenuPosition,
   useActionMenu,
 } from '../components/ContextMenu.tsx'
+import { ChevronIcon } from '../components/icons.tsx'
 import { ListPane } from '../components/ResizableSidebar.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
@@ -273,7 +274,7 @@ export function AgentsView({
               aria-expanded={showArchived}
               onClick={() => setArchivedOpen(!showArchived)}
             >
-              <span aria-hidden="true">{showArchived ? '▾' : '▸'}</span>
+              <ChevronIcon open={showArchived} />
               Archived · {archivedRows.length}
             </button>
             {showArchived && archivedRows.map(rowFor)}

@@ -87,22 +87,49 @@ export function isOutsideHost(hostname: string): boolean {
 }
 
 const outsideTypes = new Set(['image', 'font', 'media'])
+const readMethods = new Set(['GET', 'HEAD'])
+const youTubeDomains = [
+  'youtube.com',
+  'youtube-nocookie.com',
+  'googlevideo.com',
+  'ytimg.com',
+  'ggpht.com',
+]
+const youTubeExtras = [
+  { prefix: 'https://www.google.com/js/th/', type: 'script' },
+  { prefix: 'https://jnn-pa.googleapis.com/', type: 'xhr' },
+]
 const signInHost = 'ted-guest-proxy.invalid'
 export const guestSignInUrl = `http://${signInHost}/`
 
-export function isOutsideMedia(address: string, resourceType: string): boolean {
-  if (!outsideTypes.has(resourceType)) return false
+function outsideUrl(address: string): URL | undefined {
   try {
     const url = new URL(address)
-    return (
-      (url.protocol === 'http:' || url.protocol === 'https:') &&
-      !url.username &&
-      !url.password &&
-      isOutsideHost(url.hostname)
-    )
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined
+    if (url.username || url.password || !isOutsideHost(url.hostname)) return undefined
+    return url
   } catch {
-    return false
+    return undefined
   }
+}
+
+export function isYouTube(address: string): boolean {
+  const url = outsideUrl(address)
+  if (url?.protocol !== 'https:') return false
+  const host = url.hostname.replace(/\.$/, '').toLowerCase()
+  return youTubeDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))
+}
+
+export function isOutsideRequest(address: string, resourceType: string, method: string): boolean {
+  const url = outsideUrl(address)
+  if (!url) return false
+  if (outsideTypes.has(resourceType)) return true
+  if (resourceType === 'xhr' && readMethods.has(method)) return true
+  if (
+    youTubeExtras.some(({ prefix, type }) => type === resourceType && url.href.startsWith(prefix))
+  )
+    return true
+  return isYouTube(address) && resourceType !== 'mainFrame' && resourceType !== 'webSocket'
 }
 
 export interface HeldLookups {

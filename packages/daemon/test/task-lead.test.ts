@@ -180,6 +180,23 @@ describe('changing the Task Lead field', () => {
     )
   })
 
+  test('a Task Lead is asked for the AI disclosure line unless the setting is off', async () => {
+    const client = await startTed()
+    const leadPrompt = async () => {
+      const task = await client.ok<Task>('POST', '/tasks', {
+        title: steps({ endTurn: true }),
+        factory: 'NB',
+      })
+      await client.ok('POST', `/tasks/${task.id}/start`)
+      return (await waitForRun(client, task, (r) => r.state === 'idle', 'an idle Run')).prompt
+    }
+    expect(await leadPrompt()).toContain('From Opus 5.5 via Ted:')
+    await client.ok('PATCH', '/settings', { aiDisclosure: false })
+    expect(await leadPrompt()).not.toContain('via Ted:')
+    const refused = await client.call('PATCH', '/settings', { aiDisclosure: 'yes' })
+    expect(refused.status).toBe(400)
+  })
+
   test('the field takes only a known agent and effort, and not from inside a Run', async () => {
     const client = await startTed()
     const task = await client.ok<Task>('POST', '/tasks', { title: 'Plain', factory: 'NB' })

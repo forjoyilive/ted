@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -15,7 +15,7 @@ import {
   tedQuitExitCode,
   withDaemon,
 } from '../src/launch.ts'
-import { makeTempHome } from './helpers.ts'
+import { makeTempHome, waitUntil } from './helpers.ts'
 import { sandboxReasons, skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
@@ -102,6 +102,33 @@ test('Quit’s forced stop ends the daemon, Run hosts and their agents, and foll
   expect(outsider.child.exitCode).toBeNull()
   expect(outsider.child.signalCode).toBeNull()
 })
+
+test('a second SIGTERM ends a daemon whose stop is stuck', async () => {
+  const paths = tedPaths(home)
+  const child = spawn(process.execPath, [mainPath], {
+    env: { ...process.env, TED_HOME: home },
+    stdio: 'ignore',
+  })
+  children.push(child)
+  const exited = once(child, 'exit') as Promise<[number | null, NodeJS.Signals | null]>
+  const log = () => readFile(paths.daemonLog, 'utf8').catch(() => '')
+  await waitUntil(async () => (await log()).includes('listening on'), 'the daemon to start', 60_000)
+  // Without its store the stop waits for an event log that can’t be saved, as when a
+  // demo home is deleted under a running daemon.
+  await rm(path.join(home, 'store'), { recursive: true, force: true })
+
+  child.kill('SIGTERM')
+  await waitUntil(
+    async () => (await log()).includes('stopping Ted’s daemon: store'),
+    'the stop to reach the store close',
+  )
+  child.kill('SIGTERM')
+
+  expect(await exited).toEqual([1, null])
+  const text = await log()
+  expect(text).toContain('SIGTERM again while stopping')
+  expect(text).not.toContain('Ted’s daemon stopped')
+}, 90_000)
 
 test('after Quit no ted command starts Ted until the app clears the mark', async () => {
   await markQuit(home)

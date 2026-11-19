@@ -232,7 +232,7 @@ describe('Validate rounds', () => {
     async () => {
       const client = await start({
         '.ted/workflow.yaml':
-          'version: 1\norder: [intake, work, validate, review, merge]\nreviewer: { agent: same }\nstages:\n  validate: { max_back: 5, loop_check: false }\n',
+          'version: 1\norder: [intake, work, validate, review, merge]\nreviewer: { agent: same }\nstages:\n  validate: { max_back: 5, loop_check: false, p1_only_from: false }\n',
       })
       const prompt = await promptFile()
       const findings = path.join(scratch, 'findings.md')
@@ -276,7 +276,7 @@ describe('Validate rounds', () => {
     const client = await start({
       'export.txt': 'first\n',
       '.ted/workflow.yaml':
-        'version: 1\norder: [intake, work, validate, review, merge]\nreviewer: { agent: same }\nstages:\n  validate: { max_back: 5, loop_check: false }\n',
+        'version: 1\norder: [intake, work, validate, review, merge]\nreviewer: { agent: same }\nstages:\n  validate: { max_back: 5, loop_check: false, p1_only_from: false }\n',
     })
     const prompt = await promptFile()
     const findings = path.join(scratch, 'findings.md')

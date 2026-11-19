@@ -1507,12 +1507,18 @@ test('Validate failure decisions display evidence and send the selected action',
   expect(screen.queryByRole('radio', { name: 'Accept this failure' })).toBeNull()
 })
 
-test('a repair Task the Task Lead named is its own decision choice and shows on the card', async () => {
+test('a repair Task the Task Lead named is its own decision choice, with its title and Stage, and shows on the card', async () => {
   const { answer, handle } = requestApi()
   const openTask = vi.fn<(id: string) => void>()
   handle('listTasks', () => [
     task(),
-    task({ id: 'repair-1', displayId: 'NB-2', number: 2, title: 'Fix the restart test' }),
+    task({
+      id: 'repair-1',
+      displayId: 'NB-2',
+      number: 2,
+      title: 'Fix the restart test',
+      stage: 'work',
+    }),
   ])
   handle('listFailures', () => [
     {
@@ -1560,7 +1566,11 @@ test('a repair Task the Task Lead named is its own decision choice and shows on 
   )
   await user().click(await screen.findByRole('button', { name: 'NB-2 · Fix the restart test' }))
   expect(openTask).toHaveBeenCalledWith('repair-1')
-  await user().click(screen.getByRole('radio', { name: 'Wait for NB-2' }))
+  const named = await screen.findByRole('radio', { name: /^Wait for NB-2/ })
+  await waitFor(() =>
+    expect(named.closest('label')?.textContent).toBe('Wait for NB-2 · Fix the restart test · Work'),
+  )
+  await user().click(named)
   expect(await screen.findByText(/waits for NB-2 · Fix the restart test to merge/)).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Confirm Wait for NB-2' }))
   expect(answer).toHaveBeenCalledWith(

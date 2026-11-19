@@ -917,17 +917,20 @@ export function useEmulators(): SimulatorSlots | undefined {
 }
 
 export function useTaskApps(taskId: string): TaskApp[] {
-  return (
-    useShared<TaskApp[]>(
-      `apps:${taskId}`,
-      () => ted.listApps(taskId),
-      (event) =>
-        (event.type === 'apps-changed' && event.taskId === taskId) ||
-        (event.type === 'task-updated' && event.task.id === taskId)
-          ? 'reload'
-          : undefined,
-    ).value ?? []
+  return useTaskAppsState(taskId).apps ?? []
+}
+
+export function useTaskAppsState(taskId: string) {
+  const resource = useShared<TaskApp[]>(
+    `apps:${taskId}`,
+    () => ted.listApps(taskId),
+    (event) =>
+      (event.type === 'apps-changed' && event.taskId === taskId) ||
+      (event.type === 'task-updated' && event.task.id === taskId)
+        ? 'reload'
+        : undefined,
   )
+  return { apps: resource.value, error: resource.error, retry: resource.retry }
 }
 
 export function useRunApps(runId: string, enabled: boolean): TaskApp[] {

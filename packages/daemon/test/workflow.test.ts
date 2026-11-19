@@ -29,14 +29,28 @@ const factory = (files: LayerFiles) => checkLayer({ kind: 'factory', files })
 describe('Ted defaults', () => {
   test('sub-agent instructions carry writing guidance for delegated work and Ted reviews', async () => {
     for (const prompt of [
-      await subAgentPrompt('NB-1', 'Investigate login failures.'),
-      await tedSubAgentPrompt('Review the change.'),
+      await subAgentPrompt('NB-1', 'Investigate login failures.', false),
+      await tedSubAgentPrompt('Review the change.', false),
     ]) {
       expect(prompt).toContain('## Write clearly for the user')
       expect(prompt).toContain(
         'Plain language must preserve technical meaning, risks and uncertainty.',
       )
       expect(prompt).toContain('session numbers, process IDs, log file names')
+    }
+  })
+
+  test('sub-agent instructions ask for the AI disclosure line only when the setting is on', async () => {
+    for (const disclose of [true, false]) {
+      for (const prompt of [
+        await subAgentPrompt('NB-1', 'Investigate login failures.', disclose),
+        await tedSubAgentPrompt('Review the change.', disclose),
+      ]) {
+        if (disclose) {
+          expect(prompt).toContain('From Opus 5.5 via Ted:')
+          expect(prompt).toContain('Pull request titles don’t get it.')
+        } else expect(prompt).not.toContain('via Ted:')
+      }
     }
   })
 
@@ -82,15 +96,16 @@ describe('Ted defaults', () => {
     expect(settings.stages.review?.gate).toBe(true)
     expect(settings.stages.merge).toMatchObject({ enabled: true, gate: false })
     expect(settings.stages.work?.max_back).toBe(3)
+    expect(settings.stages.work?.lead_closes_failures).toBe(true)
     expect(settings.stages.validate?.max_back).toBe(8)
-    expect(settings.stages.validate?.loop_check).toBe(3)
+    expect(settings.stages.validate?.loop_check).toBe(5)
+    expect(settings.stages.validate?.p1_only_from).toBe(2)
     expect(settings.stages.clarify?.depth).toBe('auto')
   })
 
-  test('leave P1-only rounds and other sub-agents in Validate off', async () => {
+  test('leave other sub-agents in Validate off', async () => {
     const { settings } = resolveWorkflow([await defaults()])
 
-    expect(settings.stages.validate?.p1_only_from).toBeUndefined()
     expect(settings.stages.validate?.sub_agents).toBeUndefined()
   })
 })
@@ -137,7 +152,7 @@ describe('layers', () => {
 
     expect(settings.stages.validate).toMatchObject({
       max_back: 8,
-      loop_check: 3,
+      loop_check: 5,
       p1_only_from: false,
       sub_agents: true,
     })

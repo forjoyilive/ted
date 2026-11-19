@@ -773,9 +773,14 @@ test('the Stage lists reload for a requested Factory, even before its first list
   expect(affects(moved, ['f1'], listed)).toBe(false)
 })
 
-test('a queued Task that skips the busy hold shows its place, and one the hold stops says the computer is busy', async () => {
+test('a queued Task shows its place whether or not the busy hold stops it', async () => {
   api()
-  const busy = { loadRatio: 2 }
+  const busy = {
+    cpuInUse: 0.95,
+    cpuHeld: true,
+    since: '2026-01-01T00:00:00.000Z',
+    checkedAt: '2026-01-01T00:00:00.000Z',
+  } as const
   const skips = taskStatus({
     stage: 'work',
     runs: ['idle'],
@@ -794,7 +799,8 @@ test('a queued Task that skips the busy hold shows its place, and one the hold s
     />,
   )
   expect(await screen.findByText('Queued · 2nd')).toBeTruthy()
-  expect(await screen.findByText('Queued · computer is busy')).toBeTruthy()
+  expect(await screen.findByText('Queued · 3rd')).toBeTruthy()
+  expect(screen.queryByText(/computer is busy/)).toBeNull()
 })
 
 test('Stopped is red, Snoozed is amber and Ready for Work stays green', async () => {

@@ -222,7 +222,7 @@ import { confirmAsanaProject, listAsanaProjects } from '../asana/projects.ts'
 import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../asana/tree.ts'
 import { maxTasksPerFiring } from '../automations/check-failures.ts'
 import type { Banners } from '../banners.ts'
-import { type Busy, createBusyHold } from '../busy.ts'
+import { type Busy, busyCheckEveryMs, createBusyHold } from '../busy.ts'
 import type { InstructionTries } from '../check-tries.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
@@ -392,6 +392,7 @@ import {
   failureText,
   leadClosesFailures,
   leadClosesRefusal,
+  leadFixed,
 } from './failure-cases.ts'
 import { freshAfterFailure, retryChoice } from './failures.ts'
 import { listTaskFiles, readTaskFile } from './files.ts'
@@ -702,6 +703,7 @@ export interface Tasks {
     evidence: string,
     fixedBy?: string,
   ): Promise<FailureCase>
+  chooseFailureFix(ref: string, caller: Caller, id: string, reason: string): Promise<FailureCase>
   requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
   create(input: CreateTaskInput, caller?: Caller): Promise<CreatedTask>
@@ -1152,7 +1154,12 @@ export function createTasks(options: {
     env: () => options.env?.() ?? process.env,
     lowPriority: () => store.settings().lowPriorityWork,
   })
-  const busy = options.busy ?? createBusyHold({ on: () => store.settings().waitWhenBusy })
+  const busy =
+    options.busy ??
+    createBusyHold({
+      on: () => store.settings().waitWhenBusy,
+      ...(options.busyCheckEveryMs !== undefined && { confirmMs: options.busyCheckEveryMs }),
+    })
   const memory =
     options.memory ??
     createMemoryWatch({
@@ -1162,7 +1169,7 @@ export function createTasks(options: {
   const createdApps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
-    busy: async () => (await busy.check()) !== undefined,
+    busy: async () => (await busy.check()) !== undefined || busy.pending(),
     ...(options.env !== undefined && { env: options.env }),
     ...(options.idle !== undefined && { idle: options.idle }),
     ...options.apps,
@@ -1451,6 +1458,7 @@ export function createTasks(options: {
   let shownSlots = ''
   let publishedSlots: RunSlots | undefined
   let heldBusy: BusyHold | undefined
+  let busyPending = false
   let busyTimer: NodeJS.Timeout | undefined
   const autoStartFailures = new Set<string>()
   let backlogVersion = 0
@@ -1858,7 +1866,7 @@ export function createTasks(options: {
         candidates,
         holders.map((h) => h.task.id),
       ),
-      busy: heldBusy !== undefined,
+      busy: heldBusy !== undefined || busyPending,
     }
     return { use, holders, others, candidates }
   }
@@ -2192,10 +2200,13 @@ export function createTasks(options: {
   async function checkBusy(waiting: boolean): Promise<void> {
     const held = waiting ? await busy.check() : undefined
     heldBusy = held
-    if (held && !busyTimer) {
-      busyTimer = setInterval(() => void pump(), options.busyCheckEveryMs ?? 15_000)
-      busyTimer.unref()
-    } else if (!held) stopBusyTimer()
+    busyPending = waiting && busy.pending()
+    if (waiting && store.settings().waitWhenBusy) {
+      if (!busyTimer) {
+        busyTimer = setInterval(() => void pump(), options.busyCheckEveryMs ?? busyCheckEveryMs)
+        busyTimer.unref()
+      }
+    } else stopBusyTimer()
     store.holdWhenBusy(held)
   }
 
@@ -5791,7 +5802,7 @@ export function createTasks(options: {
       tasks: plan.creates.map(({ node, parent }) => ({
         key: node.gid,
         ...(parent && { parent: ref(parent) }),
-        title: node.name,
+        title: (node.gid === tree.rootGid && input.title) || node.name,
         description: node.notes ?? '',
         priority: input.priority ?? 'none',
         lead,
@@ -6235,6 +6246,7 @@ export function createTasks(options: {
               withOriginal(task, current),
               resolution.workflow,
               task.stage as AgentStageId,
+              store.settings().aiDisclosure,
               attachmentFile,
               setupReport,
               {
@@ -12176,6 +12188,7 @@ export function createTasks(options: {
       const imported = await importAsana(
         {
           url: sourceUrl,
+          ...(title?.trim() && { title: title.trim() }),
           ...(key !== undefined && { factory: key }),
           ...(fields.priority !== undefined && { priority: fields.priority }),
           ...(startNow !== undefined && { start: startNow }),
@@ -12353,6 +12366,21 @@ export function createTasks(options: {
     }
     if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check || githubIntake)
       return task
+    if (creator && taskLeadLink?.child) {
+      const why = runsInBypass(resolution)
+        ? 'this Factory runs agents without the sandbox'
+        : creator.task.createdBy === 'task-lead'
+          ? 'this Task was itself created by a Task Lead'
+          : undefined
+      if (why === undefined) return queueAndAnswer(task.id, { cause: 'task-lead-child' })
+      store.postComment({
+        taskId: creator.task.id,
+        author: { kind: 'ted' },
+        title: 'Child Task waits in Backlog',
+        body: `${task.displayId} waits in Backlog for the user to start it, because ${why}. This Task waits until it merges.`,
+      })
+      return task
+    }
     if (startNow !== true) return task
     const cause: StartCause | undefined = automation && { cause: 'automation' }
     return startInBackground === true ? queueAndAnswer(task.id, cause) : start(task.id, {}, cause)
@@ -12406,6 +12434,8 @@ export function createTasks(options: {
       ),
     assessFailure: (ref, caller, id, input) =>
       failureLead(ref, caller, (task, runId) => failures.assess(task, id, runId, input)),
+    chooseFailureFix: (ref, caller, id, reason) =>
+      failureLead(ref, caller, (task, runId) => failures.chooseFix(task, id, runId, reason)),
     verifyFailure: (ref, caller, id, evidence, fixedBy) =>
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
@@ -12448,7 +12478,8 @@ export function createTasks(options: {
               ? ['repair']
               : []),
           ].includes(value.resolutions.at(-1)?.resolution ?? '') &&
-          value.assessments.at(-1)?.assessment !== 'regression'
+          value.assessments.at(-1)?.assessment !== 'regression' &&
+          !value.leadFixes?.length
         )
           throw new RequestError(
             409,
@@ -13338,12 +13369,13 @@ export function createTasks(options: {
                 const assessment = value.assessments.at(-1)
                 if (
                   value.resolutions.at(-1)?.resolution !== 'fix' &&
+                  !leadFixed(value) &&
                   (assessment?.assessment !== 'regression' ||
                     assessment.evidenceCount !== value.additions.length)
                 )
                   throw new RequestError(
                     409,
-                    'substantiate a regression assessment before sending back; unrelated or uncertain failures need the human’s decision',
+                    'substantiate a regression assessment before sending back. For an unrelated or uncertain failure, choose to fix it in this Task with `ted failure fix <id>`, or ask the human with `ted failure ask <id>`',
                   )
                 if (
                   value.source.kind === 'factory-check' ||

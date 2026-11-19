@@ -16,7 +16,7 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs'
-import { appendFile, mkdir, open, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { appendFile, lstat, mkdir, open, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -185,6 +185,19 @@ function mergeUsage(
 }
 
 const startRecordBytes = 4096
+
+async function makeRunTemp(runDir: string): Promise<void> {
+  const tmp = runFiles(runDir).tmp
+  await mkdir(tmp, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'EEXIST') throw error
+  })
+  const found = await lstat(tmp)
+  if (!found.isDirectory() || found.isSymbolicLink()) {
+    throw new Error(
+      `${tmp} isn’t a plain folder, so Ted won’t start the Run with it as its temp folder`,
+    )
+  }
+}
 
 export async function startRunManager(options: RunManagerOptions): Promise<RunManager> {
   const { home, store, agents, tokens } = options
@@ -889,18 +902,24 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   function runEnv(id: string, env: Record<string, string>): NodeJS.ProcessEnv {
     if (store.sideChats.forRun(id))
       return Object.fromEntries(
-        Object.entries({ ...environment(), TED_HOME: home }).filter(
+        Object.entries({ ...environment(), ...runTempEnv(id), TED_HOME: home }).filter(
           ([name]) => !/^TED_(RUN|TASK|PLAN|RUN_TOKEN|RUN_CAPABILITY)$/.test(name),
         ),
       )
     return {
       ...environment(),
       ...env,
+      ...runTempEnv(id),
       TED_HOME: home,
       TED_RUN: id,
       [runTokenEnv]: tokens.issue(id),
       PATH: environment().PATH,
     }
+  }
+
+  function runTempEnv(id: string) {
+    const tmp = runFiles(path.join(runsDir, id)).tmp
+    return { TMPDIR: tmp, TMP: tmp, TEMP: tmp, CLAUDE_CODE_TMPDIR: tmp }
   }
 
   async function writeLaunch(
@@ -913,6 +932,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   ): Promise<void> {
     const sideId = path.basename(runDir)
     if (store.sideChats.forRun(sideId)) await sideFolder(home, sideId)
+    await makeRunTemp(runDir)
     for (const [name, content] of Object.entries(launch.files)) {
       const file = path.join(runDir, name)
       await mkdir(path.dirname(file), { recursive: true, mode: 0o700 })

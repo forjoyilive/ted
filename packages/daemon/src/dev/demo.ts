@@ -150,10 +150,19 @@ async function demoLockHolders(home: string): Promise<number[]> {
   return (await lockHolders(...all)).filter((pid) => pid > 1 && pid !== process.pid)
 }
 
-export async function stopDemo(home: string): Promise<void> {
+export class DemoAppRunningError extends Error {
+  constructor() {
+    super('Quit the demo app first.')
+  }
+}
+
+export async function stopDemo(
+  home: string,
+  { startTimeoutMs }: { startTimeoutMs?: number } = {},
+): Promise<void> {
   const known = await checkDemoHome(home)
   if (!known) throw new Error(`There is no demo in ${home}.`)
-  if (await demoAppRunning(home)) throw new Error('Quit the demo app first.')
+  if (await demoAppRunning(home)) throw new DemoAppRunningError()
   const before = await demoPids(home)
   if ((await demoLockHolders(home)).length === 0) return markQuit(home)
   try {
@@ -173,7 +182,10 @@ export async function stopDemo(home: string): Promise<void> {
           await client.shutdown()
         }
       },
-      { appToken: randomBytes(32).toString('hex') },
+      {
+        appToken: randomBytes(32).toString('hex'),
+        ...(startTimeoutMs !== undefined && { startTimeoutMs }),
+      },
     )
     await until(async () => !(await readDaemonInfo(home)), 'the demo daemon to stop')
     await until(

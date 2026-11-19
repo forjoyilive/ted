@@ -209,6 +209,42 @@ describe('Group by', () => {
     ])
   })
 
+  test('Factory follows the sidebar order, then No Factory', () => {
+    const layout: FactoryLayout = {
+      items: [{ group: { id: 'g1', name: 'Clients', factoryIds: ['ms'] } }, { factoryId: 'nb' }],
+    }
+    const rows = [
+      row('plain', { factoryId: 'nb' }),
+      row('gone', { factoryId: 'removed' }),
+      row('site', { factoryId: 'ms' }),
+      row('none', {}),
+    ]
+    expect(
+      shape(groupInbox(rows, 'factory', now, undefined, layout, undefined, factories)),
+    ).toEqual([
+      ['Marketing site', ['site']],
+      ['Notebook', ['plain']],
+      ['No Factory', ['gone', 'none']],
+    ])
+    expect(
+      shape(
+        groupInbox(
+          rows,
+          'factory',
+          now,
+          { groupsReversed: true, oldestFirst: false },
+          layout,
+          undefined,
+          factories,
+        ),
+      ),
+    ).toEqual([
+      ['Notebook', ['plain']],
+      ['Marketing site', ['site']],
+      ['No Factory', ['gone', 'none']],
+    ])
+  })
+
   test('Factory group follows the layout order, then No group', () => {
     const layout: FactoryLayout = {
       items: [

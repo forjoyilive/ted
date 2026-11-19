@@ -1,7 +1,7 @@
-import type { Coordinator, Factory, FactoryGroup, FactoryLayout } from '@ted/protocol'
+import type { BusyHold, Coordinator, Factory, FactoryGroup, FactoryLayout } from '@ted/protocol'
 import { factoryGroupNameMax } from '@ted/protocol/factory'
 import type { LucideIcon } from 'lucide-react'
-import { Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
+import { ChevronRight, Gauge, Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
 import type { DragEvent, ReactNode, RefObject } from 'react'
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
@@ -24,6 +24,7 @@ import {
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
+import { BusyCard } from './BusyCard.tsx'
 import { FactoryIcon } from './FactoryIcon.tsx'
 import { FactoryMenu, PopoverMenu } from './FactoryMenu.tsx'
 import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
@@ -62,6 +63,7 @@ interface SidebarProps {
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
   footer?: SidebarFooter
+  busy?: BusyHold
   runsOpen?: boolean
   onOpenRuns?: () => void
   devicesOpen?: boolean
@@ -289,6 +291,7 @@ export function Sidebar({
   badges = {},
   settingsProblem = false,
   footer = {},
+  busy,
   runsOpen = false,
   onOpenRuns,
   devicesOpen = false,
@@ -922,6 +925,7 @@ export function Sidebar({
             )}
           </footer>
         )}
+        {busy !== undefined && <BusyStrip busy={busy} dispatch={dispatch} />}
         {usage}
         {developerMode && <ResourceUsage dispatch={dispatch} />}
       </nav>
@@ -934,5 +938,41 @@ function NavIcon({ shape: Shape }: { shape: LucideIcon }) {
     <span className={styles.navIcon} aria-hidden="true">
       <Shape size={16} strokeWidth={1.75} />
     </span>
+  )
+}
+
+function BusyStrip({
+  busy,
+  dispatch,
+}: {
+  busy: BusyHold
+  dispatch: (action: NavigationAction) => void
+}) {
+  const strip = useRef<HTMLButtonElement>(null)
+  const [at, setAt] = useState<{ left: number; bottom: number }>()
+  const show = () => {
+    const box = strip.current?.getBoundingClientRect()
+    if (box) setAt({ left: box.right + 8, bottom: Math.max(8, window.innerHeight - box.bottom) })
+  }
+  const hide = () => setAt(undefined)
+  return (
+    <>
+      <ActionButton
+        ref={strip}
+        type="button"
+        className={styles.busy}
+        aria-describedby={at ? 'busy-card' : undefined}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        onClick={() => dispatch({ type: 'open-settings', section: 'limits' })}
+      >
+        <Gauge size={14} strokeWidth={2} aria-hidden="true" />
+        <span className={styles.busyLabel}>Computer is busy · new work waits</span>
+        <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
+      </ActionButton>
+      {at && <BusyCard id="busy-card" busy={busy} at={at} />}
+    </>
   )
 }

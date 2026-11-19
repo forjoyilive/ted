@@ -6,7 +6,12 @@ import {
   scriptLiteral,
 } from '@ted/protocol'
 import type { Event as ElectronEvent, Session, WebContents, WebPreferences } from 'electron'
-import { type GuestProxyRules, guestSignInUrl, isOutsideMedia } from './browser-proxy.ts'
+import {
+  type GuestProxyRules,
+  guestSignInUrl,
+  isOutsideRequest,
+  isYouTube,
+} from './browser-proxy.ts'
 
 export interface GuestHost {
   contents: WebContents
@@ -180,11 +185,13 @@ export async function openGuest(
   contents.on('will-navigate', (event, url) => {
     if (!allowed(url)) event.preventDefault()
   })
+  const framePasses = (url: string, mainFrame: boolean) =>
+    allowed(url) || (!mainFrame && isYouTube(url))
   contents.on('will-frame-navigate', (event) => {
-    if (!allowed(event.url)) event.preventDefault()
+    if (!framePasses(event.url, event.isMainFrame)) event.preventDefault()
   })
-  contents.on('will-redirect', (event, url) => {
-    if (!allowed(url)) event.preventDefault()
+  contents.on('will-redirect', (event) => {
+    if (!framePasses(event.url, event.isMainFrame)) event.preventDefault()
   })
   contents.on('will-attach-webview', (event) => event.preventDefault())
   contents.on('select-bluetooth-device', (event, _devices, callback) => {
@@ -250,9 +257,19 @@ export async function openGuest(
     check()
     ses.webRequest.onBeforeRequest((details, callback) => {
       if (details.webContentsId === undefined && details.url === guestSignInUrl) return callback({})
-      const pass = allowed(details.url) || isOutsideMedia(details.url, details.resourceType)
+      const pass =
+        allowed(details.url) || isOutsideRequest(details.url, details.resourceType, details.method)
       if (!pass && /^(https?|wss?):/.test(details.url)) blockedRequest()()
       callback({ cancel: !pass })
+    })
+    ses.webRequest.onBeforeSendHeaders((details, callback) => {
+      if (allowed(details.url) || isYouTube(details.url)) return callback({})
+      const requestHeaders = Object.fromEntries(
+        Object.entries(details.requestHeaders).filter(
+          ([name]) => !/^(cookie|authorization)$/i.test(name),
+        ),
+      )
+      callback({ requestHeaders })
     })
     await route?.signIn()
     check()

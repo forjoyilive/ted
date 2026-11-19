@@ -162,7 +162,7 @@ describe('Line comments', () => {
     await thread
       .getByRole('button', { name: '1 unsent line comment' })
       .waitFor({ state: 'detached' })
-    await thread.getByRole('button', { name: '▸ 1 line comment' }).click()
+    await thread.getByRole('button', { name: '1 line comment' }).click()
     await thread.getByText('Keep it lower case, please.').waitFor()
     await thread.getByRole('button', { name: 'src/search/SearchPanel.tsx · line 3' }).click()
     await diff.getByRole('row', { name: /THREE/ }).waitFor()

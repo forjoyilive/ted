@@ -306,6 +306,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.load?.memoryAvailable !== undefined && {
           memoryAvailable: options.load.memoryAvailable,
         }),
+        ...(options.load?.checkEveryMs !== undefined && { confirmMs: options.load.checkEveryMs }),
       })
       const memory = createMemoryWatch({
         read: () => busy.memory(),
@@ -656,7 +657,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         checkSlots,
         libraryDir: paths.library,
         checkFailed: (input) => tasks.checkFailed(input),
-        busy: async () => (await busy.check()) !== undefined,
+        busy: async () => (await busy.check()) !== undefined || busy.pending(),
         memory,
         ...(options.load?.checkEveryMs !== undefined && {
           busyCheckEveryMs: options.load.checkEveryMs,

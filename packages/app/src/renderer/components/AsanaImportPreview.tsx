@@ -135,8 +135,9 @@ export function AsanaImportPreview({
             </div>
           )}
           <span className={styles.note}>
-            Priority and Start now apply to every new Task. Title, Task Lead, blockers, parent and
-            attachments come from Asana and the Factory’s defaults instead.
+            Title names the parent Task; the Tasks under it keep their Asana names. Priority and
+            Start now apply to every new Task. Task Lead, blockers, parent and attachments come from
+            Asana and the Factory’s defaults instead.
           </span>
           <ul className={styles.tree} aria-label="Asana items">
             {preview.rows.map((row) => {

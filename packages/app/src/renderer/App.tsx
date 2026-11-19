@@ -1355,6 +1355,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
           inboxCount={inboxCount}
           badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}
+          {...(slots?.busy !== undefined && { busy: slots.busy })}
           footer={{
             ...(slots !== undefined && { runs: runsLine(slots) }),
             ...(devicesFooter !== undefined && { devices: devicesFooter }),

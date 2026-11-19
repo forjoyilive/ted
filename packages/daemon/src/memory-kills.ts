@@ -17,7 +17,7 @@ export interface MemoryEnding {
 
 export function memoryKill(ending: MemoryEnding, lowest: number | undefined): boolean {
   const killed = ending.signal === 'SIGKILL' || ending.exitCode === 137
-  return killed && lowest !== undefined && lowest < busyMarks.memory.holdBelow
+  return killed && lowest !== undefined && 1 - lowest > busyMarks.memory.holdAbove
 }
 
 export function runKilledForMemory(
@@ -76,7 +76,7 @@ export function createMemoryWatch(options: {
     async freed(signal) {
       while (!signal?.aborted) {
         const share = await read()
-        if (!Number.isFinite(share) || share >= busyMarks.memory.resumeAbove) return true
+        if (!Number.isFinite(share) || 1 - share <= busyMarks.memory.resumeBelow) return true
         await new Promise<void>((resolve) => {
           const done = () => {
             clearTimeout(wait)

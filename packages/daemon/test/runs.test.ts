@@ -111,7 +111,7 @@ describe('Runs', () => {
     await reaches(run.id, 'finished')
   })
 
-  test('starts claude with per-Run flags only, no API keys, and nothing in ~/.claude', async () => {
+  test('starts claude with per-Run flags only, no API keys, its own temp folder, and nothing in ~/.claude', async () => {
     const saved = { ...process.env }
     const fakeHome = await mkdtemp(path.join(tmpdir(), 'ted-user-home-'))
     process.env.HOME = fakeHome
@@ -120,7 +120,10 @@ describe('Runs', () => {
     process.env.ELECTRON_RUN_AS_NODE = '1'
     try {
       const client = await startWithStub()
-      const run = await client.startRun([{ endTurn: true }], cwd)
+      const writeBrief = (text: string) => ({
+        run: ['sh', '-c', `printf ${text} > "$TMPDIR/brief.md"`],
+      })
+      const run = await client.startRun([writeBrief('first'), { endTurn: true }], cwd)
       const { argv, env } = await stubRecord()
       await waitUntil(
         async () => (await client.getRun(run.id)).run.state === 'idle' || undefined,
@@ -164,7 +167,19 @@ describe('Runs', () => {
       expect(env.TED_RUN_CAPABILITY).toMatch(new RegExp(`^${run.id}\\.[0-9a-f]{64}$`))
       expect(env.TED_RUN_TOKEN).toBeUndefined()
       expect(env.PATH?.split(':')[0]).toBe(path.join(home, 'bin'))
+      const tmp = path.join(runDir, 'tmp')
+      expect(env).toMatchObject({ TMPDIR: tmp, TMP: tmp, TEMP: tmp, CLAUDE_CODE_TMPDIR: tmp })
+      expect((await stat(tmp)).mode & 0o777).toBe(0o700)
       await expect(stat(path.join(fakeHome, '.claude'))).rejects.toMatchObject({ code: 'ENOENT' })
+
+      const other = await client.startRun([writeBrief('second'), { endTurn: true }], cwd)
+      await waitUntil(
+        async () => (await client.getRun(other.id)).run.state === 'idle' || undefined,
+        'the second Run to go idle',
+      )
+      const brief = (id: string) => readFile(path.join(home, 'runs', id, 'tmp', 'brief.md'), 'utf8')
+      expect(await brief(run.id)).toBe('first')
+      expect(await brief(other.id)).toBe('second')
     } finally {
       process.env = saved
       await rm(fakeHome, { recursive: true, force: true })

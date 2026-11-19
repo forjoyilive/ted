@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { type ReactNode, useId } from 'react'
 import { ChoiceText } from './ChoiceText.tsx'
 import styles from './QuestionChoices.module.css'
 
@@ -23,6 +23,7 @@ export function QuestionChoices({
   otherLabel = 'Other answer',
   recommended,
   disabled,
+  tagOf,
 }: {
   choices: readonly string[]
   selection: QuestionSelection | undefined
@@ -33,6 +34,7 @@ export function QuestionChoices({
   otherLabel?: string
   recommended?: string | undefined
   disabled: boolean
+  tagOf?: ((choice: string) => ReactNode) | undefined
 }) {
   const group = useId()
   const several = multiple ? (isSeveral(selection) ? selection : { picks: [] }) : undefined
@@ -52,6 +54,16 @@ export function QuestionChoices({
           }
         : { choice },
     )
+  const tagFor = (choice: string) => {
+    const extra = tagOf?.(choice)
+    if (choice !== recommended) return extra
+    return (
+      <>
+        <span className={styles.tag}>Recommended</span>
+        {extra && <> {extra}</>}
+      </>
+    )
+  }
   return (
     <fieldset className={styles.choices} disabled={disabled}>
       <legend className={styles.choiceLegend}>{several ? 'Pick any that apply' : legend}</legend>
@@ -67,11 +79,7 @@ export function QuestionChoices({
             checked={isSelected(choice)}
             onChange={() => pick(choice)}
           />
-          <ChoiceText
-            choice={choice}
-            className={styles.text}
-            tag={choice === recommended && <span className={styles.tag}>Recommended</span>}
-          />
+          <ChoiceText choice={choice} className={styles.text} tag={tagFor(choice)} />
         </label>
       ))}
       {allowOther && (

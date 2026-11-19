@@ -460,7 +460,15 @@ export type AfterBlocking = 'backlog' | 'wait'
 export type BlockersCleared = 'merged' | 'removed'
 
 export type StartCause =
-  | { cause: 'factory-setting' | 'snooze' | 'coordinator' | 'automation' | 'blockers-removed' }
+  | {
+      cause:
+        | 'factory-setting'
+        | 'snooze'
+        | 'coordinator'
+        | 'automation'
+        | 'blockers-removed'
+        | 'task-lead-child'
+    }
   | { cause: 'blockers-merged'; blockers: readonly string[] }
 
 export interface RepairApproval {
@@ -7755,8 +7763,12 @@ export async function openStore({
     newWorkHold: () => newWorkHeld,
     busyHold: () => heldBusy,
     holdWhenBusy(held) {
-      if (JSON.stringify(held) === JSON.stringify(heldBusy)) return
+      const changed =
+        (held === undefined) !== (heldBusy === undefined) ||
+        held?.cpuHeld !== heldBusy?.cpuHeld ||
+        held?.memoryHeld !== heldBusy?.memoryHeld
       heldBusy = held
+      if (!changed) return
       stateCommits += 1
       updatedTasks(tasksWaitingForSlots())
     },

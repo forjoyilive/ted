@@ -80,7 +80,7 @@ async function setup(workflow?: string[]) {
 }
 
 test('assessment, request and acceptance are separate, and each case holds independently', async () => {
-  const s = await setup()
+  const s = await setup(['stages:', '  work: { lead_closes_failures: false }'])
   const context = await s.capture()
   const one = await s.record(context.id)
   const two = await s.record(context.id)
@@ -102,7 +102,7 @@ test('assessment, request and acceptance are separate, and each case holds indep
     evidence: 'It passes now.',
   })
   expect(verify.status).toBe(409)
-  expect(JSON.stringify(verify.body)).toContain('`stages.work.lead_closes_failures: true`')
+  expect(JSON.stringify(verify.body)).toContain('`stages.work.lead_closes_failures: false`')
   expect((await s.resolve(decision)).status).toBe(200)
   expect((await s.obligations()).blockers).toEqual([two.id])
   expect((await s.resolve(decision)).status).toBe(409)

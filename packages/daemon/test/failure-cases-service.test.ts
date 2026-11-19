@@ -6,7 +6,12 @@ import { shortReference } from '@ted/protocol/reference'
 import { afterEach, expect, test, vi } from 'vitest'
 import { RequestError } from '../src/errors.ts'
 import { openStore } from '../src/store/index.ts'
-import { acceptRefusals, createFailureCases, failureText } from '../src/tasks/failure-cases.ts'
+import {
+  acceptRefusals,
+  createFailureCases,
+  failureText,
+  leadFixed,
+} from '../src/tasks/failure-cases.ts'
 import { offeredChoice } from './support/failure-choice.ts'
 
 const lead = 'run-lead-7f3a'
@@ -759,4 +764,36 @@ test('a case whose repair was dropped can name the merged Task that brought the 
   expect(fix).toEqual({ id: fixer.id, displayId: fixer.displayId, title: fixer.title })
   s.service.verifyResult(s.validating, first.id, 'Checks passed', undefined, undefined, fix)
   expect(current().verifications?.at(-1)?.fixedBy).toEqual(fix)
+})
+
+test('the Task Lead may choose to fix an assessed Validate failure in this Task twice for the same Check, then must ask', async () => {
+  const s = await checkCases()
+  const fix = (value: FailureCase, task = s.validating) =>
+    s.service.chooseFix(task, value.id, lead, 'The test waits on a timer; fix its timing')
+  const { value: first } = await s.fail('pnpm check')
+  expect(await refusalText(() => fix(first, s.task))).toBe(
+    'choose Fix in this Task only for a Validate failure',
+  )
+  expect(await refusalText(() => fix(first))).toBe(
+    'assess this failure before choosing to fix it in this Task',
+  )
+  const asked = await s.ask(first)
+  const chosen = await fix(asked)
+  expect(leadFixed(chosen)).toBe(true)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)?.answer?.kind).toBe('withdrawn')
+  expect(s.notes('Fixing a failure in this Task').at(-1)?.body).toContain('Attempt 1 of 2')
+  expect(await refusalText(() => fix(chosen))).toBe(
+    'you already chose to fix this failure in this Task',
+  )
+  expect(await s.disposition(first)).toBe('unresolved')
+
+  const { value: second } = await s.fail('pnpm check')
+  await s.assess(second)
+  expect(leadFixed(s.store.failures.get(second.id) as FailureCase)).toBe(false)
+  await fix(second)
+  const { value: third } = await s.fail('pnpm check')
+  await s.assess(third)
+  expect(await refusalText(() => fix(third))).toBe(
+    `you already tried to fix this failure 2 times in this Task; ask the human with \`ted failure ask ${shortReference(third.id)}\``,
+  )
 })

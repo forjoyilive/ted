@@ -505,6 +505,56 @@ test('a Dashboard filtered to one Factory expands that Factory’s group, not th
   expect(within(group('Acme')).queryByRole('article', { name: 'widgets' })).toBeNull()
 })
 
+test('while the computer is busy a strip above usage says so, shows a card with the figures on hover or focus and opens Limits', () => {
+  bridge({})
+  const dispatch = vi.fn()
+  const props = {
+    factories: [factory()],
+    currentFactoryId: 'f1',
+    inboxCount: 0,
+    dispatch,
+    onNewTask: vi.fn(),
+    onSearch: vi.fn(),
+    onAddFactory: vi.fn(),
+    navigation: { ...initialNavigation, screen: { kind: 'inbox' } as const },
+    footer: { runs: '3 of 3 slots in use · 4 queued' },
+    usage: <p>Usage</p>,
+  }
+  const since = new Date(Date.now() - 2 * 60_000 - 5_000).toISOString()
+  const busy = {
+    cpuInUse: 0.94,
+    memoryInUse: 0.59,
+    cpuHeld: true,
+    since,
+    checkedAt: new Date().toISOString(),
+  } as const
+  const view = render(<Sidebar {...props} busy={busy} />)
+  const strip = screen.getByRole('button', { name: 'Computer is busy · new work waits' })
+  expect(screen.queryByRole('tooltip')).toBeNull()
+  fireEvent.mouseEnter(strip)
+  const card = screen.getByRole('tooltip')
+  expect(strip.getAttribute('aria-describedby')).toBe(card.id)
+  expect(card.textContent).toContain('The CPU is busy. Running work keeps going.')
+  expect(within(card).getByText('94% in use')).toBeTruthy()
+  expect(within(card).getByText('59% in use')).toBeTruthy()
+  expect(within(card).getByText('Starts again below 75%')).toBeTruthy()
+  expect(within(card).getByText('Waiting 2 min')).toBeTruthy()
+  fireEvent.mouseLeave(strip)
+  expect(screen.queryByRole('tooltip')).toBeNull()
+  fireEvent.focus(strip)
+  expect(screen.getByRole('tooltip')).toBeTruthy()
+  fireEvent.blur(strip)
+  expect(screen.queryByRole('tooltip')).toBeNull()
+  expect(screen.getByText('3 of 3 slots in use · 4 queued')).toBeTruthy()
+  expect(
+    strip.compareDocumentPosition(screen.getByText('Usage')) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  fireEvent.click(strip)
+  expect(dispatch).toHaveBeenCalledWith({ type: 'open-settings', section: 'limits' })
+  view.rerender(<Sidebar {...props} />)
+  expect(screen.queryByRole('button', { name: 'Computer is busy · new work waits' })).toBeNull()
+})
+
 test('an open Task expands its own Factory’s group, not the group of the screen under it', () => {
   bridge({})
   localStorage.setItem('ted.sidebar.groupsOpen', JSON.stringify({ acme: false, home: false }))

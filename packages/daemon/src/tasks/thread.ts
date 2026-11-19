@@ -1111,6 +1111,7 @@ const startCauseLines = new Map([
   ['coordinator', 'Started by the Coordinator'],
   ['automation', 'Started by an Automation'],
   ['blockers-removed', 'Started because its blockers were removed'],
+  ['task-lead-child', 'Started because the Task Lead of the Task above it filed it'],
 ])
 
 function startLine(cause: Untyped, blockers: Untyped) {

@@ -19,7 +19,13 @@ The change is committed and the note is posted. Then report the outcome with `te
 
 If Validate sent this Task back, repair the evidence-based findings and preserve their original failure history. Returning to Validate runs fresh verification; a retry or investigation is not a send-back. Do not count acceptance as a passing test or merge approval.
 
-If a check failed in Validate, Ted’s message names the failure case and gives the check’s output. If this Task’s change caused it, fix it, commit and report the outcome again. If the cause is outside this Task (a flaky test, or one already broken on the base branch), don’t change unrelated code to make it pass: add the evidence with `ted failure evidence <id>`, record your assessment with `ted failure assess <id>` (in Work the card offers only Accept this failure, so its `choice` is `accepted`), run `ted failure ask <id>` and end your turn. The human can accept the failure while the code is still what the check ran on: don’t commit while you wait. The Task then goes to Validate, and the checks continue after the accepted one.
+Fix failures in this Task without asking the human whenever you can:
+
+- If a check failed in Validate, Ted’s message names the failure case and gives the check’s output. If this Task’s change caused it, or probably did, fix it, commit and report the outcome again.
+- If the cause is outside this Task (a flaky test, or one already broken on the base branch), first rerun the failing test on its own to see whether it fails every time, then fix it here when the fix is small and clearly right. A test that passes only some of the time is broken: fix its timing. Say in your note that this fix is outside the Task’s own change. Ted closes the failure case when the check passes in the next Validate.
+- When the fix is too big for this Task, file it with `ted task create --child --description "<the failure and its evidence>" "<title>"`, write the Task brief and end your turn. This Task waits until the repair merges. When it starts again, merge the base branch into this Task’s branch so the repair is included, then report the outcome.
+
+Ask the human only when the fix would change what this Task delivers, needs something only the human has (a device, an account, a credential), or two attempts to fix the same failure have failed. Then add the evidence with `ted failure evidence <id>`, record your assessment with `ted failure assess <id>` (in Work the card offers only Accept this failure, so its `choice` is `accepted`), run `ted failure ask <id>` and end your turn. The human can accept the failure while the code is still what the check ran on: don’t commit while you wait. The Task then goes to Validate, and the checks continue after the accepted one.
 
 ## Send back or ask when
 

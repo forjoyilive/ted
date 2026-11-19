@@ -413,7 +413,12 @@ test.each(['stopped', 'archived', 'revived'] as const)(
     const { lifecycle } = harness()
     await lifecycle.failed('lead')
     store.pauseAgent('codex', 'offline')
-    store.holdWhenBusy({ loadRatio: 2 })
+    store.holdWhenBusy({
+      cpuInUse: 0.95,
+      cpuHeld: true,
+      since: '2026-01-01T00:00:00.000Z',
+      checkedAt: '2026-01-01T00:00:00.000Z',
+    })
     store.holdNewWork('disk full')
     expect(lifecycle.pendingRecoveryTaskIds()).toEqual([taskId])
 

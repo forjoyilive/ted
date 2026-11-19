@@ -1,32 +1,71 @@
-import type {
-  BusyHold,
-  DeviceWait,
-  RunSlots,
-  SimulatorSlots,
-  Task,
-  TaskStatus,
-} from '@ted/protocol'
+import type { BusyHold, DeviceWait, RunSlots, SimulatorSlots, Task } from '@ted/protocol'
 import { busyHold, busyMarks, isChat } from '@ted/protocol/slots'
 import { plural } from './words.ts'
 
-const percent = (share: number) => `${Math.round(share * 100)}%`
+export const percent = (share: number) => `${Math.round(share * 100)}%`
 
-export function busyDetail(busy: BusyHold): string {
-  const { load, memory } = busyMarks
-  return [
-    busy.memoryAvailable !== undefined &&
-      `Memory available: ${percent(busy.memoryAvailable)} · waits below ${percent(memory.holdBelow)}, starts again above ${percent(memory.resumeAbove)}`,
-    busy.loadRatio !== undefined &&
-      `CPU load: ${busy.loadRatio.toFixed(2)} per core · waits at ${load.holdAt}, starts again below ${load.resumeBelow}`,
-  ]
-    .filter((line) => line !== false)
-    .join('\n')
+export type BusyZone = 'fine' | 'close' | 'over'
+
+export interface BusyMeter {
+  name: 'CPU' | 'Memory'
+  inUse: number | undefined
+  holdAbove: number
+  resumeBelow: number
+  held: boolean
+  zone: BusyZone
+  rule: string
 }
 
-export function statusDetail(status: TaskStatus | undefined): string | undefined {
-  return status?.kind === 'queued' && 'busy' in status && status.busy !== undefined
-    ? busyDetail(status.busy)
-    : undefined
+export function busyMeters(busy: BusyHold): BusyMeter[] {
+  const meter = (
+    name: BusyMeter['name'],
+    inUse: number | undefined,
+    marks: { holdAbove: number; resumeBelow: number },
+    held: boolean,
+  ): BusyMeter => {
+    const zone: BusyZone =
+      inUse === undefined || inUse < marks.resumeBelow
+        ? 'fine'
+        : inUse > marks.holdAbove
+          ? 'over'
+          : 'close'
+    const rule = held
+      ? `Starts again below ${percent(marks.resumeBelow)}`
+      : `${zone === 'close' ? 'Close' : 'Fine'} · waits above ${percent(marks.holdAbove)}`
+    return { name, inUse, ...marks, held, zone, rule }
+  }
+  return [
+    meter('CPU', busy.cpuInUse, busyMarks.cpu, busy.cpuHeld === true),
+    meter('Memory', busy.memoryInUse, busyMarks.memory, busy.memoryHeld === true),
+  ]
+}
+
+export function busyReason(busy: BusyHold): string {
+  if (busy.cpuHeld && busy.memoryHeld) return 'CPU and memory are both past their marks.'
+  return busy.cpuHeld ? 'The CPU is busy.' : 'Memory is nearly full.'
+}
+
+export function waitedFor(since: string, now: number): string {
+  const minutes = Math.floor((now - Date.parse(since)) / 60_000)
+  if (!(minutes >= 1)) return 'under a minute'
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`
+}
+
+export function checkedAgo(checkedAt: string, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - Date.parse(checkedAt)) / 1000))
+  return seconds < 60 ? `${seconds} s ago` : `${Math.floor(seconds / 60)} min ago`
+}
+
+export function busyDetail(busy: BusyHold): string {
+  return busyMeters(busy)
+    .filter((meter) => meter.held)
+    .map(
+      ({ name, inUse, holdAbove, resumeBelow }) =>
+        `${name}: ${inUse === undefined ? 'unknown' : percent(inUse)} in use · waits above ${percent(holdAbove)}, starts again below ${percent(resumeBelow)}`,
+    )
+    .join('\n')
 }
 
 export function slotsDetail(slots: RunSlots | undefined): string | undefined {
@@ -43,8 +82,7 @@ function checksPart({ running, waiting }: RunSlots['checks']): string {
 
 function counts(slots: RunSlots): string {
   const queued = slots.queued > 0 ? ` · ${slots.queued} queued` : ''
-  const busy = slots.busy !== undefined ? ` · ${busyHold}` : ''
-  return `${slots.working} of ${plural(slots.limit, 'slot')} in use${checksPart(slots.checks)}${queued}${busy}`
+  return `${slots.working} of ${plural(slots.limit, 'slot')} in use${checksPart(slots.checks)}${queued}`
 }
 
 export function runsLine(slots: RunSlots): string {
@@ -61,7 +99,8 @@ export function nowLine(
     devices?.supported === true
       ? ` · ${devices.booted.length} of ${devices.limit} simulators and emulators running`
       : ''
-  return `Now: ${counts(slots)}${running}`
+  const busy = slots.busy !== undefined ? ` · ${busyHold}` : ''
+  return `Now: ${counts(slots)}${busy}${running}`
 }
 
 export function deviceWaitText(wait: DeviceWait, machine: string): string {

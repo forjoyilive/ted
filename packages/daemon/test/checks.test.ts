@@ -794,6 +794,7 @@ describe('Checks at Validate', () => {
     expect(failure.evidence).toContain('[redacted]')
     expect(failure.evidence).not.toContain('ghp_abcdefghij')
     expect(failure.evidence).toMatch(/Full output: .*checks.*2\.log/)
+    expect(failure.evidence.match(/Full output: /g)).toHaveLength(1)
     await waitUntil(
       async () =>
         (await leadMessages(client, task)).some(

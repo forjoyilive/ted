@@ -6,7 +6,7 @@ Find out whether the work does what the Task asks, without breaking anything els
 
 ## Before you start
 
-If the Factory has checks, Ted ran them as Validate’s first step, one after another, and they all passed before these instructions reached you; the results are at the end of these instructions. A failed check sends the Task back to Work instead, so you never start with one failing. A check the human accepted shows as failed and accepted, not passed; `ted failure list` and `ted failure show <id>` show it.
+If the Factory has checks, Ted ran them as Validate’s first step, one after another, and they all passed before these instructions reached you; the results are at the end of these instructions. A failed check sends the Task back to Work instead, so you never start with one failing. A check the human accepted shows as failed and accepted, not passed; `ted failure list` and `ted failure show <id>` show it. When you assess a failure case with `ted failure assess <id> --file <json>` and another open Task in this Factory tracks the fix, add `"repairTask":"<Task ID>"` (such as `"repairTask":"TED-639"`) whenever you recommend waiting for it, or recommend Accept because it tracks the fix: the decision then offers Wait for that Task as one choice.
 
 These testing instructions are specific to developing Ted. The Affected tests check and the three-file limit on a Run’s own test runs are this repo’s test tooling; other Factories choose their own commands and Stage instructions. See [Factory validation](../../docs/testing/factory-validation.md) when configuring those choices.
 
@@ -25,7 +25,7 @@ Do not run the full test suite unless asked to or unless strictly necessary.
    - Something that can’t be checked this way, such as a native dialog, is a note saying what the human should look at, not a reason to wait.
    - For a change in `packages/daemon`, `packages/cli` or `packages/protocol`, run the changed `ted` commands with `env -u TED_RUN_CAPABILITY -u TED_RUN_TOKEN -u TED_RUN -u TED_TASK -u TED_PLAN TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>` and paste the output into your note. Keep Task-control commands such as `ted comment`, `ted checks` and `ted outcome` in the normal Run environment.
    - Before you report, stop everything you started for this: quit Ted Dev, and end the daemon you started with this `TED_HOME` (`kill $(node -p 'require("./node_modules/.cache/ted-home/daemon.json").pid')`) and any process you left running from the worktree. Ted ends what is left when the Task’s worktree is removed, but a daemon left running keeps writing backups and holding memory until then.
-8. Sort every finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Post a short note listing what you ran and what you found, with the notes.
+8. Sort every finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). In the first round, a finding about this Task’s own change that takes a few lines to fix, such as a duplicated line, a missing sentence in a Stage file or a label that differs from the Design brief, is blocking: fixing it now costs less than a separate Task. Post a short note listing what you ran and what you found, with the notes.
 
 ## Done when
 
@@ -33,7 +33,7 @@ There are no blocking findings and the note is posted. Then report the outcome w
 
 ## Send back when
 
-There is a blocking finding. Write each one, numbered, in a findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. In a round where Ted says a new finding sends the Task back only if it is P1, say in the file which findings are P1 and which are earlier findings still not fixed, and add `--severity p1`, or `--severity unfixed` when the only blocking findings are earlier ones still not fixed; Ted refuses the send-back without one of them, and the other new findings go in your note. Every return to Work counts, failed checks included. From the third, Ted checks whether the rounds are converging and may ask the human instead; it tells you what happens.
+There is a blocking finding. Write each one, numbered, in a findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. In a round where Ted says a new finding sends the Task back only if it is P1, say in the file which findings are P1 and which are earlier findings still not fixed, and add `--severity p1`, or `--severity unfixed` when the only blocking findings are earlier ones still not fixed; Ted refuses the send-back without one of them, and the other new findings go in your note. Every return to Work counts, failed checks included. From the fifth, Ted checks whether the rounds are converging and may ask the human instead; it tells you what happens.
 
 ## Never ask the human
 
