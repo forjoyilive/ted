@@ -561,6 +561,7 @@ import {
   pickDepth,
   roundAnswerSummary,
 } from './rounds.ts'
+import { approvedApps, approvedChecks, setupWorktreeDifferences } from './setup-access.ts'
 import { setupAgentDifferences } from './setup-agents.ts'
 import { clashMessage, sourceClash, sourceKey } from './sources.ts'
 import {
@@ -2925,34 +2926,34 @@ export function createTasks(options: {
           )}\n\nWrite exactly the approved Agents to .ted/agents.yaml and .ted/agents/<id>.md, and nothing else.`,
       )
     }
+    const access = setupWorktreeDifferences(
+      approved.proposal,
+      read.layer.settings.repos ?? [],
+      read.primary.name,
+    )
+    if (access.length > 0) {
+      throw new RequestError(
+        409,
+        `The worktree setup and teardown in .ted/workflow.yaml don’t match the approved setup proposal:\n\n${access
+          .map((d) => `- ${d}`)
+          .join(
+            '\n',
+          )}\n\nGive each worktree.setup and worktree.teardown exactly the sandbox_access the user approved.`,
+      )
+    }
   }
 
   async function approvedSetupChecks(task: StoredTask): Promise<CheckSettings[]> {
     const approved = await approvedSetup(task)
     if (!approved) return []
     const { primary, settings, proposal } = approved
-    const key = (name: string, command: string, repo: string | undefined) =>
-      [name, command, repo ?? primary.name].join('\0')
-    const passed = new Set(
-      proposal.checks.filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
-    )
-    return (settings.stages.validate?.checks ?? [])
-      .filter((c) => c.run !== undefined && passed.has(key(c.name, c.run, c.repo)))
-      .map(({ sandbox_access: _branchAccess, ...check }) => check)
+    return approvedChecks(settings.stages.validate?.checks ?? [], proposal.checks, primary.name)
   }
 
   async function approvedSetupApps(task: StoredTask): Promise<Map<string, AppDeclaration[]>> {
     const approved = await approvedSetup(task)
     if (!approved) return new Map()
     const { primary, settings, proposal } = approved
-    const passed = (names: readonly string[], app: AppDeclaration) =>
-      proposal.apps.some(
-        (a) =>
-          a.passed &&
-          a.name === app.name &&
-          a.run === app.run &&
-          names.includes(a.repo ?? primary.name),
-      )
     const remoteRepo = (remote: string | undefined) =>
       remote === undefined ? undefined : githubRepoOf(remote)
     const repos = settings.repos ?? []
@@ -2968,9 +2969,12 @@ export function createTasks(options: {
                   return repo !== undefined && sameRepo(repo, r.repo)
                 })
           const names = [r.name, ...(listed?.name !== undefined ? [listed.name] : [])]
-          const apps = appDeclarations(listed?.apps)
-            .filter((a) => passed(names, a))
-            .map(({ sandboxAccess: _branchAccess, ...app }) => app)
+          const apps = approvedApps(
+            appDeclarations(listed?.apps),
+            proposal.apps,
+            names,
+            primary.name,
+          )
           return [r.name, apps] as const
         }),
     )
