@@ -19,13 +19,13 @@ import { loginShell, worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
 import * as git from './git.ts'
-import { factoryPermissions } from './permissions.ts'
+import { acquireFactoryPermissions, factoryPermissions } from './permissions.ts'
 import { redactSecrets } from './redact.ts'
 import type { Sandbox } from './sandbox.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import { type CheckSlots, checkCpusEnv } from './tasks/check-slots.ts'
 import { defaultCheckTimeout, readOutput } from './tasks/checks.ts'
-import { type CommandSandbox, runTaskCommand } from './tasks/command.ts'
+import { type CommandLaunch, runTaskCommand } from './tasks/command.ts'
 import { removeInside } from './tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos, findRepo, isSafeRepo } from './tasks/repos.ts'
 import { durationMs } from './tasks/worktree.ts'
@@ -139,31 +139,45 @@ export function createCheckTries(options: {
     return dirs[1]
   }
 
-  async function commandSandbox(
+  async function sandboxProblem(factory: StoredFactory): Promise<string | undefined> {
+    if (factoryPermissions(store, factory.id) === 'bypass') return undefined
+    const ref = { problem: 'sandbox-unavailable' as const, factoryId: factory.id }
+    const problem = await options.sandbox.problem()
+    if (problem === undefined) {
+      if (store.getBanner(bannerId(ref))) banners.clear(ref)
+    } else banners.raise({ ...ref, severity: 'stops-work', text: problem })
+    return problem
+  }
+
+  function launcher(
     factory: StoredFactory,
     entry: FactoryRepoEntry,
     sockets: readonly string[],
-  ): Promise<{ sandbox?: CommandSandbox } | { problem: string }> {
-    if (factoryPermissions(store, factory.id) === 'bypass') return {}
-    const ref = { problem: 'sandbox-unavailable' as const, factoryId: factory.id }
-    const problem = await options.sandbox.problem()
-    if (problem !== undefined) {
-      banners.raise({ ...ref, severity: 'stops-work', text: problem })
-      return { problem }
-    }
-    if (store.getBanner(bannerId(ref))) banners.clear(ref)
-    const folder = path.join(factoryDir(factory.id), 'sandbox')
-    return {
-      sandbox: {
-        sandbox: options.sandbox,
-        scope: {
-          writable: [path.join(factoryDir(factory.id), 'worktrees', entry.name)],
-          readable: [clonePath(reposDir, entry)],
-          cache: path.join(folder, 'cache'),
-          sockets,
-        },
-        tmpRoot: path.join(folder, 'tmp'),
-      },
+  ): () => Promise<CommandLaunch> {
+    return async () => {
+      const release = await acquireFactoryPermissions(store, factory.id)
+      try {
+        if (factoryPermissions(store, factory.id) === 'bypass') return { release }
+        const problem = await sandboxProblem(factory)
+        if (problem !== undefined) throw new Error(problem)
+        const folder = path.join(factoryDir(factory.id), 'sandbox')
+        return {
+          release,
+          sandbox: {
+            sandbox: options.sandbox,
+            scope: {
+              writable: [path.join(factoryDir(factory.id), 'worktrees', entry.name)],
+              readable: [clonePath(reposDir, entry)],
+              cache: path.join(folder, 'cache'),
+              sockets,
+            },
+            tmpRoot: path.join(folder, 'tmp'),
+          },
+        }
+      } catch (error) {
+        release()
+        throw error
+      }
     }
   }
 
@@ -218,7 +232,7 @@ export function createCheckTries(options: {
     entry: FactoryRepoEntry,
     log: string,
     signal: AbortSignal,
-    sandbox: CommandSandbox | undefined,
+    prepareLaunch: () => Promise<CommandLaunch>,
   ): Promise<{ worktree: string } | { failed: CheckTry['state']; exitCode?: number }> {
     const clone = clonePath(reposDir, entry)
     if (!entry.primary) await git.fetch(clone).catch(() => undefined)
@@ -263,7 +277,7 @@ export function createCheckTries(options: {
         log,
         signal,
         lowPriority: store.settings().lowPriorityWork,
-        ...(sandbox !== undefined && { sandbox }),
+        prepareLaunch,
       })
       if (result.outcome !== 'passed') {
         await removeWorktree(factory.id, entry.name, entry.repo)
@@ -298,16 +312,16 @@ export function createCheckTries(options: {
       }
       const release = await taking
       if (release && waits) await update(factory.id, started)
-      const launch = release ? await commandSandbox(factory, entry, sockets) : {}
-      const sandbox = 'sandbox' in launch ? launch.sandbox : undefined
-      if ('problem' in launch) {
-        await writeFile(log, `${redactSecrets(launch.problem)}\n`, { mode: 0o600 })
+      const problem = release ? await sandboxProblem(factory) : undefined
+      if (problem !== undefined) {
+        await writeFile(log, `${redactSecrets(problem)}\n`, { mode: 0o600 })
       }
+      const prepareLaunch = launcher(factory, entry, sockets)
       const prepared = !release
         ? { failed: 'stopped' as const }
-        : 'problem' in launch
+        : problem !== undefined
           ? { failed: 'failed' as const }
-          : await prepare(factory, entry, log, abort.signal, sandbox)
+          : await prepare(factory, entry, log, abort.signal, prepareLaunch)
       if ('failed' in prepared) {
         finished = {
           ...started,
@@ -332,7 +346,7 @@ export function createCheckTries(options: {
           shell: [loginShell(options.env?.() ?? process.env), '-lc'],
           signal: abort.signal,
           lowPriority: store.settings().lowPriorityWork,
-          ...(sandbox !== undefined && { sandbox }),
+          prepareLaunch,
         })
         finished = {
           ...started,

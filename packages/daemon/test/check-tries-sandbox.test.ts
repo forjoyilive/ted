@@ -113,8 +113,19 @@ test.runIf(process.platform === 'darwin')(
   async (context) => {
     skipInsideTedSandbox(context)
     process.env.TED_SANDBOX_BIN = '/usr/bin/sandbox-exec'
-    const { tryCheck } = await start()
     const outside = path.join(home, 'escaped')
+    const setupOutside = path.join(home, 'escaped-from-setup')
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'repos:',
+        '  - name: widgets',
+        '    worktree:',
+        `      setup: if echo x > '${setupOutside}'; then echo setup-escaped >> setup.log; else echo setup-blocked >> setup.log; fi`,
+        '',
+      ].join('\n'),
+    })
+    const { tryCheck } = await start()
     const secret = path.join(home, 'private-secret')
     await writeFile(secret, 'secret')
     const result = await tryCheck(
@@ -128,9 +139,10 @@ test.runIf(process.platform === 'darwin')(
         'echo inside > from-check',
       ].join('; '),
     )
-    expect(result.output).toContain('set-up')
+    expect(result.output).toContain('setup-blocked')
     expect(result).toMatchObject({ state: 'passed', exitCode: 0 })
     expect(await exists(outside)).toBe(false)
+    expect(await exists(setupOutside)).toBe(false)
     const cache = path.join(home, 'scratch', result.factoryId, 'sandbox', 'cache')
     expect(await readFile(path.join(cache, 'npm', 'from-check'), 'utf8')).toBe('cached\n')
   },
