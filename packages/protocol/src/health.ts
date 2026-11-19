@@ -11,7 +11,9 @@ export const offlineProblem = 'offline'
 export const piSandboxProblem = 'pi-sandbox-unavailable'
 
 export function piSandboxQuestion(reason: string): string {
-  return `Ted can’t sandbox Pi here (${reason.replace(/[.\s]+$/, '')}). Pi will run every command without asking. Run it anyway?`
+  let end = reason.length
+  while (end > 0 && (reason[end - 1] === '.' || reason[end - 1]?.trim() === '')) end -= 1
+  return `Ted can’t sandbox Pi here (${reason.slice(0, end)}). Pi will run every command without asking. Run it anyway?`
 }
 
 export const agentHealthStates = [
