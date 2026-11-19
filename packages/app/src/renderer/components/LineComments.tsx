@@ -10,6 +10,7 @@ import { Button } from './Button.tsx'
 import { rowKey } from './DiffTable.tsx'
 import type { DiffSeams } from './DiffViews.tsx'
 import { Help } from './Help.tsx'
+import { ChevronIcon } from './icons.tsx'
 import styles from './LineComments.module.css'
 import grow from './TextGrow.module.css'
 
@@ -373,7 +374,8 @@ export function SentLineComments({
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        {open ? '▾' : '▸'} {comments.length} line {comments.length === 1 ? 'comment' : 'comments'}
+        <ChevronIcon open={open} />
+        {comments.length} line {comments.length === 1 ? 'comment' : 'comments'}
       </ActionButton>
       {open && (
         <ul className={styles.sentList}>
