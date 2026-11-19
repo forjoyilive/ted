@@ -179,10 +179,21 @@ export function createSandbox(options: {
         ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }
       if (platform === 'darwin') {
+        const umask = process.umask()
+        const pipes = paths.userTemp !== undefined && (umask & 0o001) === 0
         return {
           argv: [
             ready,
-            ...seatbeltArgs(paths, sockets, scope.electron === true, await personalFolders(env)),
+            ...seatbeltArgs(
+              paths,
+              sockets,
+              scope.electron === true,
+              await personalFolders(env),
+              pipes,
+            ),
+            ...(pipes
+              ? ['/bin/sh', '-c', `umask ${(umask | 0o001).toString(8)} && exec "$@"`, 'sh']
+              : []),
             ...argv,
           ],
           env: added,
@@ -242,7 +253,18 @@ const xcodeTempNames =
 const chars = (set: string, count: number) => `[${set}]`.repeat(count)
 const uuid = [8, 4, 4, 4, 12].map((count) => chars('0-9A-F', count)).join('-')
 
-function actoolTempRules(userTemp: string): string[] {
+// The user's own ibtoold pipes are named in its arguments, which a sandboxed command can read. Sandboxed
+// commands run with others-execute masked, so only items without that bit, which the user's own have, are writable.
+function ownPipes(pattern: string): string[] {
+  const types = '(require-any (vnode-type DIRECTORY) (vnode-type FIFO))'
+  return [
+    `(allow file-write-create (require-all (regex #"${pattern}") ${types}))`,
+    `(allow file-write* (require-all (regex #"${pattern}") ${types} (require-not (file-mode #o0001))))`,
+    `(deny file-link (regex #"${pattern}"))`,
+  ]
+}
+
+function actoolTempRules(userTemp: string, pipes: boolean): string[] {
   const at = (pattern: string) => `^${escapeRegex(userTemp)}/${pattern}`
   const noLinks = (pattern: string, types: string[]) => [
     `(allow file-write* (require-all (regex #"${pattern}") (require-any ${types.map((type) => `(vnode-type ${type})`).join(' ')})))`,
@@ -253,10 +275,9 @@ function actoolTempRules(userTemp: string): string[] {
     ...noLinks(at(`${uuid}$`), ['DIRECTORY']),
     ...noLinks(at(`${uuid}/assets\\.uicatalog(-journal)?$`), ['REGULAR-FILE']),
     ...noLinks(at(`${uuid}/[^/]+\\.icon\\.xcassets(/|$)`), ['DIRECTORY', 'REGULAR-FILE']),
-    ...noLinks(at(`ibtoold-[0-9]+(/IB(/${uuid}\\.(HostToRemote|RemoteToHost))?)?$`), [
-      'DIRECTORY',
-      'FIFO',
-    ]),
+    ...(pipes
+      ? ownPipes(at(`ibtoold-[0-9]+(/IB(/${uuid}\\.(HostToRemote|RemoteToHost))?)?$`))
+      : []),
     `(deny file-read-data (regex #"${at('ibtoold-[0-9]+(/IB)?/?$')}"))`,
     ...noLinks(at(`Untitled-${chars('A-Za-z0-9', 8)}\\.uicatalog(-journal)?$`), ['REGULAR-FILE']),
     ...noLinks(
@@ -380,6 +401,7 @@ function seatbeltArgs(
   sockets: readonly string[],
   electron: boolean,
   personal: readonly string[],
+  pipes: boolean,
 ): string[] {
   const params: string[] = []
   const param = (prefix: string, values: readonly string[]) =>
@@ -425,7 +447,7 @@ function seatbeltArgs(
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
           // actool’s helpers write these in the per-user temp folder, ignoring TMPDIR. ibtoold-<pid> names are guessable and stay behind, so links are refused.
-          ...actoolTempRules(paths.userTemp),
+          ...actoolTempRules(paths.userTemp, pipes),
         ]),
     ...(paths.manifestLogs === undefined
       ? []

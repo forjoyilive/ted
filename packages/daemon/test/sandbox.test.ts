@@ -7,6 +7,7 @@ import {
   realpath,
   rename,
   rm,
+  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises'
@@ -215,8 +216,10 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     const scratch = at(`actool-sprite-atlas-scratch-${id}`)
     const userHelper = at(`ibtoold-${pid + 2}`)
     await mkdir(path.join(userHelper, 'IB'), { recursive: true })
-    await execFileAsync('mkfifo', [path.join(userHelper, 'IB', `${id}.HostToRemote`)])
+    const userPipe = path.join(userHelper, 'IB', `${id}.HostToRemote`)
+    await execFileAsync('mkfifo', ['-m', '755', userPipe])
     const attempt = (command: string) => `(${command}) 2>/dev/null && echo wrote || echo refused`
+    const openPipe = (pipe: string) => `perl -e 'use Fcntl; sysopen(F, q(${pipe}), O_RDWR) or die'`
     const result = await inSandbox(
       [
         tryWrite(path.join(worktree, 'source.txt')),
@@ -224,7 +227,9 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
           `mkdir '${at(id)}' && echo x > '${at(id)}/assets.uicatalog' && mkdir -p '${at(id)}/expo.icon.xcassets/expo_Assets' && echo x > '${at(id)}/${path.basename(png).slice(1, -7)}'`,
         ),
         attempt(`mkdir '${scratch}'`),
-        attempt(`mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${id}.HostToRemote'`),
+        attempt(
+          `mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${id}.HostToRemote' && ${openPipe(`${helper}/IB/${id}.HostToRemote`)}`,
+        ),
         attempt(`echo x > '${catalog}' && echo x > '${catalog}-journal'`),
         attempt(`echo x > '${png}'`),
         attempt(`mkdir '${helper}-x'`),
@@ -239,6 +244,13 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         attempt(`mkdir '${at(id)}/other'`),
         `ls '${userHelper}' >/dev/null 2>&1 && echo listed || echo refused`,
         `ls '${userHelper}/IB' >/dev/null 2>&1 && echo listed || echo refused`,
+        attempt(openPipe(userPipe)),
+        attempt(`chmod 777 '${userPipe}'`),
+        attempt(`rm '${userPipe}'`),
+        attempt(
+          `mkfifo '${helper}/IB/${linkId}.HostToRemote' && mv -f '${helper}/IB/${linkId}.HostToRemote' '${userPipe}'`,
+        ),
+        attempt(`chmod 777 '${userHelper}/IB'`),
       ].join('; '),
     )
     expect(result.stdout.trim().split('\n')).toEqual([
@@ -260,7 +272,13 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'refused',
       'refused',
       'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
     ])
+    expect((await stat(userPipe)).mode & 0o777).toBe(0o755)
     for (const item of [
       at(id),
       scratch,
@@ -276,6 +294,20 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       shortCatalog,
     ])
       await rm(item, { recursive: true, force: true })
+  })
+
+  test('a sandboxed command can’t make ibtoold’s pipes when the user’s own umask already masks others-execute', async () => {
+    const helper = path.join(userTemp, `ibtoold-${900000 + Math.floor(Math.random() * 90000)}`)
+    const previous = process.umask(0o027)
+    try {
+      const result = await inSandbox(
+        `(mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${randomUUID().toUpperCase()}.HostToRemote') 2>/dev/null && echo wrote || echo refused`,
+      )
+      expect(result.stdout.trim()).toBe('refused')
+    } finally {
+      process.umask(previous)
+      await rm(helper, { recursive: true, force: true })
+    }
   })
 
   test('a Ted home inside a lowercase UUID folder in the per-user temp folder gets no rules there', async () => {
