@@ -247,7 +247,7 @@ Said of an idle Task Lead Run whose Provider process Ted has ended to free memor
 _Avoid_: Suspended, hibernated, paused (a paused Provider is something else)
 
 **Provider**:
-The AI coding tool a Run uses: Claude Code, Codex or Antigravity. It is chosen for each Task Lead, reviewer, Planning Run, Automation and sub-agent, and set up on Settings → Providers. “Agent” means a Run or its role (Task Lead, sub-agent, agent Run), never the tool.
+The AI coding tool a Run uses: Claude Code, Codex, Antigravity or Pi. It is chosen for each Task Lead, reviewer, Planning Run, Automation and sub-agent, and set up on Settings → Providers. “Agent” means a Run or its role (Task Lead, sub-agent, agent Run), never the tool.
 _Avoid_: Agent, agent kind
 
 **Planning Run**:
