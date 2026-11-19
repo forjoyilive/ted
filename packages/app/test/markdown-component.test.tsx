@@ -119,6 +119,25 @@ test('copies each block literally by keyboard and confirms only a successful cop
   expect(api.request).toHaveBeenLastCalledWith('copyText', 'streaming latest\n')
 })
 
+test('a code block over 10 lines shows its last 10 until expanded and copies every line', async () => {
+  const api = bridge({ copyText: () => undefined })
+  const lines = Array.from({ length: 12 }, (_, n) => `line ${n + 1}`)
+  render(<Markdown text={`\`\`\`\n${lines.join('\n')}\n\`\`\`\n\n\`\`\`\nshort\n\`\`\``} />)
+  const [long, short] = screen.getAllByRole('region', { name: 'Code block' })
+  expect(required(long).textContent).toBe(lines.slice(2).join('\n'))
+  expect(required(short).textContent).toBe('short\n')
+  expect(screen.getAllByRole('button', { name: /Show/ })).toHaveLength(1)
+  const show = screen.getByRole('button', { name: /2 earlier lines hidden/ })
+  expect(show.textContent).toContain('Show all 12 lines')
+
+  await user().click(required(screen.getAllByRole('button', { name: 'Copy code' })[0]))
+  expect(api.request).toHaveBeenCalledExactlyOnceWith('copyText', `${lines.join('\n')}\n`)
+
+  await user().click(show)
+  expect(required(long).textContent).toBe(`${lines.join('\n')}\n`)
+  expect(screen.getByRole('button', { name: 'Show the last 10 lines only' })).toBeTruthy()
+})
+
 test('outside a Task, commits, Task IDs and paths in Markdown stay plain text', () => {
   const { container } = render(<Markdown text={'On `195e5ce2` see NB-2 and src/hello.ts.'} />)
   expect(container.querySelector('button, [data-reference]')).toBeNull()

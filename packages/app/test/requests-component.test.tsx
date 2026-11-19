@@ -1876,6 +1876,55 @@ test('Review keeps its brief and separates current files from changes since appr
   expect(answer).not.toHaveBeenCalled()
 })
 
+test('Review shows ten changed files in each list until Show more', async () => {
+  requestApi()
+  const paths = Array.from({ length: 13 }, (_, n) => `src/file-${n + 1}.ts`)
+  render(
+    <RequestCard
+      task={task()}
+      taskChanges={{
+        taskId: 'NB-1',
+        files: 13,
+        repos: [
+          {
+            name: 'widgets',
+            baseBranch: 'main',
+            added: 13,
+            removed: 0,
+            files: paths.map((path) => ({ path, added: 1, removed: 0, uncommitted: false })),
+          },
+        ],
+      }}
+      onOpenFile={vi.fn()}
+      onAllChanges={vi.fn()}
+      request={comment({
+        kind: 'signoff',
+        stage: 'review',
+        body: '## Goal\n\nShort lists.',
+        gate: {
+          approveLabel: 'Approve',
+          changes: {
+            since: 'previous',
+            repos: [
+              { name: 'widgets', files: paths.map((path) => ({ path, added: 1, removed: 0 })) },
+            ],
+          },
+        },
+      })}
+    />,
+  )
+  const current = within(screen.getByRole('region', { name: 'Current Task changes' }))
+  expect(current.getAllByRole('listitem')).toHaveLength(10)
+  await user().click(current.getByRole('button', { name: 'Show 3 more' }))
+  expect(current.getAllByRole('listitem')).toHaveLength(13)
+  expect(current.getByRole('button', { name: 'Show fewer' })).toBeTruthy()
+
+  const since = within(screen.getByRole('region', { name: 'Since your last approval' }))
+  expect(since.getAllByRole('listitem')).toHaveLength(10)
+  await user().click(since.getByRole('button', { name: 'Show 3 more' }))
+  expect(since.getAllByRole('listitem')).toHaveLength(13)
+})
+
 test('Review shows loading, missing worktree, empty and unavailable repos without approval actions changing', () => {
   requestApi()
   const props = {
