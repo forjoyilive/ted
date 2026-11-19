@@ -71,7 +71,7 @@ export function createSandbox(options: {
   const platform = options.platform ?? process.platform
   let ready: string | undefined
   let bindFds = false
-  let saves: Promise<string | undefined> | undefined
+  let userTemp: Promise<string | undefined> | undefined
 
   async function program(): Promise<string | undefined> {
     if (options.program !== undefined) return options.program
@@ -140,10 +140,13 @@ export function createSandbox(options: {
       const env = options.env()
       const paths = await sandboxPaths(platform, options.tedHome, scope)
       if (platform === 'darwin') {
-        saves ??= savesFolder()
-        const found = await saves
-        if (found !== undefined && !inside(found, paths.tedHome) && !inside(paths.tedHome, found)) {
-          paths.saves = found
+        userTemp ??= userTempFolder()
+        const found = await userTemp
+        if (found !== undefined) {
+          const saves = path.join(found, 'TemporaryItems')
+          if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
+          const [first = ''] = path.relative(found, paths.tedHome).split(path.sep)
+          if (!inside(paths.tedHome, found) && !swiftpmTempName.test(first)) paths.userTemp = found
         }
       }
       const sockets = await allowedSockets(scope.sockets ?? [], env)
@@ -216,22 +219,22 @@ interface SandboxPaths {
   tedHome: string
   sharedTmp?: string
   saves?: string
+  userTemp?: string
 }
 
 const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService'
+const swiftpmTempName = /^TemporaryDirectory\.[A-Za-z0-9]{6}$/
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function savesFolder(): Promise<string | undefined> {
+function userTempFolder(): Promise<string | undefined> {
   return new Promise((resolve) => {
     execFile('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], (error, stdout) => {
       const dir = stdout.trim()
       if (error || !dir.startsWith('/')) return resolve(undefined)
-      real(dir).then((found) =>
-        resolve(/["\n\r]/.test(found) ? undefined : path.join(found, 'TemporaryItems')),
-      )
+      real(dir).then((found) => resolve(/["\n\r]/.test(found) ? undefined : found))
     })
   })
 }
@@ -334,6 +337,13 @@ function seatbeltArgs(
     ...(paths.saves === undefined
       ? []
       : [`(allow file-write* (regex #"^${escapeRegex(paths.saves)}/NSIRD_(${xcodeSavers})_"))`]),
+    ...(paths.userTemp === undefined
+      ? []
+      : [
+          // SwiftPM makes these with mkdtemp("TemporaryDirectory.XXXXXX") in the per-user temp folder, ignoring TMPDIR.
+          // Seatbelt regexes have no {n} repeat, so the six characters are written out.
+          `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
+        ]),
     '(deny appleevent-send)',
     '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
     '(allow mach-lookup (global-name "com.apple.lsd.mapdb"))',
