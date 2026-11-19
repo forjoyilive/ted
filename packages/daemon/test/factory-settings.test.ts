@@ -12,6 +12,7 @@ import type {
   RepoSettingsInput,
   SaveSettingsResult,
   SettingsPreview,
+  Task,
 } from '@ted/protocol'
 import { readDaemonInfo, settingsInput } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -668,11 +669,41 @@ describe('Factory settings', () => {
           ),
         'the new repo to be cloned',
       )
-      const banners = await client.ok<Banner[]>('GET', '/banners')
-      expect(banners.map((b) => b.text)).toContain(
-        'acme/api was added · a New setup Task can set up its checks and Apps',
+      const repoAdded = async () =>
+        (await client.ok<Banner[]>('GET', '/banners')).find((b) => b.problem === 'repo-added')
+      const setup = await waitUntil(
+        async () => (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.setup),
+        'the setup Task',
       )
+      const opens = await waitUntil(
+        async () => ((await repoAdded())?.action?.opens ? repoAdded() : undefined),
+        'the warning to open the setup Task',
+      )
+      expect(opens).toMatchObject({
+        text: 'acme/api was added · Set up its checks and Apps with a setup Task',
+        action: {
+          label: `Open ${setup.displayId}`,
+          opens: { kind: 'task', taskId: setup.id },
+        },
+      })
+      const banners = await client.ok<Banner[]>('GET', '/banners')
       expect(banners.some((b) => b.problem === 'clone-failed')).toBe(false)
+
+      await client.ok('POST', `/tasks/${setup.id}/archive`, {})
+      const offers = await waitUntil(async () => {
+        const banner = await repoAdded()
+        return banner?.action?.label === 'New setup Task' ? banner : undefined
+      }, 'the warning to offer a new setup Task')
+      await client.ok('POST', `/banners/${encodeURIComponent(offers.id)}/action`, {})
+      const next = await waitUntil(
+        async () =>
+          (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.setup && t.id !== setup.id),
+        'a new setup Task',
+      )
+      await waitUntil(
+        async () => (await repoAdded())?.action?.label === `Open ${next.displayId}`,
+        'the warning to open the new setup Task',
+      )
     } finally {
       delete process.env.GIT_CONFIG_COUNT
       delete process.env.GIT_CONFIG_KEY_0
