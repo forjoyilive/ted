@@ -163,6 +163,7 @@ export function createBusyHold(options: BusyHoldOptions): Busy {
   const cacheMs =
     options.memoryCacheMs ??
     (options.memoryAvailable !== undefined || tedEnv('TED_MEMORY_FILE') ? 0 : 5_000)
+  const minGapMs = Math.min(1_000, options.confirmMs ?? busyCheckEveryMs)
   let state: BusyState = {}
   let memory: { at: number; share: number } | undefined
 
@@ -179,6 +180,7 @@ export function createBusyHold(options: BusyHoldOptions): Busy {
         state = {}
         return undefined
       }
+      if (state.lastAt !== undefined && now() - state.lastAt < minGapMs) return state.hold
       const memoryAvailable = await memoryShare()
       if (!options.on()) {
         state = {}

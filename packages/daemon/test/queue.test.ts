@@ -1,6 +1,6 @@
 import { busyMarks, defaultWorkingRuns, type Priority } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { type BusyState, nextBusy } from '../src/busy.ts'
+import { type BusyState, createBusyHold, nextBusy } from '../src/busy.ts'
 import {
   continuationFlags,
   queueOrder,
@@ -399,6 +399,34 @@ describe('nextBusy', () => {
     expect(
       readings({ memoryAvailable: 0.05, at: 0 }, { memoryAvailable: Number.NaN, at: 1 })[1],
     ).toBeUndefined()
+  })
+})
+
+describe('createBusyHold', () => {
+  test('a check within a second of the last reading returns the same hold without reading again', async () => {
+    let clock = 0
+    let reads = 0
+    const busy = createBusyHold({
+      on: () => true,
+      loadRatio: () => {
+        reads += 1
+        return 0.95
+      },
+      memoryAvailable: () => 1,
+      confirmMs,
+      now: () => clock,
+    })
+    expect(await busy.check()).toBeUndefined()
+    expect(busy.pending()).toBe(true)
+    clock = confirmMs
+    const held = await busy.check()
+    expect(held).toMatchObject({ cpuHeld: true })
+    clock += 500
+    expect(await busy.check()).toBe(held)
+    expect(reads).toBe(2)
+    clock += 500
+    expect(await busy.check()).not.toBe(held)
+    expect(reads).toBe(3)
   })
 })
 

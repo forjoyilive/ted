@@ -227,9 +227,9 @@ describe('TedStore', () => {
         checkedAt: '2026-01-01T00:00:00.000Z',
       })
       expect(seen.map((task) => task.id).sort()).toEqual([queued.id, reviewing.id].sort())
-      expect(seen.find((task) => task.id === queued.id)?.status).toMatchObject({
+      expect(seen.find((task) => task.id === queued.id)?.status).toEqual({
         kind: 'queued',
-        hold: expect.any(String),
+        place: 1,
       })
       seen.length = 0
       store.holdNewWork('disk full')
