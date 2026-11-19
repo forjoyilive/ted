@@ -57,22 +57,22 @@ describe('commands named in the agent docs', () => {
   test('finds commands only in code and matches them against the command table', () => {
     const markdown = [
       'the ted task start rule is prose.',
-      'Run `pnpm ted dev factory add <owner/repo> --key NB`, then `ted task start NB-1`.',
+      'Run `pnpm ted dev factory remove NB`, then `ted task start NB-1`.',
       '```sh',
       'TED_HOME="$PWD/home" pnpm ted coordinator',
       '```',
       'Use `ted run-app web` and `.ted/workflow.yaml`.',
-      'Spaced out: `ted  dev\tfactory   add`.',
+      'Spaced out: `ted  dev\tfactory   remove`.',
     ].join('\n')
 
     const named = namedCommands(markdown)
 
     expect(named).toEqual([
-      { line: 2, command: 'ted dev factory add' },
+      { line: 2, command: 'ted dev factory remove' },
       { line: 2, command: 'ted task start' },
       { line: 4, command: 'ted coordinator' },
       { line: 6, command: 'ted run-app web' },
-      { line: 7, command: 'ted dev factory add' },
+      { line: 7, command: 'ted dev factory remove' },
     ])
     expect(named.filter((entry) => !known(entry.command)).map((entry) => entry.line)).toEqual([
       2, 7,
