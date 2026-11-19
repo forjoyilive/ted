@@ -7767,8 +7767,12 @@ export async function openStore({
     newWorkHold: () => newWorkHeld,
     busyHold: () => heldBusy,
     holdWhenBusy(held) {
-      if (JSON.stringify(held) === JSON.stringify(heldBusy)) return
+      const changed =
+        (held === undefined) !== (heldBusy === undefined) ||
+        held?.cpuHeld !== heldBusy?.cpuHeld ||
+        held?.memoryHeld !== heldBusy?.memoryHeld
       heldBusy = held
+      if (!changed) return
       stateCommits += 1
       updatedTasks(tasksWaitingForSlots())
     },

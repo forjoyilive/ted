@@ -1167,7 +1167,7 @@ export function createTasks(options: {
   const createdApps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
-    busy: async () => (await busy.check()) !== undefined,
+    busy: async () => (await busy.check()) !== undefined || busy.pending(),
     ...(options.env !== undefined && { env: options.env }),
     ...(options.idle !== undefined && { idle: options.idle }),
     ...options.apps,
