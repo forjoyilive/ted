@@ -652,7 +652,7 @@ export async function checkAffected({
     const repo = affected.readRepo(root, changed)
     const typecheckOnly = affected.readTypecheckOnly(root, affected.mergeBase(root, base), changed)
     const selection = affected.affectedTests({ changed, ...repo, typecheckOnly })
-    const chosen = affected.chooseTests(selection, repo.tests.length, repo.electron)
+    const chosen = affected.chooseTests(selection, repo.tests, repo.electron)
     console.log(`\n${affected.selectionText(selection, chosen, base, repo.electron, list)}`)
     const sandbox = affected.electronSandbox()
     const leftOut = sandbox && affected.leftOutText(chosen.run, repo.electron, sandbox)
@@ -671,7 +671,7 @@ export async function checkAffected({
         ...repo,
         typecheckOnly: affected.readTypecheckOnly(root, passedOn, changedSincePass),
       })
-      const rerun = affected.chooseTests(since, repo.tests.length, repo.electron).run
+      const rerun = affected.chooseTests(since, repo.tests, repo.electron).run
       return new Set(rerun.map((pick) => pick.file))
     }
     const kept = affected.skipPassed(chosen.run, passes, rerunFor)

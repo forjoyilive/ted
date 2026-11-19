@@ -233,10 +233,7 @@ const reExport = /export\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*from\s*(['"])[^
 
 function stripTypes(source: string): string | undefined {
   try {
-    return stripTypeScriptTypes(source)
-      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
+    return stripTypeScriptTypes(source, { mode: 'transform' }).trim()
   } catch {
     return undefined
   }
@@ -358,23 +355,27 @@ export function readRepo(
 export interface Chosen {
   run: Pick[]
   left: Pick[]
+  unpicked: string[]
   full: number
 }
 
 export function chooseTests(
   selection: Selection,
-  testCount: number,
+  tests: readonly string[],
   electron: ReadonlySet<string>,
 ): Chosen {
-  const full = selection.all !== undefined ? testCount : selection.picks.length
   const runs = (pick: Pick) =>
     pick.kind === 'changed' ||
     pick.kind === 'app' ||
     (pick.kind === 'imports' && !electron.has(pick.file))
+  const picked = new Set(selection.picks.map((pick) => pick.file))
+  const unpicked =
+    selection.all !== undefined ? tests.filter((test) => !picked.has(test)).sort() : []
   return {
     run: selection.picks.filter(runs),
     left: selection.picks.filter((pick) => !runs(pick)),
-    full,
+    unpicked,
+    full: selection.picks.length + unpicked.length,
   }
 }
 
@@ -408,7 +409,7 @@ export function selectionText(
     typecheckOnly.length > 0
       ? ['Picks no tests by itself, because Typecheck covers it:', ...typecheckOnly]
       : []
-  const unpicked = chosen.full - chosen.run.length - chosen.left.length
+  const unpicked = chosen.unpicked.length
   if (chosen.full === 0) return [`Affected tests since ${base}: none.`, ...typecheckText].join('\n')
   if (chosen.left.length === 0 && unpicked === 0)
     return [`Affected tests since ${base}: ${files(chosen.full)}`, ...rows, ...typecheckText].join(
@@ -424,13 +425,16 @@ export function selectionText(
     const detail = list ? picks.map((pick) => `    ${pick.file}  ${pick.why}`) : []
     return [`  ${leftReasons[reason](picks.length)}`, ...detail]
   })
-  if (unpicked > 0) groups.push(`  every other test file (${unpicked}), because ${selection.all}`)
+  if (unpicked > 0) {
+    groups.push(`  every other test file (${unpicked}), because ${selection.all}`)
+    if (list) groups.push(...chosen.unpicked.map((test) => `    ${test}`))
+  }
   return [
     `Affected tests since ${base}: ${what}. This run takes ${files(chosen.run.length)}: the changed test files, the test files that import a changed file, and the Electron app tests for the changed app source.`,
     ...rows,
     'The scheduled full check runs the rest:',
     ...groups,
-    ...(list || chosen.left.length === 0 ? [] : ['pnpm check --affected --list names each file.']),
+    ...(list ? [] : ['pnpm check --affected --list names each file.']),
     ...typecheckText,
   ].join('\n')
 }
