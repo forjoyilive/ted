@@ -43,6 +43,7 @@ export interface SubAgents {
     task: StoredTask,
     input: { name: string; prompt: string; choice: ReviewerChoice; runNow?: boolean },
   ): string | undefined
+  checkHold(task: StoredTask, choice: ReviewerChoice): string | undefined
   cancelForCheck(runId: string): Promise<void>
   result(runId: string): Promise<SubAgentWait>
   runEnv(run: Run): Promise<Record<string, string> | undefined>
@@ -683,6 +684,14 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       })
       deps.pump()
       return id
+    },
+    checkHold(task, choice) {
+      if (choice.lead.agent !== 'pi') return undefined
+      return agentStartHold(store, choice.lead.agent, undefined, {
+        factoryId: task.factoryId,
+        model: choice.lead.model,
+        agents,
+      })
     },
     async cancelForCheck(runId) {
       if (!forCheck(runId)) return

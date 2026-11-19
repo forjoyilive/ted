@@ -629,6 +629,7 @@ export function AutomationDialog({
               onChange={setLead}
               label="Provider · model · effort"
               help="The Provider used for drafting and each firing. Filled from the Factory’s lead."
+              piAlwaysWaits
             />
           </fieldset>
         )}

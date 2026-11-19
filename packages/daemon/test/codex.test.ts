@@ -265,7 +265,7 @@ describe('Codex Runs', () => {
     const res = await client.call('POST', '/dev/runs', { prompt: 'x', cwd, agent: 'gemini' })
     expect(res).toEqual({
       status: 400,
-      body: { error: 'agent must be claude, codex or antigravity' },
+      body: { error: 'agent must be claude, codex, antigravity or pi' },
     })
   })
 })

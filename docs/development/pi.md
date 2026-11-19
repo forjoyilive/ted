@@ -26,6 +26,8 @@ Side chats and Automation drafts start Pi with no tools: `--no-tools --no-mcp --
 
 Pi runs only in Bypass Factories for now. In an Auto Factory all Pi work waits, tool-free chats included, until sandbox support arrives. Pi stays selectable there, and the pickers show “Pi work waits in this Factory until sandbox support arrives.”
 
+Planning chats, Automations and Coordinator chats always run in Auto, so with Pi they wait in every Factory, and their pickers say so. Task work, sub-agents, reviewers and Instruction Checks in a Bypass Factory run.
+
 ## Offline, limits and billing
 
 Pi is never paused for being offline or for usage limits, since its models may be local. It has no billing setting: Pi uses whatever keys its own settings hold. Settings → Providers shows its tokens per Run and the cost Pi reports, and plan usage reads “Not available”.
