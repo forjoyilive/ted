@@ -92,11 +92,13 @@ const tryWrite = (file: string) => `echo x > '${file}' 2>/dev/null && echo wrote
 const tryRead = (file: string) => `cat '${file}' >/dev/null 2>&1 && echo read || echo refused`
 
 describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
+  let userTemp: string
   let saves: string
   beforeEach(async (context) => {
     skipInsideTedSandbox(context)
     const { stdout } = await execFileAsync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'])
-    saves = path.join(await realpath(stdout.trim()), 'TemporaryItems')
+    userTemp = await realpath(stdout.trim())
+    saves = path.join(userTemp, 'TemporaryItems')
   })
 
   test('a sandboxed command writes its worktree, its own temp folder and the Task’s caches', async () => {
@@ -135,6 +137,28 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(result.stdout).toContain(path.basename(tmp))
     for (const dir of [xcodeSave, otherSave, looseSave])
       await rm(dir, { recursive: true, force: true })
+  })
+
+  test('a sandboxed command makes and removes SwiftPM’s TemporaryDirectory folders in the per-user temp folder, and nothing else there', async () => {
+    const id = randomUUID()
+    const longer = path.join(userTemp, `TemporaryDirectory.${id.slice(0, 6)}x`)
+    const shorter = path.join(userTemp, `TemporaryDirectory.${id.slice(0, 5)}`)
+    const loose = path.join(userTemp, `ted-${id}`)
+    const result = await inSandbox(
+      [
+        `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && rm -r "$d" && test ! -e "$d" && echo wrote || echo refused`,
+        `mkdir '${longer}' 2>/dev/null && echo wrote || echo refused`,
+        `mkdir '${shorter}' 2>/dev/null && echo wrote || echo refused`,
+        tryWrite(loose),
+      ].join('; '),
+    )
+    expect(result.stdout.split('\n').slice(0, 4)).toEqual([
+      'wrote',
+      'refused',
+      'refused',
+      'refused',
+    ])
+    for (const dir of [longer, shorter, loose]) await rm(dir, { recursive: true, force: true })
   })
 
   test('git reads the worktree through the Task’s clone', async () => {
