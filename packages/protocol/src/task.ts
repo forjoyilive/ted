@@ -93,6 +93,16 @@ export const createdByKinds = [
 
 export type CreatedBy = (typeof createdByKinds)[number]
 
+export const backlogWaits = [
+  'task-lead',
+  'automation',
+  'follow-up',
+  'start-failed',
+  'repo',
+] as const
+
+export type BacklogWait = (typeof backlogWaits)[number]
+
 export type TaskEnding =
   | { kind: 'never-started' }
   | { kind: 'merged'; at: string }
@@ -279,6 +289,7 @@ export interface Task {
   repos: TaskRepo[]
   chosenRepos: string[]
   createdBy: CreatedBy
+  backlogWait?: BacklogWait
   setup?: true
   followUpOf?: TaskLink
   splitFrom?: TaskLink

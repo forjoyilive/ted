@@ -41,6 +41,7 @@ import {
   automationCardHeadline,
   autopilotEnabled,
   type BacklogStarts,
+  type BacklogWait,
   type Banner,
   type BannerAction,
   type BannerSeverity,
@@ -104,6 +105,7 @@ import {
   type PullRequestPreview,
   parseAsanaTaskUrl,
   parseLinearUrl,
+  parseSetBacklogStartsRequest,
   type ReportCleanupStepRequest,
   type RequestPurpose,
   type Round,
@@ -358,6 +360,7 @@ export interface CheckWork {
 
 export interface QueueActivity {
   taskPlaces?: readonly { id: string; place: number; skipsBusy?: true }[]
+  backlogWaits?: ReadonlyMap<string, BacklogWait>
   queuedTasks: readonly string[]
   queuedRuns: readonly string[]
   startingRuns: readonly string[]
@@ -432,6 +435,7 @@ export interface StoredTask extends Task {
   startRequested: boolean
   waitsForBlockers: boolean
   stopped: boolean
+  createdByTaskId?: string
 }
 
 export interface SeenStageFile {
@@ -2477,6 +2481,7 @@ export async function openStore({
                 : planLink || planParent(reads.log(row.id))
                   ? 'planning'
                   : 'human'
+    const backlogWait = queueActivity.backlogWaits?.get(row.id)
     const linearSync = linearSyncOf(row, source, reads)
     const returns = backToWork(row.id, reads)
     const asanaSync = asanaSyncFor(
@@ -2531,6 +2536,8 @@ export async function openStore({
               .map((f) => f.repo),
       attachments: reads.attachments(row.id).map(toAttachment),
       ...(source && { source }),
+      ...(backlogWait !== undefined && { backlogWait }),
+      ...(createdByTask !== null && { createdByTaskId: createdByTask }),
       stage,
       rank: rank ?? row.number,
       displayId: `${reads.factoryKey(row.factoryId)}-${row.number}`,
@@ -2613,6 +2620,7 @@ export async function openStore({
     startRequested: __,
     waitsForBlockers: ___,
     stopped: ____,
+    createdByTaskId: _________,
     ...task
   }: StoredTask): Task => task
 
@@ -3676,7 +3684,10 @@ export async function openStore({
       ...(legacy && { appearance: legacy.appearance as Appearance }),
       ...deviceLimitFromOldLimits(values),
       ...pick(values, Object.keys(defaultMachineSettings)),
-      ...(values.backlogStarts === undefined && { backlogStarts: backlogStartsBeforeSaving() }),
+      backlogStarts:
+        values.backlogStarts === undefined
+          ? backlogStartsBeforeSaving()
+          : parseSetBacklogStartsRequest(values.backlogStarts),
       billing: {
         ...defaultMachineSettings.billing,
         ...(values.billing as Partial<MachineSettings['billing']> | undefined),
@@ -7590,10 +7601,19 @@ export async function openStore({
         `${entry.place}${entry.skipsBusy ? ' skips busy' : ''}`
       const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
       const after = new Map(value.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
-      queueActivity = value
-      const moved = [...new Set([...before.keys(), ...after.keys()])].filter(
-        (id) => before.get(id) !== after.get(id),
+      const waitsBefore = queueActivity.backlogWaits
+      const waitsAfter = value.backlogWaits
+      const moved = [
+        ...new Set([
+          ...before.keys(),
+          ...after.keys(),
+          ...(waitsBefore?.keys() ?? []),
+          ...(waitsAfter?.keys() ?? []),
+        ]),
+      ].filter(
+        (id) => before.get(id) !== after.get(id) || waitsBefore?.get(id) !== waitsAfter?.get(id),
       )
+      queueActivity = value
       if (moved.length > 0) stateCommits += 1
       updatedTasks(moved)
       noteActivity()

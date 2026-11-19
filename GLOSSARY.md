@@ -287,7 +287,7 @@ Ted bringing the user’s unfinished Asana work into one Factory: the user picks
 _Avoid_: Asana sync (that is keeping imported items up to date)
 
 **GitHub intake**:
-A Factory’s choice of which GitHub issues its Automations may turn into Tasks: any open issue in its repos, or only open issues with a label the user names. Ted reads each issue itself before an Automation imports it, refuses the rest, and keeps those Tasks in Backlog. Tasks the user creates aren’t limited.
+A Factory’s choice of which GitHub issues its Automations may turn into Tasks: any open issue in its repos, or only open issues with a label the user names. Ted reads each issue itself before an Automation imports it, refuses the rest, and creates those Tasks in Backlog, where automatic Backlog starts may start them when the user includes Tasks from GitHub issues. Tasks the user creates aren’t limited.
 _Avoid_: GitHub sync (that is keeping imported issues up to date)
 
 **Daemon**:

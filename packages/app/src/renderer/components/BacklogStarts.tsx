@@ -1,6 +1,5 @@
-import type { BacklogStarts, Factory, FactoryLayout, Task } from '@ted/protocol'
+import type { BacklogStarts, BacklogWait, Factory, FactoryLayout, Task } from '@ted/protocol'
 import { backlogStartFactories } from '@ted/protocol/backlog-starts'
-import { parseGitHubIssueUrl } from '@ted/protocol/github-issue'
 import { createContext, type ReactNode, useContext, useMemo, useState } from 'react'
 import { arrange } from '../factory-layout.ts'
 import { Segmented, Switch } from '../settings/controls.tsx'
@@ -204,6 +203,24 @@ export function BacklogStartsMenu({
           onChange={(enabled) => save({ ...starts, enabled })}
         />
       </div>
+      <div className={styles.menuOption}>
+        <span>{includeLabel}</span>
+        <Switch
+          label={includeLabel}
+          checked={starts.includeAgentFiled}
+          disabled={saving || !starts.enabled}
+          onChange={(includeAgentFiled) => save({ ...starts, includeAgentFiled })}
+        />
+      </div>
+      <div className={styles.menuOption}>
+        <span>{includeIssuesLabel}</span>
+        <Switch
+          label={includeIssuesLabel}
+          checked={starts.includeGitHubIssues}
+          disabled={saving || !starts.enabled}
+          onChange={(includeGitHubIssues) => save({ ...starts, includeGitHubIssues })}
+        />
+      </div>
       {error !== undefined && (
         <span className={styles.error} role="alert">
           {error}
@@ -236,12 +253,26 @@ export function startsOnItsOwn(task: Task, startsIn: (factoryId: string) => bool
     task.openBlockers === undefined &&
     !task.statuses.includes('stopped') &&
     !task.statuses.includes('failed') &&
-    task.createdBy !== 'task-lead' &&
-    !(
-      task.createdBy === 'automation' &&
-      task.source !== undefined &&
-      parseGitHubIssueUrl(task.source.url) !== undefined
-    ) &&
+    task.backlogWait === undefined &&
     startsIn(task.factoryId)
   )
+}
+
+export function backlogWaitReason(task: Task): { label: string; hint: string } | undefined {
+  return task.backlogWait === undefined ? undefined : backlogWaitText[task.backlogWait]
+}
+
+const includeLabel = 'Include agent-filed Tasks'
+const includeIssuesLabel = 'Include Tasks from GitHub issues'
+const includeHint = (label: string) => `Turn on “${label}” or start it yourself.`
+
+const backlogWaitText: Record<BacklogWait, { label: string; hint: string }> = {
+  'task-lead': { label: 'Filed by a Task Lead', hint: includeHint(includeLabel) },
+  automation: { label: 'From an Automation', hint: includeHint(includeIssuesLabel) },
+  'follow-up': {
+    label: 'Follow-up of a follow-up',
+    hint: 'Agents’ follow-ups of follow-ups always start by hand.',
+  },
+  'start-failed': { label: 'Auto-start failed', hint: 'Start it yourself to see the error.' },
+  repo: { label: 'Waiting for the repo', hint: 'Ted is still cloning this Factory’s repo.' },
 }

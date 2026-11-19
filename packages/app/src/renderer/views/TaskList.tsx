@@ -30,6 +30,7 @@ import {
   BacklogStartsDot,
   BacklogStartsMenu,
   backlogStartsSummary,
+  backlogWaitReason,
   useStartsOnItsOwn,
 } from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
@@ -834,8 +835,16 @@ export function TaskList({
           task.markers.length === 0 &&
           activeSubAgentCount(task.runs) === 0 &&
           !starts
-        )
-          return <span className={styles.none}>—</span>
+        ) {
+          const waits = backlogWaitReason(task)
+          return waits ? (
+            <span className={styles.meta} title={waits.hint}>
+              {waits.label}
+            </span>
+          ) : (
+            <span className={styles.none}>—</span>
+          )
+        }
         return (
           <TaskStatusWithSubAgents
             task={task}

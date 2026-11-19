@@ -936,6 +936,37 @@ describe('Automations', () => {
       laterMade.map(() => ['backlog', 0]),
     )
     expect(laterMade).toHaveLength(9)
+    const waits = async () => {
+      const now = await client.ok<Task[]>('GET', '/tasks')
+      return {
+        made: now.filter((t) => laterMade.some((m) => m.id === t.id)).map((t) => t.backlogWait),
+        grandchild: now.find((t) => t.id === grandchild.id)?.backlogWait,
+      }
+    }
+    await waitUntil(async () => {
+      const found = await waits()
+      return found.made.every((w) => w === 'task-lead') && found.grandchild === 'follow-up'
+    }, 'Backlog rows to say a Task Lead filed them')
+    const preview = await client.ok<{ revision: string }>(
+      'GET',
+      `/tasks/${child?.id}/hierarchy/preview`,
+    )
+    await client.ok('POST', `/tasks/${child?.id}/delete`, {
+      children: 'unparent',
+      hierarchyRevision: preview.revision,
+    })
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: true,
+      all: false,
+      groupIds: [],
+      factoryIds: [factory?.id],
+      includeAgentFiled: true,
+    })
+    await waitUntil(async () => {
+      const found = await waits()
+      return found.made.every((w) => w === undefined) && found.grandchild === 'follow-up'
+    }, 'Tasks a Task Lead filed to start on their own, but not a follow-up of a deleted follow-up')
   }, 90_000)
 
   test('a failed Run is resumed once, then fails with Retry; three failures in a row raise a banner', async () => {
@@ -2071,6 +2102,21 @@ describe('Factory GitHub intake enforcement', () => {
     expect(tasks.map((t) => [t.source?.github?.number, t.stage, t.createdBy])).toEqual([
       [1, 'backlog', 'automation'],
     ])
+    await waitUntil(async () => {
+      const found = await client.ok<Task[]>('GET', '/tasks')
+      return found[0]?.backlogWait === 'automation' ? found : undefined
+    }, 'the imported issue to say an Automation filed it')
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: true,
+      all: false,
+      groupIds: [],
+      factoryIds: [factory.id],
+      includeAgentFiled: true,
+    })
+    await waitUntil(async () => {
+      const found = await client.ok<Task[]>('GET', '/tasks')
+      return found[0]?.backlogWait === 'automation' ? found : undefined
+    }, 'the issue to keep waiting with only agent-filed Tasks included')
 
     await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: null })
     const anyIssue = await create(client, {

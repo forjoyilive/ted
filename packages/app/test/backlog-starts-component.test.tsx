@@ -7,6 +7,7 @@ import { expect, test } from 'vitest'
 import {
   BacklogStartsMenu,
   backlogStartsSummary,
+  backlogWaitReason,
   StartsAutomaticallyProvider,
   startsAutomatically,
   startsOnItsOwn,
@@ -65,21 +66,33 @@ test('a Backlog row says it starts automatically only when nothing else holds it
   expect(startsOnItsOwn({ ...backlog, snoozedUntil: '2026-11-20T09:00:00.000Z' }, starts)).toBe(
     false,
   )
-  expect(startsOnItsOwn({ ...backlog, createdBy: 'task-lead' }, starts)).toBe(false)
+  expect(startsOnItsOwn({ ...backlog, backlogWait: 'task-lead' }, starts)).toBe(false)
   expect(startsOnItsOwn({ ...backlog, stage: 'work' }, starts)).toBe(false)
-  const automation = { ...backlog, createdBy: 'automation' as const }
+})
+
+test('a Backlog row Ted won’t start says why', () => {
+  const backlog = task({ factoryId: 'a', stage: 'backlog' })
+  expect(backlogWaitReason(backlog)).toBeUndefined()
   expect(
-    startsOnItsOwn(
-      { ...automation, source: { url: 'https://github.com/acme/widgets/issues/7' } },
-      starts,
+    (['task-lead', 'automation', 'follow-up', 'start-failed', 'repo'] as const).map((backlogWait) =>
+      backlogWaitReason({ ...backlog, backlogWait }),
     ),
-  ).toBe(false)
-  expect(
-    startsOnItsOwn(
-      { ...automation, source: { url: 'https://example.com/github.com/acme/widgets/issues/7' } },
-      starts,
-    ),
-  ).toBe(true)
+  ).toEqual([
+    {
+      label: 'Filed by a Task Lead',
+      hint: 'Turn on “Include agent-filed Tasks” or start it yourself.',
+    },
+    {
+      label: 'From an Automation',
+      hint: 'Turn on “Include Tasks from GitHub issues” or start it yourself.',
+    },
+    {
+      label: 'Follow-up of a follow-up',
+      hint: 'Agents’ follow-ups of follow-ups always start by hand.',
+    },
+    { label: 'Auto-start failed', hint: 'Start it yourself to see the error.' },
+    { label: 'Waiting for the repo', hint: 'Ted is still cloning this Factory’s repo.' },
+  ])
 })
 
 function Status({ task: shown }: { task: Task }) {
@@ -124,6 +137,9 @@ test('the menu saves the switch and each choice at once, a choice made while off
     <BacklogStartsMenu starts={noBacklogStarts} factories={factories} layout={layout} />,
   )
   const list = () => screen.getByRole('radiogroup', { name: 'Start from' })
+  expect(
+    screen.getByRole<HTMLButtonElement>('switch', { name: 'Include agent-filed Tasks' }).disabled,
+  ).toBe(true)
   await user().click(screen.getByRole('checkbox', { name: /Personal site/ }))
   expect(saved.at(-1)).toEqual({ ...noBacklogStarts, factoryIds: ['c'] })
   const toggle = screen.getByRole<HTMLButtonElement>('switch', {
@@ -134,6 +150,16 @@ test('the menu saves the switch and each choice at once, a choice made while off
   expect(saved.at(-1)).toEqual(on())
 
   rerender(<BacklogStartsMenu starts={on()} factories={factories} layout={layout} />)
+  const include = screen.getByRole<HTMLButtonElement>('switch', {
+    name: 'Include agent-filed Tasks',
+  })
+  await waitFor(() => expect(include.disabled).toBe(false))
+  await user().click(include)
+  expect(saved.at(-1)).toEqual(on({ includeAgentFiled: true }))
+  await waitFor(() => expect(include.disabled).toBe(false))
+  await user().click(screen.getByRole('switch', { name: 'Include Tasks from GitHub issues' }))
+  expect(saved.at(-1)).toEqual(on({ includeGitHubIssues: true }))
+  await waitFor(() => expect(include.disabled).toBe(false))
   const group = within(screen.getByRole('group', { name: 'Kriya Design' }))
   await user().click(group.getByRole('checkbox', { name: /Kriya Design/ }))
   expect(saved.at(-1)).toEqual(on({ groupIds: ['g1'] }))
@@ -151,7 +177,7 @@ test('the menu saves the switch and each choice at once, a choice made while off
 
   await user().click(within(list()).getByRole('radio', { name: 'All Factories' }))
   expect(saved.at(-1)).toEqual(on({ groupIds: ['g1'], all: true }))
-  expect(api.request.mock.calls.filter(([name]) => name === 'setBacklogStarts')).toHaveLength(5)
+  expect(api.request.mock.calls.filter(([name]) => name === 'setBacklogStarts')).toHaveLength(7)
 })
 
 test('the menu disables the switch and scope buttons while saving, keeps them usable after a failed save and shows why', async () => {

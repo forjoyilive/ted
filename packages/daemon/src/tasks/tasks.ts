@@ -22,6 +22,7 @@ import type {
   AsanaProjectListName,
   AssessFailureRequest,
   Attachment,
+  BacklogWait,
   BaseConflictFound,
   AppRef as BrowserAppRef,
   BrowserCommand,
@@ -2177,10 +2178,45 @@ export function createTasks(options: {
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
       (task.snoozedUntil !== undefined ||
-        (startsFrom(task.factoryId) &&
-          !automationGitHubTask(task) &&
-          task.createdBy !== 'task-lead')) &&
+        (startsFrom(task.factoryId) && filedWait(task) === undefined)) &&
       unmergedBlockers(task.id).length === 0
+    )
+  }
+
+  function filedWait(task: StoredTask): BacklogWait | undefined {
+    const { includeAgentFiled, includeGitHubIssues } = store.settings().backlogStarts
+    if (task.createdBy === 'task-lead') {
+      const creator = task.createdByTaskId === undefined ? undefined : taskNow(task.createdByTaskId)
+      if (creator === undefined || creator.createdBy === 'task-lead') return 'follow-up'
+      return includeAgentFiled ? undefined : 'task-lead'
+    }
+    return !includeGitHubIssues && automationGitHubTask(task) ? 'automation' : undefined
+  }
+
+  function backlogWait(task: StoredTask): BacklogWait | undefined {
+    if (
+      task.stage !== 'backlog' ||
+      task.snoozedUntil !== undefined ||
+      task.archived ||
+      task.setup ||
+      task.stopped ||
+      task.statuses.includes('failed') ||
+      removingFactories.has(task.factoryId) ||
+      !startsFrom(task.factoryId) ||
+      unmergedBlockers(task.id).length > 0
+    )
+      return undefined
+    if (autoStartFailures.has(task.id)) return 'start-failed'
+    return filedWait(task) ?? (cloned(task.factoryId) ? undefined : 'repo')
+  }
+
+  function backlogWaits(): ReadonlyMap<string, BacklogWait> {
+    return new Map(
+      store.backlogTasks().flatMap(({ id }) => {
+        const task = taskNow(id)
+        const wait = task && backlogWait(task)
+        return wait === undefined ? [] : [[id, wait] as const]
+      }),
     )
   }
 
@@ -2377,6 +2413,7 @@ export function createTasks(options: {
             ]
           : [],
       ),
+      backlogWaits: backlogWaits(),
       queuedTasks: leadLifecycle.pendingRecoveryTaskIds(),
       queuedRuns: [...queuedRuns],
       startingRuns: [...startingRuns],
