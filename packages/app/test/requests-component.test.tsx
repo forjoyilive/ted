@@ -1507,6 +1507,79 @@ test('Validate failure decisions display evidence and send the selected action',
   expect(screen.queryByRole('radio', { name: 'Accept this failure' })).toBeNull()
 })
 
+test('a failure card without Accept says why and what the user can do instead', async () => {
+  const { handle } = requestApi()
+  const failure = (
+    source: FailureCase['source'],
+    validation: boolean,
+    acceptRefused?: 'changed' | 'unknown',
+  ): FailureCase => ({
+    id: 'failure-1',
+    taskId: 'NB-1',
+    validation,
+    source,
+    recordedBy: 'run-1',
+    provenance: 'stored-check',
+    evidence: 'The check failed.',
+    createdAt,
+    additions: [],
+    invalidations: [],
+    resolutions: [],
+    assessments: [
+      {
+        id: 'assessment-1',
+        runId: 'run-1',
+        at: createdAt,
+        assessment: 'unrelated',
+        recommendation: 'It fails the same way on main.',
+      },
+    ],
+    decisions: [
+      {
+        commentId: 'request-1',
+        assessmentId: 'assessment-1',
+        ...(acceptRefused && { acceptRefused }),
+      },
+    ],
+  })
+  const check = { kind: 'factory-check', checkRunId: 'check-run-1', position: 0 } as const
+  const finding = { kind: 'finding', runId: 'run-1', finding: 'Visual failure' } as const
+  const cases: [FailureCase, string[], string][] = [
+    [
+      failure(check, true, 'changed'),
+      ['Retry', 'Fix in this Task', 'Fixed', 'No longer applicable'],
+      'This failure can’t be accepted: the Task’s code or checks changed since the check failed. Retry runs the check on the current code. Fixed and No longer applicable close it with a reason.',
+    ],
+    [
+      failure(check, true, 'unknown'),
+      ['Retry', 'Fix in this Task'],
+      'This failure can’t be accepted: Ted has no record it can verify of what was tested when it failed. Retry runs the check on the current code.',
+    ],
+    [
+      failure(finding, false, 'unknown'),
+      ['Fixed', 'No longer applicable'],
+      'This failure can’t be accepted: Ted has no record it can verify of what was tested when it failed. Close it as fixed or no longer applicable; if it still happens, write to the Task Lead.',
+    ],
+    [
+      failure(check, true),
+      ['Retry', 'Fix in this Task'],
+      'This failure can’t be accepted: Ted can’t tie it to the Task’s code as it is now. Retry runs the check on the current code.',
+    ],
+  ]
+  for (const [value, choices, caption] of cases) {
+    handle('listFailures', () => [value])
+    render(
+      <RequestCard
+        request={comment({ id: 'request-1', kind: 'question', choices })}
+        task={task()}
+      />,
+    )
+    expect(await screen.findByText(caption)).toBeTruthy()
+    expect(screen.queryByRole('radio', { name: 'Accept this failure' })).toBeNull()
+    cleanup()
+  }
+})
+
 test('a repair Task the Task Lead named is its own decision choice, with its title and Stage, and shows on the card', async () => {
   const { answer, handle } = requestApi()
   const openTask = vi.fn<(id: string) => void>()

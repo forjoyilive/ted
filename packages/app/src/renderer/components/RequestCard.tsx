@@ -1397,6 +1397,10 @@ export function RequestCard({
             request.choices !== undefined &&
             !request.choices.includes(failureChoices.accepted)
           }
+          closable={
+            request.choices?.includes(failureChoices.fixed) === true &&
+            request.choices.includes(failureChoices['no-longer-applicable'])
+          }
         />
       ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />

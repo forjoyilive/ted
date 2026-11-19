@@ -102,11 +102,14 @@ export interface FailureResolution extends ResolveFailureRequest {
   assessmentId: string
 }
 
+export type AcceptRefusal = 'changed' | 'unknown'
+
 export interface FailureDecision {
   commentId: string
   assessmentId: string
   contextId?: string
   repairTask?: { id: string; displayId: string; title: string }
+  acceptRefused?: AcceptRefusal
 }
 
 export interface FailureCase {
