@@ -229,7 +229,7 @@ A command with a name that an Agent’s settings list under `outside_commands` i
 _Avoid_: Escape hatch, unsandboxed command
 
 **Sandbox access group**:
-A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` opens what Xcode writes outside its temp folder, which is shared access on the user’s Mac. `network` lets the command connect to any host, which a sandboxed command otherwise can’t (see `sandbox_network`).
+A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` opens what Xcode writes outside its temp folder, which is shared access on the user’s Mac. `network` lets the command connect to any host, overriding the Factory’s `sandbox_network` level for that command. Network defaults and platform limits are in `docs/agents/platform.md`.
 _Avoid_: Sandbox permission, allowance, entitlement
 
 **Chat**:
