@@ -3,10 +3,11 @@ import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'node:fs
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Factory, Plan, PlanDetail, RunSummary, Task } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { pruneRunOutput, runOutputEnd } from '../src/retention.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TasksArea } from '../src/store/tasks.ts'
 import { archivedDue } from '../src/tasks/archive-expiry.ts'
 import {
   api,
@@ -17,6 +18,8 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<TasksArea>()
 
 const day = 24 * 60 * 60 * 1000
 const line = (n: number) => `${JSON.stringify({ t: 'out', line: `line ${n}` })}\n`

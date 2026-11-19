@@ -1,8 +1,11 @@
 import { DaemonClient, readDaemonInfo, tedPaths } from '@ted/protocol'
-import { expect, test, vi } from 'vitest'
+import { expect, expectTypeOf, test, vi } from 'vitest'
 import { startDaemon } from '../src/index.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TasksArea } from '../src/store/tasks.ts'
 import { makeTempHome, rawRequest } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<TasksArea>()
 
 test('read-only Dashboard request combines or narrows Factories and validates its query', async () => {
   const { home, cleanup } = await makeTempHome()

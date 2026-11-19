@@ -1,10 +1,13 @@
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import { eventlogFile } from '../src/store/files.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { RequestsArea } from '../src/store/requests.ts'
 import { heldToRelease, heldUntil } from '../src/tasks/held-requests.ts'
+
+expectTypeOf<TedStore>().toExtend<RequestsArea>()
 
 let directory: string
 let store: TedStore

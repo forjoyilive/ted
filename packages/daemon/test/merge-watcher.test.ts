@@ -3,11 +3,12 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test, vi } from 'vitest'
 import { systemClock } from '../src/clock.ts'
 import { RequestError } from '../src/errors.ts'
 import { type Gh, GhError } from '../src/github/gh.ts'
 import { type NewStageEntry, openStore, type TedStore } from '../src/store/index.ts'
+import type { MergeArea } from '../src/store/merge.ts'
 import type { PullRequestRead, RemotePullRequest } from '../src/tasks/merge.ts'
 import {
   createMergeWatcher,
@@ -18,6 +19,8 @@ import {
 import { resolveWorkflow } from '../src/workflow/resolve.ts'
 import type { WorkflowResolution } from '../src/workflow/workflows.ts'
 import { commitToOrigin, makeOriginRepo } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<MergeArea>()
 
 let dir: string
 let store: TedStore

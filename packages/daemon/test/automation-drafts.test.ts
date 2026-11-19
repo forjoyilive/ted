@@ -9,10 +9,11 @@ import type {
   Task,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { openStore } from '../src/store/index.ts'
+import type { AppsArea } from '../src/store/apps.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
@@ -24,6 +25,8 @@ import {
   tokenFor,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<AppsArea>()
 
 let home: string
 let scratch: string

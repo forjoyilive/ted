@@ -16,11 +16,12 @@ import {
   type ThreadEvent,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { runCli } from '../../cli/src/cli.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TaskTreeArea } from '../src/store/task-tree.ts'
 import {
   api,
   commitToOrigin,
@@ -31,6 +32,8 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<TaskTreeArea>()
 
 const execFileAsync = promisify(execFile)
 

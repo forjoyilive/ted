@@ -1,8 +1,14 @@
 import { agentStageIds, readDaemonInfo, tedPaths } from '@ted/protocol'
-import { afterAll, beforeAll, expect, test } from 'vitest'
+import { afterAll, beforeAll, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { openStore, type TedStore, tasksBuiltInProcess } from '../src/store/index.ts'
+import type { AppsArea } from '../src/store/apps.ts'
+import type { StoreContext } from '../src/store/context.ts'
+import { type TedStore, tasksBuiltInProcess } from '../src/store/index.ts'
+import { openStore } from '../src/store/open.ts'
 import { appClient, makeTempHome, stubClaudePath } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<AppsArea>()
+expectTypeOf<StoreContext>().toHaveProperty('store')
 
 const perFactory = 75
 const doneTasks = 100

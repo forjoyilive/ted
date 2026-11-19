@@ -1,8 +1,9 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tedPaths } from '@ted/protocol'
-import { expect, test } from 'vitest'
-import { openStore } from '../src/store/index.ts'
+import { expect, expectTypeOf, test } from 'vitest'
+import type { ChecksArea } from '../src/store/checks.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import { commitToOrigin, hostsStarted, waitUntil } from './helpers.ts'
 import {
   approve,
@@ -32,6 +33,8 @@ import {
   restart,
   runs,
 } from './support/merge-check-decisions.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 useMergeHarness()
 

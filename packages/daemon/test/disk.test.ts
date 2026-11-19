@@ -2,11 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Banner, DaemonEvent, Factory, Task } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { createBanners } from '../src/banners.ts'
 import { createDiskWatch, isDiskFullError } from '../src/disk.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { openStore } from '../src/store/index.ts'
+import type { StoreContext } from '../src/store/context.ts'
+import { openStore } from '../src/store/open.ts'
 import {
   api,
   killRunHosts,
@@ -16,6 +17,8 @@ import {
   stubCodexPath,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<StoreContext>().toHaveProperty('store')
 
 let home: string
 let cleanup: () => Promise<void>

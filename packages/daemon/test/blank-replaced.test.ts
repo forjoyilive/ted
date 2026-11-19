@@ -3,10 +3,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync, type SQLOutputValue } from 'node:sqlite'
 import type { NewTaskDraft } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import { blankReplacedText, replacedTextCount } from '../src/store/blank-replaced.ts'
+import type { StoreContext } from '../src/store/context.ts'
 import { eventlogFile } from '../src/store/files.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore } from '../src/store/open.ts'
+
+expectTypeOf<StoreContext>().toHaveProperty('store')
 
 let root: string
 let dir: string

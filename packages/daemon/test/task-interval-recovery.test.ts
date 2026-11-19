@@ -4,8 +4,9 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { readDaemonInfo, type Task } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
-import { openStore } from '../src/store/index.ts'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TasksArea } from '../src/store/tasks.ts'
 import {
   api,
   assistantTexts,
@@ -17,6 +18,8 @@ import {
   testAppToken,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<TasksArea>()
 
 let home: string
 let cleanup: () => Promise<void>

@@ -8,9 +8,10 @@ import {
   type RequestPurpose,
   sizeChoices,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test, vi } from 'vitest'
 import { RequestError } from '../src/errors.ts'
 import { type NewComment, openStore, type TedStore } from '../src/store/index.ts'
+import type { RequestsArea } from '../src/store/requests.ts'
 import { answerMessage } from '../src/tasks/answer-message.ts'
 import { linearConnector, linearRecords } from '../src/tasks/linear-sync.ts'
 import { createRequestAnswers, type RequestAnswerPort } from '../src/tasks/request-answers.ts'
@@ -18,6 +19,8 @@ import { roundAnswerMessage } from '../src/tasks/rounds.ts'
 import { createTrackerConsent } from '../src/tasks/tracker-sync/consent.ts'
 import { StaleCoverageError } from '../src/tasks/validation.ts'
 import { resolveWorkflow } from '../src/workflow/resolve.ts'
+
+expectTypeOf<TedStore>().toExtend<RequestsArea>()
 
 let directory: string
 let store: TedStore

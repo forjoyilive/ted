@@ -1,8 +1,11 @@
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test, vi } from 'vitest'
+import type { ChecksArea } from '../src/store/checks.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 let dir: string
 let store: TedStore
