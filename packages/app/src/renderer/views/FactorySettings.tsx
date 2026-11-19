@@ -73,6 +73,7 @@ import {
 } from './FactorySettingsSections.tsx'
 import { GitHubIntakeSection } from './GitHubIntakeSection.tsx'
 import { LinearIntakeSection } from './LinearIntakeSection.tsx'
+import { SandboxSection } from './SandboxSection.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
@@ -110,6 +111,7 @@ const repoSections: ReadonlySet<FactorySectionId> = new Set([
   'cleanup',
   'agents',
   'permissions',
+  'sandbox',
   'notes',
 ])
 
@@ -237,6 +239,16 @@ export function FactorySettings({
         },
         dispatch,
       ),
+    [factory.id, dispatch],
+  )
+  const openSection = useCallback(
+    (id: FactorySectionId) => {
+      if (scroller.current) scroller.current.scrollTop = 0
+      dispatch({
+        type: 'open',
+        screen: { kind: 'factory', factoryId: factory.id, view: 'settings', section: id },
+      })
+    },
     [factory.id, dispatch],
   )
   const onDraft = useCallback((change: (current: SettingsDraft) => SettingsDraft) => {
@@ -378,18 +390,7 @@ export function FactorySettings({
                 key={id}
                 type="button"
                 className={styles.navItem}
-                onClick={() => {
-                  if (scroller.current) scroller.current.scrollTop = 0
-                  dispatch({
-                    type: 'open',
-                    screen: {
-                      kind: 'factory',
-                      factoryId: factory.id,
-                      view: 'settings',
-                      section: id,
-                    },
-                  })
-                }}
+                onClick={() => openSection(id)}
                 {...(id === section && { 'aria-current': 'page' as const })}
               >
                 <span className={styles.navLabel}>{label}</span>
@@ -528,6 +529,14 @@ export function FactorySettings({
                       loaded={base.draft}
                       onDraft={onDraft}
                       onMode={onMode}
+                    />
+                  )}
+                  {section === 'sandbox' && (
+                    <SandboxSection
+                      view={view}
+                      onOpenPermissions={() => openSection('permissions')}
+                      onOpenRepos={() => openSection('repos')}
+                      onOpenProviders={() => dispatch({ type: 'open-settings', section: 'agents' })}
                     />
                   )}
                   {section === 'notes' && (

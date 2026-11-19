@@ -135,6 +135,8 @@ const view: FactorySettingsView = {
   ],
   permissions: 'auto',
   machineMaxWorkingRuns: 6,
+  sandboxSockets: [],
+  electronApps: [],
   notes: '',
 }
 

@@ -907,6 +907,7 @@ export {
   parseStartDevRunRequest,
   parseStartSubAgentRequest,
 } from './run-parsers.ts'
+export * from './sandbox-openings.ts'
 export {
   type AutomationSchedule,
   checkSchedule,

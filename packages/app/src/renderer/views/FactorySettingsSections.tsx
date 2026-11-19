@@ -277,7 +277,7 @@ export function InvalidNotice({
   )
 }
 
-function SectionHeading({
+export function SectionHeading({
   id,
   setting,
   title: heading,
@@ -288,7 +288,7 @@ function SectionHeading({
   setting: SettingId
   title: string
   help: ReactNode
-  where?: 'repo' | 'machine'
+  where?: 'repo' | 'machine' | 'both'
 }) {
   return (
     <div className={base.sectionHeading} data-setting={setting}>
@@ -296,11 +296,8 @@ function SectionHeading({
         {heading}
       </h2>
       <Help>{help}</Help>
-      {where === 'repo' ? (
-        <span className={base.repoChip}>In the repo</span>
-      ) : (
-        <span className={base.machineChip}>Saved on {machine}</span>
-      )}
+      {where !== 'machine' && <span className={base.repoChip}>In the repo</span>}
+      {where !== 'repo' && <span className={base.machineChip}>Saved on {machine}</span>}
     </div>
   )
 }

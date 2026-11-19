@@ -26,6 +26,8 @@ const view: FactorySettingsView = {
   permissions: 'auto',
   repoPermissions: 'bypass',
   machineMaxWorkingRuns: 6,
+  sandboxSockets: [],
+  electronApps: [],
   notes: '',
 }
 

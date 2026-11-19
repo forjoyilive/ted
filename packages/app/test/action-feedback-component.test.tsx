@@ -242,6 +242,8 @@ test('Check Run now acknowledges before a remote running state and restores afte
     agents: [],
     permissions: 'auto',
     machineMaxWorkingRuns: 6,
+    sandboxSockets: [],
+    electronApps: [],
     notes: '',
   }
   const draft = {
