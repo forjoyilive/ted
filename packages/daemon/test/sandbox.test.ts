@@ -15,7 +15,7 @@ import { createServer, type Server } from 'node:net'
 import { homedir, tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { SandboxGroup } from '@ted/protocol'
+import type { NamedSocket, SandboxAccess } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
   createSandbox,
@@ -61,7 +61,12 @@ afterEach(async () => {
 
 async function inSandbox(
   script: string,
-  options: { sockets?: string[]; home?: string; reads?: string[]; groups?: SandboxGroup[] } = {},
+  options: {
+    sockets?: NamedSocket[]
+    home?: string
+    reads?: string[]
+    groups?: SandboxAccess[]
+  } = {},
 ) {
   const { sockets = [], home, reads = [], groups } = options
   const sandbox = createSandbox({
@@ -108,7 +113,7 @@ async function listen(socket: string): Promise<Server> {
 const tryConnect = (socket: string) =>
   `'${process.execPath}' -e "require('net').connect('${socket}').on('connect', () => { console.log('connected'); process.exit() }).on('error', () => { console.log('refused'); process.exit() })"`
 
-const xcode: SandboxGroup[] = ['ios-xcode']
+const xcode: SandboxAccess[] = ['ios-xcode']
 
 const tryWrite = (file: string) => `echo x > '${file}' 2>/dev/null && echo wrote || echo refused`
 const tryRead = (file: string) => `cat '${file}' >/dev/null 2>&1 && echo read || echo refused`
@@ -859,10 +864,10 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     ])
   })
 
-  test('only an Electron App’s sandbox reaches launchservicesd and the window server, and it says so in its environment', async () => {
+  test('only a sandbox with the electron group reaches launchservicesd and the window server, and it says so in its environment', async () => {
     const sandbox = createSandbox({ tedHome, env: () => process.env })
-    const plain = await sandbox.wrap(['/bin/sh', '-c'], scope())
-    const electron = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), electron: true })
+    const plain = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), groups: ['ios-xcode'] })
+    const electron = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), groups: ['electron'] })
     for (const service of [
       'com.apple.coreservices.launchservicesd',
       'com.apple.windowserver.active',
@@ -874,7 +879,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
   })
 
-  test('it reaches Unix sockets only in its own folders and the ones the Factory lists', async (context) => {
+  test('it reaches Unix sockets only in its own folders and the Library sockets its access names', async (context) => {
     const own = path.join(tmp, 'o.s')
     const listed = path.join(outside, 'listed.sock')
     const other = path.join(outside, 'other.sock')
@@ -883,7 +888,13 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     try {
       const result = await inSandbox(
         [tryConnect(own), tryConnect(listed), tryConnect(other), 'echo resolved'].join('; '),
-        { sockets: [listed] },
+        {
+          sockets: [
+            { name: 'listed', path: listed },
+            { name: 'other', path: other },
+          ],
+          groups: ['socket:listed'],
+        },
       )
       expect(result.stdout.trim().split('\n')).toEqual([
         'connected',
@@ -891,6 +902,10 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         'refused',
         'resolved',
       ])
+      const unasked = await inSandbox(tryConnect(listed), {
+        sockets: [{ name: 'listed', path: listed }],
+      })
+      expect(unasked.stdout.trim()).toBe('refused')
     } finally {
       for (const server of servers) server.close()
     }
@@ -1223,7 +1238,12 @@ describe('the folders a sandbox opens', () => {
         })
         const { argv } = await sandbox.wrap(['/bin/sh', '-c'], {
           ...scope(),
-          sockets: ['~/listed.sock', '~/run/agent.sock'],
+          sockets: [
+            { name: 'listed', path: '~/listed.sock' },
+            { name: 'agent', path: '~/run/agent.sock' },
+            { name: 'other', path: '~/other.sock' },
+          ],
+          groups: ['socket:listed', 'socket:agent'],
         })
         const after = (flag: string, source?: string) =>
           argv.flatMap((arg, i) =>
@@ -1365,6 +1385,26 @@ describe('the environment a sandbox gives', () => {
     expect(withSandboxEnv({ JAVA_TOOL_OPTIONS: ' ' }, env).JAVA_TOOL_OPTIONS).toBe(own)
     expect(withSandboxEnv({}, env).JAVA_TOOL_OPTIONS).toBe(own)
     expect(withSandboxEnv({ JAVA_TOOL_OPTIONS: '-Xmx1g' }, {}).JAVA_TOOL_OPTIONS).toBe('-Xmx1g')
+  })
+
+  test('a socket name the Library doesn’t define is reported, and Electron is marked only with its group', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin' }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      sockets: [{ name: 'db', path: '/var/run/db.sock' }],
+      groups: ['socket:db', 'socket:docker', 'electron'],
+    })
+    expect(wrapped.missingSockets).toEqual(['docker'])
+    expect(wrapped.env.TED_SANDBOX_ELECTRON).toBe('1')
+    const plain = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    expect(plain.missingSockets).toEqual([])
+    expect(plain.env.TED_SANDBOX_ELECTRON).toBeUndefined()
   })
 })
 

@@ -1,5 +1,5 @@
 import { appendFile, open } from 'node:fs/promises'
-import { type SandboxGroup, sandboxGroupNames } from '@ted/protocol'
+import { type SandboxAccess, type SandboxGroup, sandboxGroupNames } from '@ted/protocol'
 import { redactSecrets } from './redact.ts'
 
 const perUserTemp = String.raw`/(?:private/)?var/folders/[^/\s]+/[^/\s]+/T/`
@@ -16,6 +16,7 @@ const groupPaths: Record<SandboxGroup, RegExp> = {
     'i',
   ),
   'shared-tmp': /(?<![\w./~-])\/(?:private\/)?tmp(?:\/|$|[\s'"`:,)])/m,
+  electron: /com\.apple\.(?:coreservices\.launchservicesd|windowserver\.active)/i,
 }
 
 const refused =
@@ -37,28 +38,36 @@ export function refusedGroups(
 
 export function refusalHints(
   output: string,
-  held: readonly SandboxGroup[],
+  held: readonly SandboxAccess[],
   who: string,
+  missingSockets: readonly string[] = [],
   platform: NodeJS.Platform = process.platform,
 ): string[] {
-  return refusedGroups(output, platform)
-    .filter((group) => !held.includes(group))
-    .map(
-      (group) =>
-        `Ted: the sandbox refused a path in the ${group} access group, which ${who} doesn’t have. Propose sandbox_access: [${group}] for it in .ted/workflow.yaml instead of working around the refusal; it takes effect once the user merges or approves it.`,
-    )
+  return [
+    ...refusedGroups(output, platform)
+      .filter((group) => !held.includes(group))
+      .map(
+        (group) =>
+          `Ted: the sandbox refused something in the ${group} access group, which ${who} doesn’t have. Propose sandbox_access: [${group}] for it in .ted/workflow.yaml instead of working around the refusal; it takes effect once the user merges or approves it.`,
+      ),
+    ...missingSockets.map(
+      (name) =>
+        `Ted: ${who} asks for socket:${name}, but the user’s Library names no socket ${name}, so the sandbox gave it none. The user adds ${name}: <socket path> under sandbox_sockets in the Library’s workflow.yaml.`,
+    ),
+  ]
 }
 
 const scannedBytes = 1024 * 1024
 
 export async function appendRefusalHints(
   log: string,
-  held: readonly SandboxGroup[],
+  held: readonly SandboxAccess[],
   who: string,
+  missingSockets: readonly string[] = [],
 ): Promise<void> {
   try {
     const output = await readTail(log)
-    const hints = refusalHints(output, held, who)
+    const hints = refusalHints(output, held, who, missingSockets)
     if (hints.length === 0) return
     const lead = output === '' || output.endsWith('\n') ? '' : '\n'
     await appendFile(log, `${lead}${hints.join('\n')}\n`)

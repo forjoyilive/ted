@@ -1,4 +1,4 @@
-import type { SandboxGroup } from './sandbox-groups.ts'
+import type { SandboxAccess } from './sandbox-groups.ts'
 
 export const accessHolderKinds = ['app', 'check', 'setup', 'teardown'] as const
 export type AccessHolderKind = (typeof accessHolderKinds)[number]
@@ -7,15 +7,15 @@ export interface AccessHolder {
   kind: AccessHolderKind
   repo?: string
   name: string
-  groups: readonly SandboxGroup[]
+  groups: readonly SandboxAccess[]
 }
 
 export interface SandboxAccessChange {
   kind: AccessHolderKind
   repo?: string
   name: string
-  gained: SandboxGroup[]
-  lost: SandboxGroup[]
+  gained: SandboxAccess[]
+  lost: SandboxAccess[]
 }
 
 function holderKey(holder: Pick<AccessHolder, 'kind' | 'repo' | 'name'>): string {

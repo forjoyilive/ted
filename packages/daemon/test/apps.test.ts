@@ -15,7 +15,7 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { electronEnv } from '../src/apps/apps.ts'
+import { appAccess, electronEnv } from '../src/apps/apps.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
@@ -685,4 +685,14 @@ test('only a Run’s start of an Electron App gets a debugging port, hidden, wit
   expect(electronEnv(4100, 'task-lead', false, 'linux').TED_ELECTRON_ARGS).toBe(
     '--remote-debugging-port=4100 --ozone-platform=headless',
   )
+})
+
+test('an Electron App gets the electron access group, once, beside the groups it lists', () => {
+  expect(appAccess({ electron: true })).toEqual(['electron'])
+  expect(appAccess({ electron: true, sandboxAccess: ['socket:db', 'electron'] })).toEqual([
+    'socket:db',
+    'electron',
+  ])
+  expect(appAccess({ sandboxAccess: ['socket:db'] })).toEqual(['socket:db'])
+  expect(appAccess({})).toEqual([])
 })

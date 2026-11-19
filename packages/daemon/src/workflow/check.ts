@@ -6,15 +6,18 @@ import {
   appKinds,
   isLoopbackUrl,
   isModelName,
-  isSandboxGroup,
+  isSandboxAccess,
+  isSocketName,
   type LayerKind,
   maxCleanupStepName,
+  type NamedSocket,
   type PullRequestCiMode,
   previewPresets,
   pullRequestCiModes,
-  type SandboxGroup,
+  type SandboxAccess,
   type StageId,
   sandboxGroupNames,
+  socketOf,
   type WorkflowProblem,
 } from '@ted/protocol'
 import { builtInAgentIds } from '@ted/protocol/agent-files'
@@ -55,7 +58,7 @@ export interface CommandCheckSettings {
   run: string
   repo?: string
   timeout?: string
-  sandbox_access?: SandboxGroup[]
+  sandbox_access?: SandboxAccess[]
   instruction?: never
   fix?: never
   agent?: never
@@ -123,7 +126,7 @@ export interface StageSettings {
 export interface WorktreeCommand {
   run: string
   timeout?: string
-  sandbox_access?: SandboxGroup[]
+  sandbox_access?: SandboxAccess[]
 }
 
 export interface RepoSettings {
@@ -148,7 +151,7 @@ export interface WorkflowSettings {
   planner?: AgentChoice
   permissions?: string
   max_working_runs?: number
-  sandbox_sockets?: string[]
+  sandbox_sockets?: NamedSocket[]
   sandbox_reads?: string[]
   repos?: RepoSettings[]
   order?: AgentStageId[]
@@ -171,16 +174,24 @@ export interface InheritedStages {
   files: readonly string[]
   order?: readonly string[]
   agents?: InheritedAgents
+  sockets?: readonly string[]
 }
 
 export function inheritedFrom(below: readonly CheckedLayer[]): InheritedStages {
   const files = new Set<string>(agentStageIds)
   let order: readonly string[] | undefined
+  let sockets: readonly NamedSocket[] = []
   for (const layer of below) {
     for (const id of Object.keys(layer.stageFiles)) files.add(id)
     if (layer.settings.order) order = layer.settings.order
+    if (layer.settings.sandbox_sockets) sockets = layer.settings.sandbox_sockets
   }
-  return { files: [...files], ...(order && { order }), agents: inheritedAgents(below) }
+  return {
+    files: [...files],
+    ...(order && { order }),
+    agents: inheritedAgents(below),
+    sockets: sockets.map((socket) => socket.name),
+  }
 }
 
 const allStageIds: readonly string[] = ['backlog', ...agentStageIds, 'done']
@@ -239,6 +250,7 @@ export function checkLayer(input: {
       problems,
       primaryRepo: input.primaryRepo,
       orderAt,
+      ...(input.inherited?.sockets !== undefined && { sockets: input.inherited.sockets }),
     })
   }
 
@@ -330,6 +342,7 @@ interface Context {
   problems: WorkflowProblem[]
   primaryRepo: string | undefined
   orderAt: Map<string, { line: number; column: number }>
+  sockets?: readonly string[]
 }
 
 function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
@@ -397,7 +410,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         } else settings.max_working_runs = scalar(value) as number
         break
       case 'sandbox_sockets': {
-        const sockets = checkSandboxPaths(value, 'sandbox_sockets', 'socket paths')
+        const sockets = checkSockets(key, value)
         if (sockets) settings.sandbox_sockets = sockets
         break
       }
@@ -456,9 +469,36 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     return choice
   }
 
+  function checkSockets(key: Node | null, value: Node | null): NamedSocket[] | undefined {
+    if (isSeq(value)) {
+      const listed = value.items.map((item) => (isScalar(item) ? String(item.value) : '?'))
+      return void warn(
+        key,
+        `a list of \`sandbox_sockets\` no longer grants anything, because it let every command reach those sockets. Name each socket in your Library (Settings → Library, \`sandbox_sockets: { <name>: <path> }\`), then add \`socket:<name>\` to \`sandbox_access\` on each App, Check or worktree setup that uses it. Listed here: ${listed.join(', ')}`,
+      )
+    }
+    if (context.kind !== 'library') {
+      return void error(
+        key,
+        '`sandbox_sockets` can only be set in your Library (Settings → Library), so a repo can’t open a socket on its own. Ask for a socket the Library names with `socket:<name>` in `sandbox_access`',
+      )
+    }
+    const message =
+      '`sandbox_sockets` must map socket names (lowercase letters, digits and -) to socket paths: absolute, starting with ~/, or a whole $NAME'
+    if (!isMap(value)) return void error(value, message)
+    const sockets: NamedSocket[] = []
+    for (const entry of entries(value)) {
+      const socket = scalar(entry.value)
+      if (!isSocketName(entry.name)) return void error(entry.key, message)
+      if (!isString(socket) || !isSandboxPath(socket)) return void error(entry.value, message)
+      sockets.push({ name: entry.name, path: socket })
+    }
+    return sockets
+  }
+
   function checkSandboxPaths(
     value: Node | null,
-    name: 'sandbox_sockets' | 'sandbox_reads',
+    name: 'sandbox_reads',
     what: string,
   ): string[] | undefined {
     const message = `\`${name}\` must be a list of ${what}: absolute, starting with ~/, or a whole $NAME`
@@ -746,7 +786,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     const choice: AgentChoice = {}
     let timeout: string | undefined
     let fix: boolean | undefined
-    let access: SandboxGroup[] | undefined
+    let access: SandboxAccess[] | undefined
     let bad = false
     const keyOf = (name: string) => entries(item).find((entry) => entry.name === name)?.key ?? item
     for (const entry of entries(item)) {
@@ -845,21 +885,30 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     }
   }
 
-  function checkAccess(value: Node | null): SandboxGroup[] | undefined {
-    const known = sandboxGroupNames.join(', ')
+  function checkAccess(value: Node | null): SandboxAccess[] | undefined {
+    const known = `${sandboxGroupNames.join(', ')}, or socket:<name> for a socket your Library names`
     if (!isSeq(value))
       return void error(value, `\`sandbox_access\` must be a list of access groups: ${known}`)
-    const groups: SandboxGroup[] = []
+    const groups: SandboxAccess[] = []
     let bad = false
     for (const item of value.items) {
       const name = isScalar(item) && isString(item.value) ? item.value : undefined
-      if (name === undefined || !isSandboxGroup(name)) {
+      if (name === undefined || !isSandboxAccess(name)) {
         error(
           isScalar(item) ? item : value,
           `\`${name ?? ''}\` isn’t a sandbox access group. Ted’s groups: ${known}`,
         )
         bad = true
-      } else if (!groups.includes(name)) groups.push(name)
+        continue
+      }
+      const socket = socketOf(name)
+      if (socket !== undefined && context.sockets && !context.sockets.includes(socket)) {
+        warn(
+          isScalar(item) ? item : value,
+          `your Library names no socket \`${socket}\`, so this command gets none until it does: add \`${socket}: <path>\` under \`sandbox_sockets\` in the Library`,
+        )
+      }
+      if (!groups.includes(name)) groups.push(name)
     }
     return bad ? undefined : groups
   }

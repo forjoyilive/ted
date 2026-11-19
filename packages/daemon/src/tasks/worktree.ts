@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { constants } from 'node:fs'
 import { copyFile, glob, lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { CopySkip, SandboxGroup, WorktreeCommandOutcome } from '@ted/protocol'
+import type { CopySkip, SandboxAccess, WorktreeCommandOutcome } from '@ted/protocol'
 import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RepoSettings } from '../workflow/check.ts'
@@ -11,7 +11,7 @@ import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 export interface WorktreeCommand {
   run: string
   timeoutMs: number
-  groups?: readonly SandboxGroup[]
+  groups?: readonly SandboxAccess[]
 }
 
 export interface RepoWorktree {

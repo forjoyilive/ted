@@ -7,7 +7,7 @@ import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
 import type { SandboxAccessChange } from './sandbox-access.ts'
-import type { SandboxGroup } from './sandbox-groups.ts'
+import type { SandboxAccess } from './sandbox-groups.ts'
 import type { SetupAgentProposal } from './setup-agents.ts'
 import type { AgentStageId, StageId } from './stage.ts'
 import { RequestValidationError } from './validation.ts'
@@ -930,7 +930,7 @@ export interface SetupProposal {
 export interface SetupWorktreeAccess {
   repo?: string
   step: 'setup' | 'teardown'
-  sandboxAccess: SandboxGroup[]
+  sandboxAccess: SandboxAccess[]
 }
 
 export interface SetupStageLine {
@@ -945,7 +945,7 @@ export interface SetupCheckTried {
   passed: boolean
   durationMs: number
   reason?: string
-  sandboxAccess?: SandboxGroup[]
+  sandboxAccess?: SandboxAccess[]
 }
 
 export interface SetupAppTried {
@@ -956,7 +956,7 @@ export interface SetupAppTried {
   ready: string
   passed: boolean
   reason?: string
-  sandboxAccess?: SandboxGroup[]
+  sandboxAccess?: SandboxAccess[]
 }
 
 export interface SetupFileLine {

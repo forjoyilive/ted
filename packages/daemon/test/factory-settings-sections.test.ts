@@ -396,11 +396,11 @@ describe('Factory settings: Workflow', () => {
     await mkdir(path.join(home, 'library'), { recursive: true })
     await writeFile(
       path.join(home, 'library', 'workflow.yaml'),
-      'version: 1\nsandbox_sockets: [~/.orbstack/run/docker.sock]\n',
+      'version: 1\nsandbox_sockets: { docker: ~/.orbstack/run/docker.sock }\n',
     )
     const view = await client.settings()
     expect(view.ignoredStageFiles).toEqual(['.ted/stages/security.md'])
-    expect(view.sandboxSockets).toEqual(['~/.orbstack/run/docker.sock'])
+    expect(view.sandboxSockets).toEqual([{ name: 'docker', path: '~/.orbstack/run/docker.sock' }])
     expect(view.sandboxSocketsFrom).toBe('library')
     expect(view.electronApps).toEqual([{ repo: 'widgets', name: 'Desktop' }])
   })

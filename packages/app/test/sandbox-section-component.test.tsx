@@ -56,7 +56,11 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   })
   render(
     <SandboxSection
-      view={{ ...view, sandboxSockets: ['/a.sock'], electronApps: [{ repo: 'ted', name: 'Desk' }] }}
+      view={{
+        ...view,
+        sandboxSockets: [{ name: 'a', path: '/a.sock' }],
+        electronApps: [{ repo: 'ted', name: 'Desk' }],
+      }}
       {...links}
     />,
   )
@@ -67,7 +71,7 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   expect(rows.map((row) => row.textContent)).toEqual([
     expect.stringContaining('Bypass'),
     expect.stringContaining('App “Ted Dev” runs outside the sandbox'),
-    expect.stringContaining('Socket /a.sock'),
+    expect.stringContaining('Socket a at /a.sock'),
     expect.stringContaining('Electron App “Desk”'),
   ])
   await user().click(
@@ -82,19 +86,23 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   expect(await screen.findByText('1 thing runs outside the sandbox.')).toBeTruthy()
 })
 
-test('a socket inherited from the Library says where to turn it off', async () => {
+test('a socket the Library names says who may use it and where to turn it off', async () => {
   bridge({})
   render(
     <SandboxSection
-      view={{ ...view, sandboxSockets: ['/lib.sock'], sandboxSocketsFrom: 'library' }}
+      view={{
+        ...view,
+        sandboxSockets: [{ name: 'lib', path: '/lib.sock' }],
+        sandboxSocketsFrom: 'library',
+      }}
       {...links}
     />,
   )
   expect(await screen.findByText('Nothing runs outside the sandbox.')).toBeTruthy()
   const row = screen.getByRole('listitem')
-  expect(row.textContent).toContain('From sandbox_sockets in the Library’s workflow.yaml.')
-  expect(row.textContent).toContain('Settings → Library')
-  expect(row.textContent).toContain('sandbox_sockets: []')
+  expect(row.textContent).toContain('list socket:lib in sandbox_access')
+  expect(row.textContent).toContain('Named in sandbox_sockets in the Library’s workflow.yaml')
+  expect(row.textContent).toContain('Remove it in Settings → Library to turn it off.')
 })
 
 test('access groups on Apps, Checks and setup widen the sandbox and link to where they are set', async () => {

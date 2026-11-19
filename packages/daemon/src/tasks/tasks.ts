@@ -88,8 +88,8 @@ import type {
   Run,
   RunMessage,
   RunSlots,
+  SandboxAccess,
   SandboxAccessChange,
-  SandboxGroup,
   SaveSettingsResult,
   SendBack,
   SendBackCause,
@@ -7322,7 +7322,7 @@ export function createTasks(options: {
     task: StoredTask,
     repo: TaskRepo,
     setup: RecordedSetup,
-  ): Promise<readonly SandboxGroup[]> {
+  ): Promise<readonly SandboxAccess[]> {
     const resolution = await taskWorkflow(task, { fetch: false })
     const entry = repoEntry(factoryRepos(resolution.workflow, factoryOf(task)), repo)
     return entry?.setup?.run === setup.command ? (entry.setup.groups ?? []) : []
