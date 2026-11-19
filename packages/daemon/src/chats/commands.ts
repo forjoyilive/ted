@@ -8,7 +8,7 @@ import type { Banners } from '../banners.ts'
 import { loginShell } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
-import type { Sandbox, SandboxScope } from '../sandbox.ts'
+import { type Sandbox, type SandboxGrants, type SandboxScope, sandboxGrants } from '../sandbox.ts'
 import type { ChatCommandItem, StoredChatAgent } from '../store/chats.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { PlanCheckout } from '../store/plans.ts'
@@ -87,7 +87,7 @@ export function commandScope(input: {
   home: string
   chatId: string
   checkout: readonly PlanCheckout[]
-  sockets: readonly string[]
+  grants: SandboxGrants
 }): CommandScope {
   const folder = path.join(chatSandboxRoot(input.home), chatSandboxName(input.chatId))
   return {
@@ -95,7 +95,7 @@ export function commandScope(input: {
       writable: input.checkout.map((c) => c.worktree),
       readable: [...new Set(input.checkout.map((c) => c.clone))],
       cache: path.join(folder, 'cache'),
-      sockets: input.sockets,
+      ...input.grants,
     },
     tmpRoot: path.join(folder, 'tmp'),
   }
@@ -241,7 +241,7 @@ export function createChatCommands(options: {
       home: options.home,
       chatId: chat.chatId,
       checkout: chat.checkout,
-      sockets: workflow.settings.sandbox_sockets ?? [],
+      grants: sandboxGrants(workflow.settings),
     })
     return { entries, plan: { command, worktree, repo, scope, tmpRoot } satisfies CommandPlan }
   }

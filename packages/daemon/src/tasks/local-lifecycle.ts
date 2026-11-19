@@ -14,7 +14,7 @@ import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
-import type { Sandbox } from '../sandbox.ts'
+import type { Sandbox, SandboxGrants } from '../sandbox.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import { type CommandLaunch, runTaskCommand } from './command.ts'
 import { endTaskProcesses } from './leftovers.ts'
@@ -95,7 +95,7 @@ export function createLocalLifecycle(options: {
   worktreesDir: string
   logsDir: string
   sandbox: Sandbox
-  sandboxSockets: (taskId: string) => Promise<readonly string[]>
+  sandboxGrants: (taskId: string) => Promise<SandboxGrants>
   startCache: (factoryId: string, cache: string) => Promise<void>
   env: () => NodeJS.ProcessEnv
 }): LocalLifecycle {
@@ -545,7 +545,7 @@ export function createLocalLifecycle(options: {
                 writable: resources.map((r) => r.file),
                 readable: [...new Set(resources.map((r) => clonePath(options.reposDir, r.repo)))],
                 cache,
-                sockets: await options.sandboxSockets(task.id),
+                ...(await options.sandboxGrants(task.id)),
               },
               tmpRoot: sandboxDir,
             },

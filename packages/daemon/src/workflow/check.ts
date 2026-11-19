@@ -143,6 +143,7 @@ export interface WorkflowSettings {
   permissions?: string
   max_working_runs?: number
   sandbox_sockets?: string[]
+  sandbox_reads?: string[]
   repos?: RepoSettings[]
   order?: AgentStageId[]
   stages: Partial<Record<StageId, StageSettings>>
@@ -390,8 +391,13 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         } else settings.max_working_runs = scalar(value) as number
         break
       case 'sandbox_sockets': {
-        const sockets = checkSandboxSockets(value)
+        const sockets = checkSandboxPaths(value, 'sandbox_sockets', 'socket paths')
         if (sockets) settings.sandbox_sockets = sockets
+        break
+      }
+      case 'sandbox_reads': {
+        const reads = checkSandboxPaths(value, 'sandbox_reads', 'files or folders')
+        if (reads) settings.sandbox_reads = reads
         break
       }
       case 'repos':
@@ -444,17 +450,20 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     return choice
   }
 
-  function checkSandboxSockets(value: Node | null): string[] | undefined {
-    const message =
-      '`sandbox_sockets` must be a list of socket paths: absolute, starting with ~/, or a whole $NAME'
+  function checkSandboxPaths(
+    value: Node | null,
+    name: 'sandbox_sockets' | 'sandbox_reads',
+    what: string,
+  ): string[] | undefined {
+    const message = `\`${name}\` must be a list of ${what}: absolute, starting with ~/, or a whole $NAME`
     if (!isSeq(value)) return void error(value, message)
-    const sockets: string[] = []
+    const found: string[] = []
     for (const item of value.items as (Node | null)[]) {
       const entry = scalar(item)
-      if (typeof entry !== 'string' || !isSocketEntry(entry)) return void error(item, message)
-      sockets.push(entry)
+      if (typeof entry !== 'string' || !isSandboxPath(entry)) return void error(item, message)
+      found.push(entry)
     }
-    return sockets
+    return found
   }
 
   function checkOrder(value: Node | null): AgentStageId[] | undefined {
@@ -1125,7 +1134,7 @@ function entries(map: YAMLMap): { key: Node | null; value: Node | null; name: st
   })
 }
 
-export function isSocketEntry(entry: string): boolean {
+export function isSandboxPath(entry: string): boolean {
   if (entry.includes('\0') || entry.length > 1024) return false
   if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(entry)) return true
   const rest = entry.startsWith('~/')
