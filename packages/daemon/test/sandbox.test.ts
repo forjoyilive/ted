@@ -16,6 +16,7 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import type { SandboxGroup } from '@ted/protocol'
 import { createSandbox, SandboxUnavailable, unixSocketPaths } from '../src/sandbox.ts'
 import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
@@ -53,12 +54,20 @@ afterEach(async () => {
   for (const dir of [tedHome, outside]) await rm(dir, { recursive: true, force: true })
 })
 
-async function inSandbox(script: string, sockets: string[] = [], home?: string) {
+async function inSandbox(
+  script: string,
+  options: { sockets?: string[]; home?: string; groups?: SandboxGroup[] } = {},
+) {
+  const { sockets = [], home, groups } = options
   const sandbox = createSandbox({
     tedHome,
     env: () => (home === undefined ? process.env : { ...process.env, HOME: home }),
   })
-  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), sockets })
+  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], {
+    ...scope(),
+    sockets,
+    ...(groups !== undefined && { groups }),
+  })
   const [command, ...args] = argv
   return execFileAsync(command, [...args, script], {
     cwd: worktree,
@@ -92,6 +101,8 @@ async function listen(socket: string): Promise<Server> {
 
 const tryConnect = (socket: string) =>
   `'${process.execPath}' -e "require('net').connect('${socket}').on('connect', () => { console.log('connected'); process.exit() }).on('error', () => { console.log('refused'); process.exit() })"`
+
+const xcode: SandboxGroup[] = ['ios-xcode']
 
 const tryWrite = (file: string) => `echo x > '${file}' 2>/dev/null && echo wrote || echo refused`
 const tryRead = (file: string) => `cat '${file}' >/dev/null 2>&1 && echo read || echo refused`
@@ -136,6 +147,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.split('\n').slice(0, 13)).toEqual([
       'wrote',
@@ -186,6 +198,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         `mkdir '${swbuildShorter}' 2>/dev/null && echo wrote || echo refused`,
         tryWrite(loose),
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.split('\n').slice(0, 7)).toEqual([
       'wrote',
@@ -257,6 +270,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         ),
         attempt(`chmod 777 '${userHelper}/IB'`),
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'wrote',
@@ -310,6 +324,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     try {
       const result = await inSandbox(
         `(mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${randomUUID().toUpperCase()}.HostToRemote') 2>/dev/null && echo wrote || echo refused`,
+        { groups: xcode },
       )
       expect(result.stdout.trim()).toBe('refused')
     } finally {
@@ -358,6 +373,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         attempt(`mkfifo '${pipe('IN')}'`),
         attempt(`mkfifo '${pipe('OUT')}'`),
       ].join('; '),
+      { groups: xcode },
     )
     try {
       expect(result.stdout.trim().split('\n')).toEqual([
@@ -435,6 +451,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(folder, 'assets.uicatalog')),
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused'])
     await rm(folder, { recursive: true, force: true })
@@ -452,6 +469,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && ls "$d" && cat "$d/Package.swift" && rm -r "$d" && echo reached || echo refused`,
         `mkdir '${xcodeSave}' && echo x > '${xcodeSave}/x' && ls '${xcodeSave}' && echo reached || echo refused`,
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'refused',
@@ -465,6 +483,54 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'reached',
     ])
     await rm(xcodeSave, { recursive: true, force: true })
+  })
+
+  test('without ios-xcode, a sandboxed command gets none of Xcode’s folders and runs with the daemon’s own umask', async () => {
+    const id = randomUUID()
+    const xcodeSave = path.join(saves, `NSIRD_xcodebuild_${id}`)
+    const helper = path.join(userTemp, `ibtoold-${900000 + Math.floor(Math.random() * 90000)}`)
+    const home = await realpath(outside)
+    const logs = path.join(
+      home,
+      'Library',
+      'Caches',
+      'org.swift.swiftpm',
+      'manifests',
+      'ManifestLoading',
+    )
+    await mkdir(logs, { recursive: true })
+    const previous = process.umask(0o022)
+    try {
+      const script = [
+        `mkdir '${xcodeSave}' 2>/dev/null && echo wrote || echo refused`,
+        `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
+        `d=$(mktemp -d '${userTemp}/swbuild.tmp.XXXXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
+        `mkdir '${helper}' 2>/dev/null && echo wrote || echo refused`,
+        tryWrite(path.join(logs, 'apple.dia')),
+        'umask',
+      ].join('; ')
+      const without = await inSandbox(script, { home })
+      expect(without.stdout.trim().split('\n')).toEqual([
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        '0022',
+      ])
+      const granted = await inSandbox(script, { home, groups: xcode })
+      expect(granted.stdout.trim().split('\n')).toEqual([
+        'wrote',
+        'wrote',
+        'wrote',
+        'wrote',
+        'wrote',
+        '0023',
+      ])
+    } finally {
+      process.umask(previous)
+      for (const dir of [xcodeSave, helper]) await rm(dir, { recursive: true, force: true })
+    }
   })
 
   test('git reads the worktree through the Task’s clone', async () => {
@@ -549,8 +615,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryRead(path.join(worktree, 'own.txt')),
         tryWrite(path.join(worktree, 'new.txt')),
       ].join('; '),
-      [],
-      home,
+      { home },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'refused',
@@ -598,8 +663,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(manifests, 'manifest.db')),
         `mv '${logs}' '${path.join(manifests, 'moved')}' 2>/dev/null && echo wrote || echo refused`,
       ].join('; '),
-      [],
-      home,
+      { home, groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'wrote',
@@ -621,11 +685,10 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     await mkdir(manifests, { recursive: true })
     await mkdir(elsewhere)
     await symlink(elsewhere, path.join(manifests, 'ManifestLoading'))
-    const result = await inSandbox(
-      tryWrite(path.join(manifests, 'ManifestLoading', 'apple.dia')),
-      [],
+    const result = await inSandbox(tryWrite(path.join(manifests, 'ManifestLoading', 'apple.dia')), {
       home,
-    )
+      groups: xcode,
+    })
     expect(result.stdout.trim()).toBe('refused')
   })
 
@@ -691,7 +754,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     try {
       const result = await inSandbox(
         [tryConnect(own), tryConnect(listed), tryConnect(other), 'echo resolved'].join('; '),
-        [listed],
+        { sockets: [listed] },
       )
       expect(result.stdout.trim().split('\n')).toEqual([
         'connected',
