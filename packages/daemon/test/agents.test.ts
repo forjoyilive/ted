@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -1793,7 +1793,7 @@ describe('Pi’s model list', () => {
     expect(piModelsReply('not json')).toBeUndefined()
   })
 
-  test('asks Pi over RPC, and gives undefined when Pi is missing, exits without answering or floods its output', async () => {
+  test('asks Pi over RPC, and gives undefined when Pi is missing, exits without answering or floods its output, and stops a Pi that ignores SIGTERM', async () => {
     const piHome = mkdtempSync(path.join(home, 'pi-models-'))
     const env = { ...process.env, TED_HOME: piHome }
     writeFileSync(path.join(piHome, 'stub-pi.json'), JSON.stringify({ models: 1 }))
@@ -1809,5 +1809,26 @@ describe('Pi’s model list', () => {
     expect(
       await piModels({ binary: flooding, env, cwd: piHome, maxBytes: 1000, timeoutMs: 600_000 }),
     ).toBeUndefined()
+    const stubborn = path.join(piHome, 'stubborn-pi')
+    const pidFile = path.join(piHome, 'stubborn-pi.pid')
+    writeFileSync(
+      stubborn,
+      `#!/bin/sh\ntrap '' TERM\necho $$ > '${pidFile}'\nwhile :; do printf '%0100d' 0; done\n`,
+      { mode: 0o755 },
+    )
+    expect(
+      await piModels({ binary: stubborn, env, cwd: piHome, maxBytes: 1000, timeoutMs: 600_000 }),
+    ).toBeUndefined()
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    await expect
+      .poll(() => {
+        try {
+          process.kill(pid, 0)
+          return 'running'
+        } catch {
+          return 'gone'
+        }
+      })
+      .toBe('gone')
   })
 })

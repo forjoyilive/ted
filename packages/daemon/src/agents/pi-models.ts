@@ -40,7 +40,8 @@ export function piModels(options: {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      child.kill()
+      child.stdout.destroy()
+      child.kill('SIGKILL')
       resolve(models)
     }
     const timer = setTimeout(() => finish(undefined), options.timeoutMs ?? piModelsTimeoutMs)
@@ -48,6 +49,7 @@ export function piModels(options: {
     child.on('close', () => finish(undefined))
     child.stdin.on('error', () => undefined)
     child.stdout.on('data', (chunk: Buffer) => {
+      if (settled) return
       buffered += chunk.toString()
       let end = buffered.indexOf('\n')
       while (end !== -1) {
