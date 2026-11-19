@@ -65,7 +65,7 @@ export function createCpuReader(options: CpuReaderOptions = {}): () => Promise<n
   let last = Number.NaN
   let settling: Promise<number> | undefined
   return async () => {
-    const fake = tedEnv('TED_LOAD_FILE')
+    const fake = options.sample === undefined ? tedEnv('TED_LOAD_FILE') : undefined
     if (fake) return Number(readFileSync(fake, 'utf8'))
     if (settling) return settling
     const current = take()
