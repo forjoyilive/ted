@@ -1166,6 +1166,37 @@ describe('Automations', () => {
     expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
   })
 
+  test('Stop drops a Scheduled Check waiting for a quiet computer, so it never runs', async () => {
+    const client = await startTed()
+    const automation = await create(client, {
+      name: 'Nightly tests',
+      prompt: undefined,
+      check: { command: 'echo ok', timeout: '5m', runBy: '07:00', agentStep: 'never' },
+    })
+    load = 5
+    clock = Date.parse('2026-11-09T09:00:05Z')
+    await waitUntil(async () => {
+      const now = (await detail(client, automation.id)).automation.now
+      return now?.kind === 'paused' && now.reason.includes('busy')
+    }, 'the firing to wait for a quiet computer')
+    const [waiting] = await client.ok<AutomationRunRow[]>('GET', '/automation-runs')
+    expect(waiting).toMatchObject({ state: 'queued', scheduledCheck: true })
+    expect(waiting?.canStartNow).toBeUndefined()
+    await client.ok('POST', `/automation-runs/${waiting?.run.id}/stop`)
+    expect((await history(client, automation.id)).map((r) => r.result.kind)).toEqual(['dropped'])
+
+    load = 0
+    clock = Date.parse('2026-11-09T09:10:00Z')
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const rows = await waitForHistory(
+      client,
+      automation.id,
+      (r) => r[0]?.result.kind === 'passed',
+      'the next Run to pass',
+    )
+    expect(rows.map((r) => r.result.kind)).toEqual(['passed', 'dropped'])
+  })
+
   test('a scheduled Check waits while the computer is busy until its cutoff, runs sandboxed on the default branch, makes Tasks for failing tests and updates them when they fail again; its agent step files, notes and starts Tasks, and Ted falls back when the agent doesn’t report', async () => {
     const client = await startTed()
     const fail = path.join(scratch, 'fail-check')

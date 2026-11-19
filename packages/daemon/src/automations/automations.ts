@@ -1883,6 +1883,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       if (check) {
         check.abort.abort()
         await check.done
+        if (saved.firing(firing.id)?.state === 'queued') saved.dropFiring(firing.id)
       } else if (firing.state === 'queued') {
         startNow.delete(firing.id)
         if (!starting.has(firing.id)) saved.dropFiring(firing.id)
