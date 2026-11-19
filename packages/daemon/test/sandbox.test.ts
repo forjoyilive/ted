@@ -183,6 +183,33 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       await rm(dir, { recursive: true, force: true })
   })
 
+  test('a sandboxed command can’t list the per-user temp folder or its TemporaryItems folder, but reaches its own folders there by name', async () => {
+    const tryList = (dir: string) => `ls '${dir}' >/dev/null 2>&1 && echo listed || echo refused`
+    const xcodeSave = path.join(saves, `NSIRD_xcodebuild_${randomUUID()}`)
+    const result = await inSandbox(
+      [
+        tryList(userTemp),
+        tryList(`${userTemp}/`),
+        tryList(saves),
+        `cd '${userTemp}' && ${tryList('.')}`,
+        `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && ls "$d" && cat "$d/Package.swift" && rm -r "$d" && echo reached || echo refused`,
+        `mkdir '${xcodeSave}' && echo x > '${xcodeSave}/x' && ls '${xcodeSave}' && echo reached || echo refused`,
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'Package.swift',
+      'x',
+      'reached',
+      'x',
+      'reached',
+    ])
+    await rm(xcodeSave, { recursive: true, force: true })
+  })
+
   test('git reads the worktree through the Task’s clone', async () => {
     const git = (cwd: string, ...args: string[]) =>
       execFileAsync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.com', ...args], {
