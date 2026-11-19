@@ -218,8 +218,11 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     await mkdir(path.join(userHelper, 'IB'), { recursive: true })
     const userPipe = path.join(userHelper, 'IB', `${id}.HostToRemote`)
     await execFileAsync('mkfifo', ['-m', '755', userPipe])
+    const strictPipe = path.join(userHelper, 'IB', `${linkId}.RemoteToHost`)
+    await execFileAsync('mkfifo', ['-m', '700', strictPipe])
     const attempt = (command: string) => `(${command}) 2>/dev/null && echo wrote || echo refused`
     const openPipe = (pipe: string) => `perl -e 'use Fcntl; sysopen(F, q(${pipe}), O_RDWR) or die'`
+    const makePipe = (pipe: string) => `perl -MPOSIX -e 'mkfifo(q(${pipe}), 0777) or die'`
     const result = await inSandbox(
       [
         tryWrite(path.join(worktree, 'source.txt')),
@@ -228,7 +231,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         ),
         attempt(`mkdir '${scratch}'`),
         attempt(
-          `mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${id}.HostToRemote' && ${openPipe(`${helper}/IB/${id}.HostToRemote`)}`,
+          `mkdir -p '${helper}/IB' && ${makePipe(`${helper}/IB/${id}.HostToRemote`)} && ${openPipe(`${helper}/IB/${id}.HostToRemote`)}`,
         ),
         attempt(`echo x > '${catalog}' && echo x > '${catalog}-journal'`),
         attempt(`echo x > '${png}'`),
@@ -247,6 +250,8 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         attempt(openPipe(userPipe)),
         attempt(`chmod 777 '${userPipe}'`),
         attempt(`rm '${userPipe}'`),
+        attempt(openPipe(strictPipe)),
+        attempt(`rm '${strictPipe}'`),
         attempt(
           `mkfifo '${helper}/IB/${linkId}.HostToRemote' && mv -f '${helper}/IB/${linkId}.HostToRemote' '${userPipe}'`,
         ),
@@ -277,8 +282,11 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'refused',
       'refused',
       'refused',
+      'refused',
+      'refused',
     ])
     expect((await stat(userPipe)).mode & 0o777).toBe(0o755)
+    expect((await stat(strictPipe)).mode & 0o777).toBe(0o700)
     for (const item of [
       at(id),
       scratch,
