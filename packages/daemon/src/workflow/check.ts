@@ -384,6 +384,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     return settings
   }
 
+  const ownSockets = context.kind === 'library' ? socketNamesIn(root) : undefined
+  const knownSockets = ownSockets ?? context.sockets
+
   for (const { key, value, name } of entries(root)) {
     switch (name) {
       case 'version':
@@ -902,7 +905,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         continue
       }
       const socket = socketOf(name)
-      if (socket !== undefined && context.sockets && !context.sockets.includes(socket)) {
+      if (socket !== undefined && knownSockets && !knownSockets.includes(socket)) {
         warn(
           isScalar(item) ? item : value,
           `your Library names no socket \`${socket}\`, so this command gets none until it does: add \`${socket}: <path>\` under \`sandbox_sockets\` in the Library`,
@@ -1217,6 +1220,14 @@ export function isReservedEnvName(name: string): boolean {
 }
 
 const durationMessage = '`timeout` must be a duration such as 30s, 15m or 1h'
+
+function socketNamesIn(root: YAMLMap): string[] | undefined {
+  const value = entries(root).find((entry) => entry.name === 'sandbox_sockets')?.value
+  if (!isMap(value)) return undefined
+  return entries(value)
+    .map((entry) => entry.name)
+    .filter(isSocketName)
+}
 
 function entries(map: YAMLMap): { key: Node | null; value: Node | null; name: string }[] {
   return map.items.map((pair) => {
