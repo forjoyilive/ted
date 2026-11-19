@@ -14,6 +14,7 @@ import type {
   TaskApp,
   ThreadEvent,
 } from '@ted/protocol'
+import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { DaemonWrappers } from '../src/daemon.ts'
 import { RequestError } from '../src/errors.ts'
@@ -384,6 +385,37 @@ describe('iOS simulator Apps', () => {
     expect((await iPhone(client, task))?.state).toBe('running')
     expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toEqual([])
     expect(await cpusTold(1)).toEqual([String(checkCpus(os.availableParallelism(), 1, 50))])
+  })
+
+  test('a human-started App waiting for a build runs only if its declaration still matches what the human confirmed', async () => {
+    const client = await start()
+    const built = path.join(scratch, 'built')
+    await addFactory(
+      client,
+      `until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
+    )
+    const task = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
+    const watch = await client.ok<TaskApp>('POST', `/tasks/${task.id}/apps/start`, {
+      name: 'Watch',
+    })
+    expect(watch.state).toBe('waiting')
+
+    await client.ok('PATCH', '/settings', { appsOutsideSandbox: {} })
+    const instance = path.join(tedPaths(home).apps, task.id, 'widgets', 'watch', 'instance.json')
+    const waiting = JSON.parse(await readFile(instance, 'utf8')) as { declaration?: string }
+    expect(waiting.declaration).toMatch(/^[0-9a-f]{64}$/)
+    await writeFile(instance, JSON.stringify({ ...waiting, declaration: '0'.repeat(64) }))
+
+    await writeFile(built, '')
+    const failed = await waitUntil(
+      async () =>
+        (await apps(client, task)).find((a) => a.name === 'Watch' && a.state === 'failed'),
+      'the waiting Watch App to fail',
+    )
+    expect(failed.problem).toBe(
+      'Ted didn’t start Watch: running it outside the sandbox needs your confirmation for its current command. Start it again and confirm.',
+    )
   })
 
   test('a waiting simulator App keeps its place when one lookup fails, and a follower that read an older instance doesn’t end a newer one', async () => {

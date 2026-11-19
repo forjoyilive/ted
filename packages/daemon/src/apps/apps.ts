@@ -749,6 +749,10 @@ export function createApps(options: AppsOptions): Apps {
           startedBy: by,
           ...(runId !== undefined && { runId }),
           ...(restart && { restart }),
+          ...(by === 'human' &&
+            task.sandbox !== undefined && {
+              declaration: outsideSandboxApproval(repo, app).declaration,
+            }),
           waitingFor: got.waiting,
         }
         await writeInstance(dir, instance)
@@ -1086,12 +1090,19 @@ export function createApps(options: AppsOptions): Apps {
       )
     }
     if (got.state === 'gone') return end('stopped')
+    const by = instance.startedBy ?? 'human'
+    try {
+      refuseUnconfirmed(task, repo, app, by, relaunchOptions(current).confirmed ?? {})
+    } catch (error) {
+      if (error instanceof RequestError) return end('failed', error.message)
+      throw error
+    }
     await launch(
       taskId,
       task,
       repo,
       app,
-      instance.startedBy ?? 'human',
+      by,
       instance.runId,
       instance.restart === true,
       undefined,
