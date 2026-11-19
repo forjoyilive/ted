@@ -53,15 +53,21 @@ test('the hint goes on its own line at the end of the command’s log', async ()
   expect(lines[2]).toBe('')
 })
 
-test('a refused path in the shared /tmp names shared-tmp, but a folder merely called tmp does not', () => {
-  expect(refusedGroups('touch: /private/tmp/ted-x: Operation not permitted')).toEqual([
+const tmpRefusal = "EPERM: operation not permitted, open '/tmp/build.lock'"
+
+test('on macOS a refused path in the shared /tmp names shared-tmp, but a folder merely called tmp does not', () => {
+  expect(refusedGroups('touch: /private/tmp/ted-x: Operation not permitted', 'darwin')).toEqual([
     'shared-tmp',
   ])
-  expect(refusedGroups("EPERM: operation not permitted, open '/tmp/build.lock'")).toEqual([
-    'shared-tmp',
-  ])
-  expect(refusedGroups('/Users/someone/.ted/sandbox/TED-1/tmp/x: Operation not permitted')).toEqual(
-    [],
-  )
-  expect(refusedGroups('writing /tmp/build.lock')).toEqual([])
+  expect(refusedGroups(tmpRefusal, 'darwin')).toEqual(['shared-tmp'])
+  expect(
+    refusedGroups('/Users/someone/.ted/sandbox/TED-1/tmp/x: Operation not permitted', 'darwin'),
+  ).toEqual([])
+  expect(refusedGroups('writing /tmp/build.lock', 'darwin')).toEqual([])
+})
+
+test('on Linux a refused /tmp path gives no shared-tmp hint, because /tmp is the command’s own temp folder there', () => {
+  expect(refusedGroups(tmpRefusal, 'linux')).toEqual([])
+  expect(refusalHints(tmpRefusal, [], 'the Check “Build”', 'linux')).toEqual([])
+  expect(refusedGroups(nsird, 'linux')).toEqual(['ios-xcode'])
 })
