@@ -233,7 +233,7 @@ A Run the Task Lead starts on its Task for one piece of work, such as exploring 
 _Avoid_: Worker, helper, child agent
 
 **Reviewer**:
-The sub-agent that reviews a Task’s diff at Validate with no Work context. Ted picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round Ted limits it to the earlier findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
+The sub-agent that reviews a Task’s diff at Validate with no Work context. Ted picks its Provider from the `reviewer` setting, by default an installed Provider other than the Task Lead’s and other than Pi, or the Task Lead’s own Provider when there is none. Each Validate visit gets one. From the second round Ted limits it to the earlier findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
 A sub-agent Ted starts itself at Validate’s fifth return to Work (by default; `stages.validate.loop_check`) to read the rounds of findings and say whether they are converging or looping.
