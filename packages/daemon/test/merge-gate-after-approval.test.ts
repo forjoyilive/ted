@@ -15,9 +15,11 @@ import {
   quietGuard,
   readGh,
   setGh,
+  signoffWaitMs,
   start,
   toSignoff,
   useMergeHarness,
+  waitForPendingMerge,
   waitForStage,
 } from './merge-harness.ts'
 import { eventWait } from './support/event-wait.ts'
@@ -59,7 +61,7 @@ describe('Merge off', () => {
       async () => (await getTask(client, blocked.id)).leadRunId !== undefined,
       'the blocked Task to start',
     )
-  })
+  }, 90_000)
 })
 
 function resignoffSteps(client: Client, summary: string) {
@@ -87,10 +89,14 @@ describe('Re-sign-off', () => {
     expect(first.gate?.changes).toBeUndefined()
     expect((await getTask(client, task.id)).repos[0]?.pullRequest).toBeUndefined()
     await approve(client, first)
-    await waitUntil(async () => {
-      const text = await lines(client, task)
-      return text.some((l) => l.startsWith('Merge sent this back to Work')) ? text : undefined
-    }, 'the send-back')
+    await waitUntil(
+      async () => {
+        const text = await lines(client, task)
+        return text.some((l) => l.startsWith('Merge sent this back to Work')) ? text : undefined
+      },
+      'the send-back',
+      signoffWaitMs,
+    )
     const [sentBack] = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
     expect(sentBack).toMatchObject({ from: 'merge', cause: 'base-conflict', counted: true })
     await setGh({ mergeState: 'CLEAN', rebaseConflict: false })
@@ -108,16 +114,20 @@ describe('Re-sign-off', () => {
     expect(repo?.files[0]?.added).toBeGreaterThan(0)
 
     await approve(client, second)
-    const done = await waitForStage(client, task, 'done')
+    const done = await waitForStage(client, task, 'done', signoffWaitMs)
     expect((await merges()).at(-1)?.at(-1)).toBe(done.repos[0]?.pullRequest?.signedOff)
-  })
+  }, 180_000)
 })
 
 async function mergeSignoffOrReview(client: Client, task: Task, count: number) {
-  const signoffs = await waitUntil(async () => {
-    const all = (await comments(client, task)).filter((c) => c.kind === 'signoff')
-    return all.length >= count && all[count - 1]?.answer === undefined ? all : undefined
-  }, `sign-off ${count}`)
+  const signoffs = await waitUntil(
+    async () => {
+      const all = (await comments(client, task)).filter((c) => c.kind === 'signoff')
+      return all.length >= count && all[count - 1]?.answer === undefined ? all : undefined
+    },
+    `sign-off ${count}`,
+    signoffWaitMs,
+  )
   const found = signoffs[count - 1]
   if (!found) throw new Error('no sign-off')
   return found
@@ -135,18 +145,12 @@ describe('Sending after sign-off', () => {
         checks: [{ name: 'test', status: 'IN_PROGRESS', required: true }],
       },
     })
-    const { task, signoff } = await toSignoff(client)
+    const { task, signoff } = await toSignoff(client, {}, clock)
     const early = await client.call('POST', `/tasks/${task.id}/mark-done`)
     expect(early.status).toBe(409)
     expect(JSON.stringify(early.body)).toContain('isn’t at Merge')
     await approve(client, signoff)
-    const pending = await waitUntil(async () => {
-      const current = await getTask(client, task.id)
-      return current.repos[0]?.pullRequest?.autoMerge && current.commentBox === 'merge-pending'
-        ? current
-        : undefined
-    }, 'auto-merge and a pending merge')
-    expect(pending.commentBox).toBe('merge-pending')
+    const pending = await waitForPendingMerge(client, task.id, clock)
 
     const plain = await client.call('POST', `/tasks/${task.id}/comments`, { body: 'Wait.' })
     expect(plain.status).toBe(409)
@@ -266,7 +270,7 @@ describe('Sending after sign-off', () => {
     expect(leadAgain.status).toBe(200)
     expect((leadAgain.body as Task).stage).toBe('done')
     expect((await client.ok<Task>('POST', `/tasks/${task.id}/mark-done`)).stage).toBe('done')
-  })
+  }, 120_000)
 })
 
 describe('Cancelling when GitHub won’t turn auto-merge off', () => {
@@ -282,10 +286,7 @@ describe('Cancelling when GitHub won’t turn auto-merge off', () => {
     })
     const { task, signoff } = await toSignoff(client)
     await approve(client, signoff)
-    await waitUntil(async () => {
-      const current = await getTask(client, task.id)
-      return current.repos[0]?.pullRequest?.autoMerge && current.commentBox === 'merge-pending'
-    }, 'auto-merge and a pending merge')
+    await waitForPendingMerge(client, task.id)
 
     const failed = await client.call('POST', `/tasks/${task.id}/cancel-merge`, {
       comment: 'Stop.',
@@ -304,5 +305,5 @@ describe('Cancelling when GitHub won’t turn auto-merge off', () => {
       'auto-merge to be turned off',
     )
     expect((await readGh()).merge.autoMerge).toBeUndefined()
-  })
+  }, 90_000)
 })

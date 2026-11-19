@@ -264,7 +264,7 @@ export const heldLeadSteps = (client: Client) =>
 
 // A Task reaches its sign-off in 3 to 6 seconds on an idle machine, took up to 14 beside five
 // other daemon test files, and passed 20 in a full `pnpm check`.
-const signoffWaitMs = 60_000
+export const signoffWaitMs = 60_000
 
 export async function toSignoff(
   client: Client,
@@ -317,7 +317,7 @@ export async function approve(client: Client, signoff: Comment) {
   await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
 }
 
-export const waitForStage = (client: Client, task: Task, stage: string) =>
+export const waitForStage = (client: Client, task: Task, stage: string, timeoutMs?: number) =>
   eventWait(
     client.subscribe,
     async () => {
@@ -325,6 +325,26 @@ export const waitForStage = (client: Client, task: Task, stage: string) =>
       return current.stage === stage ? current : undefined
     },
     `${task.displayId} to reach ${stage}`,
+    timeoutMs,
+  )
+
+// Ted skips turning auto-merge on while the Task is busy with another change and tries
+// again at the next GitHub poll, which a ManualClock fires only when the test advances it.
+export const waitForPendingMerge = (
+  client: Client,
+  taskId: string,
+  clock?: ManualClock,
+  pollMs = 100,
+) =>
+  waitUntil(
+    async () => {
+      const task = await getTask(client, taskId)
+      if (task.repos[0]?.pullRequest?.autoMerge && task.commentBox === 'merge-pending') return task
+      if (clock?.pending.includes(pollMs)) clock.advance(pollMs)
+      return undefined
+    },
+    'auto-merge and a pending merge',
+    signoffWaitMs,
   )
 
 export const ghCalls = async () =>

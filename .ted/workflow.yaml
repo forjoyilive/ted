@@ -12,16 +12,17 @@ repos:
         run: MAC_CHROMIUM_TMPDIR="$TMPDIR" TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app $TED_ELECTRON_ARGS
   - name: ted-mobile
     remote: https://github.com/forjoyilive/ted-mobile.git
-    merge_method: merge
     worktree:
       setup: pnpm install --frozen-lockfile
     apps:
       - name: Ted iPhone
         kind: ios-simulator
         run: pnpm ios release
+        device: iPhone 17
       - name: Ted Dev iPhone
         kind: ios-simulator
         run: pnpm ios dev
+        device: iPhone 17
 order: [intake, clarify, design, work, validate, review, merge]
 stages:
   design: { gate: true, based_on: f7500a6 }
@@ -31,9 +32,9 @@ stages:
       - { name: Typecheck, run: pnpm typecheck }
       - { name: Lint, run: pnpm lint }
       - { name: Affected Tests, run: pnpm check --affected, timeout: 80m }
-      - { name: Mobile typecheck, repo: ted-mobile, run: pnpm typecheck }
-      - { name: Mobile lint, repo: ted-mobile, run: pnpm lint }
-      - { name: Mobile tests, repo: ted-mobile, run: pnpm test, timeout: 15m }
+      - { name: Mobile Typecheck, run: pnpm typecheck, repo: ted-mobile }
+      - { name: Mobile Lint, run: pnpm lint, repo: ted-mobile }
+      - { name: Mobile Tests, run: pnpm test, repo: ted-mobile, timeout: 15m }
       - name: Docs drift
         fix: true
         instruction: >-
