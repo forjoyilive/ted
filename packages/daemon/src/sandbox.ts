@@ -45,6 +45,7 @@ export function buildCacheEnv(cache: string): Record<string, string> {
       Object.entries(buildFolders).map(([name, dir]) => [name, path.join(cache, 'xcode', dir)]),
     ),
     GRADLE_USER_HOME: path.join(cache, 'gradle'),
+    CP_HOME_DIR: path.join(cache, 'cocoapods'),
   }
 }
 
@@ -153,6 +154,9 @@ export function createSandbox(options: {
             if (!inside(paths.tedHome, found) && !xcodeTempNames.test(first)) paths.userTemp = found
           }
         }
+        const logs = scope.ownTempOnly === true ? undefined : await manifestLogFolder(env)
+        if (logs !== undefined && !inside(paths.tedHome, logs) && !inside(logs, paths.tedHome))
+          paths.manifestLogs = logs
       }
       const sockets = await allowedSockets(scope.sockets ?? [], env)
       const cache = (name: string) => path.join(paths.cache, name)
@@ -228,9 +232,11 @@ interface SandboxPaths {
   saves?: string
   userTemp?: string
   unlisted?: string[]
+  manifestLogs?: string
 }
 
-const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService|actool'
+const xcodeSavers =
+  'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtoold|swift-build|swift-run|swift-test'
 const xcodeTempNames = /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8})$/
 
 function escapeRegex(text: string): string {
@@ -278,6 +284,25 @@ async function sandboxPaths(
     tedHome: home,
     ...(sharedTmp !== undefined && !inside(sharedTmp, daemonTmp) && { sharedTmp }),
   }
+}
+
+async function manifestLogFolder(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+  const home = await real(env.HOME?.startsWith('/') ? env.HOME : homedir())
+  const dir = path.join(
+    home,
+    'Library',
+    'Caches',
+    'org.swift.swiftpm',
+    'manifests',
+    'ManifestLoading',
+  )
+  const made = await mkdir(dir, { recursive: true }).then(
+    () => true,
+    () => false,
+  )
+  if (!made || /["\n\r]/.test(dir)) return undefined
+  const found = await realpath(dir).catch(() => undefined)
+  return found === dir ? dir : undefined
 }
 
 async function personalFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
@@ -370,6 +395,13 @@ function seatbeltArgs(
           // Seatbelt regexes have no {n} repeat, so the random characters are written out.
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
+        ]),
+    ...(paths.manifestLogs === undefined
+      ? []
+      : [
+          // Xcode’s package resolution writes <package>.dia here whatever its cache options say. Plain files only, so no link can send the user’s own builds elsewhere.
+          `(allow file-write* (require-all (regex #"^${escapeRegex(paths.manifestLogs)}/[^/]+\\.dia$") (vnode-type REGULAR-FILE)))`,
+          `(deny file-link (regex #"^${escapeRegex(paths.manifestLogs)}/"))`,
         ]),
     ...(paths.unlisted === undefined
       ? []

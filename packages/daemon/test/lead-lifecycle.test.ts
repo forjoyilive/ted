@@ -157,6 +157,9 @@ function harness(overrides: Partial<LeadLifecycleOptions> = {}) {
     background: (_what, operation) => {
       work.push(operation())
     },
+    recover: (_taskId, _what, operation) => {
+      work.push(operation())
+    },
     hasAnswerText: (comment) => comment.answer !== undefined,
     refreshSteering: async () => {},
     memoryFreed: async () => true,
