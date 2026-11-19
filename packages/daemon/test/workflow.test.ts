@@ -724,9 +724,9 @@ describe('checking a layer', () => {
     ].join('\n')
     const checked = checkLayer({ kind: 'factory', files: { 'workflow.yaml': yaml } })
     expect(problems({ 'workflow.yaml': yaml })).toEqual([
-      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode, electron, or socket:<name> for a socket your Library names',
-      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode, electron, or socket:<name> for a socket your Library names',
-      'error .ted/workflow.yaml 13 78 `socket:Bad` isn’t a sandbox access group. Ted’s groups: ios-xcode, electron, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode, shared-tmp, electron, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 13 78 `socket:Bad` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, or socket:<name> for a socket your Library names',
       'error .ted/workflow.yaml 22 9 an instruction check runs no command in the sandbox, so it takes no `sandbox_access`',
     ])
     expect(checked.settings.repos?.[0]?.worktree?.setup).toEqual({
