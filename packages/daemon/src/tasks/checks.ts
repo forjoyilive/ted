@@ -234,6 +234,7 @@ export async function runChecks(input: {
         ? checkSettings(cwd, log, input.libraryDir)
         : runTaskCommand({
             label: 'this check',
+            owner: `the Check “${check.name}”`,
             command: { run: command, timeoutMs: durationMs(check.timeout) },
             cwd,
             env: {

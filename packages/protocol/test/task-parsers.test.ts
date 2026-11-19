@@ -35,6 +35,7 @@ const setup = {
       passed: true,
       durationMs: 100,
       reason: 'Passed',
+      sandboxAccess: ['ios-xcode'],
     },
   ],
   apps: [
@@ -46,8 +47,10 @@ const setup = {
       ready: 'start',
       passed: true,
       reason: 'Ready',
+      sandboxAccess: ['ios-xcode'],
     },
   ],
+  worktree: [{ repo: 'ted', step: 'setup', sandboxAccess: ['ios-xcode'] }],
   agents: [
     {
       id: 'release',
@@ -347,6 +350,33 @@ for (const [agents, message] of [
 ] as const) {
   rejects(P.parseDesignReviewInput, { ...design, setup: { ...setup, agents } }, message)
 }
+for (const [proposal, message] of [
+  [
+    { ...setup, apps: [{ ...setup.apps[0], sandboxAccess: ['xcode'] }] },
+    'Dev asks for xcode, which isn’t an access group: ios-xcode',
+  ],
+  [
+    { ...setup, checks: [{ ...setup.checks[0], sandboxAccess: 'ios-xcode' }] },
+    'Typecheck’s sandboxAccess must be a list of access groups: ios-xcode',
+  ],
+  [{ ...setup, worktree: [{ step: 'build', sandboxAccess: [] }] }, 'setup or teardown'],
+  [{ ...setup, worktree: [{ step: 'setup' }] }, 'the worktree setup lists its sandboxAccess'],
+] as const) {
+  rejects(P.parseDesignReviewInput, { ...design, setup: proposal }, message)
+}
+
+test('a setup proposal’s sandbox access drops repeats and an empty list', () => {
+  const parsed = P.parseDesignReviewInput({
+    ...design,
+    setup: {
+      ...setup,
+      apps: [{ ...setup.apps[0], sandboxAccess: ['ios-xcode', 'ios-xcode'] }],
+      checks: [{ ...setup.checks[0], sandboxAccess: [] }],
+    },
+  })
+  expect(parsed.setup?.apps[0]?.sandboxAccess).toEqual(['ios-xcode'])
+  expect(parsed.setup?.checks[0]).not.toHaveProperty('sandboxAccess')
+})
 rejects(
   P.parseAnswerRequest,
   { action: 'approve', removeAgents: ['Not An Id'] },

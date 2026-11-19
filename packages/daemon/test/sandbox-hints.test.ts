@@ -1,0 +1,48 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterEach, expect, test } from 'vitest'
+import { appendRefusalHints, refusalHints, refusedGroups } from '../src/sandbox-hints.ts'
+
+const temp = '/var/folders/ab/cd1234/T'
+const nsird = `error: couldn’t create ${temp}/TemporaryItems/NSIRD_xcodebuild_AbCdEf: Operation not permitted`
+const manifest = `/Users/someone/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/Pkg.dia: Permission denied`
+
+const dirs: string[] = []
+afterEach(async () => {
+  for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
+})
+
+test('a refused Xcode path in the per-user temp folder or ManifestLoading names ios-xcode', () => {
+  expect(refusedGroups(nsird)).toEqual(['ios-xcode'])
+  expect(refusedGroups(manifest)).toEqual(['ios-xcode'])
+  expect(
+    refusedGroups(`/private${temp}/TemporaryDirectory.a1B2c3: Operation not permitted`),
+  ).toEqual(['ios-xcode'])
+})
+
+test('a refusal elsewhere, or a group path without a refusal, gives no hint', () => {
+  expect(refusedGroups('/Users/someone/.ssh/id_ed25519: Operation not permitted')).toEqual([])
+  expect(refusedGroups(`${temp}/xcrun_db: Operation not permitted`)).toEqual([])
+  expect(refusedGroups(`writing ${temp}/TemporaryItems/NSIRD_xcodebuild_AbCdEf`)).toEqual([])
+})
+
+test('the hint names the group and who lacks it, once, and not when the command has the group', () => {
+  const hints = refusalHints(`${nsird}\n${manifest}\n`, [], 'the App “iOS simulator”')
+  expect(hints).toEqual([
+    'Ted: the sandbox refused a path in the ios-xcode access group, which the App “iOS simulator” doesn’t have. Propose sandbox_access: [ios-xcode] for it in .ted/workflow.yaml instead of working around the refusal; it takes effect once the user merges or approves it.',
+  ])
+  expect(refusalHints(nsird, ['ios-xcode'], 'the App “iOS simulator”')).toEqual([])
+})
+
+test('the hint goes on its own line at the end of the command’s log', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'ted-hints-'))
+  dirs.push(dir)
+  const log = path.join(dir, 'build.log')
+  await writeFile(log, nsird)
+  await appendRefusalHints(log, [], 'the Check “Build”')
+  const lines = (await readFile(log, 'utf8')).split('\n')
+  expect(lines[0]).toBe(nsird)
+  expect(lines[1]).toContain('which the Check “Build” doesn’t have')
+  expect(lines[2]).toBe('')
+})
