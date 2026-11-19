@@ -1392,8 +1392,9 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const status = statusOf(firing)
     const check = checkRuns.get(firing.id)
     const scheduledCheck = automation.check !== undefined
-    const current = nowOf(firing, (id) =>
-      slots?.queue.find((q) => q.kind === 'automation' && q.runId === id)?.place ?? 0,
+    const current = nowOf(
+      firing,
+      (id) => slots?.queue.find((q) => q.kind === 'automation' && q.runId === id)?.place ?? 0,
     )
     const state: AutomationRunState =
       check !== undefined && check.phase !== 'running'

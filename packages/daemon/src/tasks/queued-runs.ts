@@ -53,7 +53,10 @@ type Slot<K extends OwnKind> = Omit<Extract<SlotHolder, { kind: K }>, 'kind' | '
 export interface QueuedRunsSpec<K extends OwnKind> {
   kind: K
   what: string
-  waiting(): Pick<QueueEntry, 'id' | 'rank' | 'factoryId' | 'priority' | 'skipsBusy' | 'pastLimits'>[]
+  waiting(): Pick<
+    QueueEntry,
+    'id' | 'rank' | 'factoryId' | 'priority' | 'skipsBusy' | 'pastLimits'
+  >[]
   runnable(id: string): boolean
   launch(id: string): Promise<void>
   candidates(): string[]
