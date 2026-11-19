@@ -104,7 +104,7 @@ import type {
 } from './coordinator.ts'
 import { coordinatorTaskSearch } from './coordinator-parsers.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
-import type { DashboardRange, DashboardReport } from './dashboard.ts'
+import { type DashboardRange, type DashboardReport, isPreset } from './dashboard.ts'
 import type {
   BackupsSummary,
   DataStatus,
@@ -1221,7 +1221,7 @@ export class DaemonClient {
   }
 
   dashboard(range: DashboardRange, factoryIds: readonly string[] = []): Promise<DashboardReport> {
-    const query = new URLSearchParams({ range })
+    const query = new URLSearchParams(isPreset(range) ? { range } : { ...range })
     for (const id of factoryIds) query.append('factory', id)
     return this.#request('GET', `/dashboard?${query}`)
   }
