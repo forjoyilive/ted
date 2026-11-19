@@ -111,9 +111,12 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     await writeFile(path.join(clone, 'HEAD'), 'ref')
     const id = randomUUID()
     const xcodeSave = path.join(saves, `NSIRD_SWBBuildService_${id}`)
+    const assetSave = path.join(saves, `NSIRD_actool_${id}`)
     const otherSave = path.join(saves, `NSIRD_TextEdit_${id}`)
+    const interfaceSave = path.join(saves, `NSIRD_ibtool_${id}`)
     const looseSave = path.join(saves, `ted-${id}`)
     await mkdir(otherSave, { recursive: true })
+    await mkdir(interfaceSave, { recursive: true })
     const result = await inSandbox(
       [
         tryWrite(path.join(worktree, 'a.txt')),
@@ -121,18 +124,22 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         'mkdir -p "$npm_config_cache" && echo x > "$npm_config_cache/c" && echo wrote',
         'echo x > "$TED_DERIVED_DATA/d" && test -d "$TED_SWIFTPM_CACHE" && test -d "$CLANG_MODULE_CACHE_PATH" && test "$TED_SANDBOX" = 1 && test "$MAC_CHROMIUM_TMPDIR" = "$TMPDIR" && echo wrote',
         `mkdir '${xcodeSave}' && ${tryWrite(path.join(xcodeSave, 'x'))}`,
+        `mkdir '${assetSave}' && ${tryWrite(path.join(assetSave, 'x'))}`,
         tryWrite(path.join(otherSave, 'x')),
+        tryWrite(path.join(interfaceSave, 'x')),
         tryWrite(looseSave),
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 8)).toEqual([
+    expect(result.stdout.split('\n').slice(0, 10)).toEqual([
       'wrote',
       'wrote',
       'wrote',
       'wrote',
       'wrote',
+      'wrote',
+      'refused',
       'refused',
       'refused',
       'read',
@@ -141,7 +148,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     const cache = await realpath(scope().cache)
     expect(await readFile(path.join(cache, 'xcode', 'DerivedData', 'd'), 'utf8')).toBe('x\n')
     expect(result.stdout).toContain(path.basename(tmp))
-    for (const dir of [xcodeSave, otherSave, looseSave])
+    for (const dir of [xcodeSave, assetSave, otherSave, interfaceSave, looseSave])
       await rm(dir, { recursive: true, force: true })
   })
 
