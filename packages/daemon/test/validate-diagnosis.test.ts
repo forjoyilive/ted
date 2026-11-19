@@ -17,10 +17,11 @@ import type {
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { isString } from '@ted/protocol/parse'
-import { expect, test } from 'vitest'
+import { expect, expectTypeOf, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { openStore } from '../src/store/index.ts'
+import type { ChecksArea } from '../src/store/checks.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import { all, api, commitToOrigin, stubClaudePath, waitUntil } from './helpers.ts'
 import { ctx, getTask, useMergeHarness } from './merge-harness.ts'
 import {
@@ -36,6 +37,8 @@ import {
   walk,
   workGate,
 } from './support/validate-diagnosis.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 useMergeHarness()
 

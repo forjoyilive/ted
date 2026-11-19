@@ -12,10 +12,11 @@ import {
   type Task,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import type { Keyring } from '../src/linear/keyring.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TrackersArea } from '../src/store/trackers.ts'
 import { startStubAsana, unusedPort } from './fixtures/stub-asana.ts'
 import {
   api,
@@ -26,6 +27,8 @@ import {
   tokenFor,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<TrackersArea>()
 
 let home: string
 let cleanup: () => Promise<void>

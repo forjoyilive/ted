@@ -2,12 +2,15 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { CheckRun, FailureCase, SendBack, Task, ValidationObligations } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
-import { expect, test } from 'vitest'
+import { expect, expectTypeOf, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { openStore } from '../src/store/index.ts'
+import type { ChecksArea } from '../src/store/checks.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import { api, commitToOrigin, stubClaudePath, waitUntil } from './helpers.ts'
 import { ctx, getTask, run, setGh, start, useMergeHarness } from './merge-harness.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 useMergeHarness()
 

@@ -1,9 +1,12 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { expect, test } from 'vitest'
-import { openStore } from '../src/store/index.ts'
+import { expect, expectTypeOf, test } from 'vitest'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { MergeArea } from '../src/store/merge.ts'
 import { editEventlog, makeTempHome, pretendStateSchemaChanged } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<MergeArea>()
 
 test('base conflicts are kept per Task, survive a reopen and go when the Task is deleted', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'ted-base-conflicts-'))

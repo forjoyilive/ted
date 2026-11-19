@@ -3,10 +3,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type BrowserCommand, DaemonClient, readDaemonInfo, tedPaths } from '@ted/protocol'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, expect, expectTypeOf, test, vi } from 'vitest'
 import type { Apps } from '../src/apps/apps.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import type { AppsArea } from '../src/store/apps.ts'
+import type { TedStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
@@ -17,6 +19,8 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<AppsArea>()
 
 const validation = {
   after: 0,

@@ -65,6 +65,16 @@
   box-shadow: 0 0 0 2px var(--surface-app);
 }
 
+.working[data-mark='waiting'] {
+  box-sizing: border-box;
+  border: 1.5px solid var(--agent-ring-working);
+  background: var(--surface-app);
+}
+
+.working[data-mark='failed'] {
+  background: var(--agent-ring-failed);
+}
+
 .tip {
   position: absolute;
   top: calc(100% + 6px);

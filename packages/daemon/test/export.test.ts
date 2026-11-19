@@ -2,12 +2,15 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DaemonClient, readDaemonInfo, tedPaths } from '@ted/protocol'
-import { expect, test } from 'vitest'
+import { expect, expectTypeOf, test } from 'vitest'
 import { factoryExport } from '../src/export.ts'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { RequestsArea } from '../src/store/requests.ts'
 import { api, makeOriginRepo } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<RequestsArea>()
 
 test('exports all retained Task states, answers, history and Run metadata from only one Factory', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'ted-export-store-'))

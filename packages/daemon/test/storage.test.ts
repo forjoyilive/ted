@@ -8,10 +8,11 @@ import {
   type Task,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { excludeFromTimeMachine } from '../src/disk.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { createStorage } from '../src/storage.ts'
+import type { StoreContext } from '../src/store/context.ts'
 import type { TedStore } from '../src/store/index.ts'
 import {
   api,
@@ -21,6 +22,8 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<StoreContext>().toHaveProperty('store')
 
 let home: string
 let cleanup: () => Promise<void>

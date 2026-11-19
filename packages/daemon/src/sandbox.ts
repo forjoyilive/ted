@@ -14,6 +14,8 @@ export interface SandboxScope {
   cache: string
   sockets?: readonly string[]
   electron?: boolean
+  ownTempOnly?: boolean
+  hideProtected?: boolean
 }
 
 export interface Sandboxed {
@@ -146,11 +148,13 @@ export function createSandbox(options: {
         if (found !== undefined) {
           const saves = path.join(found, 'TemporaryItems')
           paths.unlisted = [found, saves]
-          if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
           const [first = ''] = path.relative(found, paths.tedHome).split(path.sep)
-          if (!inside(paths.tedHome, found) && !xcodeTempNames.test(first)) paths.userTemp = found
+          if (scope.ownTempOnly !== true) {
+            if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
+            if (!inside(paths.tedHome, found) && !xcodeTempNames.test(first)) paths.userTemp = found
+          }
         }
-        const logs = await manifestLogFolder(env)
+        const logs = scope.ownTempOnly === true ? undefined : await manifestLogFolder(env)
         if (logs !== undefined && !inside(paths.tedHome, logs) && !inside(logs, paths.tedHome))
           paths.manifestLogs = logs
       }
@@ -175,10 +179,24 @@ export function createSandbox(options: {
         ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }
       if (platform === 'darwin') {
+        const umask = process.umask()
+        const pipeMode =
+          paths.userTemp !== undefined && (umask & 0o001) === 0
+            ? 0o777 & ~(umask | 0o001)
+            : undefined
         return {
           argv: [
             ready,
-            ...seatbeltArgs(paths, sockets, scope.electron === true, await personalFolders(env)),
+            ...seatbeltArgs(
+              paths,
+              sockets,
+              scope.electron === true,
+              await personalFolders(env),
+              pipeMode,
+            ),
+            ...(pipeMode === undefined
+              ? []
+              : ['/bin/sh', '-c', `umask ${(umask | 0o001).toString(8)} && exec "$@"`, 'sh']),
             ...argv,
           ],
           env: added,
@@ -189,6 +207,8 @@ export function createSandbox(options: {
       const table = await socketTable()
       const linux = await linuxSockets(table, paths, sockets, env)
       const binds = bwrapBinds(paths)
+      const hidden =
+        scope.hideProtected === true ? await existingFolders(await personalFolders(env)) : []
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -202,7 +222,7 @@ export function createSandbox(options: {
         throw error
       }
       return {
-        argv: [ready, ...bwrapArgs(paths, env, linux, binds, bindFds), '--', ...argv],
+        argv: [ready, ...bwrapArgs(paths, env, linux, binds, bindFds, hidden), '--', ...argv],
         env: added,
         fds: handles.map((handle) => handle.fd),
         close,
@@ -230,8 +250,54 @@ interface SandboxPaths {
 }
 
 const xcodeSavers =
-  'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtoold|swift-build|swift-run|swift-test'
-const xcodeTempNames = /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8})$/
+  'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtool|ibtoold|swift-build|swift-run|swift-test'
+const xcodeTempNames =
+  /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8}|(actool-sprite-atlas-scratch-)?[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}|ibtoold-[0-9]+)$/i
+const chars = (set: string, count: number) => `[${set}]`.repeat(count)
+const uuid = [8, 4, 4, 4, 12].map((count) => chars('0-9A-F', count)).join('-')
+
+// The user's own ibtoold pipes are named in its arguments, which a sandboxed command can read. Sandboxed commands
+// run with others-execute masked, so only items with exactly the mode that umask gives are writable.
+function ownPipes(pattern: string, mode: number): string[] {
+  const types = '(require-any (vnode-type DIRECTORY) (vnode-type FIFO))'
+  const bits = [0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001]
+  const exact = [
+    `(file-mode #o${mode.toString(8).padStart(4, '0')})`,
+    ...bits.flatMap((bit) =>
+      (mode & bit) === 0 ? [`(require-not (file-mode #o${bit.toString(8).padStart(4, '0')}))`] : [],
+    ),
+  ].join(' ')
+  return [
+    `(allow file-write-create (require-all (regex #"${pattern}") ${types}))`,
+    `(allow file-write* (require-all (regex #"${pattern}") ${types} ${exact}))`,
+    `(deny file-link (regex #"${pattern}"))`,
+  ]
+}
+
+function actoolTempRules(userTemp: string, pipeMode: number | undefined): string[] {
+  const at = (pattern: string) => `^${escapeRegex(userTemp)}/${pattern}`
+  const noLinks = (pattern: string, types: string[]) => [
+    `(allow file-write* (require-all (regex #"${pattern}") (require-any ${types.map((type) => `(vnode-type ${type})`).join(' ')})))`,
+    `(deny file-link (regex #"${pattern}"))`,
+  ]
+  return [
+    ...noLinks(at(`actool-sprite-atlas-scratch-${uuid}(/|$)`), ['DIRECTORY', 'REGULAR-FILE']),
+    ...noLinks(at(`${uuid}$`), ['DIRECTORY']),
+    ...noLinks(at(`${uuid}/assets\\.uicatalog(-journal)?$`), ['REGULAR-FILE']),
+    ...noLinks(at(`${uuid}/[^/]+\\.icon\\.xcassets(/|$)`), ['DIRECTORY', 'REGULAR-FILE']),
+    ...(pipeMode !== undefined
+      ? ownPipes(at(`ibtoold-[0-9]+(/IB(/${uuid}\\.(HostToRemote|RemoteToHost))?)?$`), pipeMode)
+      : []),
+    `(deny file-read-data (regex #"${at('ibtoold-[0-9]+(/IB)?/?$')}"))`,
+    ...noLinks(at(`Untitled-${chars('A-Za-z0-9', 8)}\\.uicatalog(-journal)?$`), ['REGULAR-FILE']),
+    ...noLinks(
+      at(
+        `(${uuid}/)?\\.?[^/]+_${uuid}-[0-9]+-${chars('0-9A-F', 16)}\\.png(-${chars('A-Za-z0-9', 6)})?$`,
+      ),
+      ['REGULAR-FILE'],
+    ),
+  ]
+}
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -253,7 +319,7 @@ async function sandboxPaths(
   scope: SandboxScope,
 ): Promise<SandboxPaths> {
   const daemonTmp = await real(tmpdir())
-  const sharedTmp = platform === 'darwin' ? '/private/tmp' : undefined
+  const sharedTmp = platform === 'darwin' && scope.ownTempOnly !== true ? '/private/tmp' : undefined
   const home = await real(tedHome)
   const given = path.resolve(tedHome)
   const plain = (dir: string, create = false) => plainFolder(home, given, dir, create)
@@ -303,6 +369,17 @@ async function personalFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
   return protectedPaths(await real(env.HOME?.startsWith('/') ? env.HOME : homedir()))
 }
 
+async function existingFolders(dirs: readonly string[]): Promise<string[]> {
+  const found = await Promise.all(
+    dirs.map(async (dir) => {
+      const resolved = await realpath(dir).catch(() => undefined)
+      const info = resolved === undefined ? undefined : await lstat(resolved).catch(() => undefined)
+      return info?.isDirectory() === true ? resolved : undefined
+    }),
+  )
+  return [...new Set(found.filter((dir) => dir !== undefined))]
+}
+
 async function allowedSockets(
   entries: readonly string[],
   env: NodeJS.ProcessEnv,
@@ -334,6 +411,7 @@ function seatbeltArgs(
   sockets: readonly string[],
   electron: boolean,
   personal: readonly string[],
+  pipeMode: number | undefined,
 ): string[] {
   const params: string[] = []
   const param = (prefix: string, values: readonly string[]) =>
@@ -378,6 +456,8 @@ function seatbeltArgs(
           // Seatbelt regexes have no {n} repeat, so the random characters are written out.
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
+          // actool’s helpers write these in the per-user temp folder, ignoring TMPDIR. ibtoold-<pid> names are guessable and stay behind, so links are refused.
+          ...actoolTempRules(paths.userTemp, pipeMode),
         ]),
     ...(paths.manifestLogs === undefined
       ? []
@@ -427,6 +507,7 @@ function bwrapArgs(
   sockets: LinuxSockets,
   binds: readonly Bind[],
   byFd: boolean,
+  hidden: readonly string[],
 ): string[] {
   const runtime = runtimeDir(env)
   const bind = (b: Bind, i: number) =>
@@ -446,6 +527,7 @@ function bwrapArgs(
     '/proc',
     ...(tmpBind ?? []),
     ...(runtime === undefined ? [] : ['--tmpfs', runtime]),
+    ...hidden.flatMap((dir) => ['--tmpfs', dir]),
     '--tmpfs',
     paths.tedHome,
     ...taskBinds.flat(),

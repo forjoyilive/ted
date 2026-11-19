@@ -2,9 +2,14 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test, vi } from 'vitest'
 import { eventlogFile } from '../src/store/files.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { RunsArea } from '../src/store/runs.ts'
+import type { TasksArea } from '../src/store/tasks.ts'
+
+expectTypeOf<TedStore>().toExtend<TasksArea>()
+expectTypeOf<TedStore>().toExtend<RunsArea>()
 
 let directory: string
 let store: TedStore

@@ -15,14 +15,15 @@ import {
   type ProbeInput,
   type TaskAssignment,
 } from '@ted/protocol'
-import { expect, test } from 'vitest'
+import { expect, expectTypeOf, test } from 'vitest'
 import { createExecutionCommands } from '../src/execution/commands.ts'
 import { readPrivate } from '../src/execution/files.ts'
 import { createExecutionOperations } from '../src/execution/operations.ts'
 import { machineOperationsText, workerOperationsText } from '../src/execution/status-text.ts'
 import { executionRequest } from '../src/execution/transport.ts'
 import type { StoredOperation } from '../src/store/execution-operations.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { MachineArea } from '../src/store/machine.ts'
 import { createTaskExecution } from '../src/tasks/execution.ts'
 import { waitUntil } from './helpers.ts'
 import { createExecutionFixture } from './support/execution-fixture.ts'
@@ -33,6 +34,8 @@ import {
   preparePairingController,
 } from './support/execution-pairing.ts'
 import { createExecutionRelay } from './support/execution-relay.ts'
+
+expectTypeOf<TedStore>().toExtend<MachineArea>()
 
 const refOf = ({ operationId: _, assignedAt: __, ...ref }: TaskAssignment) => ref
 

@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'vitest'
-import type { LoggedEvent } from '../src/store/index.ts'
+import { describe, expect, expectTypeOf, test } from 'vitest'
+import type { LoggedEvent, TedStore } from '../src/store/index.ts'
+import type { MergeArea } from '../src/store/merge.ts'
 import { createTaskHistory } from '../src/store/task-history.ts'
 import {
   baseStep,
@@ -9,6 +10,8 @@ import {
   returnedForCheck,
 } from '../src/tasks/latest-base.ts'
 import { threadEvents } from '../src/tasks/thread.ts'
+
+expectTypeOf<TedStore>().toExtend<MergeArea>()
 
 const logged = (name: string, data: Record<string, unknown> = {}, at = 1): LoggedEvent => ({
   id: `${name}-${at}`,

@@ -32,12 +32,13 @@ import {
   type WaitingRequest,
 } from '@ted/protocol'
 import type { JsonObject } from '@ted/protocol/parse'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import { coordinatorLine } from '../src/coordinators/coordinators.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import type { AgentsArea } from '../src/store/agents.ts'
 import type { StoredCoordinator } from '../src/store/coordinators.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
@@ -50,6 +51,8 @@ import {
   stubCodexPath,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<AgentsArea>()
 
 let home: string,
   scratch: string,

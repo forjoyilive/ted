@@ -253,7 +253,7 @@ test('Task details displays saved Priority, menu depth attribution and a success
   expect(a.request).toHaveBeenCalledWith('blockTask', 'NB-1', 'NB-2')
 })
 
-test('Task details shows six icon tabs, marks changes and working Runs, and keeps the last tab for the next Task', async () => {
+test('Task details shows six icon tabs, marks changes, working Runs and live Apps, and keeps the last tab for the next Task', async () => {
   const working: RunSummary = {
     id: 'r1',
     taskId: 'NB-1',
@@ -264,7 +264,12 @@ test('Task details shows six icon tabs, marks changes and working Runs, and keep
     current: true,
     startedAt: new Date().toISOString(),
   }
-  bridge({ ...handlers(), listTaskRuns: (id: unknown) => (id === 'NB-1' ? [working] : []) })
+  bridge({
+    ...handlers(),
+    listTaskRuns: (id: unknown) => (id === 'NB-1' ? [working] : []),
+    listApps: (...args) =>
+      args[0] === 'NB-1' ? [{ repo: 'widgets', name: 'Web', kind: 'web', state: 'running' }] : [],
+  })
   const t = task({
     branch: 'ted/nb-1-sync',
     repos: [
@@ -328,6 +333,9 @@ test('Task details shows six icon tabs, marks changes and working Runs, and keep
   await vi.waitFor(() =>
     expect(tab('Runs').getAttribute('aria-description')).toBe('A Run is working'),
   )
+  await vi.waitFor(() =>
+    expect(tab('Apps').getAttribute('aria-description')).toBe('An App is running'),
+  )
 
   const u = user()
   await u.click(tab('Code'))
@@ -355,6 +363,7 @@ test('Task details shows six icon tabs, marks changes and working Runs, and keep
   const runs = await screen.findByRole('tabpanel', { name: 'Runs' })
   expect(within(runs).getByText('No Runs yet')).toBeTruthy()
   await vi.waitFor(() => expect(tab('Runs').getAttribute('aria-description')).toBeNull())
+  await vi.waitFor(() => expect(tab('Apps').getAttribute('aria-description')).toBeNull())
   expect(tab('Changes').getAttribute('aria-description')).toBeNull()
 
   act(() => {

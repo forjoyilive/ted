@@ -4,15 +4,18 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { TaskRepo } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import type { Gh } from '../src/github/gh.ts'
 import type { StoredTask, TedStore } from '../src/store/index.ts'
+import type { MergeArea } from '../src/store/merge.ts'
 import {
   createPullRequests,
   type PullRequests,
   type PullRequestTarget,
   type PullRequestTask,
 } from '../src/tasks/pull-requests.ts'
+
+expectTypeOf<TedStore>().toExtend<MergeArea>()
 
 const run = promisify(execFile)
 const env = {

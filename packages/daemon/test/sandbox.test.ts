@@ -7,6 +7,7 @@ import {
   realpath,
   rename,
   rm,
+  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises'
@@ -118,7 +119,6 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     const interfaceSave = path.join(saves, `NSIRD_ibtool_${id}`)
     const looseSave = path.join(saves, `ted-${id}`)
     await mkdir(otherSave, { recursive: true })
-    await mkdir(interfaceSave, { recursive: true })
     const result = await inSandbox(
       [
         tryWrite(path.join(worktree, 'a.txt')),
@@ -131,7 +131,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         `mkdir '${assetHelperSave}' && ${tryWrite(path.join(assetHelperSave, 'x'))}`,
         `mkdir '${swiftSave}' && ${tryWrite(path.join(swiftSave, 'x'))}`,
         tryWrite(path.join(otherSave, 'x')),
-        tryWrite(path.join(interfaceSave, 'x')),
+        `mkdir '${interfaceSave}' && ${tryWrite(path.join(interfaceSave, 'x'))}`,
         tryWrite(looseSave),
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
@@ -148,7 +148,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'wrote',
       'wrote',
       'refused',
-      'refused',
+      'wrote',
       'refused',
       'read',
     ])
@@ -198,6 +198,139 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     ])
     for (const dir of [longer, shorter, swbuildLonger, swbuildShorter, loose])
       await rm(dir, { recursive: true, force: true })
+  })
+
+  test('a sandboxed command writes actool’s temp items in the per-user temp folder, but no near-miss names, links or other kinds of file', async () => {
+    const id = randomUUID().toUpperCase()
+    const linkId = randomUUID().toUpperCase()
+    const hardLinkId = randomUUID().toUpperCase()
+    const pid = 900000 + Math.floor(Math.random() * 90000)
+    const at = (name: string) => path.join(userTemp, name)
+    const helper = at(`ibtoold-${pid}`)
+    const linkedHelper = at(`ibtoold-${pid + 1}`)
+    const catalog = at(`Untitled-${id.slice(0, 8)}.uicatalog`)
+    const shortCatalog = at(`Untitled-${id.slice(0, 7)}.uicatalog`)
+    const png = at(
+      `.expo1024x1024_UIAppearanceAny_${id}-${pid}-${id.slice(0, 8)}${id.slice(-8)}.png-a1B2c3`,
+    )
+    const scratch = at(`actool-sprite-atlas-scratch-${id}`)
+    const userHelper = at(`ibtoold-${pid + 2}`)
+    await mkdir(path.join(userHelper, 'IB'), { recursive: true })
+    const userPipe = path.join(userHelper, 'IB', `${id}.HostToRemote`)
+    await execFileAsync('mkfifo', ['-m', '755', userPipe])
+    const strictPipe = path.join(userHelper, 'IB', `${linkId}.RemoteToHost`)
+    await execFileAsync('mkfifo', ['-m', '700', strictPipe])
+    const attempt = (command: string) => `(${command}) 2>/dev/null && echo wrote || echo refused`
+    const openPipe = (pipe: string) => `perl -e 'use Fcntl; sysopen(F, q(${pipe}), O_RDWR) or die'`
+    const makePipe = (pipe: string) => `perl -MPOSIX -e 'mkfifo(q(${pipe}), 0777) or die'`
+    const result = await inSandbox(
+      [
+        tryWrite(path.join(worktree, 'source.txt')),
+        attempt(
+          `mkdir '${at(id)}' && echo x > '${at(id)}/assets.uicatalog' && mkdir -p '${at(id)}/expo.icon.xcassets/expo_Assets' && echo x > '${at(id)}/${path.basename(png).slice(1, -7)}'`,
+        ),
+        attempt(`mkdir '${scratch}'`),
+        attempt(
+          `mkdir -p '${helper}/IB' && ${makePipe(`${helper}/IB/${id}.HostToRemote`)} && ${openPipe(`${helper}/IB/${id}.HostToRemote`)}`,
+        ),
+        attempt(`echo x > '${catalog}' && echo x > '${catalog}-journal'`),
+        attempt(`echo x > '${png}'`),
+        attempt(`mkdir '${helper}-x'`),
+        attempt(`mkdir '${helper}/other'`),
+        tryWrite(`${helper}/IB/x`),
+        attempt(`ln -s '${outside}' '${linkedHelper}'`),
+        attempt(`ln -s '${outside}' '${at(linkId)}'`),
+        attempt(`ln '${path.join(worktree, 'source.txt')}' '${at(hardLinkId)}'`),
+        tryWrite(shortCatalog),
+        attempt(`mkfifo '${at(linkId)}'`),
+        tryWrite(`${at(id)}/other.txt`),
+        attempt(`mkdir '${at(id)}/other'`),
+        `ls '${userHelper}' >/dev/null 2>&1 && echo listed || echo refused`,
+        `ls '${userHelper}/IB' >/dev/null 2>&1 && echo listed || echo refused`,
+        attempt(openPipe(userPipe)),
+        attempt(`chmod 777 '${userPipe}'`),
+        attempt(`rm '${userPipe}'`),
+        attempt(openPipe(strictPipe)),
+        attempt(`rm '${strictPipe}'`),
+        attempt(
+          `mkfifo '${helper}/IB/${linkId}.HostToRemote' && mv -f '${helper}/IB/${linkId}.HostToRemote' '${userPipe}'`,
+        ),
+        attempt(`chmod 777 '${userHelper}/IB'`),
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+    ])
+    expect((await stat(userPipe)).mode & 0o777).toBe(0o755)
+    expect((await stat(strictPipe)).mode & 0o777).toBe(0o700)
+    for (const item of [
+      at(id),
+      scratch,
+      helper,
+      userHelper,
+      `${helper}-x`,
+      linkedHelper,
+      catalog,
+      `${catalog}-journal`,
+      png,
+      at(linkId),
+      at(hardLinkId),
+      shortCatalog,
+    ])
+      await rm(item, { recursive: true, force: true })
+  })
+
+  test('a sandboxed command can’t make ibtoold’s pipes when the user’s own umask already masks others-execute', async () => {
+    const helper = path.join(userTemp, `ibtoold-${900000 + Math.floor(Math.random() * 90000)}`)
+    const previous = process.umask(0o027)
+    try {
+      const result = await inSandbox(
+        `(mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${randomUUID().toUpperCase()}.HostToRemote') 2>/dev/null && echo wrote || echo refused`,
+      )
+      expect(result.stdout.trim()).toBe('refused')
+    } finally {
+      process.umask(previous)
+      await rm(helper, { recursive: true, force: true })
+    }
+  })
+
+  test('a Ted home inside a lowercase UUID folder in the per-user temp folder gets no rules there', async () => {
+    const folder = path.join(userTemp, randomUUID().toLowerCase())
+    await mkdir(folder)
+    await rm(tedHome, { recursive: true, force: true })
+    await makeHome(folder)
+    const result = await inSandbox(
+      [
+        tryWrite(path.join(folder, 'assets.uicatalog')),
+        `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused'])
+    await rm(folder, { recursive: true, force: true })
   })
 
   test('a sandboxed command can’t list the per-user temp folder or its TemporaryItems folder, but reaches its own folders there by name', async () => {
@@ -322,6 +455,25 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     ])
   })
 
+  test('a scope limited to its own temp folder can’t write /private/tmp or the per-user temp folder', async () => {
+    const sandbox = createSandbox({ tedHome, env: () => process.env })
+    const shared = path.join('/private/tmp', `ted-sandbox-${randomUUID()}`)
+    const swift = path.join(userTemp, `TemporaryDirectory.${randomUUID().slice(0, 6)}`)
+    const script = `${tryWrite(shared)}; mkdir '${swift}' 2>/dev/null && echo made || echo refused; ${tryWrite(path.join(tmp, 'own'))}`
+    try {
+      const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ownTempOnly: true })
+      const [command, ...args] = argv
+      const { stdout } = await execFileAsync(command, [...args, script], {
+        cwd: worktree,
+        env: { ...process.env, ...env },
+      })
+      expect(stdout.trim().split('\n')).toEqual(['refused', 'refused', 'wrote'])
+    } finally {
+      await rm(shared, { force: true })
+      await rm(swift, { recursive: true, force: true })
+    }
+  })
+
   test('it writes plain .dia files in SwiftPM’s ManifestLoading folder and nothing else in SwiftPM’s caches', async () => {
     const home = await realpath(outside)
     const manifests = path.join(home, 'Library', 'Caches', 'org.swift.swiftpm', 'manifests')
@@ -368,6 +520,31 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       home,
     )
     expect(result.stdout.trim()).toBe('refused')
+  })
+
+  test('a scope limited to its own temp folder gets no SwiftPM ManifestLoading grant', async () => {
+    const home = await realpath(outside)
+    const logs = path.join(
+      home,
+      'Library',
+      'Caches',
+      'org.swift.swiftpm',
+      'manifests',
+      'ManifestLoading',
+    )
+    await mkdir(logs, { recursive: true })
+    const sandbox = createSandbox({ tedHome, env: () => ({ ...process.env, HOME: home }) })
+    const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ownTempOnly: true })
+    const [command, ...args] = argv
+    const { stdout } = await execFileAsync(
+      command,
+      [...args, tryWrite(path.join(logs, 'apple.dia'))],
+      {
+        cwd: worktree,
+        env: { ...process.env, ...env },
+      },
+    )
+    expect(stdout.trim()).toBe('refused')
   })
 
   test('it can’t hand work to launchd or write preferences through cfprefsd', async () => {
@@ -492,6 +669,27 @@ describe('the folders a sandbox opens', () => {
     expect(argv.join(' ')).toContain(`--ro-bind ${await realpath(clone)}`)
     expect(argv.join(' ')).toContain(`--bind ${real} ${real}`)
     expect(argv.indexOf(home)).toBeLessThan(argv.indexOf(real))
+  })
+
+  test('on Linux, a scope that hides protected folders covers each one that exists in HOME', async () => {
+    const userHome = await mkdtemp(path.join(outside, 'home-'))
+    await mkdir(path.join(userHome, 'Documents'))
+    await mkdir(path.join(userHome, 'Library', 'Mail'), { recursive: true })
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', HOME: userHome }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const realHome = await realpath(userHome)
+    const plain = (await sandbox.wrap(['/bin/sh', '-c'], scope())).argv.join(' ')
+    expect(plain).not.toContain(path.join(realHome, 'Documents'))
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), hideProtected: true })
+    const joined = argv.join(' ')
+    expect(joined).toContain(`--tmpfs ${path.join(realHome, 'Documents')}`)
+    expect(joined).toContain(`--tmpfs ${path.join(realHome, 'Library', 'Mail')}`)
+    expect(joined).not.toContain(path.join(realHome, 'Downloads'))
   })
 
   test.skipIf(tmpdir().startsWith('/tmp'))(

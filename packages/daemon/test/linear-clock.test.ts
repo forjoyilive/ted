@@ -1,10 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { expect, test } from 'vitest'
-import { openStore } from '../src/store/index.ts'
+import { expect, expectTypeOf, test } from 'vitest'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TrackersArea } from '../src/store/trackers.ts'
 import { createLinearSync } from '../src/tasks/linear-sync.ts'
 import { ManualClock } from './support/manual-clock.ts'
+
+expectTypeOf<TedStore>().toExtend<TrackersArea>()
 
 test('Linear waits a full interval after a slow cycle, never overlaps, and does not rearm after close', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'ted-linear-clock-'))

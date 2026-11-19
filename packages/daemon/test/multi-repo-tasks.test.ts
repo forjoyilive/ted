@@ -12,9 +12,10 @@ import {
   type TaskReposResult,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { MergeArea } from '../src/store/merge.ts'
 import {
   api,
   assistantTexts,
@@ -26,6 +27,8 @@ import {
   waitUntil,
 } from './helpers.ts'
 import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
+
+expectTypeOf<TedStore>().toExtend<MergeArea>()
 
 const execFileAsync = promisify(execFile)
 const gitEnv = {

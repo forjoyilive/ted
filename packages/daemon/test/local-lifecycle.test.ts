@@ -4,15 +4,18 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { executionIds } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import { createBanners } from '../src/banners.ts'
 import { branchExists, hasLocalBranch } from '../src/git.ts'
 import { createSandbox } from '../src/sandbox.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { MergeArea } from '../src/store/merge.ts'
 import { createTaskExecution } from '../src/tasks/execution.ts'
 import { createLocalLifecycle } from '../src/tasks/local-lifecycle.ts'
 import { makeOriginRepo } from './helpers.ts'
 import { observe } from './support/execution-observations.ts'
+
+expectTypeOf<TedStore>().toExtend<MergeArea>()
 
 let home: string
 let store: TedStore

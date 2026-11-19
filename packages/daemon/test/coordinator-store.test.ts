@@ -1,11 +1,14 @@
 import path from 'node:path'
 import type { CoordinatorReceipt } from '@ted/protocol'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, expectTypeOf, test } from 'vitest'
 import { builtInAgent, builtInAgents } from '../src/chats/agents.ts'
+import type { AgentsArea } from '../src/store/agents.ts'
 import { receiptsKept } from '../src/store/coordinator-change.ts'
 import type { StoredCoordinator } from '../src/store/coordinators.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import { editEventlog, eventArgs, makeTempHome, pretendStateSchemaChanged } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<AgentsArea>()
 
 let store: TedStore | undefined
 let cleanup: (() => Promise<void>) | undefined
