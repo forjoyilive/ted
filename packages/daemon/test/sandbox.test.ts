@@ -33,14 +33,18 @@ const scope = () => ({
   tmp,
 })
 
-beforeEach(async () => {
-  tedHome = await mkdtemp(path.join(tmpdir(), 'ted-sandbox-home-'))
+async function makeHome(parent: string) {
+  tedHome = await mkdtemp(path.join(parent, 'ted-sandbox-home-'))
   worktree = path.join(tedHome, 'worktrees', 'NB-1', 'widgets')
   clone = path.join(tedHome, 'repos', 'k', 'widgets')
   await mkdir(worktree, { recursive: true })
   await mkdir(clone, { recursive: true })
   tmp = path.join(tedHome, 'sandbox', 'NB-1', 'tmp-1')
   await mkdir(tmp, { recursive: true })
+}
+
+beforeEach(async () => {
+  await makeHome(tmpdir())
   outside = await mkdtemp(path.join(tmpdir(), 'ted-sandbox-outside-'))
 })
 
@@ -99,6 +103,8 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     const { stdout } = await execFileAsync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'])
     userTemp = await realpath(stdout.trim())
     saves = path.join(userTemp, 'TemporaryItems')
+    await rm(tedHome, { recursive: true, force: true })
+    await makeHome(userTemp)
   })
 
   test('a sandboxed command writes its worktree, its own temp folder and the Task’s caches', async () => {

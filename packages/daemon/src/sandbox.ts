@@ -142,8 +142,11 @@ export function createSandbox(options: {
       if (platform === 'darwin') {
         userTemp ??= userTempFolder()
         const found = await userTemp
-        if (found !== undefined && !inside(found, paths.tedHome) && !inside(paths.tedHome, found)) {
-          paths.userTemp = found
+        if (found !== undefined) {
+          const saves = path.join(found, 'TemporaryItems')
+          if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
+          const [first = ''] = path.relative(found, paths.tedHome).split(path.sep)
+          if (!inside(paths.tedHome, found) && !swiftpmTempName.test(first)) paths.userTemp = found
         }
       }
       const sockets = await allowedSockets(scope.sockets ?? [], env)
@@ -215,10 +218,12 @@ interface SandboxPaths {
   cache: string
   tedHome: string
   sharedTmp?: string
+  saves?: string
   userTemp?: string
 }
 
 const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService'
+const swiftpmTempName = /^TemporaryDirectory\.[A-Za-z0-9]{6}$/
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -329,10 +334,12 @@ function seatbeltArgs(
     `(deny file-write* file-read-data file-read-xattr ${param('P', personal)})`,
     `(allow file-read-data file-read-xattr ${param('R', [...paths.readable, ...own])})`,
     `(allow file-write* ${param('W', own)})`,
+    ...(paths.saves === undefined
+      ? []
+      : [`(allow file-write* (regex #"^${escapeRegex(paths.saves)}/NSIRD_(${xcodeSavers})_"))`]),
     ...(paths.userTemp === undefined
       ? []
       : [
-          `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryItems/NSIRD_(${xcodeSavers})_"))`,
           // SwiftPM makes these with mkdtemp("TemporaryDirectory.XXXXXX") in the per-user temp folder, ignoring TMPDIR.
           // Seatbelt regexes have no {n} repeat, so the six characters are written out.
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
