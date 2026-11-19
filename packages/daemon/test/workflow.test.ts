@@ -1,6 +1,7 @@
 import type { RepoSettingsInput } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { appDeclarations } from '../src/apps/declared.ts'
+import { promptGuidance } from '../src/guidance.ts'
 import { applyChanges, repoSettingsFrom } from '../src/workflow/edit.ts'
 import {
   boardStages,
@@ -29,8 +30,12 @@ const factory = (files: LayerFiles) => checkLayer({ kind: 'factory', files })
 describe('Ted defaults', () => {
   test('sub-agent instructions carry writing guidance for delegated work and Ted reviews', async () => {
     for (const prompt of [
-      await subAgentPrompt('NB-1', 'Investigate login failures.', false),
-      await tedSubAgentPrompt('Review the change.', false),
+      await subAgentPrompt(
+        'NB-1',
+        'Investigate login failures.',
+        promptGuidance({ aiDisclosure: false }),
+      ),
+      await tedSubAgentPrompt('Review the change.', promptGuidance({ aiDisclosure: false })),
     ]) {
       expect(prompt).toContain('## Write clearly for the user')
       expect(prompt).toContain(
@@ -42,9 +47,10 @@ describe('Ted defaults', () => {
 
   test('sub-agent instructions ask for the AI disclosure line only when the setting is on', async () => {
     for (const disclose of [true, false]) {
+      const guidance = promptGuidance({ aiDisclosure: disclose })
       for (const prompt of [
-        await subAgentPrompt('NB-1', 'Investigate login failures.', disclose),
-        await tedSubAgentPrompt('Review the change.', disclose),
+        await subAgentPrompt('NB-1', 'Investigate login failures.', guidance),
+        await tedSubAgentPrompt('Review the change.', guidance),
       ]) {
         if (disclose) {
           expect(prompt).toContain('From Opus 5.5 via Ted:')

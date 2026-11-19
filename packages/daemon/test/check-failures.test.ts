@@ -9,6 +9,7 @@ import {
   planCheckFailures,
   sandboxSkipped,
 } from '../src/automations/check-failures.ts'
+import { promptGuidance } from '../src/guidance.ts'
 
 const output = [
   '\u001b[31m FAIL \u001b[39m |node| packages/daemon/test/a.test.ts > Automations > fires',
@@ -105,6 +106,7 @@ test('the agent prompt fences and redacts the result and says what the Run may d
     startTasks: false,
     openTasks: [{ displayId: 'NB-1', title: 'Fix\na', stage: 'backlog' as const }],
     instructions: '',
+    guidance: promptGuidance({ aiDisclosure: false }),
     nonce: 'n0nce',
   }
   const prompt = checkAgentPrompt(input)

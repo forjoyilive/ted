@@ -18,6 +18,7 @@ import { AgentDisabledError } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
+import { promptGuidance } from '../guidance.ts'
 import { resolveReference } from '../references.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type {
@@ -272,8 +273,8 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       store.p1OnlyReview(request.id) ||
       store.reviewScopes(task.id).some((s) => s.runId === request.id && s.scope !== 'full')
     const prompt = fromTed
-      ? await tedSubAgentPrompt(request.prompt, store.settings().aiDisclosure)
-      : await subAgentPrompt(task.displayId, request.prompt, store.settings().aiDisclosure)
+      ? await tedSubAgentPrompt(request.prompt, promptGuidance(store.settings()))
+      : await subAgentPrompt(task.displayId, request.prompt, promptGuidance(store.settings()))
     const env = { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId }
     const permissions = await deps.permissionsFor(task)
     if (cancelled.has(request.id)) {

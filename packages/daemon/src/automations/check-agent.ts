@@ -3,7 +3,6 @@ import type { AutomationCheck, AutomationCheckState, StageId } from '@ted/protoc
 import { scheduledCheckPrompt } from '@ted/protocol'
 import { redactSecrets } from '../redact.ts'
 import { stageTitle } from '../workflow/workflow.ts'
-import { writingGuidance } from '../writing.ts'
 
 export type CheckOutcome = 'passed' | 'failed' | 'timed-out'
 
@@ -31,6 +30,7 @@ export interface CheckAgentPromptInput {
   startTasks: boolean
   openTasks: readonly { displayId: string; title: string; stage: StageId }[]
   instructions: string
+  guidance: readonly string[]
   nonce?: string
 }
 
@@ -69,7 +69,7 @@ export function checkAgentPrompt(input: CheckAgentPromptInput): string {
     : '- You can’t start Tasks: the human hasn’t ticked “Start the Tasks it creates” for this Automation. Every Task you create waits in Backlog.'
   return [
     '# You are a scheduled check’s agent Run in Ted',
-    writingGuidance,
+    ...input.guidance,
     `You are the agent step of “${input.name}”, a scheduled check in the ${input.factoryName} Factory (repos: ${input.repos.join(', ')}). Ted ran its command as a check and started you with the result. You run outside any Task.`,
     [
       '## The result',

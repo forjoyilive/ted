@@ -1,0 +1,1 @@
+Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use `orca-linear` in Ted. Use Ted commands for Task workflow actions.

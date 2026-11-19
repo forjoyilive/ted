@@ -28,6 +28,7 @@ import { checkOut as checkOutRepos, discard } from '../chats/checkout.ts'
 import { type ChatCommands, findCommand } from '../chats/commands.ts'
 import { hasPower, requirePower } from '../chats/powers.ts'
 import { RequestError } from '../errors.ts'
+import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredChatAgent } from '../store/chats.ts'
@@ -370,7 +371,7 @@ export function createPlans(options: PlansOptions): Plans {
     return `${plannerInstructions({
       role: agent.instructions,
       powers: agent.powers,
-      disclose: store.settings().aiDisclosure,
+      guidance: promptGuidance(store.settings()),
       factory,
       entries,
       folder: folderOf(plan.id),

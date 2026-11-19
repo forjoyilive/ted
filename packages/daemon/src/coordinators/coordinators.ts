@@ -99,6 +99,7 @@ import {
 import { RequestError } from '../errors.ts'
 import { ensureClone } from '../factories.ts'
 import type { MakeDirectory } from '../files.ts'
+import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -113,7 +114,6 @@ import { factoryRepos } from '../tasks/repos.ts'
 import { roundAnswers } from '../tasks/rounds.ts'
 import type { Caller, Tasks } from '../tasks/tasks.ts'
 import type { Workflows } from '../workflow/workflows.ts'
-import { disclosure, writingGuidance } from '../writing.ts'
 import {
   buildAutomationCard,
   type CardAutomations,
@@ -168,7 +168,7 @@ const manageAutomationsRules = `Nothing you draft is saved. Ted shows the human 
 export function coordinatorInstructions(
   role: string,
   powers: readonly AgentPower[],
-  disclose: boolean,
+  guidance: readonly string[],
   where?: string,
   named?: readonly AgentCommand[],
   outsideNamed?: readonly AgentCommand[],
@@ -186,8 +186,7 @@ export function coordinatorInstructions(
   ]
   return [
     role.trim(),
-    writingGuidance,
-    ...disclosure(disclose).flatMap((text) => ['', text]),
+    ...guidance.flatMap((text, i) => (i === 0 ? [text] : ['', text])),
     '',
     ...(commands.length > 0
       ? ['Use only these Ted commands:', ...commands]
@@ -746,7 +745,7 @@ export function createCoordinators(options: {
     return coordinatorInstructions(
       agent.instructions,
       agent.powers,
-      store.settings().aiDisclosure,
+      promptGuidance(store.settings()),
       where,
       agent.commands,
       agent.outsideCommands,
