@@ -318,6 +318,113 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     }
   })
 
+  test('a sandboxed command writes ibtoold’s storyboard copy in the per-user temp folder, but no near-miss names, links, folders or ibtool’s FIFOs', async () => {
+    const id = randomUUID().toUpperCase()
+    const at = (name: string) => path.join(userTemp, name)
+    const other = () => at(`${randomUUID().toUpperCase()}.storyboard`)
+    const story = at(`${id}.storyboard`)
+    const longer = at(`${id}.storyboardc`)
+    const suffixed = at(`${id}x.storyboard`)
+    const shorter = at(`${id.slice(1)}.storyboard`)
+    const linked = other()
+    const hardLinked = other()
+    const folder = other()
+    const pipe = (kind: string) =>
+      at(`ibu3ZQEwAAAAC0hgEA9QEAAPUBAAA-IBTOOLD-${kind}.${id.replaceAll('-', '').slice(0, 10)}`)
+    const items = [
+      story,
+      longer,
+      suffixed,
+      shorter,
+      linked,
+      hardLinked,
+      folder,
+      pipe('IN'),
+      pipe('OUT'),
+    ]
+    const attempt = (command: string) => `(${command}) 2>/dev/null && echo wrote || echo refused`
+    const result = await inSandbox(
+      [
+        tryWrite(path.join(worktree, 'source.txt')),
+        attempt(
+          `echo x > '${story}' && echo y >> '${story}' && chmod 600 '${story}' && touch '${story}' && rm '${story}' && echo x > '${story}'`,
+        ),
+        tryWrite(longer),
+        tryWrite(suffixed),
+        tryWrite(shorter),
+        attempt(`ln -s '${outside}/x' '${linked}'`),
+        attempt(`ln '${path.join(worktree, 'source.txt')}' '${hardLinked}'`),
+        attempt(`mkdir '${folder}'`),
+        attempt(`mkfifo '${pipe('IN')}'`),
+        attempt(`mkfifo '${pipe('OUT')}'`),
+      ].join('; '),
+    )
+    try {
+      expect(result.stdout.trim().split('\n')).toEqual([
+        'wrote',
+        'wrote',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+      ])
+    } finally {
+      for (const item of items) await rm(item, { recursive: true, force: true })
+    }
+  })
+
+  test('a sandboxed command can’t reach ibtool’s shared-memory registry, so it can’t hand work to the user’s own ibtoold', async () => {
+    const id = randomUUID().replaceAll('-', '').slice(0, 20)
+    const existing = `ib${id}`
+    const fresh = `ib${id.slice(0, 19)}x`
+    const control = `ted${id}`
+    const script = path.join(tmp, 'shm.py')
+    await writeFile(
+      script,
+      [
+        'import _posixshmem, os, sys',
+        'op, name = sys.argv[1], sys.argv[2]',
+        'flags = {"create": os.O_CREAT | os.O_RDWR, "read": os.O_RDONLY, "write": os.O_RDWR}',
+        'try:',
+        '    _posixshmem.shm_unlink(name) if op == "unlink" else os.close(_posixshmem.shm_open(name, flags[op], 0o600))',
+        '    print("ok")',
+        'except OSError:',
+        '    print("refused")',
+      ].join('\n'),
+    )
+    const shm = (op: string, name: string) => `/usr/bin/python3 '${script}' ${op} '${name}'`
+    const outsideSandbox = async (op: string, name: string) =>
+      (await execFileAsync('/usr/bin/python3', [script, op, name])).stdout.trim()
+    expect(await outsideSandbox('create', existing)).toBe('ok')
+    try {
+      const result = await inSandbox(
+        [
+          shm('read', existing),
+          shm('write', existing),
+          shm('unlink', existing),
+          shm('create', fresh),
+          shm('create', control),
+          shm('unlink', control),
+        ].join('; '),
+      )
+      expect(result.stdout.trim().split('\n')).toEqual([
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'ok',
+        'ok',
+      ])
+      expect(await outsideSandbox('read', existing)).toBe('ok')
+    } finally {
+      for (const name of [existing, fresh, control]) await outsideSandbox('unlink', name)
+    }
+  })
+
   test('a Ted home inside a lowercase UUID folder in the per-user temp folder gets no rules there', async () => {
     const folder = path.join(userTemp, randomUUID().toLowerCase())
     await mkdir(folder)
