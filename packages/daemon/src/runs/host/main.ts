@@ -16,7 +16,7 @@ import { pathToFileURL } from 'node:url'
 import { watchExitWith } from '../../exit-with.ts'
 import { waitForLock } from '../../lock.ts'
 import { homeOfRunDir, quitMarkedSync } from '../../quit-mark.ts'
-import { createSandbox, type Sandboxed } from '../../sandbox.ts'
+import { createSandbox, type Sandboxed, withSandboxEnv } from '../../sandbox.ts'
 import {
   type DriveAgent,
   type HostDriver,
@@ -88,7 +88,7 @@ async function startAgent(): Promise<Started> {
   const agent = wrapped
     ? spawn(wrapped.argv[0], wrapped.argv.slice(1), {
         cwd: launch.cwd,
-        env: { ...process.env, ...wrapped.env, ...launch.sandbox?.env },
+        env: { ...withSandboxEnv(process.env, wrapped.env), ...launch.sandbox?.env },
         stdio: ['pipe', 'pipe', 'pipe', ...wrapped.fds],
       })
     : spawn(launch.command, launch.args, { cwd: launch.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
