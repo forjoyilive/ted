@@ -1396,8 +1396,8 @@ describe('Pi', () => {
     expect(args).not.toContain('--approve')
   })
 
-  test('refuses to start with tools outside Bypass, because Pi has no sandbox', () => {
-    expect(() => agent.launch(run)).toThrow('Bypass')
+  test('starts with tools outside Bypass, where the Run host wraps it in Ted’s sandbox', () => {
+    expect(agent.launch(run).args).toContain('--approve')
     expect(() => agent.launch({ ...run, tools: 'none' })).not.toThrow()
   })
 

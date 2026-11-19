@@ -13,14 +13,18 @@ export function PiAutoNote({
   alwaysAuto?: boolean
 }) {
   const settings = useSettings()
-  const health = useAgentHealth()
   if (agent !== 'pi' || settings === undefined || settings.piUnsandboxedAllowed) return null
-  if (health.find((h) => h.agent === 'pi')?.sandboxProblem === undefined) return null
   if (
     !alwaysAuto &&
     (factoryId === undefined || settings.factoryPermissions[factoryId] === 'bypass')
   )
     return null
+  return <SandboxNote className={className} />
+}
+
+function SandboxNote({ className }: { className: string | undefined }) {
+  const health = useAgentHealth()
+  if (health.find((h) => h.agent === 'pi')?.sandboxProblem === undefined) return null
   const classes = [styles.note, className].filter(Boolean).join(' ')
   return (
     <p className={classes}>
