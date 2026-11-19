@@ -149,9 +149,13 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
     if ('hold' in facts.queue) return { kind: 'queued', hold: facts.queue.hold }
     return { kind: 'queued', place: facts.queue.place }
   }
+  const subAgent = facts.queuedSubAgents?.[0]
+  if (subAgent !== undefined) return { kind: 'queued', hold: subAgent.hold ?? subAgentSlot }
   if (facts.github) return { kind: 'waiting-for-github', on: facts.github }
   return undefined
 }
+
+const subAgentSlot = 'Waiting for a Run slot'
 
 function working(facts: TaskFacts): boolean {
   return (
@@ -180,7 +184,7 @@ export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
     working: working(facts),
     stopped: facts.stopped !== undefined,
     blocked: (facts.blockedBy?.length ?? 0) > 0,
-    queued: facts.queue !== undefined,
+    queued: facts.queue !== undefined || (facts.queuedSubAgents?.length ?? 0) > 0,
     'waiting-for-github': facts.github !== undefined,
   }
   return (Object.keys(has) as TaskStatusKind[]).filter((kind) => has[kind])
