@@ -967,7 +967,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
                 type: 'open-automation',
                 automationId: row.run.automationId,
                 factoryId: row.factoryId,
-                runId: row.run.id,
+                ...(row.run.runId !== undefined && { runId: row.run.runId }),
               })
             }
           />
