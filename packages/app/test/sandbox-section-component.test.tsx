@@ -152,3 +152,20 @@ test('access groups on Apps, Checks and setup widen the sandbox and link to wher
   await user().click(within(rows[1] as HTMLElement).getByRole('button', { name: 'Open Repos' }))
   expect(links.onOpenRepos).toHaveBeenCalled()
 })
+
+test('shared-tmp on a Check says its commands can reach the shared /tmp', async () => {
+  bridge({})
+  render(
+    <SandboxSection
+      view={{
+        ...view,
+        checks: [{ was: 0, name: 'Build', run: 'make', sandboxAccess: ['shared-tmp'] }],
+      }}
+      {...links}
+    />,
+  )
+  const row = await screen.findByText(/Build Check has/)
+  const item = row.closest('li') as HTMLElement
+  expect(item.textContent).toContain('shared-tmp')
+  expect(item.textContent).toContain('Its commands can read and write /tmp.')
+})

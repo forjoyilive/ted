@@ -1,4 +1,4 @@
-export const sandboxGroupNames = ['ios-xcode', 'electron'] as const
+export const sandboxGroupNames = ['ios-xcode', 'shared-tmp', 'electron'] as const
 
 export type SandboxGroup = (typeof sandboxGroupNames)[number]
 
@@ -22,6 +22,13 @@ export const sandboxGroups: readonly SandboxGroupInfo[] = [
       '~/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading: plain .dia files',
       'Runs with others-execute added to the umask, so its ibtoold pipes stay apart from the user’s own',
     ],
+  },
+  {
+    name: 'shared-tmp',
+    label: 'Shared /tmp folder',
+    summary:
+      'Reading and writing /private/tmp (/tmp) on macOS, for tools that ignore TMPDIR. This is shared access on the user’s Mac: every process of the user uses this folder.',
+    opens: ['/private/tmp: read and write'],
   },
   {
     name: 'electron',

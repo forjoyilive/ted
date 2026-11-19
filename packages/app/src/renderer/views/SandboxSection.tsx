@@ -290,6 +290,8 @@ function describe(opening: SandboxOpening): OpeningText {
 function accessWhat(group: SandboxAccess): string {
   if (group === 'ios-xcode')
     return 'Its commands can write where Xcode, SwiftPM, actool and ibtool keep temp files. These folders are shared with your other apps on this Mac.'
+  if (group === 'shared-tmp')
+    return 'Its commands can read and write /tmp. This folder is shared with your other apps on this Mac.'
   if (group === 'electron')
     return 'Its commands can reach launchservicesd and the window server, so Electron can start and open windows.'
   const socket = socketOf(group)

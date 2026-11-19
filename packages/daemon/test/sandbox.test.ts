@@ -717,7 +717,11 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     const swift = path.join(userTemp, `TemporaryDirectory.${randomUUID().slice(0, 6)}`)
     const script = `${tryWrite(shared)}; mkdir '${swift}' 2>/dev/null && echo made || echo refused; ${tryWrite(path.join(tmp, 'own'))}`
     try {
-      const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ownTempOnly: true })
+      const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], {
+        ...scope(),
+        ownTempOnly: true,
+        groups: ['ios-xcode', 'shared-tmp'],
+      })
       const [command, ...args] = argv
       const { stdout } = await execFileAsync(command, [...args, script], {
         cwd: worktree,
@@ -727,6 +731,31 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     } finally {
       await rm(shared, { force: true })
       await rm(swift, { recursive: true, force: true })
+    }
+  })
+
+  test('the shared /private/tmp is closed unless the command has shared-tmp', async () => {
+    const id = randomUUID()
+    const planted = path.join('/private/tmp', `ted-sandbox-${id}-planted`)
+    const made = path.join('/private/tmp', `ted-sandbox-${id}-made`)
+    await writeFile(planted, 'x')
+    const script = (target: string) =>
+      [
+        tryWrite(target),
+        `ln -s '${outside}' '${target}.link' 2>/dev/null && echo linked || echo refused`,
+        tryRead(planted),
+        tryWrite(`/tmp/ted-sandbox-${id}-via-link`),
+      ].join('; ')
+    try {
+      const plain = await inSandbox(script(made))
+      expect(plain.stdout.trim().split('\n')).toEqual(['refused', 'refused', 'refused', 'refused'])
+      const others = await inSandbox(script(made), { groups: xcode })
+      expect(others.stdout.trim().split('\n')).toEqual(['refused', 'refused', 'refused', 'refused'])
+      const shared = await inSandbox(script(made), { groups: ['shared-tmp'] })
+      expect(shared.stdout.trim().split('\n')).toEqual(['wrote', 'linked', 'read', 'wrote'])
+    } finally {
+      for (const file of [planted, made, `${made}.link`, `/private/tmp/ted-sandbox-${id}-via-link`])
+        await rm(file, { force: true })
     }
   })
 
@@ -970,6 +999,22 @@ describe('the folders a sandbox opens', () => {
     await rename(worktree, `${worktree}.bak`)
     await symlink(tedHome, worktree)
     await expect(sandbox.wrap(['/bin/sh', '-c'], scope())).rejects.toThrow(/isn’t a plain folder/)
+  })
+
+  test('on Linux, shared-tmp changes nothing, because /tmp is already the command’s own temp folder', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => process.env,
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+      bindFds: true,
+    })
+    const plain = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    const shared = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), groups: ['shared-tmp'] })
+    await Promise.all([plain.close(), shared.close()])
+    expect(shared.argv).toEqual(plain.argv)
+    expect(shared.argv.join(' ')).toContain('--bind-fd 3 /tmp')
   })
 
   test('two starts at once both make it past the new Task cache', async () => {
