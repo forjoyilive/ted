@@ -272,8 +272,8 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       store.p1OnlyReview(request.id) ||
       store.reviewScopes(task.id).some((s) => s.runId === request.id && s.scope !== 'full')
     const prompt = fromTed
-      ? await tedSubAgentPrompt(request.prompt)
-      : await subAgentPrompt(task.displayId, request.prompt)
+      ? await tedSubAgentPrompt(request.prompt, store.settings().aiDisclosure)
+      : await subAgentPrompt(task.displayId, request.prompt, store.settings().aiDisclosure)
     const env = { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId }
     const permissions = await deps.permissionsFor(task)
     if (cancelled.has(request.id)) {

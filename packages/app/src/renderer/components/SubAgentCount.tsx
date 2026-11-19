@@ -14,16 +14,22 @@ export function TaskStatusWithSubAgents({
   task,
   onOpenTask,
   subAgents = true,
+  startsAutomatically = false,
 }: {
   task: Pick<Task, 'runs' | 'status' | 'markers'>
   onOpenTask: (ref: string) => void
   subAgents?: boolean
+  startsAutomatically?: boolean
 }) {
   const count = subAgents ? activeSubAgentCount(task.runs) : 0
-  if (!task.status && task.markers.length === 0 && count === 0) return null
+  if (!task.status && task.markers.length === 0 && count === 0 && !startsAutomatically) return null
   return (
     <span className={styles.status}>
-      <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+      <TaskStatusChips
+        task={task}
+        onOpenTask={onOpenTask}
+        startsAutomatically={startsAutomatically}
+      />
       <SubAgentCount count={count} working={count > 0 && subAgentWorking(task.runs)} />
     </span>
   )

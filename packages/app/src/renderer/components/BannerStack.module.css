@@ -124,8 +124,15 @@
 }
 
 .foldToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
   color: var(--text-muted);
+}
+
+.up {
+  transform: rotate(180deg);
 }
 
 .fold:hover .foldToggle {

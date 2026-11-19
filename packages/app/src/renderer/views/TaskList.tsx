@@ -30,8 +30,8 @@ import {
   BacklogStartsDot,
   BacklogStartsMenu,
   backlogStartsSummary,
-  backlogStatus,
-  startsAutomatically,
+  backlogWaitReason,
+  useStartsOnItsOwn,
 } from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
@@ -617,11 +617,7 @@ export function TaskList({
   }
   const changeFilters = (filters: ListFilters) => change({ ...view, filters })
 
-  const backlogStarts = settings?.backlogStarts
-  const startsIn = useMemo(
-    () => (backlogStarts ? startsAutomatically(backlogStarts, layout) : () => false),
-    [backlogStarts, layout],
-  )
+  const startsOnItsOwn = useStartsOnItsOwn()
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
   const shown = filterTasks(inScope, view.filters, text, layout)
   const scopedFactories = allTasks ? factories : factories.filter((f) => f.id === scope)
@@ -826,24 +822,37 @@ export function TaskList({
         return <FactoryName factories={factories} factoryId={task.factoryId} />
       case 'stage':
         return stages.name(task.stage, task.factoryId)
-      case 'status':
+      case 'status': {
         if (task.archived)
           return (
             <span className={styles.meta}>
               {ending(task, (stage) => stages.name(stage, task.factoryId))}
             </span>
           )
-        if (!task.status && task.markers.length === 0 && activeSubAgentCount(task.runs) === 0) {
-          const backlog = allTasks ? backlogStatus(task, startsIn) : undefined
-          return backlog ? (
-            <span className={styles.meta} title={backlog.hint}>
-              {backlog.label}
+        const starts = startsOnItsOwn(task)
+        if (
+          !task.status &&
+          task.markers.length === 0 &&
+          activeSubAgentCount(task.runs) === 0 &&
+          !starts
+        ) {
+          const waits = backlogWaitReason(task)
+          return waits ? (
+            <span className={styles.meta} title={waits.hint}>
+              {waits.label}
             </span>
           ) : (
             <span className={styles.none}>—</span>
           )
         }
-        return <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
+        return (
+          <TaskStatusWithSubAgents
+            task={task}
+            onOpenTask={onOpenTask}
+            startsAutomatically={starts}
+          />
+        )
+      }
       case 'blocked-by': {
         const blockers = task.blockedBy.map((id) => displayIds.get(id) ?? id)
         return blockers.length === 0 ? <span className={styles.none}>—</span> : blockers.join(', ')

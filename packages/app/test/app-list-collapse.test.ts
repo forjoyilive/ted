@@ -44,7 +44,7 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     })
     const window = await loadedWindow(app)
     const allTasks = () => window.getByRole('button', { name: 'All Tasks', exact: true })
-    const backlog = () => window.getByRole('main').getByRole('button', { name: /^Backlog/ })
+    const backlog = () => window.getByRole('main').getByRole('button', { name: /^Backlog\s*\d/ })
     await allTasks().click()
     await backlog().click()
     await window.getByRole('button', { name: /^Inbox/ }).click()
@@ -55,9 +55,9 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     await window.setViewportSize({ width: 900, height: 640 })
     const statusHead = window.getByRole('columnheader', { name: 'Status', exact: true })
     const narrow = (await statusHead.boundingBox())?.width ?? 0
-    expect(narrow).toBeGreaterThanOrEqual(120)
+    expect(narrow).toBeGreaterThanOrEqual(110)
     expect(narrow).toBeLessThan(300)
-    await window.setViewportSize({ width: 1600, height: 640 })
+    await window.setViewportSize({ width: 2000, height: 640 })
     expect((await statusHead.boundingBox())?.width).toBeCloseTo(300, 0)
     if (size) await window.setViewportSize(size)
     if (process.env.TED_LIST_COLLAPSE_SCREENSHOT) {

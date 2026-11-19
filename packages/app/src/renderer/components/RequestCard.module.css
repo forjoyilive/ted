@@ -480,3 +480,19 @@
   font-size: var(--text-12);
   font-weight: var(--weight-semibold);
 }
+
+.moreFiles {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  font-size: var(--text-12-5);
+  cursor: pointer;
+}
+
+.moreFiles:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

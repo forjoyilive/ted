@@ -32,14 +32,27 @@ test('a short block shows in full with no control', () => {
 })
 
 test('failure output keeps its line breaks in a monospace block', () => {
-  tall()
   render(<OutputBlock text={'PASS a.test.js\nFAIL b.test.js\n  ● it broke'} />)
   const output = screen.getByRole('region', { name: 'Output' })
   expect(output.querySelector('pre')?.textContent).toBe(
     'PASS a.test.js\nFAIL b.test.js\n  ● it broke',
   )
   expect(output.hasAttribute('data-chat-wide')).toBe(true)
-  expect(within(output).getByRole('button', { name: 'Show more' })).toBeTruthy()
+})
+
+test('long output shows its last 10 lines until expanded', async () => {
+  const lines = Array.from({ length: 25 }, (_, n) => `line ${n + 1}`)
+  render(<OutputBlock text={lines.join('\n')} />)
+  const output = screen.getByRole('region', { name: 'Output' })
+  expect(output.querySelector('pre')?.textContent).toBe(lines.slice(15).join('\n'))
+  const show = within(output).getByRole('button', { name: /15 earlier lines hidden/ })
+  expect(show.textContent).toContain('Show all 25 lines')
+  expect(show.getAttribute('aria-expanded')).toBe('false')
+
+  await user().click(show)
+  expect(output.querySelector('pre')?.textContent).toBe(lines.join('\n'))
+  await user().click(within(output).getByRole('button', { name: 'Show the last 10 lines only' }))
+  expect(output.querySelector('pre')?.textContent).toBe(lines.slice(15).join('\n'))
 })
 
 test('a Ted note splits its fenced blocks from the prose', () => {

@@ -1,4 +1,5 @@
 import type { ChangesSource, SignOffChanges, TaskChanges } from '@ted/protocol'
+import { useState } from 'react'
 import { type ChangedFile, splitPath } from '../changes.ts'
 import { Segmented } from '../settings/controls.tsx'
 import { Button } from './Button.tsx'
@@ -120,13 +121,21 @@ export function ChangeList({
   onOpen,
   drafts,
   since,
+  limit,
 }: {
   since?: SignOffChanges | undefined
   changes: TaskChanges
   selected?: ChangedFile | undefined
   onOpen: (file: ChangedFile) => void
   drafts?: DraftCount | undefined
+  limit?: number | undefined
 }) {
+  const [all, setAll] = useState(false)
+  const total = changes.repos.reduce((sum, repo) => sum + repo.files.length, 0)
+  const shown = limit === undefined || all ? total : limit
+  const before = changes.repos.map((_, index) =>
+    changes.repos.slice(0, index).reduce((sum, repo) => sum + repo.files.length, 0),
+  )
   const actions = useActionMenu(
     JSON.stringify(changes.repos.map((repo) => [repo.name, repo.files.map((file) => file.path)])),
   )
@@ -135,7 +144,7 @@ export function ChangeList({
   return (
     <div className={styles.repos}>
       {actions.menu}
-      {changes.repos.map((repo) => (
+      {changes.repos.map((repo, index) => (
         <div key={repo.name} className={styles.repo}>
           {(named || repo.unavailable !== undefined || repo.files.length > 0) && (
             <div className={styles.repoRow}>
@@ -146,7 +155,7 @@ export function ChangeList({
           )}
           {repo.unavailable !== undefined && <p className={styles.error}>{repo.unavailable}</p>}
           <ul className={styles.files} aria-label={repo.name}>
-            {repo.files.map((file) => {
+            {repo.files.slice(0, Math.max(0, shown - (before[index] ?? 0))).map((file) => {
               const entry = { ...file, repo: repo.name, baseBranch: repo.baseBranch }
               const { name, folder } = splitPath(file.path)
               const count = drafts?.(entry) ?? 0
@@ -206,6 +215,15 @@ export function ChangeList({
           </ul>
         </div>
       ))}
+      {limit !== undefined && total > limit && (
+        <button
+          type="button"
+          className={styles.more}
+          onClick={() => setAll((shownAll) => !shownAll)}
+        >
+          {all ? 'Show fewer' : `Show ${total - limit} more`}
+        </button>
+      )}
     </div>
   )
 }

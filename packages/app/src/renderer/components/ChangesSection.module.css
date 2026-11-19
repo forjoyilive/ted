@@ -174,3 +174,19 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.more {
+  justify-self: start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  font-size: var(--text-12-5);
+  cursor: pointer;
+}
+
+.more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

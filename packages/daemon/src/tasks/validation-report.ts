@@ -1,5 +1,5 @@
 import type { CheckResult, FailureCase, ValidationProgress } from '@ted/protocol'
-import { validationExecution } from '@ted/protocol'
+import { checkLabel, validationExecution } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { describeResult } from './checks.ts'
 
@@ -17,6 +17,48 @@ export function failureCaseFindings(value: FailureCase): string {
     `Assessment: ${value.assessments.at(-1)?.assessment ?? 'uncertain'}`,
     `Recommendation: ${value.assessments.at(-1)?.recommendation ?? ''}`,
   ].join('\n\n')
+}
+
+function failureSubject(value: FailureCase): string {
+  const { source } = value
+  if (source.kind === 'finding') {
+    const line = source.finding.split('\n')[0] ?? ''
+    return line.length > 120 ? `${line.slice(0, 119)}…` : line
+  }
+  if (source.kind === 'github-ci') return `CI on ${source.repo} #${source.number}`
+  return `the ${value.originalCheck ? checkLabel(value.originalCheck) : 'Factory'} check`
+}
+
+function closedAs(value: FailureCase): string | undefined {
+  const verification = value.verifications?.at(-1)
+  if (verification?.replacedBy !== undefined) {
+    return `failed again, replaced by Failure ${shortReference(verification.replacedBy)}`
+  }
+  if (verification !== undefined) return 'passed on a later run'
+  const resolution = value.resolutions.at(-1)?.resolution
+  if (resolution === 'fixed') return 'fixed'
+  if (resolution === 'no-longer-applicable') return 'no longer applies'
+  return undefined
+}
+
+export function briefFailureHistory(cases: readonly FailureCase[]): string {
+  const closed: string[] = []
+  const open: string[] = []
+  for (const value of cases) {
+    const how = closedAs(value)
+    if (how !== undefined) {
+      closed.push(`- ${failureCaseReference(value)} · ${failureSubject(value)} · ${how}`)
+      continue
+    }
+    const decision = value.resolutions.at(-1)
+    const accepted =
+      decision?.resolution === 'accepted' &&
+      !value.invalidations.some((i) => i.requestId === decision.requestId)
+    open.push(
+      `${failureCaseFindings(value)}\n\nDecision: ${accepted ? 'failed, accepted by you' : (decision?.resolution ?? 'unresolved')}${decision?.reason ? ` · ${decision.reason}` : ''}`,
+    )
+  }
+  return [...(closed.length ? [closed.join('\n')] : []), ...open].join('\n\n')
 }
 
 export function sameCheckPlan(checks: readonly CheckResult[]): string {

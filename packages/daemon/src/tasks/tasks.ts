@@ -577,7 +577,11 @@ import {
   subAgentsInValidate,
 } from './validate-settings.ts'
 import { createValidation, StaleCoverageError } from './validation.ts'
-import { failureCaseFindings, failureCaseReference } from './validation-report.ts'
+import {
+  briefFailureHistory,
+  failureCaseFindings,
+  failureCaseReference,
+} from './validation-report.ts'
 import { type CommandResult, outputTail } from './worktree.ts'
 import { readChanges, type WorktreeReads, worktreeReads } from './worktree-reads.ts'
 
@@ -6283,6 +6287,7 @@ export function createTasks(options: {
               withOriginal(task, current),
               resolution.workflow,
               task.stage as AgentStageId,
+              store.settings().aiDisclosure,
               attachmentFile,
               setupReport,
               {
@@ -13203,15 +13208,7 @@ export function createTasks(options: {
       }
       const cases = store.failures.list(task.id).filter((f) => f.validation)
       if (cases.length) {
-        const details = cases
-          .map((value) => {
-            const decision = value.resolutions.at(-1)
-            const accepted =
-              decision?.resolution === 'accepted' &&
-              !value.invalidations.some((i) => i.requestId === decision.requestId)
-            return `${failureCaseFindings(value)}\n\nDecision: ${accepted ? 'failed, accepted by you' : (decision?.resolution ?? 'unresolved')}${decision?.reason ? ` · ${decision.reason}` : ''}${value.verifications?.length ? `\nLater verification: ${value.verifications.at(-1)?.evidence}` : ''}`
-          })
-          .join('\n\n')
+        const details = briefFailureHistory(cases)
         text = text.replace(
           '## Current state',
           `## Current state\n\nValidation failure history:\n\n${details}`,

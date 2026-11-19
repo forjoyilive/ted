@@ -23,6 +23,7 @@ export type StatusGlyph =
   | 'ci'
   | 'review'
   | 'merge'
+  | 'starts'
 
 const ring =
   'M8.9 5C8.9 7.15391 7.15391 8.9 5 8.9C2.84609 8.9 1.1 7.15391 1.1 5C1.1 2.84609 2.84609 1.1 5 1.1C7.15391 1.1 8.9 2.84609 8.9 5Z'
@@ -89,6 +90,13 @@ function Glyph({ glyph }: { glyph: StatusGlyph }) {
         <>
           <path d={ring} {...stroke} />
           <path d="M5 2.9V5L6.5 6" {...stroke} strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      )
+    case 'starts':
+      return (
+        <>
+          <path d={ring} {...stroke} />
+          <path d="M4.1 3.3L6.7 5L4.1 6.7Z" fill="currentColor" />
         </>
       )
     case 'ci':

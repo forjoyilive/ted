@@ -3,7 +3,7 @@ import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import { foldBanners } from '../banners.ts'
 import { ActionButton } from './ActionButton.tsx'
 import styles from './BannerStack.module.css'
-import { DotIcon } from './icons.tsx'
+import { ChevronIcon, DotIcon } from './icons.tsx'
 
 export interface BannerMenuItem {
   label: string
@@ -43,7 +43,10 @@ export function BannerStack({ label, banners, onAction, onDismiss, menu }: Banne
         >
           <span className={styles.foldLabel}>{fold.label}</span>
           {fold.detail !== undefined && <span className={styles.foldDetail}>· {fold.detail}</span>}
-          <span className={styles.foldToggle}>{expanded ? 'Show fewer ▴' : 'Show all ▾'}</span>
+          <span className={styles.foldToggle}>
+            {expanded ? 'Show fewer' : 'Show all'}
+            <ChevronIcon open className={expanded ? styles.up : undefined} />
+          </span>
         </ActionButton>
       )}
     </section>

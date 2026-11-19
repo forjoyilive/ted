@@ -137,6 +137,15 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
         teams={settings.linearSyncTeams}
         declined={settings.linearSyncDeclined}
       />
+      <SettingsGroup setting="app.integrations.disclosure">
+        <SettingRow setting="app.integrations.disclosure.preface">
+          <Switch
+            label="Start what agents post with “From <model> via Ted:”"
+            checked={settings.aiDisclosure}
+            onChange={(on) => void ted.updateSettings({ aiDisclosure: on })}
+          />
+        </SettingRow>
+      </SettingsGroup>
     </SettingsPage>
   )
 }
