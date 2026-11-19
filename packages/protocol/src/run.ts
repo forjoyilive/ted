@@ -1,7 +1,9 @@
 import { tedEnv } from './env.ts'
 import type { Effort } from './task.ts'
 
-export type AgentKind = 'claude' | 'codex' | 'antigravity'
+export type AgentKind = 'claude' | 'codex' | 'antigravity' | 'pi'
+
+export type BilledAgentKind = Exclude<AgentKind, 'pi'>
 
 export const runTokenEnv = 'TED_RUN_CAPABILITY'
 
@@ -9,7 +11,13 @@ export function runTokenFrom(env: NodeJS.ProcessEnv): string | undefined {
   return tedEnv(runTokenEnv, env) || tedEnv('TED_RUN_TOKEN', env) || undefined
 }
 
-export const agentKinds: readonly AgentKind[] = ['claude', 'codex', 'antigravity']
+export const agentKinds: readonly AgentKind[] = ['claude', 'codex', 'antigravity', 'pi']
+
+export const billedAgentKinds: readonly BilledAgentKind[] = ['claude', 'codex', 'antigravity']
+
+export function isBilledAgent(agent: AgentKind): agent is BilledAgentKind {
+  return agent !== 'pi'
+}
 
 export const agentKindList = `${agentKinds.slice(0, -1).join(', ')} or ${agentKinds.at(-1)}`
 

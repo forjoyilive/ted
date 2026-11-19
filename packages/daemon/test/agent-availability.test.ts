@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -8,6 +8,7 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
+import { piAutoHold, piModelHold } from '../src/agent-eligibility.ts'
 import type { MakeDirectory } from '../src/files.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -21,6 +22,7 @@ import {
   makeTempHome,
   stubClaudePath,
   stubCodexPath,
+  stubPiPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -55,12 +57,13 @@ afterEach(async () => {
   }
 })
 
-async function start() {
+async function start(options: { pi?: boolean } = {}) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
+    ...(options.pi && { piBin: stubPiPath }),
     mkdir: pausingMkdir,
   })
   const info = await readDaemonInfo(home)
@@ -238,6 +241,59 @@ test('disabled Task, Planning and Coordinator choices wait without blocking enab
   await waitUntil(async () => (await taskOf(client, task.id)).leadRunId, 're-enabled Task Lead')
   await waitUntil(async () => (await client.getPlan(plan.id)).plan.runId, 're-enabled planner')
 })
+
+test('Pi work waits in an Auto Factory, then until Pi has a model, and starts once the cause clears', async () => {
+  const agentDir = path.join(scratch, 'pi-agent')
+  const before = process.env.PI_CODING_AGENT_DIR
+  process.env.PI_CODING_AGENT_DIR = agentDir
+  try {
+    const { client } = await start({ pi: true })
+    const origin = await makeOriginRepo(scratch)
+    const factory = await client.addFactory({ repo: origin, key: 'NB' })
+    const task = await client.createTask({
+      factory: 'NB',
+      title: 'Pi work',
+      lead: { agent: 'pi' },
+      start: true,
+    })
+    const plan = await client.startPlan({ factory: 'NB', message: 'Plan with Pi', agent: 'pi' })
+    const chat = await client.startCoordinatorChat(factory.id, { text: 'Hello', agent: 'pi' })
+    const holdOf = async () => {
+      const status = (await taskOf(client, task.id)).status
+      return status?.kind === 'queued' && 'hold' in status ? status.hold : undefined
+    }
+    await waitUntil(
+      async () => (await holdOf()) === piAutoHold || undefined,
+      'the Task to wait for Bypass',
+    )
+    expect((await client.getPlan(plan.id)).plan.paused).toBe(piAutoHold)
+    expect((await client.coordinator(chat.id)).error).toBe(piAutoHold)
+
+    await client.setFactoryPermissions(factory.id, 'bypass', true)
+    await waitUntil(
+      async () => (await holdOf()) === piModelHold || undefined,
+      'the Task to wait for a Pi model',
+    )
+    expect((await client.getPlan(plan.id)).plan.paused).toBe(piModelHold)
+    expect((await taskOf(client, task.id)).leadRunId).toBeUndefined()
+
+    await mkdir(agentDir, { recursive: true })
+    await writeFile(
+      path.join(agentDir, 'settings.json'),
+      JSON.stringify({ defaultProvider: 'stub', defaultModel: 'model-1' }),
+    )
+    await client.checkAgentHealth()
+    const runId = await waitUntil(
+      async () => (await taskOf(client, task.id)).leadRunId,
+      'the Pi Task Lead to start',
+    )
+    expect((await client.getRun(runId)).run.agent).toBe('pi')
+    await waitUntil(async () => (await client.getPlan(plan.id)).plan.runId, 'the Pi planner')
+  } finally {
+    if (before === undefined) delete process.env.PI_CODING_AGENT_DIR
+    else process.env.PI_CODING_AGENT_DIR = before
+  }
+}, 90_000)
 
 test('implicit defaults choose enabled agents including Antigravity and explicit choices remain intact', () => {
   const installed = { claude: true, codex: true, antigravity: true }

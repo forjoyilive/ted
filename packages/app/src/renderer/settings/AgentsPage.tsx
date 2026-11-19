@@ -17,6 +17,7 @@ import {
   resetTime,
   runsPaused,
 } from '@ted/protocol/health'
+import { agentBilling } from '@ted/protocol/settings'
 import { useEffect, useId, useState } from 'react'
 import { AntigravityChatWarning } from '../components/AntigravityChatWarning.tsx'
 import dialogStyles from '../components/ArchiveDialogs.module.css'
@@ -55,6 +56,7 @@ const keyVariables: Record<AgentKind, string> = {
   claude: 'ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN',
   codex: 'CODEX_API_KEY and OPENAI_API_KEY',
   antigravity: 'GEMINI_API_KEY and Google Cloud credentials',
+  pi: 'the keys in Pi’s own settings',
 }
 
 export function stopsWork(health: AgentHealth): boolean {
@@ -651,7 +653,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
             }
             changing={changing}
             onToggle={(enabled) => toggle(h.agent, enabled)}
-            billing={settings.billing[h.agent]}
+            billing={agentBilling(settings.billing, h.agent) ?? 'subscription'}
             opened={opened[h.agent] === true && h.state !== 'ready'}
             onFix={() => fix(h.agent)}
             onCheck={() => check()}

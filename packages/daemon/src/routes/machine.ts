@@ -3,7 +3,9 @@ import {
   appearances,
   archivedFilters,
   archivedTaskDayLimits,
+  type BilledAgentKind,
   type BoardView,
+  billedAgentKinds,
   billings,
   boardCardSizes,
   boardFields,
@@ -531,9 +533,15 @@ export const settingParsers: {
     }
     const given = value as Record<string, unknown>
     for (const name of Object.keys(given)) {
-      if (!agentKinds.some((k) => k === name)) throw new HttpError(400, `unknown Provider ${name}`)
+      if (!billedAgentKinds.some((k) => k === name))
+        throw new HttpError(
+          400,
+          agentKinds.some((k) => k === name)
+            ? `${name} has no billing setting`
+            : `unknown Provider ${name}`,
+        )
     }
-    const choose = (agent: (typeof agentKinds)[number]) => {
+    const choose = (agent: BilledAgentKind) => {
       const billing = billings.find((b) => b === given[agent])
       if (!billing) throw new HttpError(400, `billing.${agent} must be ${billings.join(', ')}`)
       return billing

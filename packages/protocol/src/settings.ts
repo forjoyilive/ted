@@ -6,8 +6,21 @@ import type { GitHubIntakeScope } from './github-intake.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
 import type { ListView } from './list-view.ts'
-import { type AgentKind, agentKinds, type PermissionMode } from './run.ts'
+import {
+  type AgentKind,
+  agentKinds,
+  type BilledAgentKind,
+  isBilledAgent,
+  type PermissionMode,
+} from './run.ts'
 import type { EditorChoice } from './shell.ts'
+
+export function agentBilling(
+  billing: Readonly<Record<BilledAgentKind, Billing>>,
+  agent: AgentKind,
+): Billing | undefined {
+  return isBilledAgent(agent) ? billing[agent] : undefined
+}
 
 export const timeFormats = ['system', '12-hour', '24-hour'] as const
 
@@ -124,7 +137,7 @@ export interface MachineSettings {
   reporting: boolean
   reportingAsked: boolean
   enabledAgents: readonly AgentKind[]
-  billing: Readonly<Record<AgentKind, Billing>>
+  billing: Readonly<Record<BilledAgentKind, Billing>>
   editor: EditorChoice | null
   editorCommand: string
   linearIntakeScopes: Readonly<Record<string, LinearIntakeScope>>

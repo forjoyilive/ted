@@ -13,6 +13,8 @@ import { parseStartSubAgentRequest } from '../../protocol/src/run-parsers.ts'
 import { antigravityAgent } from '../src/agents/antigravity.ts'
 import { type AntigravityPlan, drive } from '../src/agents/antigravity-driver.ts'
 import { createAgents } from '../src/agents/index.ts'
+import { piAgent } from '../src/agents/pi.ts'
+import { drive as piDrive } from '../src/agents/pi-driver.ts'
 import { resolveAgentChoices } from '../src/workflow/agent-choices.ts'
 import { checkLayer } from '../src/workflow/check.ts'
 
@@ -1334,3 +1336,366 @@ test.skipIf(!realAntigravity).each([false, true])(
   },
   105_000,
 )
+
+describe('Pi', () => {
+  const agent = piAgent('/nowhere/pi')
+
+  test('launches RPC mode with its sessions in the Run folder, the model, and the effort as thinking', () => {
+    const launch = agent.launch({ ...run, model: 'ollama/gemma4:12b', effort: 'ultra' })
+    expect(launch.args).toEqual([
+      '--mode',
+      'rpc',
+      '--approve',
+      '--session-dir',
+      '/tmp/run/pi-sessions',
+      '--model',
+      'ollama/gemma4:12b',
+      '--thinking',
+      'max',
+    ])
+    expect(launch.lines).toBe('lf')
+    expect(launch.driver).toMatch(/pi-driver\.ts$/)
+    expect(JSON.parse(launch.input)).toEqual({ prompt: 'Carry on' })
+    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const)
+      expect(after(agent.launch({ ...run, effort }).args, '--thinking')).toBe(effort)
+    expect(agent.launch(run).args).not.toContain('--model')
+    expect(() => agent.launch({ ...run, model: '--unsafe' })).toThrow('model name')
+  })
+
+  test('a tool-free chat starts Pi without tools, MCP, extensions, skills or the repo’s files', () => {
+    const args = agent.launch({ ...run, tools: 'none' }).args
+    expect(args).toEqual(
+      expect.arrayContaining(['--no-tools', '--no-mcp', '--no-extensions', '--no-skills']),
+    )
+    expect(args).toContain('--no-approve')
+    expect(args).not.toContain('--approve')
+  })
+
+  test('keeps Pi’s own settings folder but not credential variables', () => {
+    const { env } = agent.launch({
+      ...run,
+      env: { PATH: '/bin', PI_CODING_AGENT_DIR: '/pi', OPENAI_API_KEY: 'sk-test' },
+    })
+    expect(env).toEqual({ PATH: '/bin', PI_CODING_AGENT_DIR: '/pi' })
+  })
+
+  test('resumes by the session file Pi saved in the Run folder', () => {
+    const runDir = mkdtempSync(path.join(tmpdir(), 'ted-pi-run-'))
+    try {
+      mkdirSync(path.join(runDir, 'pi-sessions'))
+      const file = path.join(runDir, 'pi-sessions', '2026-11-18T00-00-00-000Z_abc-123.jsonl')
+      writeFileSync(file, '{}\n')
+      const resumed = agent.launch({ ...run, runDir, prompt: '', resume: 'abc-123' })
+      expect(after(resumed.args, '--session')).toBe(file)
+      expect(resumed.sessionId).toBe('abc-123')
+      expect(after(agent.launch({ ...run, runDir, resume: 'gone' }).args, '--session')).toBe('gone')
+      expect(() => agent.launch({ ...run, runDir, resume: '../elsewhere' })).toThrow('session')
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
+  })
+
+  function piHarness(prompt = 'Start') {
+    const sent: { id?: string; type?: string; message?: string; streamingBehavior?: string }[] = []
+    const events: string[] = []
+    const driver = piDrive({
+      input: JSON.stringify({ prompt }),
+      cwd: '/w',
+      stop: () => {},
+      emit: (line) => events.push(line),
+      send: (line) => sent.push(JSON.parse(line)),
+    })
+    const pi = (line: string) => driver.onLine(line)
+    const ready = () =>
+      pi(
+        JSON.stringify({
+          type: 'response',
+          id: 'ted-state',
+          command: 'get_state',
+          success: true,
+          data: { sessionId: 'session-1', sessionFile: '/w/s.jsonl' },
+        }),
+      )
+    const kinds = () => events.map((line) => JSON.parse(line).ted_pi)
+    return { driver, sent, events, pi, ready, kinds }
+  }
+
+  test('the driver records the session, steers while Pi works, and starts a new turn once Pi settles', () => {
+    const h = piHarness()
+    expect(h.sent).toEqual([{ id: 'ted-state', type: 'get_state' }])
+    h.ready()
+    expect(h.events.some((line) => agent.sessionIdFrom(line) === 'session-1')).toBe(true)
+    expect(h.sent.at(-1)).toMatchObject({ type: 'prompt', message: 'Start' })
+    expect(h.sent.at(-1)?.streamingBehavior).toBeUndefined()
+    expect(h.events.map((line) => agent.turnFrom(line)).filter(Boolean)).toEqual(['started'])
+
+    h.driver.onInput?.(agent.message('Also this'))
+    h.driver.onInput?.(agent.steer('Now this'))
+    expect(h.sent.slice(-2)).toMatchObject([
+      { type: 'prompt', message: 'Also this', streamingBehavior: 'steer' },
+      { type: 'prompt', message: 'Now this', streamingBehavior: 'steer' },
+    ])
+    expect(h.events.map((line) => agent.acceptedTextFrom(line)).filter(Boolean)).toEqual([
+      'Start',
+      'Also this',
+      'Now this',
+    ])
+    expect(h.events.map((line) => agent.turnFrom(line)).filter(Boolean)).toEqual(['started'])
+
+    h.pi(JSON.stringify({ type: 'agent_settled', aborted: false }))
+    expect(agent.stateFrom(h.events.at(-1) ?? '')).toBe('idle')
+    expect(agent.turnFrom(h.events.at(-1) ?? '')).toBe('completed')
+    h.driver.onInput?.(agent.message('Next'))
+    expect(h.sent.at(-1)).toMatchObject({ type: 'prompt', message: 'Next' })
+    expect(h.sent.at(-1)?.streamingBehavior).toBeUndefined()
+  })
+
+  test('the driver cancels extension dialogs and ignores notifications', () => {
+    const h = piHarness()
+    h.ready()
+    for (const method of ['select', 'confirm', 'input', 'editor'])
+      h.pi(
+        JSON.stringify({ type: 'extension_ui_request', id: `d-${method}`, method, title: 'Ask' }),
+      )
+    h.pi(
+      JSON.stringify({ type: 'extension_ui_request', id: 'n-1', method: 'notify', message: 'Hi' }),
+    )
+    expect(h.sent.filter((c) => c.type === 'extension_ui_response')).toEqual([
+      { type: 'extension_ui_response', id: 'd-select', cancelled: true },
+      { type: 'extension_ui_response', id: 'd-confirm', cancelled: true },
+      { type: 'extension_ui_response', id: 'd-input', cancelled: true },
+      { type: 'extension_ui_response', id: 'd-editor', cancelled: true },
+    ])
+  })
+
+  test('stopping clears Pi’s queue and aborts; text sent meanwhile waits for the next turn', () => {
+    const h = piHarness()
+    h.ready()
+    h.driver.onInput?.(agent.interrupt()[0] ?? '')
+    expect(h.sent.slice(-2).map((c) => c.type)).toEqual(['clear_queue', 'abort'])
+    h.driver.onInput?.(agent.message('After the stop'))
+    expect(h.sent.some((c) => c.message === 'After the stop')).toBe(false)
+    h.pi(JSON.stringify({ type: 'agent_settled', aborted: true }))
+    expect(h.sent.at(-1)).toMatchObject({ type: 'prompt', message: 'After the stop' })
+    expect(h.sent.at(-1)?.streamingBehavior).toBeUndefined()
+  })
+
+  test('a resumed Run waits idle, and a refused prompt is shown and ends the turn', () => {
+    const h = piHarness('')
+    h.ready()
+    expect(h.kinds()).toEqual(['session', 'idle'])
+    expect(h.sent.some((c) => c.type === 'prompt')).toBe(false)
+    h.driver.onInput?.(agent.message('Hello'))
+    const id = h.sent.at(-1)?.id
+    h.pi(
+      JSON.stringify({
+        type: 'response',
+        id,
+        command: 'prompt',
+        success: false,
+        error: 'No model',
+      }),
+    )
+    expect(h.kinds().slice(-2)).toEqual(['error', 'idle'])
+  })
+
+  const entry = (offset: number, value: Parameters<typeof JSON.stringify>[0]) => ({
+    offset,
+    line: JSON.stringify(value),
+  })
+  const usage = { input: 10, output: 5, cacheRead: 2, cacheWrite: 1, cost: { total: 0.25 } }
+  const call = { type: 'toolCall', id: 't1', name: 'bash', arguments: { command: 'ls -la' } }
+  const edit = {
+    type: 'toolCall',
+    id: 't2',
+    name: 'edit',
+    arguments: { path: '/w/a.ts', edits: [{ oldText: 'a', newText: 'b' }] },
+  }
+  const assistantEnd = {
+    type: 'message_end',
+    message: {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'Weighing it' },
+        { type: 'text', text: 'Hello there' },
+        call,
+        edit,
+      ],
+      usage,
+      stopReason: 'toolUse',
+    },
+  }
+  const failed = {
+    type: 'message_end',
+    message: {
+      role: 'assistant',
+      content: [],
+      usage: { input: 0, output: 0, cost: { total: 0 } },
+      stopReason: 'error',
+      errorMessage: 'Provider returned 500',
+    },
+  }
+
+  test('turns Pi’s events into chat: thinking, text, tool calls with results and diffs, and errors', () => {
+    const chat = agent.chat(
+      [
+        entry(0, { ted_pi: 'started', text: 'Start' }),
+        entry(1, { type: 'message_start', message: { role: 'assistant', content: [] } }),
+        entry(2, {
+          type: 'message_update',
+          assistantMessageEvent: { type: 'thinking_delta', contentIndex: 0, delta: 'Weigh' },
+        }),
+        entry(3, {
+          type: 'message_update',
+          assistantMessageEvent: { type: 'text_delta', contentIndex: 1, delta: 'Hello ' },
+        }),
+        entry(4, {
+          type: 'message_update',
+          assistantMessageEvent: { type: 'toolcall_end', contentIndex: 2, toolCall: call },
+        }),
+        entry(5, assistantEnd),
+        entry(6, { type: 'tool_execution_start', toolCallId: 't1', toolName: 'bash', args: {} }),
+        entry(7, {
+          type: 'tool_execution_end',
+          toolCallId: 't1',
+          toolName: 'bash',
+          result: { content: [{ type: 'text', text: 'a.ts' }] },
+          isError: false,
+        }),
+        entry(8, {
+          type: 'tool_execution_end',
+          toolCallId: 't2',
+          toolName: 'edit',
+          result: { content: [{ type: 'text', text: 'no match' }] },
+          isError: true,
+        }),
+        entry(9, { type: 'message_start', message: { role: 'assistant', content: [] } }),
+        entry(10, failed),
+        entry(11, { ted_pi: 'idle' }),
+      ],
+      '/w',
+    )
+    expect(chat).toEqual([
+      expect.objectContaining({ kind: 'user', text: 'Start' }),
+      expect.objectContaining({
+        kind: 'tool',
+        tool: 'Thinking',
+        status: 'done',
+        output: 'Weighing it',
+      }),
+      expect.objectContaining({ kind: 'agent', text: 'Hello there', done: true }),
+      expect.objectContaining({
+        kind: 'tool',
+        tool: 'bash',
+        title: 'ls -la',
+        status: 'done',
+        output: 'a.ts',
+      }),
+      expect.objectContaining({
+        kind: 'tool',
+        tool: 'edit',
+        title: 'a.ts',
+        status: 'failed',
+        diffs: [expect.objectContaining({ path: 'a.ts' })],
+      }),
+      expect.objectContaining({ kind: 'agent', text: 'Pi: Provider returned 500', done: true }),
+    ])
+  })
+
+  test('reads tokens and cost from assistant messages, and never reports limits or credentials', () => {
+    const line = JSON.stringify(assistantEnd)
+    expect(agent.tokensFrom(line)).toEqual({ input: 13, output: 5, total: false })
+    expect(agent.tokensFrom(JSON.stringify(failed))).toBeUndefined()
+    expect(agent.costLine(line)).toBe(true)
+    expect(agent.costOf([line, line], undefined)).toBeCloseTo(0.5)
+    expect(agent.costOf([JSON.stringify(failed)], undefined)).toBeUndefined()
+    expect(agent.boundaryFrom(JSON.stringify({ type: 'tool_execution_end' }))).toBe(true)
+    expect(agent.retryingFrom(JSON.stringify({ type: 'auto_retry_start' }))).toBe(true)
+    expect(agent.retryingFrom(JSON.stringify({ type: 'auto_retry_end' }))).toBe(false)
+    const quota = JSON.stringify({
+      ...failed,
+      message: { ...failed.message, errorMessage: '429 rate limit' },
+    })
+    expect(agent.usageFrom(quota)).toBeUndefined()
+    expect(agent.credentialFrom(quota)).toBeUndefined()
+    expect(agent.authErrorFrom(quota)).toBe(false)
+    expect(agent.problemFrom(JSON.stringify(failed))).toBeUndefined()
+    const missing = {
+      ...failed,
+      message: { ...failed.message, errorMessage: 'Model not found: x/y' },
+    }
+    expect(agent.problemFrom(JSON.stringify(missing))).toBe('model-unavailable')
+    expect(agent.health.ignoresOfflineAndLimits).toBe(true)
+  })
+
+  test('reads Pi’s saved default model without writing it', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ted-pi-agent-'))
+    try {
+      const env = { PI_CODING_AGENT_DIR: dir, HOME: '/nowhere' }
+      expect(agent.savedModel?.(env)).toBeUndefined()
+      writeFileSync(
+        path.join(dir, 'settings.json'),
+        JSON.stringify({ defaultProvider: 'ollama', defaultModel: 'gemma4:12b' }),
+      )
+      expect(agent.savedModel?.(env)).toBe('ollama/gemma4:12b')
+      writeFileSync(
+        path.join(dir, 'settings.json'),
+        JSON.stringify({ defaultModel: 'zai/glm-4.7' }),
+      )
+      expect(agent.savedModel?.(env)).toBe('zai/glm-4.7')
+      writeFileSync(path.join(dir, 'settings.json'), 'not json')
+      expect(agent.savedModel?.(env)).toBeUndefined()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('Pi is the default only when no other enabled Provider is installed and Pi is Ready', () => {
+    const all = { claude: true, codex: true, antigravity: true, pi: true }
+    expect(resolveAgentChoices(undefined, all).lead.agent).toBe('claude')
+    expect(resolveAgentChoices(undefined, { pi: true }).lead.agent).toBe('pi')
+    expect(
+      resolveAgentChoices(undefined, { pi: true }, undefined, { pi: 'Pi lists no models' }).lead
+        .agent,
+    ).toBe('claude')
+    expect(resolveAgentChoices(undefined, all, ['claude', 'pi']).reviewer.agent).toBe('claude')
+    expect(
+      resolveAgentChoices(undefined, { claude: true, pi: true }, ['pi', 'claude']).lead.agent,
+    ).toBe('claude')
+    expect(resolveAgentChoices(undefined, { pi: true }, ['pi']).reviewer.agent).toBe('pi')
+    const stub = process.execPath
+    expect(
+      createAgents({
+        claudeBin: '/nowhere/claude',
+        codexBin: '/nowhere/codex',
+        antigravityBin: '/nowhere/agy',
+        piBin: stub,
+      }).defaultLead(),
+    ).toBe('pi')
+    expect(
+      createAgents({ claudeBin: stub, codexBin: '/nowhere/codex', piBin: stub }).defaultLead(),
+    ).toBe('claude')
+    expect(
+      createAgents({
+        claudeBin: '/nowhere/claude',
+        codexBin: '/nowhere/codex',
+        antigravityBin: '/nowhere/agy',
+        piBin: stub,
+      }).defaultLead(['claude', 'codex']),
+    ).toBe('claude')
+  })
+
+  test('accepts Pi at the public sub-agent parser and each workflow role', () => {
+    expect(
+      parseStartSubAgentRequest({ prompt: 'Review', agent: 'pi', model: 'ollama/gemma4:12b' }),
+    ).toMatchObject({
+      agent: 'pi',
+      model: 'ollama/gemma4:12b',
+    })
+    const layer = checkLayer({
+      kind: 'factory',
+      files: { 'workflow.yaml': 'lead: pi\nreviewer: pi\nplanner: pi\n' },
+    })
+    expect(layer.problems.filter((p) => p.severity === 'error')).toEqual([])
+  })
+})

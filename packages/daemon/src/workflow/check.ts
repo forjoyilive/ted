@@ -1,5 +1,6 @@
 import {
   type AgentStageId,
+  agentKinds,
   agentStageIds,
   appEnvName,
   appKinds,
@@ -76,7 +77,7 @@ export function isInstructionCheck(check: CheckSettings): check is InstructionCh
   return check.instruction !== undefined
 }
 
-export const reviewerAgents = ['codex', 'claude', 'antigravity', 'same'] as const
+export const reviewerAgents = ['codex', 'claude', 'antigravity', 'pi', 'same'] as const
 
 export interface CleanupInstructionStep {
   name: string
@@ -416,8 +417,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
   return settings
 
   function agentChoice(name: 'lead' | 'reviewer' | 'planner', value: Node | null) {
-    const agents: string[] =
-      name === 'reviewer' ? [...reviewerAgents] : ['claude', 'codex', 'antigravity']
+    const agents: string[] = name === 'reviewer' ? [...reviewerAgents] : [...agentKinds]
     const agentMessage = (path: string) =>
       `\`${path}\` must be ${agents.slice(0, -1).join(', ')} or ${agents.at(-1)}`
     if (isScalar(value)) {

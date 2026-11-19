@@ -10,6 +10,8 @@ import {
   writeSync,
 } from 'node:fs'
 import { createInterface } from 'node:readline'
+import type { Readable } from 'node:stream'
+import { StringDecoder } from 'node:string_decoder'
 import { pathToFileURL } from 'node:url'
 import { watchExitWith } from '../../exit-with.ts'
 import { waitForLock } from '../../lock.ts'
@@ -105,12 +107,18 @@ async function startAgent(): Promise<Started> {
   })
   if (!driver && launch.input !== '') send(launch.input)
 
-  const stdout = createInterface({ input: agent.stdout, crlfDelay: Number.POSITIVE_INFINITY })
-  const stderr = createInterface({ input: agent.stderr, crlfDelay: Number.POSITIVE_INFINITY })
-  stdout.on('line', (line) => {
+  const onOut = (line: string) => {
     write({ t: 'out', line, at: new Date().toISOString() })
     driver?.onLine(line)
-  })
+  }
+  const stdout =
+    launch.lines === 'lf'
+      ? lfLines(agent.stdout, onOut)
+      : createInterface({ input: agent.stdout, crlfDelay: Number.POSITIVE_INFINITY }).on(
+          'line',
+          onOut,
+        )
+  const stderr = createInterface({ input: agent.stderr, crlfDelay: Number.POSITIVE_INFINITY })
   stderr.on('line', (line) => write({ t: 'err', line }))
 
   const closed = Promise.all([
@@ -119,6 +127,27 @@ async function startAgent(): Promise<Started> {
     once(stderr, 'close'),
   ]).then(([result]) => result as [number | null, NodeJS.Signals | null])
   return { agent, driver, send, closed, spawnError: () => spawnError }
+}
+
+// Node’s readline also ends lines at U+2028 and U+2029, which are valid inside JSON strings.
+function lfLines(stream: Readable, onLine: (line: string) => void): Readable {
+  const decoder = new StringDecoder('utf8')
+  let pending = ''
+  const emitLines = (text: string) => {
+    pending += text
+    for (let end = pending.indexOf('\n'); end !== -1; end = pending.indexOf('\n')) {
+      const line = pending.slice(0, end)
+      pending = pending.slice(end + 1)
+      onLine(line.endsWith('\r') ? line.slice(0, -1) : line)
+    }
+  }
+  stream.on('data', (chunk: Buffer) => emitLines(decoder.write(chunk)))
+  stream.on('end', () => {
+    emitLines(decoder.end())
+    if (pending !== '') onLine(pending.endsWith('\r') ? pending.slice(0, -1) : pending)
+    pending = ''
+  })
+  return stream
 }
 
 let inputOffset = (() => {

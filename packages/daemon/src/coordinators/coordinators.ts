@@ -65,6 +65,7 @@ import {
 } from '@ted/protocol/local-folder'
 import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
+import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import {
   type AgentFileTargets,
@@ -165,7 +166,7 @@ When the human asks for Tasks, create only those, with the title, description an
 
 const manageAutomationsCommands = `- ted coordinator automations: this Factory’s Automations, each with its ID, name, schedule, prompt, Provider and settings.
 - ted coordinator automation show <id>: one Automation, by ID or name.
-- ted coordinator automation draft --operation <unique-id> [--fields '<json>']: draft a new Automation. The JSON has \`name\`, \`prompt\`, \`schedule\` and may have \`agent\` (the Provider: claude, codex or antigravity), \`model\`, \`effort\`, \`on\`, \`checkout\` and \`template\`. \`schedule\` is one of {"kind":"every","every":30,"unit":"minutes"|"hours"}, {"kind":"daily","at":"HH:MM"}, {"kind":"weekdays","at":"HH:MM"}, {"kind":"weekly","days":["mon",…],"at":"HH:MM"} or {"kind":"custom","expression":"<cron or RRULE>"}. A scheduled check has \`check\` ({"command":"…","timeout":"90m","runBy":"HH:MM","agentStep":"on-failure"|"always"|"never"}) and may leave \`prompt\` out. Without --fields it reads the JSON from stdin.
+- ted coordinator automation draft --operation <unique-id> [--fields '<json>']: draft a new Automation. The JSON has \`name\`, \`prompt\`, \`schedule\` and may have \`agent\` (the Provider: claude, codex, antigravity or pi), \`model\`, \`effort\`, \`on\`, \`checkout\` and \`template\`. \`schedule\` is one of {"kind":"every","every":30,"unit":"minutes"|"hours"}, {"kind":"daily","at":"HH:MM"}, {"kind":"weekdays","at":"HH:MM"}, {"kind":"weekly","days":["mon",…],"at":"HH:MM"} or {"kind":"custom","expression":"<cron or RRULE>"}. A scheduled check has \`check\` ({"command":"…","timeout":"90m","runBy":"HH:MM","agentStep":"on-failure"|"always"|"never"}) and may leave \`prompt\` out. Without --fields it reads the JSON from stdin.
 - ted coordinator automation change <id> --operation <unique-id> [--fields '<json>']: draft a change; the JSON holds only the settings that change, and \`model\` or \`effort\` may be null to go back to the default.
 - ted coordinator automation delete <id> --operation <unique-id>: ask the human to delete an Automation.`
 
@@ -353,10 +354,17 @@ export function createCoordinators(options: {
   reposDir: string
   commands: ChatCommands
   env: () => NodeJS.ProcessEnv
+  agents: Pick<Agents, 'savedModel'>
   outsideLimitMs?: number
   mkdir?: MakeDirectory
 }): Coordinators {
-  const { home, store, runs, tasks, steering, workflows, automations } = options
+  const { home, store, runs, tasks, steering, workflows, automations, agents } = options
+  const chatHold = (c: StoredCoordinator) =>
+    agentStartHold(store, c.lead.agent, c.runId, {
+      factoryId: c.factoryId,
+      model: c.lead.model,
+      agents,
+    })
   const agentOf = (c: Pick<StoredCoordinator, 'id'>): StoredChatAgent =>
     store.chats.agent(c.id) ?? builtInAgent(options.builtInAgents, 'coordinator')
   const agentsNow = async (factory: StoredFactory) =>
@@ -513,7 +521,7 @@ export function createCoordinators(options: {
     chatAgent: chatAgentView(agentOf(c), current),
   })
   const publicChat = (c: StoredCoordinator, current?: readonly { id: string }[]): Coordinator => {
-    const reason = agentStartHold(store, c.lead.agent, c.runId) ?? c.error
+    const reason = chatHold(c) ?? c.error
     return {
       id: c.id,
       factoryId: c.factoryId,
@@ -597,7 +605,7 @@ export function createCoordinators(options: {
       const c = saved.get(id)
       return (
         c !== undefined &&
-        !agentStartHold(store, c.lead.agent, c.runId) &&
+        !chatHold(c) &&
         !stopping.has(id) &&
         store.agentPauses()[c.lead.agent] === undefined
       )

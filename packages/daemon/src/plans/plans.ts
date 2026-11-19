@@ -134,6 +134,12 @@ function firstLine(text: string, max = 500): string {
 
 export function createPlans(options: PlansOptions): Plans {
   const { store, runs, health, banners, workflows } = options
+  const planHold = (plan: StoredPlan) =>
+    agentStartHold(store, plan.agent, plan.id, {
+      factoryId: plan.factoryId,
+      model: plan.model,
+      agents: options.agents,
+    })
   const saved = store.plans
   const retrying = new Set<string>()
   const stopping = new Map<string, Promise<void>>()
@@ -227,11 +233,7 @@ export function createPlans(options: PlansOptions): Plans {
         .map((p) => ({ id: p.id, rank: Date.parse(p.createdAt), factoryId: p.factoryId })),
     runnable(id) {
       const plan = saved.get(id)
-      return (
-        plan !== undefined &&
-        !agentStartHold(store, plan.agent, plan.id) &&
-        store.agentPauses()[plan.agent] === undefined
-      )
+      return plan !== undefined && !planHold(plan) && store.agentPauses()[plan.agent] === undefined
     },
     launch: (id) => launch(id),
     candidates: () => live().map((p) => p.id),
@@ -498,7 +500,7 @@ export function createPlans(options: PlansOptions): Plans {
     const latest = requests.findLast((r) => r.kind === 'proposal')
     const waitingOn = requests.findLast((r) => r.kind !== 'note' && r.answer === undefined)
     const paused =
-      agentStartHold(store, plan.agent, plan.id) ??
+      planHold(plan) ??
       (status === 'paused' ? (store.agentPauses()[plan.agent] ?? 'usage limit') : undefined)
     return {
       id: plan.id,
@@ -584,12 +586,9 @@ export function createPlans(options: PlansOptions): Plans {
       : pickAgent(options.builtInAgents, 'plan', input.agentId)
     const planner = resolveAgentChoices(
       settings,
-      {
-        claude: options.agents.installed('claude'),
-        antigravity: options.agents.installed('antigravity'),
-        codex: options.agents.installed('codex'),
-      },
+      options.agents.installedKinds(),
       store.settings().enabledAgents,
+      store.agentPauses(),
     ).planner
     const defaultAgent = chatAgent.agent ?? planner.agent
     const agent = input.agent ?? defaultAgent

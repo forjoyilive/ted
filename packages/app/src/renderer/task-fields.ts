@@ -27,12 +27,14 @@ export const agentLabels: Record<AgentKind, string> = {
   claude: 'Claude',
   codex: 'Codex',
   antigravity: 'Antigravity',
+  pi: 'Pi',
 }
 
 export const modelChoices: Record<AgentKind, readonly string[]> = {
   claude: ['fable', 'opus', 'sonnet', 'haiku'],
   codex: ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'],
   antigravity: [],
+  pi: [],
 }
 
 export function modelOptions(

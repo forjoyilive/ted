@@ -16,6 +16,7 @@ export const agentNames: Record<AgentKind | 'codex', string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   antigravity: 'Antigravity',
+  pi: 'Pi',
 }
 
 export function AgentMark({ agent, size }: { agent: AgentKind | 'codex'; size: number }) {

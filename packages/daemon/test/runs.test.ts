@@ -1,11 +1,11 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { readDaemonInfo } from '@ted/protocol'
+import { type RunChat, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { hostProtocol } from '../src/runs/host-files.ts'
@@ -18,6 +18,7 @@ import {
   makeTempHome,
   spawnDaemonProcess,
   stubClaudePath,
+  stubPiPath,
   testAppToken,
   waitUntil,
 } from './helpers.ts'
@@ -472,3 +473,126 @@ test('the host passes the Task workspace to new and resumed Antigravity sessions
     }),
   ])
 })
+
+test('a Pi Run streams its chat, takes a follow-up, stops a turn, resumes its session and counts tokens', async () => {
+  daemon = await startDaemon({ home, version: '9.9.9', piBin: stubPiPath })
+  const client = api(daemon.port, { appKey: daemon.appToken })
+  const run = await client.startRun([], cwd, 'pi')
+  const chat = async () => (await client.call('GET', `/runs/${run.id}/chat`)).body as RunChat
+  const said = (text: string) =>
+    waitUntil(async () => {
+      const now = await chat()
+      return now.run.state === 'idle' &&
+        now.items.some((item) => item.kind === 'agent' && item.text.includes(text))
+        ? now
+        : undefined
+    }, `Pi to answer “${text}”`)
+  const lines = async (file: string) =>
+    (await readFile(path.join(cwd, file), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+
+  const first = await said('Hello from Pi')
+  expect(first.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: 'tool', tool: 'Thinking', output: 'Thinking it over' }),
+      expect.objectContaining({
+        kind: 'tool',
+        tool: 'bash',
+        title: 'ls -la',
+        status: 'done',
+        output: 'stub-output',
+      }),
+      expect.objectContaining({ kind: 'agent', text: 'Done.' }),
+    ]),
+  )
+  expect(first.run.tokens).toBe(34)
+  const [launched] = await lines('stub-pi-launches.jsonl')
+  expect(launched.argv.slice(0, 5)).toEqual([
+    '--mode',
+    'rpc',
+    '--approve',
+    '--session-dir',
+    path.join(home, 'runs', run.id, 'pi-sessions'),
+  ])
+  const sessionId = (await client.getRun(run.id)).run.sessionId
+  expect(sessionId).toMatch(/^[0-9a-f-]{36}$/)
+
+  await client.call('POST', `/runs/${run.id}/messages`, { text: 'Follow up' })
+  expect((await said('from Pi: Follow up')).run.tokens).toBe(68)
+
+  await client.call('POST', `/runs/${run.id}/messages`, { text: 'STUB_WAIT for a stop' })
+  await waitUntil(
+    async () =>
+      (await lines('stub-pi-commands.jsonl')).some((c) => c.message?.includes('STUB_WAIT')) ||
+      undefined,
+    'Pi to start the long turn',
+  )
+  expect((await client.call('POST', `/runs/${run.id}/interrupt`)).status).toBe(200)
+  await waitUntil(
+    async () => (await client.getRun(run.id)).run.state === 'idle' || undefined,
+    'Pi to stop the turn',
+  )
+  expect((await lines('stub-pi-commands.jsonl')).map((c) => c.type)).toEqual(
+    expect.arrayContaining(['clear_queue', 'abort']),
+  )
+
+  expect((await client.call('POST', `/runs/${run.id}/restart`)).status).toBe(200)
+  await waitUntil(
+    async () => (await lines('stub-pi-launches.jsonl')).length === 2 || undefined,
+    'Pi to start again',
+  )
+  const resumed = (await lines('stub-pi-launches.jsonl'))[1].argv
+  expect(resumed[resumed.indexOf('--session') + 1]).toMatch(new RegExp(`_${sessionId}\\.jsonl$`))
+  await client.call('POST', `/runs/${run.id}/messages`, { text: 'After restart' })
+  await said('from Pi: After restart')
+  expect((await client.getRun(run.id)).run.sessionId).toBe(sessionId)
+}, 90_000)
+
+const realPi = process.env.TED_REAL_PI_BIN
+
+test.skipIf(!realPi)(
+  'a real Pi answers, takes a follow-up and resumes its session after a restart',
+  async () => {
+    if (!realPi) throw new Error('Missing Pi path')
+    const before = process.env.PI_CODING_AGENT_DIR
+    process.env.PI_CODING_AGENT_DIR = path.join(homedir(), '.pi', 'agent')
+    try {
+      daemon = await startDaemon({ home, version: '9.9.9', piBin: realPi })
+      const client = api(daemon.port, { appKey: daemon.appToken })
+      const res = await client.call('POST', '/dev/runs', {
+        prompt: 'Reply with one short sentence and use no tools.',
+        cwd,
+        agent: 'pi',
+      })
+      expect(res.status).toBe(201)
+      const run = res.body as { id: string }
+      const answers = async () =>
+        ((await client.call('GET', `/runs/${run.id}/chat`)).body as RunChat).items.filter(
+          (item) => item.kind === 'agent' && item.text.trim() !== '',
+        ).length
+      const answered = (count: number, label: string) =>
+        waitUntil(
+          async () =>
+            (await client.getRun(run.id)).run.state === 'idle' && (await answers()) >= count
+              ? true
+              : undefined,
+          label,
+          120_000,
+        )
+      await answered(1, 'Pi to answer')
+      await client.call('POST', `/runs/${run.id}/messages`, { text: 'Say that again in French.' })
+      await answered(2, 'Pi to answer the follow-up')
+      const sessionId = (await client.getRun(run.id)).run.sessionId
+      expect((await client.call('POST', `/runs/${run.id}/restart`)).status).toBe(200)
+      await client.call('POST', `/runs/${run.id}/messages`, { text: 'And now in German.' })
+      await answered(3, 'Pi to answer after resuming')
+      expect((await client.getRun(run.id)).run.sessionId).toBe(sessionId)
+    } finally {
+      if (before === undefined) delete process.env.PI_CODING_AGENT_DIR
+      else process.env.PI_CODING_AGENT_DIR = before
+    }
+  },
+  400_000,
+)

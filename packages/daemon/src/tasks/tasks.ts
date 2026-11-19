@@ -203,7 +203,7 @@ import {
   stageWith,
   validates,
 } from '@ted/protocol/stage'
-import { agentStartHold } from '../agent-eligibility.ts'
+import { agentStartHold, type StartScope } from '../agent-eligibility.ts'
 import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
@@ -1098,6 +1098,7 @@ export function createTasks(options: {
   const changingRepos = new Map<string, Promise<TaskReposResult>>()
   const caps = new Map<string, number | undefined>()
   const stageSettings = new Map<string, WorkflowSettings['stages']>()
+  const leadModels = new Map<string, string | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const mergeWaits = new Map<string, AbortController>()
   const mergeUrgent = new Set<string>()
@@ -1477,7 +1478,22 @@ export function createTasks(options: {
   function remember(factoryId: string, resolution: WorkflowResolution): WorkflowResolution {
     caps.set(factoryId, resolution.workflow.settings.max_working_runs)
     stageSettings.set(factoryId, resolution.workflow.settings.stages)
+    leadModels.set(factoryId, resolution.workflow.settings.lead?.model)
     return resolution
+  }
+
+  function taskScope(task: StoredTask, agent: AgentKind): StartScope {
+    const lead = task.lead
+    return {
+      factoryId: task.factoryId,
+      model:
+        lead === undefined
+          ? leadModels.get(task.factoryId)
+          : lead.agent === agent
+            ? lead.model
+            : undefined,
+      agents,
+    }
   }
 
   function queuePlace(task: StoredTask): Pick<QueueEntry, 'stageRank' | 'skipsBusy'> {
@@ -1940,7 +1956,12 @@ export function createTasks(options: {
         const nextAgent = continuationAgent(task, run)
         if (
           !includeFailures &&
-          agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined)
+          agentStartHold(
+            store,
+            nextAgent,
+            nextAgent === run.agent ? run.id : undefined,
+            taskScope(task, nextAgent),
+          )
         )
           return []
         const heldAt = continuationHeldAt(task)
@@ -1995,7 +2016,12 @@ export function createTasks(options: {
                 !now.stopped &&
                 !now.archived &&
                 !now.waitsForBlockers &&
-                !agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined) &&
+                !agentStartHold(
+                  store,
+                  nextAgent,
+                  nextAgent === run.agent ? run.id : undefined,
+                  taskScope(now, nextAgent),
+                ) &&
                 store.newWorkHold() === undefined &&
                 now.leadRunId === run.id &&
                 store.getRun(run.id)?.state !== 'finished' &&
@@ -2091,7 +2117,11 @@ export function createTasks(options: {
     const request = store.subAgentRequests().find((r) => r.id === id)
     return (
       request !== undefined &&
-      !agentStartHold(store, request.agent) &&
+      !agentStartHold(store, request.agent, undefined, {
+        factoryId: taskNow(request.taskId)?.factoryId,
+        model: request.model,
+        agents,
+      }) &&
       store.agentPauses()[request.agent] === undefined
     )
   }
@@ -2103,7 +2133,7 @@ export function createTasks(options: {
       const agent = task?.lead?.agent ?? held.agent
       if (
         !task ||
-        agentStartHold(store, agent) ||
+        agentStartHold(store, agent, undefined, taskScope(task, agent)) ||
         paused[agent] !== undefined ||
         inFlight.is(task.id, 'held')
       )
@@ -2135,7 +2165,11 @@ export function createTasks(options: {
   function revivesReady(): QueueEntry[] {
     const paused = store.agentPauses()
     return leadLifecycle.reviveCandidates().flatMap(({ taskId, factoryId, agent }) =>
-      agentStartHold(store, agent, taskNow(taskId)?.leadRunId) ||
+      agentStartHold(store, agent, taskNow(taskId)?.leadRunId, {
+        factoryId,
+        model: taskNow(taskId)?.lead?.model,
+        agents,
+      }) ||
       paused[agent] !== undefined ||
       inFlight.busy(taskId, ['held', 'hierarchy', 'deleting']) ||
       unfinishedChildren(taskId)
@@ -2375,7 +2409,12 @@ export function createTasks(options: {
       if (inFlight.inHierarchyWork(entry.id) || stoppingByHand.has(entry.id)) return false
       if (task && unfinishedChildren(task.id)) return false
       const agent = task?.lead?.agent
-      return agent === undefined || (!agentStartHold(store, agent) && paused[agent] === undefined)
+      return (
+        agent === undefined ||
+        (task !== undefined &&
+          !agentStartHold(store, agent, undefined, taskScope(task, agent)) &&
+          paused[agent] === undefined)
+      )
     })
   }
 
@@ -2402,6 +2441,20 @@ export function createTasks(options: {
       const runId = taskNow(entry.id)?.leadRunId
       if (runId) queuedRuns.add(runId)
     }
+    const startHolds = new Map<string, string>()
+    const waitingTasks: { id: string; agent: AgentKind | undefined }[] = [
+      ...store.heldRuns().map((held) => ({ id: held.taskId, agent: held.agent })),
+      ...ordered.flatMap((entry) =>
+        entry.kind === 'task' ? [{ id: entry.id, agent: undefined }] : [],
+      ),
+    ]
+    for (const waiting of waitingTasks) {
+      const task = taskNow(waiting.id)
+      const agent = task?.lead?.agent ?? waiting.agent
+      if (!task || agent === undefined) continue
+      const hold = agentStartHold(store, agent, undefined, taskScope(task, agent))
+      if (hold !== undefined) startHolds.set(task.id, hold)
+    }
     store.setQueueActivity({
       taskPlaces: ordered.flatMap((entry, index) =>
         entry.kind === 'task' || entry.kind === 'setup-task' || entry.kind === 'continuation'
@@ -2415,6 +2468,7 @@ export function createTasks(options: {
           : [],
       ),
       backlogWaits: backlogWaits(),
+      startHolds,
       queuedTasks: leadLifecycle.pendingRecoveryTaskIds(),
       queuedRuns: [...queuedRuns],
       startingRuns: [...startingRuns],
@@ -4476,12 +4530,9 @@ export function createTasks(options: {
   const leadFrom = (settings?: WorkflowSettings) =>
     resolveAgentChoices(
       settings,
-      {
-        claude: agents.installed('claude'),
-        antigravity: agents.installed('antigravity'),
-        codex: agents.installed('codex'),
-      },
+      agents.installedKinds(),
       store.settings().enabledAgents,
+      store.agentPauses(),
     ).lead
 
   const subAgents = createSubAgents({
@@ -4548,16 +4599,24 @@ export function createTasks(options: {
       return { lead: { agent, ...tuned } }
     }
     const enabled = store.settings().enabledAgents
-    const other = enabled.find((kind) => kind !== lead.agent) ?? enabled[0] ?? lead.agent
+    const others = enabled.filter((kind) => kind !== lead.agent && kind !== 'pi')
+    const other =
+      others[0] ?? enabled.find((kind) => kind !== lead.agent) ?? enabled[0] ?? lead.agent
     const canRun = async (kind: AgentKind) =>
       enabled.includes(kind) &&
       agents.installed(kind) &&
       store.agentPauses()[kind] === undefined &&
+      agentStartHold(store, kind, undefined, {
+        factoryId: task.factoryId,
+        model: tuned.model,
+        agents,
+      }) === undefined &&
       (await health.ready(kind))
     let agent = other
     for (const kind of [
-      ...enabled.filter((kind) => kind !== lead.agent),
+      ...others,
       ...enabled.filter((kind) => kind === lead.agent),
+      ...enabled.filter((kind) => kind === 'pi' && kind !== lead.agent),
     ]) {
       if (await canRun(kind)) {
         agent = kind
@@ -12620,12 +12679,9 @@ export function createTasks(options: {
       const depth = resolution.workflow.settings.stages.clarify?.depth
       const choices = resolveAgentChoices(
         resolution.workflow.settings,
-        {
-          claude: agents.installed('claude'),
-          antigravity: agents.installed('antigravity'),
-          codex: agents.installed('codex'),
-        },
+        agents.installedKinds(),
         store.settings().enabledAgents,
+        store.agentPauses(),
       )
       return {
         lead: { ...choices.lead, effortMode: 'stage' },
@@ -14047,6 +14103,7 @@ export function createTasks(options: {
       if (factoryId !== undefined) {
         caps.delete(factoryId)
         stageSettings.delete(factoryId)
+        leadModels.delete(factoryId)
       }
       void pump()
       const live = new Set(store.liveRuns().flatMap((run) => run.taskId ?? []))

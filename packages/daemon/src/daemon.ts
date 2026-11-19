@@ -86,6 +86,7 @@ export interface DaemonOptions {
   claudeBin?: string
   codexBin?: string
   antigravityBin?: string
+  piBin?: string
   idleExit?: {
     afterMs: number
     onIdle: () => void
@@ -285,6 +286,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
     ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
     ...(options.antigravityBin !== undefined && { antigravityBin: options.antigravityBin }),
+    piBin: options.piBin ?? tedEnv('TED_PI_BIN') ?? 'pi',
     env: environment.current,
   })
   const openTerminal = given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp })
@@ -700,6 +702,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         builtInAgents: chatBuiltIns,
         commands: chatCommands,
         env: environment.current,
+        agents,
         automations,
         agentTargets: { library, factory: factorySettings },
         banners,

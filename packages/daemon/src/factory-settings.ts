@@ -7,6 +7,7 @@ import {
   type AgentKind,
   type AgentRowView,
   type AgentStageId,
+  agentKinds,
   agentRoles,
   type CheckView,
   type ClarifyDepth,
@@ -482,12 +483,9 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     const library = base.inherited.find((l) => l.kind === 'library')?.settings
     const resolved = resolveAgentChoices(
       inherited,
-      {
-        claude: options.installed('claude'),
-        antigravity: options.installed('antigravity'),
-        codex: options.installed('codex'),
-      },
+      Object.fromEntries(agentKinds.map((kind) => [kind, options.installed(kind)])),
       options.store.settings().enabledAgents,
+      options.store.agentPauses(),
     )
     return agentRoles.map((role) => {
       const own = base.settings?.[role]

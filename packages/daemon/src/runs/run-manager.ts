@@ -22,6 +22,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type {
   AgentKind,
+  Billing,
   PermissionMode,
   PlanWindow,
   Run,
@@ -29,10 +30,10 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import { antigravityPlanNotice, filterTedEnv, runTokenEnv } from '@ted/protocol'
+import { antigravityPlanNotice, filterTedEnv, isBilledAgent, runTokenEnv } from '@ted/protocol'
 import { isInteger, isObject, parseJson } from '@ted/protocol/parse'
 import { chatToolPolicy } from '@ted/protocol/run'
-import { AgentDisabledError } from '../agent-eligibility.ts'
+import { AgentDisabledError, piAutoHold } from '../agent-eligibility.ts'
 import {
   type AutoModeSignal,
   type CredentialReport,
@@ -233,18 +234,25 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (shuttingDown) throw new RequestError(503, 'Ted is shutting down')
   }
 
-  const billingOf = (kind: AgentKind) => store.settings().billing[kind]
   // Every launch of an agent passes here, so nothing starts Antigravity on a Google plan
-  // before the human has accepted Google’s terms notice, whatever agent health last said.
-  const launchBilling = (kind: AgentKind) => {
+  // before the human has accepted Google’s terms notice, whatever agent health last said,
+  // and nothing starts Pi, which has no sandbox, for a Task outside a Bypass Factory.
+  const launchBilling = (
+    kind: AgentKind,
+    taskId: string | undefined,
+    permissions: PermissionMode,
+  ): Billing | undefined => {
     const settings = store.settings()
+    if (kind === 'pi' && taskId !== undefined && permissions !== 'bypass')
+      throw new RequestError(409, piAutoHold)
+    if (!isBilledAgent(kind)) return undefined
     if (
       kind === 'antigravity' &&
       settings.billing.antigravity === 'subscription' &&
       !settings.antigravityPlanAccepted
     )
       throw new RequestError(409, antigravityPlanNotice)
-    return billingOf(kind)
+    return settings.billing[kind]
   }
 
   const environment = (): NodeJS.ProcessEnv => {
@@ -832,7 +840,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
         tools: chatToolPolicy(run.agent),
       }),
-      billing: launchBilling(run.agent),
+      billing: launchBilling(run.agent, run.taskId, permissions),
     })
     const inputSize = await stat(files.input).then(
       (info) => info.size,
@@ -947,6 +955,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       cwd: launch.cwd ?? cwd,
       input: launch.input,
       ...(launch.driver !== undefined && { driver: launch.driver }),
+      ...(launch.lines !== undefined && { lines: launch.lines }),
       ...(inputFrom !== undefined && { inputFrom }),
     }
     const file = runFiles(runDir).launch
@@ -1251,7 +1260,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
               tools: chatToolPolicy(kind),
             }),
-            billing: launchBilling(kind),
+            billing: launchBilling(kind, taskId, permissions),
           })
           await writeLaunch(
             runDir,
@@ -1331,7 +1340,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
             tools: chatToolPolicy(run.agent),
           }),
-          billing: launchBilling(run.agent),
+          billing: launchBilling(run.agent, run.taskId, permissions),
         })
         const inputFrom = await stat(files.input).then(
           (info) => info.size,
@@ -1415,7 +1424,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
               tools: chatToolPolicy(run.agent),
             }),
-            billing: launchBilling(run.agent),
+            billing: launchBilling(run.agent, run.taskId, permissions),
           })
           await writeLaunch(runDir, run.cwd, launch, permissions)
           signal.throwIfAborted()

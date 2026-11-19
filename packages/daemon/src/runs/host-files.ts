@@ -11,6 +11,7 @@ export interface LaunchFile {
   cwd: string
   input: string
   driver?: string
+  lines?: 'lf'
   inputFrom?: number
 }
 

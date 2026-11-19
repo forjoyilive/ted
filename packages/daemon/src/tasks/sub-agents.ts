@@ -14,7 +14,7 @@ import type {
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { validates } from '@ted/protocol/stage'
-import { AgentDisabledError } from '../agent-eligibility.ts'
+import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
@@ -545,6 +545,14 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         0,
         maxNameLength,
       )
+      if (agent === 'pi') {
+        const held = agentStartHold(store, agent, undefined, {
+          factoryId: task.factoryId,
+          model,
+          agents,
+        })
+        if (held !== undefined) throw new RequestError(409, held)
+      }
       const request = store.requestSubAgent({
         id: crypto.randomUUID(),
         taskId: task.id,

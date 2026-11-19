@@ -43,8 +43,13 @@ export function createSideChats(options: {
   let closed = false
   let release: (() => void) | undefined
   const pending = (c: StoredSideChat) => store.runMessages(c.id).find((m) => m.id === c.messageId)
-  const paused = (c: StoredSideChat) =>
-    agentStartHold(store, c.lead.agent, c.id) ?? store.agentPauses()[c.lead.agent]
+  const hold = (c: StoredSideChat) =>
+    agentStartHold(store, c.lead.agent, c.id, {
+      factoryId: c.factoryId,
+      model: c.lead.model,
+      agents,
+    })
+  const paused = (c: StoredSideChat) => hold(c) ?? store.agentPauses()[c.lead.agent]
   const changed = () => {
     const busy =
       saved.list().some((c) => c.state === 'queued' || c.state === 'working') ||
@@ -262,13 +267,7 @@ export function createSideChats(options: {
         })),
     runnable: (id) => {
       const c = saved.get(id)
-      return (
-        !closed &&
-        !!c &&
-        !agentStartHold(store, c.lead.agent, c.id) &&
-        !paused(c) &&
-        !!store.getTask(c.taskId)
-      )
+      return !closed && !!c && !hold(c) && !paused(c) && !!store.getTask(c.taskId)
     },
     begin(id) {
       const c = saved.get(id)

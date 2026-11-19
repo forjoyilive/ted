@@ -16,7 +16,7 @@ export interface IdleSleepOptions {
   checkEveryMs?: number
 }
 
-const sleepable: readonly AgentKind[] = ['claude', 'codex']
+const sleepable: readonly AgentKind[] = ['claude', 'codex', 'pi']
 
 const busyAfterMs = 2 * 60_000
 

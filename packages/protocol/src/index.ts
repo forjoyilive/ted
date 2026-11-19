@@ -864,7 +864,10 @@ export { downloadUrl, newIssueUrl, releaseRepo, releasesUrl, sentryDsn } from '.
 export {
   type AgentKind,
   agentKinds,
+  type BilledAgentKind,
+  billedAgentKinds,
   type ConversationEntry,
+  isBilledAgent,
   type PermissionMode,
   permissionModes,
   type Run,
@@ -920,6 +923,7 @@ export {
 } from './search.ts'
 export {
   type Appearance,
+  agentBilling,
   appearances,
   archivedTaskDayLimits,
   checkCpuLimits,
