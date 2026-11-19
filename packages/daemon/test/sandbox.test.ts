@@ -213,12 +213,15 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       `.expo1024x1024_UIAppearanceAny_${id}-${pid}-${id.slice(0, 8)}${id.slice(-8)}.png-a1B2c3`,
     )
     const scratch = at(`actool-sprite-atlas-scratch-${id}`)
+    const userHelper = at(`ibtoold-${pid + 2}`)
+    await mkdir(path.join(userHelper, 'IB'), { recursive: true })
+    await execFileAsync('mkfifo', [path.join(userHelper, 'IB', `${id}.HostToRemote`)])
     const attempt = (command: string) => `(${command}) 2>/dev/null && echo wrote || echo refused`
     const result = await inSandbox(
       [
         tryWrite(path.join(worktree, 'source.txt')),
         attempt(
-          `mkdir '${at(id)}' && echo x > '${at(id)}/expo.png' && mkdir '${at(id)}/expo.icon.xcassets'`,
+          `mkdir '${at(id)}' && echo x > '${at(id)}/assets.uicatalog' && mkdir -p '${at(id)}/expo.icon.xcassets/expo_Assets' && echo x > '${at(id)}/${path.basename(png).slice(1, -7)}'`,
         ),
         attempt(`mkdir '${scratch}'`),
         attempt(`mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${id}.HostToRemote'`),
@@ -232,6 +235,10 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         attempt(`ln '${path.join(worktree, 'source.txt')}' '${at(hardLinkId)}'`),
         tryWrite(shortCatalog),
         attempt(`mkfifo '${at(linkId)}'`),
+        tryWrite(`${at(id)}/other.txt`),
+        attempt(`mkdir '${at(id)}/other'`),
+        `ls '${userHelper}' >/dev/null 2>&1 && echo listed || echo refused`,
+        `ls '${userHelper}/IB' >/dev/null 2>&1 && echo listed || echo refused`,
       ].join('; '),
     )
     expect(result.stdout.trim().split('\n')).toEqual([
@@ -249,11 +256,16 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'refused',
       'refused',
       'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
     ])
     for (const item of [
       at(id),
       scratch,
       helper,
+      userHelper,
       `${helper}-x`,
       linkedHelper,
       catalog,
@@ -264,6 +276,21 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       shortCatalog,
     ])
       await rm(item, { recursive: true, force: true })
+  })
+
+  test('a Ted home inside a lowercase UUID folder in the per-user temp folder gets no rules there', async () => {
+    const folder = path.join(userTemp, randomUUID().toLowerCase())
+    await mkdir(folder)
+    await rm(tedHome, { recursive: true, force: true })
+    await makeHome(folder)
+    const result = await inSandbox(
+      [
+        tryWrite(path.join(folder, 'assets.uicatalog')),
+        `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused'])
+    await rm(folder, { recursive: true, force: true })
   })
 
   test('a sandboxed command can’t list the per-user temp folder or its TemporaryItems folder, but reaches its own folders there by name', async () => {

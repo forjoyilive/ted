@@ -238,7 +238,7 @@ interface SandboxPaths {
 const xcodeSavers =
   'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtool|ibtoold|swift-build|swift-run|swift-test'
 const xcodeTempNames =
-  /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8}|(actool-sprite-atlas-scratch-)?[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}|ibtoold-[0-9]+)$/
+  /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8}|(actool-sprite-atlas-scratch-)?[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}|ibtoold-[0-9]+)$/i
 const chars = (set: string, count: number) => `[${set}]`.repeat(count)
 const uuid = [8, 4, 4, 4, 12].map((count) => chars('0-9A-F', count)).join('-')
 
@@ -249,14 +249,20 @@ function actoolTempRules(userTemp: string): string[] {
     `(deny file-link (regex #"${pattern}"))`,
   ]
   return [
-    ...noLinks(at(`(actool-sprite-atlas-scratch-)?${uuid}(/|$)`), ['DIRECTORY', 'REGULAR-FILE']),
+    ...noLinks(at(`actool-sprite-atlas-scratch-${uuid}(/|$)`), ['DIRECTORY', 'REGULAR-FILE']),
+    ...noLinks(at(`${uuid}$`), ['DIRECTORY']),
+    ...noLinks(at(`${uuid}/assets\\.uicatalog(-journal)?$`), ['REGULAR-FILE']),
+    ...noLinks(at(`${uuid}/[^/]+\\.icon\\.xcassets(/|$)`), ['DIRECTORY', 'REGULAR-FILE']),
     ...noLinks(at(`ibtoold-[0-9]+(/IB(/${uuid}\\.(HostToRemote|RemoteToHost))?)?$`), [
       'DIRECTORY',
       'FIFO',
     ]),
+    `(deny file-read-data (regex #"${at('ibtoold-[0-9]+(/IB)?/?$')}"))`,
     ...noLinks(at(`Untitled-${chars('A-Za-z0-9', 8)}\\.uicatalog(-journal)?$`), ['REGULAR-FILE']),
     ...noLinks(
-      at(`\\.?[^/]+_${uuid}-[0-9]+-${chars('0-9A-F', 16)}\\.png(-${chars('A-Za-z0-9', 6)})?$`),
+      at(
+        `(${uuid}/)?\\.?[^/]+_${uuid}-[0-9]+-${chars('0-9A-F', 16)}\\.png(-${chars('A-Za-z0-9', 6)})?$`,
+      ),
       ['REGULAR-FILE'],
     ),
   ]
