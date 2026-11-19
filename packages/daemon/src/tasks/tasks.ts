@@ -2183,7 +2183,7 @@ export function createTasks(options: {
     const { includeAgentFiled, includeGitHubIssues } = store.settings().backlogStarts
     if (task.createdBy === 'task-lead') {
       const creator = task.createdByTaskId === undefined ? undefined : taskNow(task.createdByTaskId)
-      if (creator?.createdBy === 'task-lead') return 'follow-up'
+      if (creator === undefined || creator.createdBy === 'task-lead') return 'follow-up'
       return includeAgentFiled ? undefined : 'task-lead'
     }
     return !includeGitHubIssues && automationGitHubTask(task) ? 'automation' : undefined

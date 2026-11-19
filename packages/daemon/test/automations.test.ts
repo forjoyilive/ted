@@ -947,6 +947,14 @@ describe('Automations', () => {
       const found = await waits()
       return found.made.every((w) => w === 'task-lead') && found.grandchild === 'follow-up'
     }, 'Backlog rows to say a Task Lead filed them')
+    const preview = await client.ok<{ revision: string }>(
+      'GET',
+      `/tasks/${child?.id}/hierarchy/preview`,
+    )
+    await client.ok('POST', `/tasks/${child?.id}/delete`, {
+      children: 'unparent',
+      hierarchyRevision: preview.revision,
+    })
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     await client.ok('PUT', '/backlog-starts', {
       enabled: true,
@@ -958,7 +966,7 @@ describe('Automations', () => {
     await waitUntil(async () => {
       const found = await waits()
       return found.made.every((w) => w === undefined) && found.grandchild === 'follow-up'
-    }, 'Tasks a Task Lead filed to start on their own, but not a follow-up of a follow-up')
+    }, 'Tasks a Task Lead filed to start on their own, but not a follow-up of a deleted follow-up')
   }, 90_000)
 
   test('a failed Run is resumed once, then fails with Retry; three failures in a row raise a banner', async () => {
