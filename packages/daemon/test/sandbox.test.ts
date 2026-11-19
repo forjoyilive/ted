@@ -12,7 +12,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { type AddressInfo, createServer, type Server } from 'node:net'
-import { homedir, networkInterfaces, tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { SandboxGroup } from '@ted/protocol'
@@ -111,17 +111,15 @@ const tryConnect = (socket: string) =>
 const xcode: SandboxGroup[] = ['ios-xcode']
 
 const tryTcp = (host: string, port: number) =>
-  `'${process.execPath}' -e "require('net').connect(${port}, '${host}').on('connect', () => { console.log('connected'); process.exit() }).on('error', () => { console.log('refused'); process.exit() })"`
+  `'${process.execPath}' -e "const s = require('net').connect(${port}, '${host}'); s.setTimeout(2000, () => { console.log('timeout'); process.exit() }); s.on('connect', () => { console.log('connected'); process.exit() }).on('error', (e) => { console.log(e.code); process.exit() })"`
 
-function machineAddress(): string | undefined {
-  return Object.values(networkInterfaces())
-    .flat()
-    .find((address) => address?.family === 'IPv4' && !address.internal)?.address
-}
+// TEST-NET-1 (RFC 5737) is never routed, so a refused connect there sends nothing anywhere.
+const outsideAddress = '192.0.2.1'
+const denyIp = '(deny network-outbound (remote ip "*:*"))'
 
 async function listenTcp(): Promise<{ server: Server; port: number }> {
   const server = createServer((connection) => connection.end())
-  await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', resolve))
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   return { server, port: (server.address() as AddressInfo).port }
 }
 
@@ -839,33 +837,45 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
   })
 
-  test('without a grant it reaches only loopback; none closes loopback too, and outbound or the network group opens the rest', async (context) => {
-    const address = machineAddress()
-    context.skip(address === undefined, 'this machine has no non-loopback IPv4 address')
+  test('without a grant it reaches only loopback, none closes loopback too, and outbound or the network group lifts the IP rule', async () => {
     const { server, port } = await listenTcp()
     const sandbox = createSandbox({ tedHome, env: () => process.env })
-    const attempt = async (extra: {
+    const wrap = (extra: {
       network?: 'none' | 'localhost' | 'outbound'
       groups?: SandboxGroup[]
-    }) => {
-      const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })
+    }) => sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })
+    const attempt = async (
+      extra: { network?: 'none' | 'localhost' | 'outbound'; groups?: SandboxGroup[] },
+      hosts: readonly string[],
+    ) => {
+      const { argv, env } = await wrap(extra)
       const [command, ...args] = argv
       const { stdout } = await execFileAsync(
         command,
-        [...args, [tryTcp('127.0.0.1', port), tryTcp(address ?? '', port)].join('; ')],
+        [...args, hosts.map((host) => tryTcp(host, port)).join('; ')],
         { cwd: worktree, env: withSandboxEnv(process.env, env) },
       )
       return stdout.trim().split('\n')
     }
     try {
-      expect(await attempt({})).toEqual(['connected', 'refused'])
-      expect(await attempt({ network: 'localhost' })).toEqual(['connected', 'refused'])
-      expect(await attempt({ network: 'none' })).toEqual(['refused', 'refused'])
-      expect(await attempt({ network: 'outbound' })).toEqual(['connected', 'connected'])
-      expect(await attempt({ network: 'none', groups: ['network'] })).toEqual([
+      expect(await attempt({}, ['127.0.0.1', outsideAddress])).toEqual(['connected', 'EPERM'])
+      expect(await attempt({ network: 'localhost' }, ['127.0.0.1', outsideAddress])).toEqual([
         'connected',
+        'EPERM',
+      ])
+      expect(await attempt({ network: 'none' }, ['127.0.0.1', outsideAddress])).toEqual([
+        'EPERM',
+        'EPERM',
+      ])
+      expect(await attempt({ network: 'outbound' }, ['127.0.0.1'])).toEqual(['connected'])
+      expect(await attempt({ network: 'none', groups: ['network'] }, ['127.0.0.1'])).toEqual([
         'connected',
       ])
+      expect((await wrap({})).argv.join('\n')).toContain(denyIp)
+      expect((await wrap({ network: 'outbound' })).argv.join('\n')).not.toContain(denyIp)
+      expect((await wrap({ network: 'none', groups: ['network'] })).argv.join('\n')).not.toContain(
+        denyIp,
+      )
     } finally {
       server.close()
     }

@@ -95,7 +95,8 @@ test('each outbound network grant is a row that says where it comes from', async
         ...view,
         networkGrants: [
           { place: 'factory', from: 'factory' },
-          { place: 'worktree', repo: 'web' },
+          { place: 'worktree', repo: 'web', commands: ['teardown'] },
+          { place: 'worktree', repo: 'api', commands: ['setup', 'teardown'] },
           { place: 'app', repo: 'web', app: 'Site' },
           { place: 'check', check: 'E2E' },
         ],
@@ -104,13 +105,18 @@ test('each outbound network grant is a row that says where it comes from', async
     />,
   )
   expect(
-    await screen.findByText('4 settings widen what sandboxed commands can reach.'),
+    await screen.findByText('5 settings widen what sandboxed commands can reach.'),
   ).toBeTruthy()
   const rows = screen.getAllByRole('listitem').map((row) => row.textContent)
   expect(rows).toEqual([
     expect.stringContaining('From sandbox_network: outbound in .ted/workflow.yaml.'),
-    expect.stringContaining('Network for web’s worktree setup'),
+    expect.stringMatching(/worktree teardown.*Its teardown command can connect to any host/),
+    expect.stringContaining(
+      'From sandbox_access: [network] on worktree.setup and worktree.teardown in the api repo’s entry',
+    ),
     expect.stringContaining('Network for App “Site”'),
     expect.stringContaining('Network for check “E2E”'),
   ])
+  expect(rows[2]).toContain('Remove network from that list in a Task to turn it off.')
+  expect(rows.join('\n')).not.toContain('network: outbound')
 })

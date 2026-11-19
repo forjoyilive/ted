@@ -170,13 +170,10 @@ function networkGrants(base: Base, repos: readonly { name: string }[]): NetworkG
     layer?.settings.sandbox_network === 'outbound' ? [{ place: 'factory', from: layer.kind }] : []
   for (const [i, entry] of (base.settings?.repos ?? []).entries()) {
     const repo = repos[i]?.name ?? ''
-    for (const command of [entry.worktree?.setup, entry.worktree?.teardown]) {
-      if (
-        command?.sandbox_access?.includes('network') &&
-        !grants.some((g) => g.place === 'worktree' && g.repo === repo)
-      )
-        grants.push({ place: 'worktree', repo })
-    }
+    const commands = (['setup', 'teardown'] as const).filter((name) =>
+      entry.worktree?.[name]?.sandbox_access?.includes('network'),
+    )
+    if (commands.length > 0) grants.push({ place: 'worktree', repo, commands })
     for (const app of appDeclarations(entry.apps)) {
       if (app.sandboxAccess?.includes('network')) grants.push({ place: 'app', repo, app: app.name })
     }

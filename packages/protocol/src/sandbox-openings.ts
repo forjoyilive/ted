@@ -12,7 +12,7 @@ export interface ElectronApp {
 
 export type NetworkGrant =
   | { place: 'factory'; from: LayerKind }
-  | { place: 'worktree'; repo: string }
+  | { place: 'worktree'; repo: string; commands: readonly ('setup' | 'teardown')[] }
   | { place: 'app'; repo: string; app: string }
   | { place: 'check'; check: string }
 

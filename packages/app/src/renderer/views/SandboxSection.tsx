@@ -258,6 +258,12 @@ function describe(opening: SandboxOpening): OpeningText {
 function networkRow(grant: NetworkGrant): OpeningText {
   const file = <code className={styles.code}>.ted/workflow.yaml</code>
   const key = (name: string) => <code className={styles.code}>{name}: outbound</code>
+  const group = <code className={styles.code}>sandbox_access: [network]</code>
+  const remove = (
+    <>
+      Remove <code className={styles.code}>network</code> from that list in a Task to turn it off.
+    </>
+  )
   switch (grant.place) {
     case 'factory':
       return {
@@ -278,25 +284,33 @@ function networkRow(grant: NetworkGrant): OpeningText {
             </>
           ),
       }
-    case 'worktree':
+    case 'worktree': {
+      const both = grant.commands.length > 1
+      const which = both ? 'setup and teardown' : (grant.commands[0] ?? 'setup')
       return {
-        name: `Network for ${grant.repo}’s worktree setup`,
-        what: 'Its setup and teardown commands can connect to any host, for example to install packages.',
+        name: `Network for ${grant.repo}’s worktree ${which}`,
+        what: `Its ${which} ${both ? 'commands' : 'command'} can connect to any host, for example to install packages.`,
         where: (
           <>
-            From {key('network')} under <code className={styles.code}>worktree</code> in the{' '}
-            {grant.repo} repo’s entry in {file}. Remove it in a Task to turn it off.
+            From {group} on <code className={styles.code}>worktree.{both ? 'setup' : which}</code>
+            {both && (
+              <>
+                {' '}
+                and <code className={styles.code}>worktree.teardown</code>
+              </>
+            )}{' '}
+            in the {grant.repo} repo’s entry in {file}. {remove}
           </>
         ),
       }
+    }
     case 'app':
       return {
         name: `Network for App “${grant.app}”`,
         what: 'When an agent or Ted starts it, it can connect to any host.',
         where: (
           <>
-            From {key('network')} on the App in the {grant.repo} repo’s entry in {file}. Remove it
-            in a Task to turn it off.
+            From {group} on the App in the {grant.repo} repo’s entry in {file}. {remove}
           </>
         ),
       }
@@ -306,7 +320,7 @@ function networkRow(grant: NetworkGrant): OpeningText {
         what: 'The check’s command can connect to any host.',
         where: (
           <>
-            From {key('network')} on the check in {file}. Remove it in a Task to turn it off.
+            From {group} on the check in {file}. {remove}
           </>
         ),
       }

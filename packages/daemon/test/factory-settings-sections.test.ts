@@ -407,7 +407,7 @@ describe('Factory settings: Workflow', () => {
     expect(view.electronApps).toEqual([{ repo: 'widgets', name: 'Desktop' }])
     expect(view.networkGrants).toEqual([
       { place: 'factory', from: 'library' },
-      { place: 'worktree', repo: 'widgets' },
+      { place: 'worktree', repo: 'widgets', commands: ['setup'] },
       { place: 'app', repo: 'widgets', app: 'Web' },
     ])
   })

@@ -60,11 +60,15 @@ test('outbound network grants widen the sandbox, after the other rows', () => {
   const openings = sandboxOpenings({
     ...none,
     electronApps: [{ repo: 'ted', name: 'Ted Dev' }],
-    networkGrants: [{ place: 'worktree', repo: 'ted' }],
+    networkGrants: [{ place: 'worktree', repo: 'ted', commands: ['setup'] }],
   })
   expect(openings).toEqual([
     { kind: 'electron-app', unsandboxed: false, repo: 'ted', app: 'Ted Dev' },
-    { kind: 'network', unsandboxed: false, grant: { place: 'worktree', repo: 'ted' } },
+    {
+      kind: 'network',
+      unsandboxed: false,
+      grant: { place: 'worktree', repo: 'ted', commands: ['setup'] },
+    },
   ])
   expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
 })
