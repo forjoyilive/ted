@@ -15,6 +15,7 @@ const groupPaths: Record<SandboxGroup, RegExp> = {
     ].join('|'),
     'i',
   ),
+  'shared-tmp': /(?<![\w./~-])\/(?:private\/)?tmp(?:\/|$|[\s'"`:,)])/m,
 }
 
 const refused =

@@ -71,7 +71,7 @@ export function SandboxAccessField({
 }
 
 export const sandboxAccessHelp =
-  'Named groups of extra access Ted’s sandbox gives this command. ios-xcode lets Xcode, SwiftPM, actool and ibtool write in shared folders on your Mac that your other apps also use. Takes effect once the change merges.'
+  'Named groups of extra access Ted’s sandbox gives this command. ios-xcode lets Xcode, SwiftPM, actool and ibtool write in shared folders on your Mac that your other apps also use. shared-tmp lets it read and write /tmp, which your other apps also use. Takes effect once the change merges.'
 
 function groupLabel(group: SandboxGroup): string {
   return sandboxGroups.find((g) => g.name === group)?.label ?? group
@@ -99,6 +99,12 @@ export function AccessChanges({
         <p className={styles.changesNote}>
           ios-xcode is shared access on your Mac: Xcode builds can write in folders your other apps
           also use.
+        </p>
+      )}
+      {groups.includes('shared-tmp') && (
+        <p className={styles.changesNote}>
+          shared-tmp is shared access on your Mac: commands can read and write /tmp, which your
+          other apps also use.
         </p>
       )}
     </section>

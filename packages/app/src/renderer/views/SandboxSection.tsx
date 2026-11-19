@@ -274,7 +274,9 @@ function describe(opening: SandboxOpening): OpeningText {
         what:
           opening.group === 'ios-xcode'
             ? 'Its commands can write where Xcode, SwiftPM, actool and ibtool keep temp files. These folders are shared with your other apps on this Mac.'
-            : 'Its commands get this extra sandbox access.',
+            : opening.group === 'shared-tmp'
+              ? 'Its commands can read and write /tmp. This folder is shared with your other apps on this Mac.'
+              : 'Its commands get this extra sandbox access.',
         where: (
           <>
             From <code className={styles.code}>sandbox_access</code> in{' '}

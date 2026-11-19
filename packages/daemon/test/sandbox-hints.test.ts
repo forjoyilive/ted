@@ -52,3 +52,16 @@ test('the hint goes on its own line at the end of the command’s log', async ()
   expect(lines[1]).toContain('which the Check “Build” doesn’t have')
   expect(lines[2]).toBe('')
 })
+
+test('a refused path in the shared /tmp names shared-tmp, but a folder merely called tmp does not', () => {
+  expect(refusedGroups('touch: /private/tmp/ted-x: Operation not permitted')).toEqual([
+    'shared-tmp',
+  ])
+  expect(refusedGroups("EPERM: operation not permitted, open '/tmp/build.lock'")).toEqual([
+    'shared-tmp',
+  ])
+  expect(refusedGroups('/Users/someone/.ted/sandbox/TED-1/tmp/x: Operation not permitted')).toEqual(
+    [],
+  )
+  expect(refusedGroups('writing /tmp/build.lock')).toEqual([])
+})
