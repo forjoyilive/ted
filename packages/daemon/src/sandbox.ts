@@ -3,7 +3,7 @@ import { constants, type Stats } from 'node:fs'
 import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import { outsideTedEnv } from '@ted/protocol'
+import { outsideTedEnv, type SandboxGroup } from '@ted/protocol'
 import { protectedPaths } from './protected-folders.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -17,6 +17,7 @@ export interface SandboxScope {
   electron?: boolean
   ownTempOnly?: boolean
   hideProtected?: boolean
+  groups?: readonly SandboxGroup[]
 }
 
 export interface Sandboxed {
@@ -168,6 +169,7 @@ export function createSandbox(options: {
       if (why !== undefined || ready === undefined) throw new SandboxUnavailable(why)
       const env = options.env()
       const paths = await sandboxPaths(platform, options.tedHome, scope)
+      const xcode = scope.ownTempOnly !== true && scope.groups?.includes('ios-xcode') === true
       let perUserTemp: string | undefined
       if (platform === 'darwin') {
         userTemp ??= userTempFolder()
@@ -176,13 +178,13 @@ export function createSandbox(options: {
           const saves = path.join(perUserTemp, 'TemporaryItems')
           paths.unlisted = [perUserTemp, saves]
           const [first = ''] = path.relative(perUserTemp, paths.tedHome).split(path.sep)
-          if (scope.ownTempOnly !== true) {
+          if (xcode) {
             if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
             if (!inside(paths.tedHome, perUserTemp) && !xcodeTempNames.test(first))
               paths.userTemp = perUserTemp
           }
         }
-        const logs = scope.ownTempOnly === true ? undefined : await manifestLogFolder(env)
+        const logs = xcode ? await manifestLogFolder(env) : undefined
         if (logs !== undefined && !inside(paths.tedHome, logs) && !inside(logs, paths.tedHome))
           paths.manifestLogs = logs
       }

@@ -907,6 +907,8 @@ export {
   parseStartDevRunRequest,
   parseStartSubAgentRequest,
 } from './run-parsers.ts'
+export type { SandboxGroup, SandboxGroupInfo } from './sandbox-groups.ts'
+export { isSandboxGroup, sandboxGroupNames, sandboxGroups } from './sandbox-groups.ts'
 export * from './sandbox-openings.ts'
 export {
   type AutomationSchedule,
