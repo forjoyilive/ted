@@ -35,7 +35,7 @@ import { workCommand } from '../priority.ts'
 import { markProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import { type LaunchAuthority, launchAuthority } from '../runs/launch-authority.ts'
-import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.ts'
+import { type Sandbox, type SandboxScope, SandboxUnavailable, withSandboxEnv } from '../sandbox.ts'
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { TedStore } from '../store/index.ts'
 import { checkCpus } from '../tasks/check-slots.ts'
@@ -796,7 +796,7 @@ export function createApps(options: AppsOptions): Apps {
           dir,
           run: app.run,
           cwd: repo.worktree,
-          env: { ...env, ...sandboxed.env },
+          env: withSandboxEnv(env, sandboxed.env),
           logBytes: options.logBytes ?? appLogBytes,
           authority: launchAuthority(store),
           lowPriority: by !== 'human' && store.settings().lowPriorityWork,
