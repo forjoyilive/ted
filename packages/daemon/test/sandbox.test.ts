@@ -12,7 +12,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { type AddressInfo, createServer, type Server } from 'node:net'
-import { homedir, tmpdir } from 'node:os'
+import { homedir, tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { SandboxGroup } from '@ted/protocol'
@@ -826,14 +826,35 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       await execFileAsync('defaults', ['delete', label]).catch(() => undefined)
     }
   })
-  test('only an Electron App’s sandbox reaches launchservicesd, and it says so in its environment', async () => {
+  test('it reaches only the listed system services, so not the keychain or the pasteboard', async () => {
+    const result = await inSandbox(
+      [
+        'security show-keychain-info /Library/Keychains/System.keychain >/dev/null 2>&1 && echo keychain || echo refused',
+        'pbpaste >/dev/null 2>&1 && echo pasteboard || echo refused',
+        'id -un',
+        `node -e 'require("node:dns").lookup("localhost", (e) => console.log(e ? "no dns" : "dns"))'`,
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'refused',
+      'refused',
+      userInfo().username,
+      'dns',
+    ])
+  })
+
+  test('only an Electron App’s sandbox reaches launchservicesd and the window server, and it says so in its environment', async () => {
     const sandbox = createSandbox({ tedHome, env: () => process.env })
     const plain = await sandbox.wrap(['/bin/sh', '-c'], scope())
     const electron = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), electron: true })
-    const service = 'com.apple.coreservices.launchservicesd'
-    expect(plain.argv.join('\n')).not.toContain(service)
+    for (const service of [
+      'com.apple.coreservices.launchservicesd',
+      'com.apple.windowserver.active',
+    ]) {
+      expect(plain.argv.join('\n')).not.toContain(service)
+      expect(electron.argv.join('\n')).toContain(`(global-name "${service}")`)
+    }
     expect(plain.env.TED_SANDBOX_ELECTRON).toBeUndefined()
-    expect(electron.argv.join('\n')).toContain(`(allow mach-lookup (global-name "${service}"))`)
     expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
   })
 
