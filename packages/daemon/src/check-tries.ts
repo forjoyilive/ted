@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
+  bannerId,
   type CheckTry,
   type CheckTryOutput,
   type CheckTryRequest,
@@ -18,12 +19,16 @@ import { loginShell, worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
 import * as git from './git.ts'
+import { factoryPermissions } from './permissions.ts'
+import { redactSecrets } from './redact.ts'
+import type { Sandbox } from './sandbox.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import { type CheckSlots, checkCpusEnv } from './tasks/check-slots.ts'
 import { defaultCheckTimeout, readOutput } from './tasks/checks.ts'
+import { type CommandSandbox, runTaskCommand } from './tasks/command.ts'
 import { removeInside } from './tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos, findRepo, isSafeRepo } from './tasks/repos.ts'
-import { durationMs, runWorktreeCommand } from './tasks/worktree.ts'
+import { durationMs } from './tasks/worktree.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface InstructionTries {
@@ -71,6 +76,7 @@ export function createCheckTries(options: {
   reposDir: string
   scratchDir: string
   emit: (event: DaemonEvent) => void
+  sandbox: Sandbox
   maxAgeMs?: number
   env?: () => NodeJS.ProcessEnv
   instructions?: () => InstructionTries | undefined
@@ -133,6 +139,34 @@ export function createCheckTries(options: {
     return dirs[1]
   }
 
+  async function commandSandbox(
+    factory: StoredFactory,
+    entry: FactoryRepoEntry,
+    sockets: readonly string[],
+  ): Promise<{ sandbox?: CommandSandbox } | { problem: string }> {
+    if (factoryPermissions(store, factory.id) === 'bypass') return {}
+    const ref = { problem: 'sandbox-unavailable' as const, factoryId: factory.id }
+    const problem = await options.sandbox.problem()
+    if (problem !== undefined) {
+      banners.raise({ ...ref, severity: 'stops-work', text: problem })
+      return { problem }
+    }
+    if (store.getBanner(bannerId(ref))) banners.clear(ref)
+    const folder = path.join(factoryDir(factory.id), 'sandbox')
+    return {
+      sandbox: {
+        sandbox: options.sandbox,
+        scope: {
+          writable: [path.join(factoryDir(factory.id), 'worktrees', entry.name)],
+          readable: [clonePath(reposDir, entry)],
+          cache: path.join(folder, 'cache'),
+          sockets,
+        },
+        tmpRoot: path.join(folder, 'tmp'),
+      },
+    }
+  }
+
   async function removeWorktree(factoryId: string, name: string, repo: string): Promise<void> {
     const root = await worktreesDir(factoryId, false)
     if (root === undefined || !safeName.test(name)) return
@@ -184,6 +218,7 @@ export function createCheckTries(options: {
     entry: FactoryRepoEntry,
     log: string,
     signal: AbortSignal,
+    sandbox: CommandSandbox | undefined,
   ): Promise<{ worktree: string } | { failed: CheckTry['state']; exitCode?: number }> {
     const clone = clonePath(reposDir, entry)
     if (!entry.primary) await git.fetch(clone).catch(() => undefined)
@@ -220,13 +255,15 @@ export function createCheckTries(options: {
     ]
     await save(factory.id, state)
     if (entry.setup) {
-      const result = await runWorktreeCommand({
+      const result = await runTaskCommand({
+        label: 'setup',
         command: entry.setup,
         cwd: worktree,
         env: worktreeCommandEnv(entry.env, {}, options.env?.() ?? process.env),
         log,
         signal,
         lowPriority: store.settings().lowPriorityWork,
+        ...(sandbox !== undefined && { sandbox }),
       })
       if (result.outcome !== 'passed') {
         await removeWorktree(factory.id, entry.name, entry.repo)
@@ -248,6 +285,7 @@ export function createCheckTries(options: {
     started: CheckTry,
     abort: AbortController,
     shownWaiting: boolean,
+    sockets: readonly string[],
   ): Promise<void> {
     const log = logFile(factory.id, request.name)
     await mkdir(path.dirname(log), { recursive: true, mode: 0o700 })
@@ -260,9 +298,16 @@ export function createCheckTries(options: {
       }
       const release = await taking
       if (release && waits) await update(factory.id, started)
-      const prepared = release
-        ? await prepare(factory, entry, log, abort.signal)
-        : { failed: 'stopped' as const }
+      const launch = release ? await commandSandbox(factory, entry, sockets) : {}
+      const sandbox = 'sandbox' in launch ? launch.sandbox : undefined
+      if ('problem' in launch) {
+        await writeFile(log, `${redactSecrets(launch.problem)}\n`, { mode: 0o600 })
+      }
+      const prepared = !release
+        ? { failed: 'stopped' as const }
+        : 'problem' in launch
+          ? { failed: 'failed' as const }
+          : await prepare(factory, entry, log, abort.signal, sandbox)
       if ('failed' in prepared) {
         finished = {
           ...started,
@@ -271,7 +316,8 @@ export function createCheckTries(options: {
           ...(prepared.exitCode !== undefined && { exitCode: prepared.exitCode }),
         }
       } else {
-        const result = await runWorktreeCommand({
+        const result = await runTaskCommand({
+          label: 'the check',
           command: {
             run: request.run,
             timeoutMs: durationMs(request.timeout ?? defaultCheckTimeout),
@@ -286,6 +332,7 @@ export function createCheckTries(options: {
           shell: [loginShell(options.env?.() ?? process.env), '-lc'],
           signal: abort.signal,
           lowPriority: store.settings().lowPriorityWork,
+          ...(sandbox !== undefined && { sandbox }),
         })
         finished = {
           ...started,
@@ -437,7 +484,16 @@ export function createCheckTries(options: {
         const waits = options.checkSlots.full()
         const shown = waits ? { ...started, waiting: true } : started
         await update(factoryId, shown)
-        placeholder.done = execute(factory, entry, request, started, placeholder.abort, waits)
+        const sockets = workflow.settings.sandbox_sockets ?? []
+        placeholder.done = execute(
+          factory,
+          entry,
+          request,
+          started,
+          placeholder.abort,
+          waits,
+          sockets,
+        )
           .catch((error: unknown) => console.error('a check tried from settings failed:', error))
           .finally(() => {
             if (running.get(factoryId) === placeholder) running.delete(factoryId)
