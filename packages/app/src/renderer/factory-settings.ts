@@ -473,6 +473,20 @@ export function agentEdited(draft: SettingsDraft, loaded: SettingsDraft, role: A
   return !sameChoice(draft.agents[role], loaded.agents[role])
 }
 
+export function tryAccessText(checkTry: CheckTry): { text: string; title?: string } | undefined {
+  if (checkTry.state === 'running' || checkTry.setupFailed === true) return undefined
+  if (checkTry.sandboxAccess !== undefined) {
+    return { text: `Ran with ${checkTry.sandboxAccess.join(', ')}` }
+  }
+  if (checkTry.withheldAccess !== undefined) {
+    return {
+      text: 'Ran without access groups',
+      title: `Save the Check to run it with ${checkTry.withheldAccess.join(', ')}`,
+    }
+  }
+  return undefined
+}
+
 export function lastRunText(checkTry: CheckTry, now: number): string {
   const since = ago(checkTry.finishedAt ?? checkTry.startedAt, now)
   const took = checkTry.durationMs === undefined ? '' : `${duration(checkTry.durationMs)} · `

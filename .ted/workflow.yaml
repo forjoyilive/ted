@@ -4,7 +4,7 @@ repos:
     remote: https://github.com/forjoyilive/ted.git
     merge_method: merge
     worktree:
-      setup: pnpm install --frozen-lockfile
+      setup: { run: pnpm install --frozen-lockfile, sandbox_access: [electron] }
     apps:
       - name: Ted Dev
         kind: command
@@ -13,16 +13,18 @@ repos:
   - name: ted-mobile
     remote: https://github.com/forjoyilive/ted-mobile.git
     worktree:
-      setup: '[ -f package.json ] || exit 0; pnpm install --frozen-lockfile'
+      setup: {run: "[ -f package.json ] || exit 0; pnpm install --frozen-lockfile", sandbox_access: [ios-xcode]}
     apps:
       - name: Ted iPhone
         kind: ios-simulator
         run: pnpm ios release
         device: iPhone 17
+        sandbox_access: [ios-xcode]
       - name: Ted Dev iPhone
         kind: ios-simulator
         run: pnpm ios dev
         device: iPhone 17
+        sandbox_access: [ios-xcode]
 order: [intake, clarify, design, work, validate, review, merge]
 stages:
   design: { gate: true, based_on: f7500a6 }

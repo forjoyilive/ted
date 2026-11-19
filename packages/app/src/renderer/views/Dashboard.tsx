@@ -5,13 +5,13 @@ import type {
   DashboardMetric,
   DashboardOpenState,
   DashboardPeriod,
+  DashboardPreset,
   DashboardRange,
   DashboardReport,
   DashboardTask,
   Factory,
   FactoryLayout,
 } from '@ted/protocol'
-import { dashboardRange, dashboardRanges } from '@ted/protocol/dashboard'
 import {
   Fragment,
   type ReactNode,
@@ -25,11 +25,12 @@ import { ActionButton } from '../components/ActionButton.tsx'
 import { FactoryIcon, useFactoryColors } from '../components/FactoryIcon.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
-import { Select } from '../components/Select.tsx'
 import {
+  customStart,
   type DashboardSelection,
   type DashboardViewState,
   dashboardPanels,
+  hourlyRange,
   pickFactories,
   rangeComparison,
   rangeLabels,
@@ -42,6 +43,7 @@ import { useStages } from '../stages.tsx'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
 import { apiEquivalent, Cost, costSample, money } from './DashboardCost.tsx'
+import { DashboardRangePicker } from './DashboardRangePicker.tsx'
 import { Stages } from './DashboardStages.tsx'
 import listStyles from './TaskList.module.css'
 import { CheckItem, FilterIcon, MenuButton } from './TaskList.tsx'
@@ -121,7 +123,7 @@ const calendarDate = (at: Date) =>
 const dayCount = (bucket: Span) =>
   Math.round((Date.parse(bucket.to) - Date.parse(bucket.from)) / dayMs)
 
-const rollingRanges: readonly DashboardRange[] = ['7d', '30d', '90d', '12m']
+const rollingRanges: readonly DashboardPreset[] = ['7d', '30d', '90d', '12m']
 
 function barsCaption(data: DashboardReport, perPoint: number): string {
   const bars =
@@ -132,9 +134,11 @@ function barsCaption(data: DashboardReport, perPoint: number): string {
     perPoint > 1 && last && last.to !== data.asOf && lastDays < perPoint
       ? ` The last bar covers ${lastDays === 1 ? '1 day' : `${lastDays} days`}.`
       : ''
-  const end = rollingRanges.includes(data.range)
+  const end = rollingRanges.some((range) => range === data.range)
     ? ' Today is not included.'
-    : ' The last bar runs to now.'
+    : last?.to === data.asOf
+      ? ' The last bar runs to now.'
+      : ''
   return `${bars}, midnight to midnight.${short}${end}`
 }
 
@@ -351,7 +355,7 @@ function Chart({
   if (a.length === 0) return <p className={styles.chartEmpty}>No recorded completions to plot.</p>
   const scale = countScale(Math.max(1, ...[...a, ...b].map((bucket) => bucket.taskIds.length)))
   const maximum = scale.at(-1) ?? 1
-  const today = data.range === 'today'
+  const today = hourlyRange(data.range)
   const start = Date.parse(data.current.from ?? data.asOf)
   const slots = today ? Math.max(1, a.length, b.length) : a.length
   const plot = { left: 42, right: 990, top: 14, bottom: 196 }
@@ -998,7 +1002,7 @@ function Waiting({
 
 function spanLabel(data: DashboardReport, bucket: Span | undefined): string {
   if (!bucket) return ''
-  return data.range === 'today'
+  return hourlyRange(data.range)
     ? `${clock(Date.parse(bucket.from))} – ${clock(Date.parse(bucket.to))}`
     : dayLabel(bucket, data.asOf)
 }
@@ -1126,7 +1130,7 @@ function Sample({
                 (x, y) => (durationOf(y) ?? -1) - (durationOf(x) ?? -1),
               )
             : []
-  const days = data.range !== 'today' && bucket !== undefined
+  const days = !hourlyRange(data.range) && bucket !== undefined
   const title = spent
     ? spent.title
     : selection.metric === 'unavailable' || selection.metric === 'cost'
@@ -1619,20 +1623,11 @@ export function Dashboard({
             onChoose={choose}
           />
         )}
-        <Select
-          aria-label="Historical period"
-          value={state.range}
-          onChange={(event) => {
-            const range = dashboardRange(event.target.value)
-            if (range) onChange({ ...kept, range })
-          }}
-        >
-          {dashboardRanges.map((range) => (
-            <option key={range} value={range}>
-              {rangeLabels[range]}
-            </option>
-          ))}
-        </Select>
+        <DashboardRangePicker
+          range={state.range}
+          start={() => customStart(state.range, data?.current, Date.now())}
+          onChange={(range) => onChange({ ...kept, range })}
+        />
       </header>
       {banners}
       <div className={styles.body}>
