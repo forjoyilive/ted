@@ -30,7 +30,13 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import { antigravityPlanNotice, filterTedEnv, isBilledAgent, runTokenEnv } from '@ted/protocol'
+import {
+  antigravityPlanNotice,
+  edition,
+  filterTedEnv,
+  isBilledAgent,
+  runTokenEnv,
+} from '@ted/protocol'
 import { isInteger, isObject, parseJson } from '@ted/protocol/parse'
 import { chatToolPolicy } from '@ted/protocol/run'
 import { AgentDisabledError, piAutoHold } from '../agent-eligibility.ts'
@@ -49,7 +55,12 @@ import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { type MemoryWatch, type MemoryWatching, runKilledForMemory } from '../memory-kills.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
-import { acquireRunPermissions, runPermissions, withRunPermissions } from '../permissions.ts'
+import {
+  acquireRunPermissions,
+  factoryPermissions,
+  runPermissions,
+  withRunPermissions,
+} from '../permissions.ts'
 import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
@@ -239,12 +250,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   // and nothing starts Pi, which has no sandbox, for a Task outside a Bypass Factory.
   const launchBilling = (
     kind: AgentKind,
+    runId: string,
     taskId: string | undefined,
-    permissions: PermissionMode,
   ): Billing | undefined => {
     const settings = store.settings()
-    if (kind === 'pi' && taskId !== undefined && permissions !== 'bypass')
-      throw new RequestError(409, piAutoHold)
+    if (kind === 'pi' && !piMayLaunch(runId, taskId)) throw new RequestError(409, piAutoHold)
     if (!isBilledAgent(kind)) return undefined
     if (
       kind === 'antigravity' &&
@@ -253,6 +263,21 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     )
       throw new RequestError(409, antigravityPlanNotice)
     return settings.billing[kind]
+  }
+
+  // A Run with no owner comes only from the dev Run route, which only Ted Dev may use for Pi.
+  const piMayLaunch = (runId: string, taskId: string | undefined): boolean => {
+    const firing = store.automations.firing(runId)
+    const owner =
+      taskId !== undefined
+        ? { factoryId: store.getTask(taskId)?.factoryId }
+        : (store.coordinators.forRun(runId) ??
+          store.sideChats.forRun(runId) ??
+          store.plans.get(runId) ??
+          store.automationDrafts.get(runId) ??
+          (firing && { factoryId: store.automations.get(firing.automationId)?.factoryId }))
+    if (owner === undefined) return edition === 'dev'
+    return owner.factoryId !== undefined && factoryPermissions(store, owner.factoryId) === 'bypass'
   }
 
   const environment = (): NodeJS.ProcessEnv => {
@@ -840,7 +865,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
         tools: chatToolPolicy(run.agent),
       }),
-      billing: launchBilling(run.agent, run.taskId, permissions),
+      billing: launchBilling(run.agent, run.id, run.taskId),
     })
     const inputSize = await stat(files.input).then(
       (info) => info.size,
@@ -1260,7 +1285,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
               tools: chatToolPolicy(kind),
             }),
-            billing: launchBilling(kind, taskId, permissions),
+            billing: launchBilling(kind, id, taskId),
           })
           await writeLaunch(
             runDir,
@@ -1340,7 +1365,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
             tools: chatToolPolicy(run.agent),
           }),
-          billing: launchBilling(run.agent, run.taskId, permissions),
+          billing: launchBilling(run.agent, runId, run.taskId),
         })
         const inputFrom = await stat(files.input).then(
           (info) => info.size,
@@ -1424,7 +1449,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
               tools: chatToolPolicy(run.agent),
             }),
-            billing: launchBilling(run.agent, run.taskId, permissions),
+            billing: launchBilling(run.agent, runId, run.taskId),
           })
           await writeLaunch(runDir, run.cwd, launch, permissions)
           signal.throwIfAborted()
