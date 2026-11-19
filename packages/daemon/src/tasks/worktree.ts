@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { constants } from 'node:fs'
 import { copyFile, glob, lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { CopySkip, NetworkLevel, WorktreeCommandOutcome } from '@ted/protocol'
+import type { CopySkip, SandboxGroup, WorktreeCommandOutcome } from '@ted/protocol'
 import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RepoSettings } from '../workflow/check.ts'
@@ -11,6 +11,7 @@ import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 export interface WorktreeCommand {
   run: string
   timeoutMs: number
+  groups?: readonly SandboxGroup[]
 }
 
 export interface RepoWorktree {
@@ -20,7 +21,6 @@ export interface RepoWorktree {
   teardown?: WorktreeCommand
   env: Record<string, string>
   copy: string[]
-  network?: NetworkLevel
 }
 
 export interface CopyResult {
@@ -53,9 +53,13 @@ export function primaryRepoWorktree(
 
 export function worktreeCommands(
   worktree: RepoSettings['worktree'],
-): Pick<RepoWorktree, 'setup' | 'teardown' | 'env' | 'copy' | 'network'> {
-  const command = (c: { run: string; timeout?: string } | undefined) =>
-    c && { run: c.run, timeoutMs: c.timeout ? durationMs(c.timeout) : defaultTimeoutMs }
+): Pick<RepoWorktree, 'setup' | 'teardown' | 'env' | 'copy'> {
+  const command = (c: NonNullable<RepoSettings['worktree']>['setup']) =>
+    c && {
+      run: c.run,
+      timeoutMs: c.timeout ? durationMs(c.timeout) : defaultTimeoutMs,
+      ...(c.sandbox_access !== undefined && { groups: c.sandbox_access }),
+    }
   const setup = command(worktree?.setup)
   const teardown = command(worktree?.teardown)
   return {
@@ -63,7 +67,6 @@ export function worktreeCommands(
     ...(teardown && { teardown }),
     env: worktree?.env ?? {},
     copy: worktree?.copy ?? [],
-    ...(worktree?.network !== undefined && { network: worktree.network }),
   }
 }
 

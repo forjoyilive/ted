@@ -86,6 +86,7 @@ import type {
   Run,
   RunMessage,
   RunSlots,
+  SandboxGroup,
   SaveSettingsResult,
   SendBack,
   SendBackCause,
@@ -2901,9 +2902,9 @@ export function createTasks(options: {
     const passed = new Set(
       proposal.checks.filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
     )
-    return (settings.stages.validate?.checks ?? []).filter(
-      (c) => c.run !== undefined && passed.has(key(c.name, c.run, c.repo)),
-    )
+    return (settings.stages.validate?.checks ?? [])
+      .filter((c) => c.run !== undefined && passed.has(key(c.name, c.run, c.repo)))
+      .map(({ sandbox_access: _branchAccess, ...check }) => check)
   }
 
   async function approvedSetupApps(task: StoredTask): Promise<Map<string, AppDeclaration[]>> {
@@ -2933,7 +2934,9 @@ export function createTasks(options: {
                   return repo !== undefined && sameRepo(repo, r.repo)
                 })
           const names = [r.name, ...(listed?.name !== undefined ? [listed.name] : [])]
-          const apps = appDeclarations(listed?.apps).filter((a) => passed(names, a))
+          const apps = appDeclarations(listed?.apps)
+            .filter((a) => passed(names, a))
+            .map(({ sandboxAccess: _branchAccess, ...app }) => app)
           return [r.name, apps] as const
         }),
     )
@@ -6333,7 +6336,6 @@ export function createTasks(options: {
         kind: 'teardown',
         command: teardown,
         env: entry.env,
-        ...(entry.network !== undefined && { network: entry.network }),
         remaining: (remainingRepos ?? current.repos)
           .filter((r) => !r.removed)
           .map((r) => lifecycle.worktree(ref, r)),
@@ -7275,10 +7277,14 @@ export function createTasks(options: {
     return reports
   }
 
-  async function setupNetwork(task: StoredTask, repo: TaskRepo) {
-    const factory = factoryOf(task)
-    const { workflow } = await taskWorkflow(task, { fetch: false })
-    return repoEntry(factoryRepos(workflow, factory), repo)?.network
+  async function setupGroups(
+    task: StoredTask,
+    repo: TaskRepo,
+    setup: RecordedSetup,
+  ): Promise<readonly SandboxGroup[]> {
+    const resolution = await taskWorkflow(task, { fetch: false })
+    const entry = repoEntry(factoryRepos(resolution.workflow, factoryOf(task)), repo)
+    return entry?.setup?.run === setup.command ? (entry.setup.groups ?? []) : []
   }
 
   async function runSetup(
@@ -7290,13 +7296,16 @@ export function createTasks(options: {
   ): Promise<{ result: CommandResult; report?: string } | undefined> {
     const log = commandLog(task, 'setup', repo.name)
     const ref = await execution.local(task.id)
-    const network = await setupNetwork(task, repo)
+    const groups = await setupGroups(task, repo, setup)
     const result = await lifecycle.command(lifecycle.worktree(ref, repo), {
       kind: 'setup',
-      command: { run: setup.command, timeoutMs: setup.timeoutMs },
+      command: {
+        run: setup.command,
+        timeoutMs: setup.timeoutMs,
+        ...(groups.length > 0 && { groups }),
+      },
       env: setup.env,
       signal,
-      ...(network !== undefined && { network }),
     })
     const now = find(task.id)
     if (result.outcome === 'interrupted' || now.archived || (untilStopped && now.stopped)) {

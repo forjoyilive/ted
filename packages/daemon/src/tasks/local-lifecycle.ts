@@ -7,7 +7,6 @@ import {
   type ExecutionRef,
   executionHandle,
   executionIds,
-  type NetworkLevel,
 } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
@@ -45,7 +44,6 @@ export interface LifecycleCommand {
   env: Record<string, string>
   remaining?: readonly LifecycleHandle[]
   signal?: AbortSignal
-  network?: NetworkLevel
 }
 
 export interface TaskWorktreeLifecycle {
@@ -510,7 +508,6 @@ export function createLocalLifecycle(options: {
       env: worktreeCommandEnv(input.env, { TED_TASK: task.displayId }, options.env()),
       log,
       ...(input.signal && { signal: input.signal }),
-      ...(input.network !== undefined && { network: input.network }),
       lowPriority: store.settings().lowPriorityWork,
       async prepareLaunch(): Promise<CommandLaunch> {
         const release = await acquireFactoryPermissions(store, task.factoryId)

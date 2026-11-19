@@ -4,30 +4,28 @@ repos:
     remote: https://github.com/forjoyilive/ted.git
     merge_method: merge
     worktree:
-      setup: pnpm install --frozen-lockfile
-      network: outbound
+      setup: { run: pnpm install --frozen-lockfile, sandbox_access: [network] }
     apps:
       - name: Ted Dev
         kind: command
         electron: true
-        network: outbound
+        sandbox_access: [network]
         run: MAC_CHROMIUM_TMPDIR="$TMPDIR" TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app $TED_ELECTRON_ARGS
   - name: ted-mobile
     remote: https://github.com/forjoyilive/ted-mobile.git
     worktree:
-      setup: npm install --frozen-lockfile
-      network: outbound
+      setup: { run: npm install --frozen-lockfile, sandbox_access: [network] }
     apps:
       - name: Ted iPhone
         kind: ios-simulator
         run: pnpm ios release
         device: iPhone 17
-        network: outbound
+        sandbox_access: [network]
       - name: Ted Dev iPhone
         kind: ios-simulator
         run: pnpm ios dev
         device: iPhone 17
-        network: outbound
+        sandbox_access: [network]
 order: [intake, clarify, design, work, validate, review, merge]
 stages:
   design: { gate: true, based_on: f7500a6 }

@@ -6,6 +6,7 @@ import {
   appKinds,
   isLoopbackUrl,
   isModelName,
+  isSandboxGroup,
   type LayerKind,
   maxCleanupStepName,
   type NetworkLevel,
@@ -13,11 +14,13 @@ import {
   type PullRequestCiMode,
   previewPresets,
   pullRequestCiModes,
+  type SandboxGroup,
   type StageId,
+  sandboxGroupNames,
   type WorkflowProblem,
 } from '@ted/protocol'
 import { builtInAgentIds } from '@ted/protocol/agent-files'
-import { isBoolean, isInteger, isOneOf } from '@ted/protocol/parse'
+import { isBoolean, isInteger, isOneOf, isString } from '@ted/protocol/parse'
 import {
   handsOff,
   hasClarifyRounds,
@@ -54,7 +57,7 @@ export interface CommandCheckSettings {
   run: string
   repo?: string
   timeout?: string
-  network?: NetworkLevel
+  sandbox_access?: SandboxGroup[]
   instruction?: never
   fix?: never
   agent?: never
@@ -72,7 +75,7 @@ export interface InstructionCheckSettings {
   effort?: string
   run?: never
   repo?: never
-  network?: never
+  sandbox_access?: never
 }
 
 export type CheckSettings = CommandCheckSettings | InstructionCheckSettings
@@ -122,6 +125,7 @@ export interface StageSettings {
 export interface WorktreeCommand {
   run: string
   timeout?: string
+  sandbox_access?: SandboxGroup[]
 }
 
 export interface RepoSettings {
@@ -135,7 +139,6 @@ export interface RepoSettings {
     teardown?: WorktreeCommand
     env?: Record<string, string>
     copy?: string[]
-    network?: NetworkLevel
   }
   apps?: unknown[]
 }
@@ -407,8 +410,10 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         break
       }
       case 'sandbox_network': {
-        const network = networkLevel(value, '`sandbox_network`')
-        if (network) settings.sandbox_network = network
+        const network = networkLevels.find((l) => l === scalar(value))
+        if (network === undefined)
+          error(value, '`sandbox_network` must be none, localhost or outbound')
+        else settings.sandbox_network = network
         break
       }
       case 'repos':
@@ -459,12 +464,6 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       } else warn(entry.key, `unknown key \`${path}\``)
     }
     return choice
-  }
-
-  function networkLevel(value: Node | null, what: string): NetworkLevel | undefined {
-    const level = networkLevels.find((l) => l === scalar(value))
-    if (level === undefined) error(value, `${what} must be none, localhost or outbound`)
-    return level
   }
 
   function checkSandboxPaths(
@@ -757,7 +756,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     const choice: AgentChoice = {}
     let timeout: string | undefined
     let fix: boolean | undefined
-    let network: NetworkLevel | undefined
+    let access: SandboxGroup[] | undefined
     let bad = false
     const keyOf = (name: string) => entries(item).find((entry) => entry.name === name)?.key ?? item
     for (const entry of entries(item)) {
@@ -777,9 +776,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             bad = true
           } else timeout = String(scalar(entry.value))
           break
-        case 'network':
-          network = networkLevel(entry.value, 'a check’s `network`')
-          if (network === undefined) bad = true
+        case 'sandbox_access':
+          access = checkAccess(entry.value)
+          if (access === undefined) bad = true
           break
         case 'fix':
           if (scalar(entry.value) !== true && scalar(entry.value) !== false) {
@@ -827,8 +826,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           keyOf('repo'),
           'an instruction check runs across all the Task’s repos, so it takes no `repo`',
         )
-      if (network !== undefined)
-        return void error(keyOf('network'), 'only a check with a `run` command takes `network`')
+      if (access !== undefined)
+        return void error(
+          keyOf('sandbox_access'),
+          'an instruction check runs no command in the sandbox, so it takes no `sandbox_access`',
+        )
       return {
         name,
         instruction,
@@ -849,8 +851,27 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       run,
       ...(repo !== undefined && { repo }),
       ...(timeout !== undefined && { timeout }),
-      ...(network !== undefined && { network }),
+      ...(access !== undefined && { sandbox_access: access }),
     }
+  }
+
+  function checkAccess(value: Node | null): SandboxGroup[] | undefined {
+    const known = sandboxGroupNames.join(', ')
+    if (!isSeq(value))
+      return void error(value, `\`sandbox_access\` must be a list of access groups: ${known}`)
+    const groups: SandboxGroup[] = []
+    let bad = false
+    for (const item of value.items) {
+      const name = isScalar(item) && isString(item.value) ? item.value : undefined
+      if (name === undefined || !isSandboxGroup(name)) {
+        error(
+          isScalar(item) ? item : value,
+          `\`${name ?? ''}\` isn’t a sandbox access group. Ted’s groups: ${known}`,
+        )
+        bad = true
+      } else if (!groups.includes(name)) groups.push(name)
+    }
+    return bad ? undefined : groups
   }
 
   function checkRepos(value: Node | null): RepoSettings[] | undefined {
@@ -1005,13 +1026,13 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           case 'device':
             if (!isText(node)) error(node, '`device` must be text')
             break
-          case 'network':
-            networkLevel(node, 'an App’s `network`')
-            break
           case 'preview':
             if (!oneOf(node, [...previewPresets]))
               error(node, '`preview` must be desktop, tablet or mobile')
             else if (kind !== 'web') warn(entry.key, 'only a web App has a `preview` size')
+            break
+          case 'sandbox_access':
+            checkAccess(node)
             break
           case 'electron': {
             const value = scalar(node)
@@ -1097,11 +1118,6 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           worktree.env = env
           break
         }
-        case 'network': {
-          const network = networkLevel(node, '`worktree.network`')
-          if (network) worktree.network = network
-          break
-        }
         case 'copy': {
           if (!isSeq(node) || !(node.items as (Node | null)[]).every(isText)) {
             error(node, '`worktree.copy` must be a list of paths')
@@ -1118,7 +1134,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
   function checkCommand(name: string, value: Node | null): WorktreeCommand | undefined {
     if (isText(value)) return { run: scalar(value) as string }
     if (!isMap(value))
-      return void error(value, `\`${name}\` must be a command, or { run, timeout }`)
+      return void error(value, `\`${name}\` must be a command, or { run, timeout, sandbox_access }`)
     const command: Partial<WorktreeCommand> = {}
     for (const entry of entries(value)) {
       if (entry.name === 'run') {
@@ -1127,6 +1143,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       } else if (entry.name === 'timeout') {
         if (!durationValue(entry.value)) error(entry.value, durationMessage)
         else command.timeout = scalar(entry.value) as string
+      } else if (entry.name === 'sandbox_access') {
+        const access = checkAccess(entry.value)
+        if (access !== undefined) command.sandbox_access = access
       } else warn(entry.key, `unknown key \`${name}.${entry.name}\``)
     }
     if (command.run === undefined) return void error(value, `\`${name}\` needs a \`run\` command`)

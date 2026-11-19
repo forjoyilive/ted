@@ -771,12 +771,7 @@ export function createApps(options: AppsOptions): Apps {
       )
       const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
       const sandboxed = await sandboxFor(
-        scope && {
-          ...scope,
-          electron,
-          serves: true,
-          ...(app.network !== undefined && { network: app.network }),
-        },
+        scope && { ...scope, electron, serves: true, groups: app.sandboxAccess ?? [] },
         task,
         dir,
       )

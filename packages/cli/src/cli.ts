@@ -93,6 +93,7 @@ import {
   helpText,
   type Options,
   parseInvocation,
+  sandboxGroupsText,
   UsageError,
 } from './commands.ts'
 import { exportCommand } from './export.ts'
@@ -1883,6 +1884,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     },
     workflowCheck: async () => {
       await workflowCheck(args[0] ?? '.ted')
+    },
+    sandboxGroups: async () => {
+      console.log(sandboxGroupsText())
     },
     seedDemo: async () => {
       if (

@@ -170,14 +170,21 @@ function networkGrants(base: Base, repos: readonly { name: string }[]): NetworkG
     layer?.settings.sandbox_network === 'outbound' ? [{ place: 'factory', from: layer.kind }] : []
   for (const [i, entry] of (base.settings?.repos ?? []).entries()) {
     const repo = repos[i]?.name ?? ''
-    if (entry.worktree?.network === 'outbound') grants.push({ place: 'worktree', repo })
+    for (const command of [entry.worktree?.setup, entry.worktree?.teardown]) {
+      if (
+        command?.sandbox_access?.includes('network') &&
+        !grants.some((g) => g.place === 'worktree' && g.repo === repo)
+      )
+        grants.push({ place: 'worktree', repo })
+    }
     for (const app of appDeclarations(entry.apps)) {
-      if (app.network === 'outbound') grants.push({ place: 'app', repo, app: app.name })
+      if (app.sandboxAccess?.includes('network')) grants.push({ place: 'app', repo, app: app.name })
     }
   }
   const checks = resolveWorkflow([...base.inherited, base.own]).settings.stages.validate?.checks
   for (const check of checks ?? []) {
-    if (check.network === 'outbound') grants.push({ place: 'check', check: check.name })
+    if (check.sandbox_access?.includes('network'))
+      grants.push({ place: 'check', check: check.name })
   }
   return grants
 }

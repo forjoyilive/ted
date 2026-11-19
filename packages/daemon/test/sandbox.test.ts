@@ -15,6 +15,7 @@ import { type AddressInfo, createServer, type Server } from 'node:net'
 import { homedir, networkInterfaces, tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import type { SandboxGroup } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
   createSandbox,
@@ -60,15 +61,19 @@ afterEach(async () => {
 
 async function inSandbox(
   script: string,
-  sockets: string[] = [],
-  home?: string,
-  reads: string[] = [],
+  options: { sockets?: string[]; home?: string; reads?: string[]; groups?: SandboxGroup[] } = {},
 ) {
+  const { sockets = [], home, reads = [], groups } = options
   const sandbox = createSandbox({
     tedHome,
     env: () => (home === undefined ? process.env : { ...process.env, HOME: home }),
   })
-  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), sockets, reads })
+  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], {
+    ...scope(),
+    sockets,
+    reads,
+    ...(groups !== undefined && { groups }),
+  })
   const [command, ...args] = argv
   return execFileAsync(command, [...args, script], {
     cwd: worktree,
@@ -103,6 +108,8 @@ async function listen(socket: string): Promise<Server> {
 const tryConnect = (socket: string) =>
   `'${process.execPath}' -e "require('net').connect('${socket}').on('connect', () => { console.log('connected'); process.exit() }).on('error', () => { console.log('refused'); process.exit() })"`
 
+const xcode: SandboxGroup[] = ['ios-xcode']
+
 const tryTcp = (host: string, port: number) =>
   `'${process.execPath}' -e "require('net').connect(${port}, '${host}').on('connect', () => { console.log('connected'); process.exit() }).on('error', () => { console.log('refused'); process.exit() })"`
 
@@ -115,8 +122,7 @@ function machineAddress(): string | undefined {
 async function listenTcp(): Promise<{ server: Server; port: number }> {
   const server = createServer((connection) => connection.end())
   await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', resolve))
-  const address = server.address() as AddressInfo
-  return { server, port: address.port }
+  return { server, port: (server.address() as AddressInfo).port }
 }
 
 const tryWrite = (file: string) => `echo x > '${file}' 2>/dev/null && echo wrote || echo refused`
@@ -162,6 +168,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.split('\n').slice(0, 13)).toEqual([
       'wrote',
@@ -212,6 +219,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         `mkdir '${swbuildShorter}' 2>/dev/null && echo wrote || echo refused`,
         tryWrite(loose),
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.split('\n').slice(0, 7)).toEqual([
       'wrote',
@@ -283,6 +291,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         ),
         attempt(`chmod 777 '${userHelper}/IB'`),
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'wrote',
@@ -336,6 +345,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     try {
       const result = await inSandbox(
         `(mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${randomUUID().toUpperCase()}.HostToRemote') 2>/dev/null && echo wrote || echo refused`,
+        { groups: xcode },
       )
       expect(result.stdout.trim()).toBe('refused')
     } finally {
@@ -384,6 +394,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         attempt(`mkfifo '${pipe('IN')}'`),
         attempt(`mkfifo '${pipe('OUT')}'`),
       ].join('; '),
+      { groups: xcode },
     )
     try {
       expect(result.stdout.trim().split('\n')).toEqual([
@@ -461,6 +472,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(folder, 'assets.uicatalog')),
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused'])
     await rm(folder, { recursive: true, force: true })
@@ -478,6 +490,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && ls "$d" && cat "$d/Package.swift" && rm -r "$d" && echo reached || echo refused`,
         `mkdir '${xcodeSave}' && echo x > '${xcodeSave}/x' && ls '${xcodeSave}' && echo reached || echo refused`,
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'refused',
@@ -491,6 +504,54 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'reached',
     ])
     await rm(xcodeSave, { recursive: true, force: true })
+  })
+
+  test('without ios-xcode, a sandboxed command gets none of Xcode’s folders and runs with the daemon’s own umask', async () => {
+    const id = randomUUID()
+    const xcodeSave = path.join(saves, `NSIRD_xcodebuild_${id}`)
+    const helper = path.join(userTemp, `ibtoold-${900000 + Math.floor(Math.random() * 90000)}`)
+    const home = await realpath(outside)
+    const logs = path.join(
+      home,
+      'Library',
+      'Caches',
+      'org.swift.swiftpm',
+      'manifests',
+      'ManifestLoading',
+    )
+    await mkdir(logs, { recursive: true })
+    const previous = process.umask(0o022)
+    try {
+      const script = [
+        `mkdir '${xcodeSave}' 2>/dev/null && echo wrote || echo refused`,
+        `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
+        `d=$(mktemp -d '${userTemp}/swbuild.tmp.XXXXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
+        `mkdir '${helper}' 2>/dev/null && echo wrote || echo refused`,
+        tryWrite(path.join(logs, 'apple.dia')),
+        'umask',
+      ].join('; ')
+      const without = await inSandbox(script, { home })
+      expect(without.stdout.trim().split('\n')).toEqual([
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        '0022',
+      ])
+      const granted = await inSandbox(script, { home, groups: xcode })
+      expect(granted.stdout.trim().split('\n')).toEqual([
+        'wrote',
+        'wrote',
+        'wrote',
+        'wrote',
+        'wrote',
+        '0023',
+      ])
+    } finally {
+      process.umask(previous)
+      for (const dir of [xcodeSave, helper]) await rm(dir, { recursive: true, force: true })
+    }
   })
 
   test('git reads the worktree through the Task’s clone', async () => {
@@ -575,8 +636,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryRead(path.join(worktree, 'own.txt')),
         tryWrite(path.join(worktree, 'new.txt')),
       ].join('; '),
-      [],
-      home,
+      { home },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'refused',
@@ -613,7 +673,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       `'${process.execPath}' -e "console.log('node ran')"`,
     ].join('; ')
 
-    const plain = await inSandbox(script, [], home)
+    const plain = await inSandbox(script, { home })
     expect(plain.stdout.trim().split('\n')).toEqual([
       'refused',
       'refused',
@@ -630,7 +690,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'node ran',
     ])
 
-    const listed = await inSandbox(script, [], home, ['~/.config/gh', '~/Desktop'])
+    const listed = await inSandbox(script, { home, reads: ['~/.config/gh', '~/Desktop'] })
     expect(listed.stdout.trim().split('\n')).toEqual([
       'refused',
       'refused',
@@ -697,8 +757,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(manifests, 'manifest.db')),
         `mv '${logs}' '${path.join(manifests, 'moved')}' 2>/dev/null && echo wrote || echo refused`,
       ].join('; '),
-      [],
-      home,
+      { home, groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'wrote',
@@ -720,11 +779,10 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     await mkdir(manifests, { recursive: true })
     await mkdir(elsewhere)
     await symlink(elsewhere, path.join(manifests, 'ManifestLoading'))
-    const result = await inSandbox(
-      tryWrite(path.join(manifests, 'ManifestLoading', 'apple.dia')),
-      [],
+    const result = await inSandbox(tryWrite(path.join(manifests, 'ManifestLoading', 'apple.dia')), {
       home,
-    )
+      groups: xcode,
+    })
     expect(result.stdout.trim()).toBe('refused')
   })
 
@@ -781,16 +839,16 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
   })
 
-  test('without a grant it reaches only loopback; none closes loopback too, and outbound opens the rest', async (context) => {
+  test('without a grant it reaches only loopback; none closes loopback too, and outbound or the network group opens the rest', async (context) => {
     const address = machineAddress()
     context.skip(address === undefined, 'this machine has no non-loopback IPv4 address')
     const { server, port } = await listenTcp()
     const sandbox = createSandbox({ tedHome, env: () => process.env })
-    const attempt = async (network?: 'none' | 'localhost' | 'outbound') => {
-      const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], {
-        ...scope(),
-        ...(network !== undefined && { network }),
-      })
+    const attempt = async (extra: {
+      network?: 'none' | 'localhost' | 'outbound'
+      groups?: SandboxGroup[]
+    }) => {
+      const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })
       const [command, ...args] = argv
       const { stdout } = await execFileAsync(
         command,
@@ -800,10 +858,14 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       return stdout.trim().split('\n')
     }
     try {
-      expect(await attempt()).toEqual(['connected', 'refused'])
-      expect(await attempt('localhost')).toEqual(['connected', 'refused'])
-      expect(await attempt('none')).toEqual(['refused', 'refused'])
-      expect(await attempt('outbound')).toEqual(['connected', 'connected'])
+      expect(await attempt({})).toEqual(['connected', 'refused'])
+      expect(await attempt({ network: 'localhost' })).toEqual(['connected', 'refused'])
+      expect(await attempt({ network: 'none' })).toEqual(['refused', 'refused'])
+      expect(await attempt({ network: 'outbound' })).toEqual(['connected', 'connected'])
+      expect(await attempt({ network: 'none', groups: ['network'] })).toEqual([
+        'connected',
+        'connected',
+      ])
     } finally {
       server.close()
     }
@@ -812,7 +874,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
   test('only an outbound grant reaches mDNSResponder, so lookups can’t carry data out', async () => {
     const sandbox = createSandbox({ tedHome, env: () => process.env })
     const closed = await sandbox.wrap(['/bin/sh', '-c'], scope())
-    const open = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), network: 'outbound' })
+    const open = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), groups: ['network'] })
     expect(closed.argv.join('\n')).not.toContain('mDNSResponder')
     expect(open.argv.join('\n')).toContain('mDNSResponder')
     const result = await inSandbox(
@@ -830,7 +892,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     try {
       const result = await inSandbox(
         [tryConnect(own), tryConnect(listed), tryConnect(other), 'echo resolved'].join('; '),
-        [listed],
+        { sockets: [listed] },
       )
       expect(result.stdout.trim().split('\n')).toEqual([
         'connected',
@@ -917,7 +979,7 @@ describe('the folders a sandbox opens', () => {
     expect(argv.indexOf(home)).toBeLessThan(argv.indexOf(real))
   })
 
-  test('on Linux, a command gets its own network unless it has an outbound grant or is an App serving a port', async () => {
+  test('on Linux, a command gets its own network unless it has outbound access or is an App serving a port', async () => {
     const sandbox = createSandbox({
       tedHome,
       env: () => ({ PATH: '/usr/bin:/bin' }),
@@ -928,6 +990,7 @@ describe('the folders a sandbox opens', () => {
     const ownNetwork = async (extra: {
       network?: 'none' | 'localhost' | 'outbound'
       serves?: boolean
+      groups?: SandboxGroup[]
     }) =>
       (await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })).argv.includes(
         '--unshare-net',
@@ -935,6 +998,7 @@ describe('the folders a sandbox opens', () => {
     expect(await ownNetwork({})).toBe(true)
     expect(await ownNetwork({ network: 'none' })).toBe(true)
     expect(await ownNetwork({ network: 'outbound' })).toBe(false)
+    expect(await ownNetwork({ groups: ['network'] })).toBe(false)
     expect(await ownNetwork({ serves: true })).toBe(false)
     expect(await ownNetwork({ network: 'none', serves: true })).toBe(true)
   })

@@ -254,7 +254,6 @@ export function createCacheSeeds(options: {
           signal,
           lowPriority: store.settings().lowPriorityWork,
           sandbox: { sandbox: options.sandbox, scope, tmpRoot: path.join(fillDir, 'tmp') },
-          ...(entry.network !== undefined && { network: entry.network }),
         })
         if (result.outcome !== 'passed') {
           throw new Error(`setup for ${entry.name} ended ${result.outcome}`)

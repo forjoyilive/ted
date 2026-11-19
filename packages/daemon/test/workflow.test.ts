@@ -362,27 +362,8 @@ describe('layers', () => {
     }
   })
 
-  test('sandbox_network sets the Factory’s level, and a worktree, a command check and an App can each set their own', async () => {
-    const good = factory({
-      'workflow.yaml': [
-        'version: 1',
-        'sandbox_network: none',
-        'repos:',
-        '  - name: app',
-        '    worktree:',
-        '      setup: npm install',
-        '      network: outbound',
-        '    apps:',
-        '      - name: Web',
-        '        run: npm run dev',
-        '        network: outbound',
-        'stages:',
-        '  validate:',
-        '    checks:',
-        '      - { name: Test, run: npm test, network: localhost }',
-        '',
-      ].join('\n'),
-    })
+  test('sandbox_network sets the Factory’s network level, and the later layer’s level wins', async () => {
+    const good = factory({ 'workflow.yaml': 'version: 1\nsandbox_network: none\n' })
     const { settings } = resolveWorkflow([
       await defaults(),
       library({ 'workflow.yaml': 'version: 1\nsandbox_network: outbound\n' }),
@@ -390,31 +371,10 @@ describe('layers', () => {
     ])
     expect(good.problems).toEqual([])
     expect(settings.sandbox_network).toBe('none')
-    expect(settings.repos?.[0]?.worktree?.network).toBe('outbound')
-    expect(settings.stages.validate?.checks?.[0]).toMatchObject({ network: 'localhost' })
-    expect(appDeclarations(settings.repos?.[0]?.apps)[0]?.network).toBe('outbound')
 
-    const bad = factory({
-      'workflow.yaml': [
-        'version: 1',
-        'sandbox_network: all',
-        'repos:',
-        '  - name: app',
-        '    worktree: { network: yes }',
-        '    apps:',
-        '      - { name: Web, run: npm run dev, network: example.com }',
-        'stages:',
-        '  validate:',
-        '    checks:',
-        '      - { name: Docs, instruction: Read the docs., network: outbound }',
-        '',
-      ].join('\n'),
-    })
+    const bad = factory({ 'workflow.yaml': 'version: 1\nsandbox_network: all\n' })
     expect(bad.problems.map((p) => p.message)).toEqual([
       '`sandbox_network` must be none, localhost or outbound',
-      '`worktree.network` must be none, localhost or outbound',
-      'an App’s `network` must be none, localhost or outbound',
-      'only a check with a `run` command takes `network`',
     ])
   })
 
@@ -715,6 +675,49 @@ describe('checking a layer', () => {
       'error .ted/workflow.yaml 36 18 `preview` must be desktop, tablet or mobile',
       'warning .ted/workflow.yaml 40 9 only a web App has a `preview` size',
     ])
+  })
+
+  test('sandbox_access names only Ted’s access groups, on an App, a command check or worktree setup and teardown', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: app',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown:',
+      '        run: clean',
+      '        sandbox_access: ios-xcode',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode, android-gradle]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: Build',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      '      - name: Review',
+      '        instruction: Look it over',
+      '        sandbox_access: [ios-xcode]',
+      '',
+    ].join('\n')
+    const checked = checkLayer({ kind: 'factory', files: { 'workflow.yaml': yaml } })
+    expect(problems({ 'workflow.yaml': yaml })).toEqual([
+      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode, network',
+      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode, network',
+      'error .ted/workflow.yaml 22 9 an instruction check runs no command in the sandbox, so it takes no `sandbox_access`',
+    ])
+    expect(checked.settings.repos?.[0]?.worktree?.setup).toEqual({
+      run: 'make',
+      sandbox_access: ['ios-xcode'],
+    })
+    expect(checked.settings.stages.validate?.checks?.[0]).toEqual({
+      name: 'Build',
+      run: 'xcodebuild',
+      sandbox_access: ['ios-xcode'],
+    })
   })
 
   test('a bad Stage id in order or stages is an error at its line', () => {
@@ -1423,5 +1426,63 @@ describe('App preview size edits', () => {
       repoSettingsFrom(layer.settings, stored),
     )
     expect(cleared).not.toContain('preview')
+  })
+})
+
+describe('sandbox access through Settings edits', () => {
+  test('saving Settings keeps sandbox_access on setup, teardown, Apps and command checks', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: web',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown: { run: clean, timeout: 5m, sandbox_access: [ios-xcode] }',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: Build',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      '',
+    ].join('\n')
+    const stored = [
+      { repo: 'owner/web', name: 'web', cloneUrl: 'https://github.com/owner/web.git' },
+    ]
+    const edited = applyChanges(
+      yaml,
+      {
+        repos: [
+          {
+            was: 'web',
+            repo: 'owner/web',
+            name: 'web',
+            setup: { run: 'make all' },
+            teardown: { run: 'clean' },
+            env: [],
+            copy: [],
+            apps: [{ was: 0, name: 'Sim', kind: 'command', run: 'xcodebuild build' }],
+          },
+        ],
+        checks: [{ was: 0, name: 'Build', run: 'xcodebuild test' }],
+      },
+      repoSettingsFrom(factory({ 'workflow.yaml': yaml }).settings, stored),
+    )
+    const layer = factory({ 'workflow.yaml': edited })
+    expect(layer.problems).toEqual([])
+    const repo = layer.settings.repos?.[0]
+    expect(repo?.worktree?.setup).toEqual({ run: 'make all', sandbox_access: ['ios-xcode'] })
+    expect(repo?.worktree?.teardown).toEqual({ run: 'clean', sandbox_access: ['ios-xcode'] })
+    expect(appDeclarations(repo?.apps)).toMatchObject([
+      { name: 'Sim', run: 'xcodebuild build', sandboxAccess: ['ios-xcode'] },
+    ])
+    expect(layer.settings.stages.validate?.checks).toEqual([
+      { name: 'Build', run: 'xcodebuild test', sandbox_access: ['ios-xcode'] },
+    ])
   })
 })

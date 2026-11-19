@@ -6,7 +6,7 @@ import {
   checkFailed,
   checkLabel,
   defaultInstructionCheckTimeout,
-  type NetworkLevel,
+  type SandboxGroup,
 } from '@ted/protocol'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import { type MemoryWatch, memoryKill } from '../memory-kills.ts'
@@ -35,7 +35,7 @@ export interface RunnableCheck {
   check: PlannedCheck
   cwd?: string
   env?: Record<string, string>
-  network?: NetworkLevel
+  groups?: readonly SandboxGroup[]
 }
 
 export interface CheckRunnerResult {
@@ -133,7 +133,7 @@ export async function planChecks(input: {
             check,
             cwd: repo.worktree,
             env: repo.env,
-            ...(settings.network !== undefined && { network: settings.network }),
+            ...(settings.sandbox_access !== undefined && { groups: settings.sandbox_access }),
           },
     )
   }
@@ -193,7 +193,7 @@ export async function runChecks(input: {
   ) => void
 }): Promise<CheckRunnerResult> {
   const notFound: string[] = []
-  for (const [position, { check, cwd, env, network }] of input.checks.entries()) {
+  for (const [position, { check, cwd, env, groups }] of input.checks.entries()) {
     if (position < (input.from ?? 0)) continue
     if (input.to !== undefined && position >= input.to) break
     if (check.state === 'skipped' || check.notRerun || cwd === undefined) continue
@@ -246,7 +246,7 @@ export async function runChecks(input: {
             lowPriority: input.lowPriority,
             ...(input.signal !== undefined && { signal: input.signal }),
             prepareLaunch: input.prepareLaunch,
-            ...(network !== undefined && { network }),
+            ...(groups !== undefined && { groups }),
             root: {
               kind: 'check',
               ...(input.taskDisplayId !== undefined && { task: input.taskDisplayId }),
