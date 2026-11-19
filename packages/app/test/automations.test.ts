@@ -5,6 +5,7 @@ beforeEach(() => setTimePreferences({ timeFormat: '24-hour', timeZone: 'Europe/L
 import type { Automation, AutomationRun, AutomationSchedule } from '@ted/protocol'
 import { beforeEach, describe, expect, test } from 'vitest'
 import {
+  agentModel,
   draftOf,
   duplicateOf,
   duration,
@@ -125,6 +126,18 @@ describe('the Automations page', () => {
       text: 'Paused · Codex usage limit',
       tone: 'neutral',
     })
+  })
+
+  test('Provider · model names what a scheduled Check’s agent step runs, and is blank when it runs none', () => {
+    const check = { command: 'pnpm test', timeout: '1h', startTasks: false }
+    expect(agentModel(automation())).toBe('Claude · sonnet')
+    expect(agentModel(automation({ check: { ...check, agentStep: 'on-failure' } }))).toBe(
+      'Claude · sonnet',
+    )
+    expect(agentModel(automation({ check: { ...check, agentStep: 'always' } }))).toBe(
+      'Claude · sonnet',
+    )
+    expect(agentModel(automation({ check: { ...check, agentStep: 'never' } }))).toBe('')
   })
 })
 

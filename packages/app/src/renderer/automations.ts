@@ -172,7 +172,7 @@ export function nowChip(
 }
 
 export function agentModel(automation: Pick<Automation, 'agent' | 'model' | 'check'>): string {
-  if (automation.check) return 'Check · no Provider'
+  if (automation.check?.agentStep === 'never') return ''
   return [agentLabels[automation.agent], automation.model].filter(Boolean).join(' · ')
 }
 
