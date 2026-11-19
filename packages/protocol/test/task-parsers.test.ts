@@ -360,7 +360,7 @@ rejects(
   { startInBackground: 'yes' },
   'startInBackground must be true or false',
 )
-rejects(P.parseTaskLead, { agent: 'other' }, 'agent must be claude, codex or antigravity')
+rejects(P.parseTaskLead, { agent: 'other' }, 'agent must be claude, codex, antigravity or pi')
 for (const to of ['backlog', 'Security', 'security_review'])
   rejects(
     P.parseReportOutcomeRequest,

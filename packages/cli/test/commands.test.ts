@@ -38,7 +38,7 @@ describe('command definitions', () => {
     expect(() => parseInvocation(['comment', '--provider', 'codex', 'hi'], terminal)).toThrow(
       UsageError,
     )
-    expect(helpText()).toContain('--provider claude|codex|antigravity')
+    expect(helpText()).toContain('--provider claude|codex|antigravity|pi')
     expect(helpText()).not.toContain('--agent')
   })
 

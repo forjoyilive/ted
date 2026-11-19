@@ -12,7 +12,7 @@ function fail(message: string): never {
 }
 const read = reader(fail)
 
-export const checkAgents = ['codex', 'claude', 'antigravity', 'same'] as const
+export const checkAgents = ['codex', 'claude', 'antigravity', 'pi', 'same'] as const
 const maxInstructionChecks = 200
 const maxInstructionLength = 64 * 1024
 const maxNameLength = 200

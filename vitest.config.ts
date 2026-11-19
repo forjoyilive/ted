@@ -84,6 +84,8 @@ const testOptions = {
     TED_CLAUDE_BIN: here('./packages/daemon/test/fixtures/stub-claude.ts'),
     TED_CODEX_BIN: here('./packages/daemon/test/fixtures/stub-codex.ts'),
     TED_ANTIGRAVITY_BIN: here('./packages/daemon/test/fixtures/no-antigravity-here'),
+    TED_PI_BIN: here('./packages/daemon/test/fixtures/no-pi-here'),
+    PI_CODING_AGENT_DIR: here('./packages/daemon/test/fixtures/no-pi-agent-here'),
     TED_XCRUN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
     TED_OPEN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
     TED_IDB_BIN: here('./packages/daemon/test/fixtures/stub-idb.ts'),

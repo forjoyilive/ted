@@ -124,6 +124,17 @@ export function CodexMark({ size, className }: IconProps & { size: number }) {
   )
 }
 
+export function PiMark({ size, className }: IconProps & { size: number }) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 10 10" aria-hidden>
+      <path
+        fill="currentColor"
+        d="M0.8 1.6H9.4V3.1H0.8ZM2.7 3.1H4.2C4.2 5.6 3.8 7.4 2.7 8.7H1.1C2.3 7.3 2.7 5.6 2.7 3.1ZM5.9 3.1H7.4V6.8C7.4 7.3 7.6 7.5 8 7.5C8.3 7.5 8.5 7.4 8.7 7.1L9.5 7.7C9.2 8.3 8.6 8.7 7.8 8.7C6.6 8.7 5.9 8 5.9 6.9Z"
+      />
+    </svg>
+  )
+}
+
 export function CloseIcon({ size = 14, className }: IconProps & { size?: number }) {
   return (
     <svg

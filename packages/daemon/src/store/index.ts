@@ -362,6 +362,7 @@ export interface CheckWork {
 export interface QueueActivity {
   taskPlaces?: readonly { id: string; place: number; skipsBusy?: true }[]
   backlogWaits?: ReadonlyMap<string, BacklogWait>
+  startHolds?: ReadonlyMap<string, string>
   queuedTasks: readonly string[]
   queuedRuns: readonly string[]
   startingRuns: readonly string[]
@@ -2357,11 +2358,13 @@ export async function openStore({
           !reads.settings().enabledAgents.includes((leadAgent ?? held?.agent) as AgentKind) &&
           (!leadLive || lead?.agent !== (leadAgent ?? held?.agent))
             ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Providers.` }
-            : place > 0
-              ? newWorkHeld === undefined
-                ? { place, ...(skipsBusy && { skipsBusy: true as const }) }
-                : { hold: newWorkHeld }
-              : { hold: 'Waiting for a Provider' },
+            : queueActivity.startHolds?.has(row.id)
+              ? { hold: queueActivity.startHolds.get(row.id) ?? '' }
+              : place > 0
+                ? newWorkHeld === undefined
+                  ? { place, ...(skipsBusy && { skipsBusy: true as const }) }
+                  : { hold: newWorkHeld }
+                : { hold: 'Waiting for a Provider' },
       }),
       ...(place > 0 && heldBusy && { busy: heldBusy }),
       queuedSubAgents: reads.subAgentRequests(row.id).map((r) => ({
@@ -7604,15 +7607,22 @@ export async function openStore({
       const after = new Map(value.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
       const waitsBefore = queueActivity.backlogWaits
       const waitsAfter = value.backlogWaits
+      const holdsBefore = queueActivity.startHolds
+      const holdsAfter = value.startHolds
       const moved = [
         ...new Set([
           ...before.keys(),
           ...after.keys(),
           ...(waitsBefore?.keys() ?? []),
           ...(waitsAfter?.keys() ?? []),
+          ...(holdsBefore?.keys() ?? []),
+          ...(holdsAfter?.keys() ?? []),
         ]),
       ].filter(
-        (id) => before.get(id) !== after.get(id) || waitsBefore?.get(id) !== waitsAfter?.get(id),
+        (id) =>
+          before.get(id) !== after.get(id) ||
+          waitsBefore?.get(id) !== waitsAfter?.get(id) ||
+          holdsBefore?.get(id) !== holdsAfter?.get(id),
       )
       queueActivity = value
       if (moved.length > 0) stateCommits += 1

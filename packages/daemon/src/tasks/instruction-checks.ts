@@ -142,7 +142,7 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
 
 export interface InstructionCheckDeps {
   store: Pick<TedStore, 'getRun' | 'subscribe'>
-  subAgents: Pick<SubAgents, 'requestForCheck' | 'result' | 'cancelForCheck'>
+  subAgents: Pick<SubAgents, 'requestForCheck' | 'checkHold' | 'result' | 'cancelForCheck'>
   choose(task: StoredTask, check: InstructionCheck): Promise<ReviewerChoice>
 }
 
@@ -222,10 +222,16 @@ export function createInstructionChecks(deps: InstructionCheckDeps) {
       })),
       fix: mayFix,
     })
+    const choice = await deps.choose(task, check)
+    const held = subAgents.checkHold(task, choice)
+    if (held !== undefined) {
+      await writeReport(log, `Ted couldn’t start an agent for this check: ${held}`)
+      return { kind: 'missing', reason: held, durationMs: elapsed(), changed: false }
+    }
     const runId = subAgents.requestForCheck(task, {
       name: `Check · ${check.name}`.slice(0, 60),
       prompt,
-      choice: await deps.choose(task, check),
+      choice,
       ...(input.runNow === true && { runNow: true }),
     })
     if (runId === undefined) {

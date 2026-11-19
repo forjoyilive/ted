@@ -12,6 +12,7 @@ import type {
 } from '@ted/protocol'
 import { scheduledCheckPrompt } from '@ted/protocol/automation'
 import { billingNames } from '@ted/protocol/health'
+import { agentBilling } from '@ted/protocol/settings'
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   agentModel,
@@ -676,7 +677,7 @@ export function AutomationView({
   ]
     .filter(Boolean)
     .join(' · ')
-  const billing = settings?.billing[automation.agent]
+  const billing = settings && agentBilling(settings.billing, automation.agent)
   const [totals, totalsNote] = totalsLine(detail).split('\n')
   return (
     <>

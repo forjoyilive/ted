@@ -516,6 +516,7 @@ test.each(['stage', 'high', ''] as const)(
         { agent: 'claude', state: 'not-installed' },
         { agent: 'codex', state: 'ready', version: '2.0.0' },
         { agent: 'antigravity', state: 'not-installed' },
+        { agent: 'pi', state: 'not-installed' },
       ],
       createTask: created,
     })

@@ -96,6 +96,7 @@ export async function daemonAsApp(home: string, env: NodeJS.ProcessEnv): Promise
 
 export const stubClaudePath = fileURLToPath(new URL('./fixtures/stub-claude.ts', import.meta.url))
 export const stubCodexPath = fileURLToPath(new URL('./fixtures/stub-codex.ts', import.meta.url))
+export const stubPiPath = fileURLToPath(new URL('./fixtures/stub-pi.ts', import.meta.url))
 
 export async function waitUntil<T>(
   check: () => Promise<T | undefined> | T | undefined,

@@ -23,6 +23,7 @@ import { AutomationCard } from '../components/AutomationCard.tsx'
 import { Button } from '../components/Button.tsx'
 import { ConfirmationCard } from '../components/ConfirmationCard.tsx'
 import { EventLine } from '../components/EventLine.tsx'
+import { PiAutoNote } from '../components/PiAutoNote.tsx'
 import { ChatSection, Composer, runMeta, tokenAmount } from '../components/RunChat.tsx'
 import { agentNames } from '../components/RunIcon.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
@@ -108,6 +109,7 @@ export function CoordinatorStart({
             <AgentHeading agent={agent} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
+          {lead && <PiAutoNote agent={lead.agent} factoryId={factory.id} alwaysWaits />}
           <AgentDescriptionLine agent={agent} />
         </header>
         {isCoordinator(agent) ? (

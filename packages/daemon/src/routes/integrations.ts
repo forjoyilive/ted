@@ -100,7 +100,11 @@ export const integrationRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/agents\/health\/check$/,
-    handle: async (_, { health }) => [200, await health.check(agentKinds, { reloadEnv: true })],
+    async handle(_, { health, tasks }) {
+      const checked = await health.check(agentKinds, { reloadEnv: true })
+      tasks.wake()
+      return [200, checked]
+    },
   },
   {
     method: 'POST',

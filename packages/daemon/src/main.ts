@@ -98,6 +98,7 @@ async function leaveUnattended(stoppedRuns: number): Promise<void> {
 const claudeBin = tedEnv('TED_CLAUDE_BIN')
 const codexBin = tedEnv('TED_CODEX_BIN')
 const antigravityBin = tedEnv('TED_ANTIGRAVITY_BIN')
+const piBin = tedEnv('TED_PI_BIN')
 const ghBin = tedEnv('TED_GH_BIN')
 const fixLog = tedEnv('TED_FIX_LOG')
 
@@ -118,6 +119,7 @@ try {
     ...(claudeBin && { claudeBin }),
     ...(codexBin && { codexBin }),
     ...(antigravityBin && { antigravityBin }),
+    ...(piBin && { piBin }),
     integrations: {
       checkOnStart: true,
       loginShell: tedEnv('TED_LOGIN_SHELL') !== 'off',
