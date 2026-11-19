@@ -57,7 +57,7 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     const narrow = (await statusHead.boundingBox())?.width ?? 0
     expect(narrow).toBeGreaterThanOrEqual(110)
     expect(narrow).toBeLessThan(300)
-    await window.setViewportSize({ width: 1600, height: 640 })
+    await window.setViewportSize({ width: 2000, height: 640 })
     expect((await statusHead.boundingBox())?.width).toBeCloseTo(300, 0)
     if (size) await window.setViewportSize(size)
     if (process.env.TED_LIST_COLLAPSE_SCREENSHOT) {
