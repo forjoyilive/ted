@@ -27,6 +27,7 @@ import {
   skippedText,
   sourceAreas,
   testArea,
+  typecheckOnlyReason,
   words,
 } from './affected.ts'
 
@@ -192,7 +193,7 @@ describe('which tests a change affects', () => {
       kind: 'app',
       why: 'app area “inbox” (packages/app/src/renderer/inbox.ts)',
     })
-    const chosen = chooseTests(both, tests.length)
+    const chosen = chooseTests(both, tests, electron)
     expect(chosen.run.map((pick) => pick.file)).toContain('packages/app/test/app-inbox.test.ts')
     expect(leftOutText(chosen.run, electron, 'Ted’s sandbox')).toContain(
       '  packages/app/test/app-inbox.test.ts  app area “inbox”',
@@ -381,13 +382,13 @@ describe('app areas', () => {
 })
 
 describe('how much of the affected set a run takes', () => {
-  const pick = (kind: Pick['kind'], index: number): Pick => ({
-    file: `${kind}-${index}.test.ts`,
+  const pick = (kind: Pick['kind'], index: number, prefix: string = kind): Pick => ({
+    file: `${prefix}-${index}.test.ts`,
     kind,
     why: kind,
   })
-  const many = (kind: Pick['kind'], count: number) =>
-    Array.from({ length: count }, (_, index) => pick(kind, index))
+  const many = (kind: Pick['kind'], count: number, prefix?: string) =>
+    Array.from({ length: count }, (_, index) => pick(kind, index, prefix))
   const kinds = (picks: readonly Pick[]) =>
     Object.fromEntries(
       ['changed', 'imports', 'through', 'app'].map((kind) => [
@@ -396,71 +397,198 @@ describe('how much of the affected set a run takes', () => {
       ]),
     )
 
-  test('a run takes the changed test files and the app tests, however many they are', () => {
+  test('a run takes the changed test files, the direct importers and the app tests, however many they are', () => {
     const picks = [
       ...many('changed', 70),
-      ...many('imports', 20),
+      ...many('imports', 300),
       ...many('through', 30),
       ...many('app', 5),
     ]
-    const chosen = chooseTests({ picks }, 400)
-    expect(chosen).toMatchObject({ full: 125, left: 50 })
-    expect(kinds(chosen.run)).toEqual({ changed: 70, imports: 0, through: 0, app: 5 })
+    const chosen = chooseTests({ picks }, [], new Set())
+    expect(chosen.full).toBe(405)
+    expect(kinds(chosen.run)).toEqual({ changed: 70, imports: 300, through: 0, app: 5 })
+    expect(kinds(chosen.left)).toEqual({ changed: 0, imports: 0, through: 30, app: 0 })
   })
 
-  test('a set of only changed test files and app tests runs whole', () => {
-    const picks = [...many('changed', 5), ...many('app', 5)]
-    expect(chooseTests({ picks }, 400)).toEqual({ run: picks, full: 10, left: 0 })
-    expect(chooseTests({ picks: [] }, 400)).toEqual({ run: [], full: 0, left: 0 })
+  test('an Electron test that only imports a changed file is left out', () => {
+    const picks = [...many('imports', 2, 'node'), ...many('imports', 1, 'electron')]
+    const chosen = chooseTests({ picks }, [], new Set(['electron-0.test.ts']))
+    expect(chosen.run.map((found) => found.file)).toEqual(['node-0.test.ts', 'node-1.test.ts'])
+    expect(chosen.left.map((found) => found.file)).toEqual(['electron-0.test.ts'])
   })
 
-  test('a change to the test runner leaves every other test to the scheduled full check', () => {
-    const picks = [pick('changed', 0), pick('through', 0)]
-    expect(chooseTests({ all: 'package.json changed', picks }, 400)).toEqual({
-      run: [pick('changed', 0)],
-      full: 400,
-      left: 399,
+  test('a change to the test runner runs what the change itself picks', () => {
+    const picks = [pick('changed', 0), pick('imports', 0), pick('through', 0)]
+    const all = ['changed-0.test.ts', 'imports-0.test.ts', 'other.test.ts', 'through-0.test.ts']
+    expect(chooseTests({ all: 'package.json changed', picks }, all, new Set())).toEqual({
+      run: [pick('changed', 0), pick('imports', 0)],
+      left: [pick('through', 0)],
+      unpicked: ['other.test.ts'],
+      full: 4,
     })
   })
 })
 
+describe('a break in a test the change didn’t touch fails the change’s own check', () => {
+  test('changed source runs the unchanged test files that import it', () => {
+    const daemon = select('packages/daemon/src/redact.ts')
+    expect(chooseTests(daemon, tests, electron).run.map((found) => found.file)).toEqual([
+      'packages/daemon/test/redact.test.ts',
+    ])
+    const app = select('packages/app/src/renderer/inbox.ts')
+    expect(chooseTests(app, tests, electron).run.map((found) => found.file)).toEqual([
+      'packages/app/test/app-inbox.test.ts',
+      'packages/app/test/inbox.test.ts',
+    ])
+  })
+})
+
+describe('changes Typecheck covers', () => {
+  test('a file that only re-exports, or only declares types, picks no tests by itself', () => {
+    const barrel = `// The package's entry\nexport * from "./time.ts"\nexport { a, type B } from "./a.ts";\nexport type { C } from "./c.ts"\nexport * as d from "./d.ts"\nexport interface E { f: string }`
+    expect(typecheckOnlyReason('src/index.ts', undefined, barrel)).toBe(
+      'only re-exports other files',
+    )
+    expect(typecheckOnlyReason('src/types.ts', undefined, 'export type A = { b: string }')).toBe(
+      'declares only types',
+    )
+  })
+
+  test('a change that leaves the code the same once types are stripped picks no tests by itself', () => {
+    const before = 'export function f(a: string) {\n  return a\n}'
+    const after =
+      'export function f(a: string | number): string {\n  return a as string\n}\nexport type G = number'
+    expect(typecheckOnlyReason('src/f.ts', before, after)).toBe('changes only types')
+    expect(
+      typecheckOnlyReason('src/f.ts', before, 'export function f(a: string) {\n  return a + 1\n}'),
+    ).toBeUndefined()
+  })
+
+  test('a change inside a string, even to its spaces, counts as code', () => {
+    expect(
+      typecheckOnlyReason(
+        'src/f.ts',
+        'export const url = "https://old"',
+        'export const url = "https://new"',
+      ),
+    ).toBeUndefined()
+    expect(
+      typecheckOnlyReason('src/f.ts', 'export const s = `a  b`', 'export const s = `a b`'),
+    ).toBeUndefined()
+    expect(
+      typecheckOnlyReason('src/f.ts', "export const s = 'a // b'", "export const s = 'a // c'"),
+    ).toBeUndefined()
+  })
+
+  test('code, a new file with code, TSX, a deleted file and syntax the stripper can’t read all count as code', () => {
+    expect(typecheckOnlyReason('src/f.ts', undefined, 'export const a = 1')).toBeUndefined()
+    expect(
+      typecheckOnlyReason('src/f.ts', undefined, 'import { a } from "./a.ts"\nexport { a }'),
+    ).toBeUndefined()
+    expect(typecheckOnlyReason('src/F.tsx', undefined, 'export * from "./a.ts"')).toBeUndefined()
+    expect(typecheckOnlyReason('src/f.ts', 'export const a = 1', undefined)).toBeUndefined()
+    expect(typecheckOnlyReason('src/f.ts', 'const = ;', 'const = ;')).toBeUndefined()
+  })
+
+  test('the selection walks no importers from a file Typecheck covers, and names it', () => {
+    const typecheckOnly = new Map([
+      ['packages/protocol/src/index.ts', 'only re-exports other files'],
+    ])
+    const selection = affectedTests({
+      changed: ['packages/protocol/src/index.ts', 'packages/daemon/src/redact.ts'],
+      graph,
+      tests,
+      electron,
+      typecheckOnly,
+    })
+    expect(selection.picks.map((found) => found.file)).toEqual([
+      'packages/daemon/test/queue.test.ts',
+      'packages/daemon/test/redact.test.ts',
+    ])
+    expect(selection.typecheckOnly).toEqual(typecheckOnly)
+  })
+})
+
 describe('what the command prints', () => {
-  const text = (...changed: string[]) => {
+  const text = (changed: string[], list = false) => {
     const selection = select(...changed)
-    return selectionText(selection, chooseTests(selection, tests.length), 'origin/main', electron)
+    return selectionText(
+      selection,
+      chooseTests(selection, tests, electron),
+      'origin/main',
+      electron,
+      list,
+    )
   }
 
   test('each file with its project and reason', () => {
     expect(
-      text('packages/app/test/inbox.test.ts', 'packages/app/test/app-inbox.test.ts'),
+      text(['packages/app/test/inbox.test.ts', 'packages/app/test/app-inbox.test.ts']),
     ).toBe(`Affected tests since origin/main: 2 files
   electron  packages/app/test/app-inbox.test.ts  changed
   node      packages/app/test/inbox.test.ts      changed`)
   })
 
   test('nothing affected', () => {
-    expect(text('README.md')).toBe('Affected tests since origin/main: none.')
+    expect(text(['README.md'])).toBe('Affected tests since origin/main: none.')
   })
 
-  test('test files that only import changed code wait for the scheduled full check', () => {
-    expect(
-      text('packages/app/src/renderer/inbox.ts'),
-    ).toBe(`Affected tests since origin/main: 3 files. This run takes 1 file: the changed test files and the Electron app tests for the changed app source. The scheduled full check covers the other 2.
-  electron  packages/app/test/app-inbox.test.ts  app area “inbox” (packages/app/src/renderer/inbox.ts)`)
+  test('test files that reach changed code only through other files are counted, and --list names them', () => {
+    expect(text(['packages/daemon/src/redact.ts'])).toBe(
+      `Affected tests since origin/main: 2 files. This run takes 1 file: the changed test files, the test files that import a changed file, and the Electron app tests for the changed app source.
+  node      packages/daemon/test/redact.test.ts  imports packages/daemon/src/redact.ts
+The scheduled full check runs the rest:
+  1 file that reaches a changed file only through other files
+pnpm check --affected --list names each file.`,
+    )
+    expect(text(['packages/daemon/src/redact.ts'], true)).toContain(
+      `  1 file that reaches a changed file only through other files
+    packages/daemon/test/queue.test.ts  imports packages/daemon/src/redact.ts through packages/daemon/test/helpers.ts`,
+    )
+  })
+
+  test('Electron tests that only import changed code are counted with the reason they don’t run', () => {
+    expect(text(['packages/app/test/first-window.ts'], true)).toContain(
+      `  7 Electron app tests that import a changed file: an Electron test runs only when it changed or is named after changed app source
+    packages/app/test/app-factory-settings.test.ts  imports packages/app/test/first-window.ts`,
+    )
   })
 
   test('a change to the test runner names every test and runs what the change itself picks', () => {
     expect(
-      text('package.json', 'packages/app/test/app.test.ts'),
-    ).toBe(`Affected tests since origin/main: every test (${tests.length} files), because package.json changed, which decides what is installed. This run takes 1 file: the changed test files and the Electron app tests for the changed app source. The scheduled full check covers the other ${tests.length - 1}.
-  electron  packages/app/test/app.test.ts  changed`)
+      text(['package.json', 'packages/app/test/app.test.ts']),
+    ).toBe(`Affected tests since origin/main: every test (${tests.length} files), because package.json changed, which decides what is installed. This run takes 1 file: the changed test files, the test files that import a changed file, and the Electron app tests for the changed app source.
+  electron  packages/app/test/app.test.ts  changed
+The scheduled full check runs the rest:
+  every other test file (${tests.length - 1}), because package.json changed, which decides what is installed
+pnpm check --affected --list names each file.`)
+    expect(text(['package.json', 'packages/app/test/app.test.ts'], true)).toContain(
+      `  every other test file (${tests.length - 1}), because package.json changed, which decides what is installed
+    packages/app/test/app-factory-settings.test.ts
+    packages/app/test/app-inbox.test.ts`,
+    )
+  })
+
+  test('a file Typecheck covers is named with its reason', () => {
+    const selection = affectedTests({
+      changed: ['packages/protocol/src/index.ts'],
+      graph,
+      tests,
+      electron,
+      typecheckOnly: new Map([['packages/protocol/src/index.ts', 'only re-exports other files']]),
+    })
+    expect(
+      selectionText(selection, chooseTests(selection, tests, electron), 'origin/main', electron),
+    ).toBe(`Affected tests since origin/main: none.
+Picks no tests by itself, because Typecheck covers it:
+  packages/protocol/src/index.ts  only re-exports other files`)
   })
 })
 
 describe('what a sandboxed run leaves out', () => {
   const text = (...changed: string[]) => {
     const selection = select(...changed)
-    return leftOutText(chooseTests(selection, tests.length).run, electron, 'Ted’s sandbox')
+    return leftOutText(chooseTests(selection, tests, electron).run, electron, 'Ted’s sandbox')
   }
 
   test('nothing when no Electron test runs', () => {
