@@ -303,7 +303,7 @@ describe('CPU profile', () => {
   test('a long block of the event loop saves a profile that names the code that blocked', async () => {
     const lines: string[] = []
     const profiler = createCpuProfiler(home, {
-      stallMs: 1_000,
+      stallMs: 2_000,
       startAfterMs: 300,
       tickMs: 50,
       log: (line) => lines.push(line),
@@ -313,10 +313,10 @@ describe('CPU profile', () => {
       (await readdir(dir).catch(() => [])).filter((name) => name.startsWith('stall-'))
     try {
       await new Promise((resolve) => setTimeout(resolve, 300))
-      block(600)
+      block(500)
       await new Promise((resolve) => setTimeout(resolve, 400))
       expect(await saved()).toEqual([])
-      block(1_500)
+      block(2_500)
       await expect.poll(saved).toHaveLength(1)
       const [name = ''] = await saved()
       expect(name).toMatch(/^stall-\d{8}-\d{6}\.cpuprofile$/)

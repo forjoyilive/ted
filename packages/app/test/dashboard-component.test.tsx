@@ -819,6 +819,7 @@ test('Today draws hours against all of yesterday and compares with yesterday to 
     'This month',
     'Year to date',
     'All time',
+    'Custom range…',
   ])
   await user().selectOptions(select, '7d')
   expect(change).toHaveBeenCalledWith({ range: '7d' })
