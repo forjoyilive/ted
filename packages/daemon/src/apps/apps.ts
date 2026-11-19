@@ -1688,19 +1688,20 @@ export function systemCertificates(): Promise<string[]> {
 
 let trustedCertificates: Promise<string[]> | undefined
 async function answers(url: string): Promise<Answer> {
-  if (url.startsWith('https:')) {
+  const secure = url.startsWith('https:')
+  if (secure) {
     trustedCertificates ??= systemCertificates().then((system) => [
       ...tls.getCACertificates('default'),
       ...system,
     ])
   }
-  const ca = await trustedCertificates
+  const ca = secure ? await trustedCertificates : undefined
   return new Promise((resolve) => {
     const respond = (response: http.IncomingMessage) => {
       response.resume()
       resolve({ kind: (response.statusCode ?? 500) < 500 ? 'ready' : 'waiting' })
     }
-    const request = url.startsWith('https:')
+    const request = secure
       ? https.get(url, { timeout: 1_000, ca }, respond)
       : http.get(url, { timeout: 1_000 }, respond)
     request.once('timeout', () => request.destroy())
