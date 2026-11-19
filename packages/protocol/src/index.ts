@@ -131,6 +131,8 @@ export type {
   AutomationResult,
   AutomationRun,
   AutomationRunOutput,
+  AutomationRunRow,
+  AutomationRunState,
   AutomationTaskLink,
   AutomationTemplate,
   AutomationTemplateId,
@@ -144,7 +146,12 @@ export type {
   SchedulePreview,
   SchedulePreviewRequest,
 } from './automation.ts'
-export { automationTemplateIds, checkAgentSteps, scheduledCheckPrompt } from './automation.ts'
+export {
+  automationTemplateIds,
+  checkAgentSteps,
+  recentAutomationRunsMs,
+  scheduledCheckPrompt,
+} from './automation.ts'
 export {
   type AutomationCard,
   type AutomationCardAnswer,

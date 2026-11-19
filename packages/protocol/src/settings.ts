@@ -1,4 +1,5 @@
 import type { AsanaIntakeScope } from './asana-intake.ts'
+import { type AutomationRunsView, defaultAutomationRunsView } from './automation-runs-view.ts'
 import { type BacklogStarts, noBacklogStarts } from './backlog-starts.ts'
 import type { BoardView } from './board-view.ts'
 import { type DiagnosticsSort, defaultDiagnosticsSort } from './diagnostics-sort.ts'
@@ -131,6 +132,7 @@ export interface MachineSettings {
   listViews: Readonly<Record<string, ListView>>
   boardViews: Readonly<Record<string, BoardView>>
   diagnosticsSort: DiagnosticsSort
+  automationRunsView: AutomationRunsView
   firstLaunchDone: boolean
   onboardingOnNextOpen: boolean
   guideNextFactory: boolean
@@ -196,6 +198,7 @@ export const defaultMachineSettings: MachineSettings = {
   listViews: {},
   boardViews: {},
   diagnosticsSort: defaultDiagnosticsSort,
+  automationRunsView: defaultAutomationRunsView,
   firstLaunchDone: false,
   onboardingOnNextOpen: false,
   guideNextFactory: false,

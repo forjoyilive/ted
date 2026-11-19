@@ -4,13 +4,16 @@ import type {
   AutomationTemplateId,
   CheckAgentStep,
   Factory,
+  Priority,
   SchedulePreview,
   TaskLead,
   Weekday,
 } from '@ted/protocol'
 import { scheduledCheckPrompt } from '@ted/protocol/automation'
+import { isOneOf } from '@ted/protocol/parse'
 import { weekdays } from '@ted/protocol/schedule'
 import { defaultMachineSettings } from '@ted/protocol/settings'
+import { priorities } from '@ted/protocol/task'
 import { effectiveTimeZone, uses12HourTime } from '@ted/protocol/time'
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import {
@@ -30,6 +33,7 @@ import { ScheduleTime } from '../components/ScheduleTime.tsx'
 import { Select } from '../components/Select.tsx'
 import grow from '../components/TextGrow.module.css'
 import { useAutomationTemplates, useSettings } from '../data.ts'
+import { priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './AutomationDialog.module.css'
 import { AutomationPromptDraft } from './AutomationPromptDraft.tsx'
@@ -130,6 +134,7 @@ export function AutomationDialog({
   const [factoryLead, setFactoryLead] = useState<TaskLead>()
   const [on, setOn] = useState(editing?.on ?? true)
   const [checkout, setCheckout] = useState(editing?.checkout === true)
+  const [priority, setPriority] = useState<Priority>(editing?.priority ?? 'high')
   const [preview, setPreview] = useState<SchedulePreview>()
   const [busy, setBusy] = useState(false)
   const [savingAndRunning, setSavingAndRunning] = useState(false)
@@ -256,6 +261,7 @@ export function AutomationDialog({
       on,
       ...(check && { check }),
       ...(!isCheck && { checkout }),
+      ...((!isCheck || checkAgent) && { priority }),
       ...(lead &&
         showsLead && {
           agent: lead.agent,
@@ -632,6 +638,36 @@ export function AutomationDialog({
               piAlwaysWaits
             />
           </fieldset>
+        )}
+
+        {(!isCheck || checkAgent) && (
+          <div className={styles.field}>
+            <span className={styles.labelRow}>
+              <label className={styles.label} htmlFor={`${id}-priority`}>
+                Priority
+              </label>
+              <Help>
+                Where this Automation’s Runs wait among queued Tasks when every slot is taken. A Run
+                goes ahead of a Task with the same priority; Tasks in Merge and Cleanup and Tasks
+                already under way go first.
+              </Help>
+            </span>
+            <Select
+              className={styles.prioritySelect}
+              id={`${id}-priority`}
+              value={priority}
+              onChange={(event) => {
+                const chosen = event.target.value
+                if (isOneOf(chosen, priorities)) setPriority(chosen)
+              }}
+            >
+              {[...priorities].reverse().map((p) => (
+                <option key={p} value={p}>
+                  {priorityLabels[p]}
+                </option>
+              ))}
+            </Select>
+          </div>
         )}
 
         {!isCheck && (

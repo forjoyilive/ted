@@ -1830,10 +1830,14 @@ function killGroup(pid: number | undefined): void {
 
 function parentOf(pid: number): Promise<number | undefined> {
   return new Promise((resolve) => {
-    execFile('ps', ['-o', 'ppid=', '-p', String(pid)], (error, stdout) => {
-      const parent = Number(stdout.trim())
-      resolve(error || !Number.isSafeInteger(parent) || parent <= 0 ? undefined : parent)
-    })
+    try {
+      execFile('ps', ['-o', 'ppid=', '-p', String(pid)], (error, stdout) => {
+        const parent = Number(stdout.trim())
+        resolve(error || !Number.isSafeInteger(parent) || parent <= 0 ? undefined : parent)
+      })
+    } catch {
+      resolve(undefined)
+    }
   })
 }
 

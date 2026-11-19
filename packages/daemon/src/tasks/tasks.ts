@@ -447,7 +447,15 @@ import {
   refuseAsanaRoot,
   refuseLinearList,
 } from './intake.ts'
-import { type AdoptedBase, baseStep, firstWorkEntry, latestBaseNote } from './latest-base.ts'
+import {
+  type AdoptedBase,
+  type BaseMerge,
+  baseStep,
+  firstWorkEntry,
+  latestBaseNote,
+  mergedBaseNote,
+  returnedForCheck,
+} from './latest-base.ts'
 import {
   atIdlePoint,
   continueMessage,
@@ -3469,6 +3477,98 @@ export function createTasks(options: {
       )
       return moved.length > 0 ? latestBaseNote(moved, manyRepos(task)) : undefined
     }
+  }
+
+  async function mergeLatestBase(task: StoredTask): Promise<string | undefined> {
+    const results: BaseMerge[] = []
+    try {
+      await execution.local(task.id)
+      const factory = factoryOf(task)
+      const { workflow } = await taskWorkflow(find(task.id), { fetch: false })
+      const entries = factoryRepos(workflow, factory)
+      for (const target of await pullRequestTargets(task)) {
+        const base = clean(target.base, 200)
+        const failed = (outcome: 'conflict' | 'uncommitted' | 'failed') =>
+          results.push({ repo: target.name, base, outcome })
+        try {
+          const repo = task.repos.find((r) => r.name === target.name)
+          const entry = repo && repoEntry(entries, repo)
+          if (!repo || !entry || repo.pullRequest?.state === 'merged') continue
+          await worktreeFileScope(worktreesDir, target.worktree)
+          const head = await git.headCommit(target.worktree)
+          const tracked = () =>
+            git.revParse(target.worktree, `origin/${target.base}`).catch(() => undefined)
+          const known = await tracked()
+          const tip = await git.fetchBranch(target.worktree, {
+            url: target.url,
+            branch: target.base,
+            haves: [head, ...(known === undefined ? [] : [known])],
+            timeoutMs: baseCheckTimeoutMs,
+          })
+          if (tip === head || (await git.isAncestor(target.worktree, tip, head))) continue
+          const inClone = async () => {
+            const at = await tracked()
+            return (
+              at !== undefined && (at === tip || (await git.isAncestor(target.worktree, tip, at)))
+            )
+          }
+          if (!(await inClone())) {
+            await git.fetch(await cloneFor(task, factory, entry), baseCheckTimeoutMs)
+            if (!(await inClone())) {
+              failed('failed')
+              continue
+            }
+          }
+          const prepared = await git.prepareIncorporation(
+            target.worktree,
+            tip,
+            `Merge the latest ${base} after a failed check`,
+          )
+          if (prepared.commit === head) continue
+          await worktreeFileScope(worktreesDir, target.worktree)
+          if (
+            (await git.headCommit(target.worktree)) !== head ||
+            !(await git.moveBranchTo(target.worktree, prepared.commit, head))
+          ) {
+            failed('failed')
+            continue
+          }
+          baseTips.set(baseTipKey(task.id, target.name), tip)
+          results.push({
+            repo: target.name,
+            base,
+            outcome: 'merged',
+            from: head,
+            to: tip,
+            commit: prepared.commit,
+          })
+        } catch (error) {
+          if (error instanceof git.IncorporationConflictError) failed('conflict')
+          else if (error instanceof git.UncommittedChangesError) failed('uncommitted')
+          else {
+            failed('failed')
+            console.error(
+              `couldn’t merge the latest ${redactSecrets(base)} into ${task.displayId}’s ${target.name}:`,
+              redactSecrets(textOf(error)),
+            )
+          }
+        }
+      }
+    } catch (error) {
+      console.error(
+        `couldn’t merge the latest base branch into ${task.displayId}:`,
+        redactSecrets(textOf(error)),
+      )
+    }
+    store.baseMerged(
+      task.id,
+      results.flatMap((r) =>
+        r.outcome === 'merged'
+          ? [{ repo: r.repo, base: r.base, from: r.from, to: r.to, commit: r.commit }]
+          : [],
+      ),
+    )
+    return results.length > 0 ? mergedBaseNote(results, manyRepos(task)) : undefined
   }
 
   function pullRequestTask(task: StoredTask): PullRequestTask {
@@ -7489,7 +7589,9 @@ export function createTasks(options: {
     }
     const baseNote = firstWorkEntry(next, store.listStageEntries(task.id))
       ? await adoptLatestBase(task)
-      : undefined
+      : returnedForCheck(task.stage, next, store.listSendBacks(task.id).at(-1), visitStart(task))
+        ? await mergeLatestBase(task)
+        : undefined
     const chosen = mergesHere(next) ? await mergeCommits(task, signedOff) : []
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
     if (carried) validation.carryOver(find(task.id), carried)

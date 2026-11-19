@@ -6,6 +6,7 @@ import type {
   Automation,
   AutomationDetail,
   AutomationRun,
+  AutomationRunRow,
   AutomationTemplate,
   Banner,
   Comment,
@@ -324,12 +325,12 @@ describe('Automations', () => {
     expect(after.nextFirings[0]).toBe('2026-11-10T09:00:00.000Z')
   })
 
-  test('weekly architecture reviews start over the slot limit and create distinct, deduplicated Backlog Tasks; the Run can list Automations but not change them, and the next Run sees the Tasks', async () => {
+  test('weekly architecture reviews create distinct, deduplicated Backlog Tasks; the Run can list Automations but not change them, and the next Run sees the Tasks', async () => {
     const client = await startTed()
     const templates = await client.ok<AutomationTemplate[]>('GET', '/automations/templates')
     const template = templates.find((t) => t.id === 'architecture')
     if (!template) throw new Error('missing architecture template')
-    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 2 })
     const blocker = await create(client, {
       name: 'Holding the slot',
       on: false,
@@ -1055,8 +1056,7 @@ describe('Automations', () => {
     expect(rows[0]).toMatchObject({ trigger: 'made-up', slotAt: '2026-11-09T09:30:00.000Z' })
   })
 
-  test('Automation Runs start over slot limits and load holds while Tasks stay queued', async () => {
-    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
+  test('Automation Runs wait for a slot in priority order, and the app can start one now or stop it', async () => {
     const client = await startTed()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const busy = await client.ok<Task>('POST', '/tasks', {
@@ -1069,37 +1069,72 @@ describe('Automations', () => {
       return found?.leadRunId
     }, 'the Task to hold the slot')
     const automation = await create(client, { prompt: steps(hold(), { endTurn: true }) })
-    load = 2
-    const second = await client.ok<Task>('POST', '/tasks', {
+    expect(automation.priority).toBe('high')
+    await client.ok<Task>('POST', '/tasks', {
       factory: 'NB',
       start: true,
       title: 'Second',
+      priority: 'urgent',
     })
     clock = Date.parse('2026-11-09T09:00:05Z')
     await waitUntil(
-      async () => (await detail(client, automation.id)).automation.now?.kind === 'working',
-      'the firing to start despite the occupied slot',
+      async () => (await detail(client, automation.id)).automation.now?.kind === 'queued',
+      'the firing to wait for the slot',
     )
-    await expect
-      .poll(async () => (await client.ok<RunSlots>('GET', '/slots')).busy?.cpuHeld)
-      .toBe(true)
-    const slots = await client.ok<RunSlots>('GET', '/slots')
-    expect(slots).toMatchObject({ working: 2, busy: { cpuHeld: true } })
-    expect(slots.queue.map((q) => q.kind)).toEqual(['task'])
-    expect(slots.holders.map((h) => h.kind)).toContain('automation')
-    const tasks = await client.ok<Task[]>('GET', '/tasks')
-    expect(tasks.find((t) => t.id === second.id)?.leadRunId).toBeUndefined()
-    expect(tasks.find((t) => t.id === busy.id)?.leadRunId).toBeDefined()
-    await expect
-      .poll(() => client.ok<Activity>('GET', '/activity'))
-      .toMatchObject({ runs: { active: 2, queued: 1 } })
-    await release()
+    const queueKinds = async () =>
+      (await client.ok<RunSlots>('GET', '/slots')).queue.map((q) => q.kind)
+    await expect.poll(queueKinds).toEqual(['task', 'automation'])
+    const edited = await client.ok<Automation>('PATCH', `/automations/${automation.id}`, {
+      priority: 'urgent',
+    })
+    expect(edited.priority).toBe('urgent')
+    await expect.poll(queueKinds).toEqual(['automation', 'task'])
+
+    const [queued] = await client.ok<AutomationRunRow[]>('GET', '/automation-runs')
+    expect(queued).toMatchObject({
+      automationName: 'Sentry crash intake',
+      priority: 'urgent',
+      state: 'queued',
+      place: 1,
+      canStartNow: true,
+      run: { result: { kind: 'queued' } },
+    })
+    const firing = queued?.run.id ?? ''
+    expect((await client.call('POST', `/automation-runs/${firing}/start`)).status).toBe(200)
+    await waitUntil(
+      async () => (await detail(client, automation.id)).automation.now?.kind === 'working',
+      'Start now to start the Run past the limit',
+    )
+    expect((await client.ok<RunSlots>('GET', '/slots')).working).toBe(2)
+    expect(
+      (await client.ok<AutomationRunRow>('POST', `/automation-runs/${firing}/stop`)).run.id,
+    ).toBe(firing)
     await waitForHistory(
       client,
       automation.id,
-      (rows) => rows[0]?.result.kind === 'no-new-tasks',
-      'the Automation Run to finish',
+      (rows) => rows[0]?.result.kind === 'stopped',
+      'Stop to end the running Run',
     )
+
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    await waitUntil(
+      async () => (await detail(client, automation.id)).automation.now?.kind === 'queued',
+      'Run now to wait for the slot',
+    )
+    const again = (await client.ok<AutomationRunRow[]>('GET', '/automation-runs')).find(
+      (r) => r.state === 'queued',
+    )
+    const second = again?.run.id ?? ''
+    await client.ok('POST', `/automation-runs/${second}/stop`)
+    const rows = await history(client, automation.id)
+    expect(rows.map((r) => r.result.kind).sort()).toEqual(['dropped', 'stopped'])
+    expect(
+      (await client.call('POST', `/automation-runs/${second}/start`)).status,
+      'a Run that isn’t waiting can’t start now',
+    ).toBe(409)
+    const runs = await client.ok<AutomationRunRow[]>('GET', '/automation-runs')
+    expect(runs.map((r) => r.state)).toEqual(['ended', 'ended'])
+    await release()
   })
 
   test('turning an Automation off lets its open Run finish and stops further firings', async () => {
@@ -1129,6 +1164,37 @@ describe('Automations', () => {
     expect(rows[0]?.message).toBe('Done at last')
     await client.ok('DELETE', `/automations/${automation.id}`)
     expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
+  })
+
+  test('Stop drops a Scheduled Check waiting for a quiet computer, so it never runs', async () => {
+    const client = await startTed()
+    const automation = await create(client, {
+      name: 'Nightly tests',
+      prompt: undefined,
+      check: { command: 'echo ok', timeout: '5m', runBy: '07:00', agentStep: 'never' },
+    })
+    load = 5
+    clock = Date.parse('2026-11-09T09:00:05Z')
+    await waitUntil(async () => {
+      const now = (await detail(client, automation.id)).automation.now
+      return now?.kind === 'paused' && now.reason.includes('busy')
+    }, 'the firing to wait for a quiet computer')
+    const [waiting] = await client.ok<AutomationRunRow[]>('GET', '/automation-runs')
+    expect(waiting).toMatchObject({ state: 'queued', scheduledCheck: true })
+    expect(waiting?.canStartNow).toBeUndefined()
+    await client.ok('POST', `/automation-runs/${waiting?.run.id}/stop`)
+    expect((await history(client, automation.id)).map((r) => r.result.kind)).toEqual(['dropped'])
+
+    load = 0
+    clock = Date.parse('2026-11-09T09:10:00Z')
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const rows = await waitForHistory(
+      client,
+      automation.id,
+      (r) => r[0]?.result.kind === 'passed',
+      'the next Run to pass',
+    )
+    expect(rows.map((r) => r.result.kind)).toEqual(['passed', 'dropped'])
   })
 
   test('a scheduled Check waits while the computer is busy until its cutoff, runs sandboxed on the default branch, makes Tasks for failing tests and updates them when they fail again; its agent step files, notes and starts Tasks, and Ted falls back when the agent doesn’t report', async () => {
@@ -1317,6 +1383,7 @@ describe('Automations', () => {
       check: { command, startTasks: false },
       prompt: steps(run('automation', 'start', 'NB-4'), { endTurn: true }),
     })
+    load = 0
     clock = Date.parse('2026-11-10T07:40:00Z')
     await client.ok('POST', `/automations/${automation.id}/run`)
     const [fellBack] = await waitForHistory(

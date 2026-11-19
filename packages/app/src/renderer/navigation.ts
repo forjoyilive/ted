@@ -34,6 +34,7 @@ export function isTaskView(view: FactoryView): view is (typeof taskViews)[number
 export type Screen =
   | { kind: 'inbox'; factoryId?: string; groupId?: string; answered?: boolean }
   | { kind: 'all-tasks' }
+  | { kind: 'automation-runs' }
   | { kind: 'dashboard'; dashboard?: Partial<DashboardViewState> }
   | {
       kind: 'factory'
@@ -327,6 +328,7 @@ export function backLink(state: Navigation): string | undefined {
   if (state.taskId === undefined) return undefined
   const { screen } = state
   if (screen.kind === 'all-tasks') return '← All Tasks'
+  if (screen.kind === 'automation-runs') return '← Automation Runs'
   if (screen.kind === 'dashboard') return '← Dashboard'
   if (screen.kind === 'factory' && screen.view === 'board') return '← Board'
   if (screen.kind === 'factory' && screen.view === 'list') return '← List'

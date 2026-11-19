@@ -248,7 +248,7 @@ export function MenuButton({
   )
 }
 
-function Submenu({
+export function Submenu({
   label,
   hint,
   children,
@@ -305,7 +305,7 @@ export function CheckItem({
   )
 }
 
-function RadioItem({
+export function RadioItem({
   label,
   checked,
   onChange,

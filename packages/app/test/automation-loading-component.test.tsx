@@ -28,6 +28,7 @@ function detail(): AutomationDetail {
       on: false,
       createdAt,
       nextFirings: [],
+      priority: 'high',
       failuresInARow: 0,
       totals: { runs: 0, tasksCreated: 0 },
     },

@@ -40,6 +40,7 @@ import {
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
+import { parseAutomationRunsView } from '@ted/protocol/automation-runs-view'
 import { parseDiagnosticsSort } from '@ted/protocol/diagnostics-sort'
 import { isInteger, isString } from '@ted/protocol/parse'
 import { isReportEmail } from '@ted/protocol/problem-report'
@@ -317,6 +318,10 @@ export const settingParsers: {
   diagnosticsSort: (value) =>
     parseDiagnosticsSort(value, (message) => {
       throw new HttpError(400, `diagnosticsSort: ${message}`)
+    }),
+  automationRunsView: (value) =>
+    parseAutomationRunsView(value, (message) => {
+      throw new HttpError(400, `automationRunsView: ${message}`)
     }),
   boardViews(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {

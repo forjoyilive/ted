@@ -1,7 +1,7 @@
 import type { RunChat } from './chat.ts'
 import type { AgentKind } from './run.ts'
 import type { AutomationSchedule } from './schedule.ts'
-import type { Attachment, Effort, StageId } from './task.ts'
+import type { Attachment, Effort, Priority, StageId } from './task.ts'
 
 export const automationTemplateIds = [
   'linear',
@@ -155,6 +155,7 @@ export interface Automation {
   effort?: Effort
   on: boolean
   checkout?: true
+  priority: Priority
   template?: AutomationTemplateId
   check?: AutomationCheck
   createdAt: string
@@ -163,6 +164,23 @@ export interface Automation {
   last?: AutomationRun
   failuresInARow: number
   totals: { runs: number; tasksCreated: number }
+}
+
+export const recentAutomationRunsMs = 24 * 60 * 60_000
+
+export type AutomationRunState = 'running' | 'waiting' | 'paused' | 'queued' | 'ended'
+
+export interface AutomationRunRow {
+  run: AutomationRun
+  automationName: string
+  factoryId: string
+  priority: Priority
+  state: AutomationRunState
+  scheduledCheck?: true
+  checking?: true
+  place?: number
+  reason?: string
+  canStartNow?: true
 }
 
 export interface AutomationDetail {
@@ -180,6 +198,7 @@ export interface AutomationInput {
   effort?: Effort
   on?: boolean
   checkout?: boolean
+  priority?: Priority
   template?: AutomationTemplateId
   check?: AutomationCheckInput
 }

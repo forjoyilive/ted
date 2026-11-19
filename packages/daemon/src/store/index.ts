@@ -1159,6 +1159,10 @@ export interface TedStore extends TaskHistory {
     taskId: string,
     moved: readonly { repo: string; base: string; from: string; to: string }[],
   ): void
+  baseMerged(
+    taskId: string,
+    merged: readonly { repo: string; base: string; from: string; to: string; commit: string }[],
+  ): void
   declareSeverity(input: {
     taskId: string
     runId: string
@@ -6676,6 +6680,12 @@ export async function openStore({
       if (moved.length === 0) return
       const at = new Date().toISOString()
       commit(...moved.map((row) => events.baseBranchAdopted({ taskId, ...row, at })))
+      updatedTask(taskId)
+    },
+    baseMerged(taskId, merged) {
+      if (merged.length === 0) return
+      const at = new Date().toISOString()
+      commit(...merged.map((row) => events.baseBranchMerged({ taskId, ...row, at })))
       updatedTask(taskId)
     },
     listSendBacks(taskId) {

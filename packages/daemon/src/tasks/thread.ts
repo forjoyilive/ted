@@ -808,6 +808,13 @@ export function threadEvents(
       case 'v1.BaseBranchAdopted':
         add(entry, 'quiet', `Ted moved ${text(data.repo)} to the latest ${text(data.base)}`)
         break
+      case 'v1.BaseBranchMerged':
+        add(
+          entry,
+          'quiet',
+          `Ted merged the latest ${text(data.base)} into ${text(data.repo)} after a failed check`,
+        )
+        break
       case 'v1.LoopCheckStarted':
       case 'v2.LoopCheckStarted':
         add(

@@ -89,7 +89,7 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command or an instruction a Factory lists for Validate, which Ted runs itself as Validate’s first step, every time a Task enters Validate. A command Check passes when the command exits cleanly; an Instruction Check passes when its agent reports a pass. A failure is a return to Work: the Task Lead fixes it there, including a small, clear fix outside the Task’s own change, or creates a repair Task when the fix is too big. It asks the user when the fix changes what the Task delivers, needs something only the user has, or two attempts have failed. The machine runs the command Checks of only so many Tasks at once; the others wait their turn.
+A command or an instruction a Factory lists for Validate, which Ted runs itself as Validate’s first step, every time a Task enters Validate. A command Check passes when the command exits cleanly; an Instruction Check passes when its agent reports a pass. A failure is a return to Work, and Ted tries to merge the latest base branch on the way. Before treating a failure as outside the Task or filing a repair Task, the Task Lead checks the latest base branch and searches open Tasks and recent base commits for an existing fix. It waits for an open Task that covers the failure, otherwise fixes it here when the fix is small and clear or creates a repair Task when it is too big. It asks the user when the fix changes what the Task delivers, needs something only the user has, or two attempts have failed. The machine runs the command Checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Instruction Check**:
@@ -181,7 +181,7 @@ The first version of a Task’s description, kept as written when the Task was c
 _Avoid_: First draft, initial description
 
 **Priority**:
-How urgent a Task is (Urgent, High, Medium, Low, or None); it orders Queued Tasks after their Stage’s queue priority and Task Lead continuation order, then the Task’s place in its column breaks ties.
+How urgent a Task or Automation is (Urgent, High, Medium, Low, or None); it orders queued Tasks and Automation Runs after Stage queue priority and Task Lead continuation order. An Automation Run goes ahead of a new Task start with the same priority; a Task’s place in its column breaks ties among Tasks.
 _Avoid_: Severity, importance
 
 **Queued**:
@@ -275,7 +275,7 @@ A note the human attaches to one line of a Task’s diff; it stays a draft until
 _Avoid_: Inline comment, review comment, diff comment
 
 **Automation**:
-A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there and drive its web Apps in a headless browser; Ted removes them when the Run ends.
+A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. Each Automation has a priority, High unless the user changes it, which places its Runs among queued Tasks; the **Automation Runs** screen lists every Factory’s Runs that are running, queued or ended in the last day. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there and drive its web Apps in a headless browser; Ted removes them when the Run ends.
 _Avoid_: Cron job, trigger
 
 **Scheduled check**:
