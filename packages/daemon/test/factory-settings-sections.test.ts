@@ -380,15 +380,17 @@ describe('Factory settings: Workflow', () => {
     })
   })
 
-  test('an unknown Stage file shows as ignored; inherited sockets and Electron Apps show for the Sandbox section', async () => {
+  test('an unknown Stage file shows as ignored; inherited sockets, Electron Apps and outbound network grants show for the Sandbox section', async () => {
     const client = await start({
       workflow: [
         'version: 1',
         'repos:',
         '  - name: widgets',
+        '    worktree: { setup: npm install, network: outbound }',
         '    apps:',
         '      - { name: Desktop, kind: command, run: electron . $TED_ELECTRON_ARGS, electron: true }',
-        '      - { name: Web, run: npm run dev }',
+        '      - { name: Web, run: npm run dev, network: outbound }',
+        '      - { name: Local, run: npm start, network: none }',
         '',
       ].join('\n'),
       files: { '.ted/stages/security.md': '# Security\n' },
@@ -396,13 +398,18 @@ describe('Factory settings: Workflow', () => {
     await mkdir(path.join(home, 'library'), { recursive: true })
     await writeFile(
       path.join(home, 'library', 'workflow.yaml'),
-      'version: 1\nsandbox_sockets: [~/.orbstack/run/docker.sock]\n',
+      'version: 1\nsandbox_sockets: [~/.orbstack/run/docker.sock]\nsandbox_network: outbound\n',
     )
     const view = await client.settings()
     expect(view.ignoredStageFiles).toEqual(['.ted/stages/security.md'])
     expect(view.sandboxSockets).toEqual(['~/.orbstack/run/docker.sock'])
     expect(view.sandboxSocketsFrom).toBe('library')
     expect(view.electronApps).toEqual([{ repo: 'widgets', name: 'Desktop' }])
+    expect(view.networkGrants).toEqual([
+      { place: 'factory', from: 'library' },
+      { place: 'worktree', repo: 'widgets' },
+      { place: 'app', repo: 'widgets', app: 'Web' },
+    ])
   })
 })
 

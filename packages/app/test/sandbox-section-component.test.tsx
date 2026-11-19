@@ -8,12 +8,18 @@ import { bridge, user } from './support/component.ts'
 
 const view: Pick<
   FactorySettingsView,
-  'factoryId' | 'permissions' | 'sandboxSockets' | 'sandboxSocketsFrom' | 'electronApps'
+  | 'factoryId'
+  | 'permissions'
+  | 'sandboxSockets'
+  | 'sandboxSocketsFrom'
+  | 'electronApps'
+  | 'networkGrants'
 > = {
   factoryId: 'factory',
   permissions: 'auto',
   sandboxSockets: [],
   electronApps: [],
+  networkGrants: [],
 }
 
 const links = { onOpenPermissions: vi.fn(), onOpenRepos: vi.fn(), onOpenProviders: vi.fn() }
@@ -79,4 +85,32 @@ test('a socket inherited from the Library says where to turn it off', async () =
   expect(row.textContent).toContain('From sandbox_sockets in the Library’s workflow.yaml.')
   expect(row.textContent).toContain('Settings → Library')
   expect(row.textContent).toContain('sandbox_sockets: []')
+})
+
+test('each outbound network grant is a row that says where it comes from', async () => {
+  bridge({})
+  render(
+    <SandboxSection
+      view={{
+        ...view,
+        networkGrants: [
+          { place: 'factory', from: 'factory' },
+          { place: 'worktree', repo: 'web' },
+          { place: 'app', repo: 'web', app: 'Site' },
+          { place: 'check', check: 'E2E' },
+        ],
+      }}
+      {...links}
+    />,
+  )
+  expect(
+    await screen.findByText('4 settings widen what sandboxed commands can reach.'),
+  ).toBeTruthy()
+  const rows = screen.getAllByRole('listitem').map((row) => row.textContent)
+  expect(rows).toEqual([
+    expect.stringContaining('From sandbox_network: outbound in .ted/workflow.yaml.'),
+    expect.stringContaining('Network for web’s worktree setup'),
+    expect.stringContaining('Network for App “Site”'),
+    expect.stringContaining('Network for check “E2E”'),
+  ])
 })

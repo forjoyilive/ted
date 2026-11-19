@@ -128,7 +128,15 @@ export function createCheckouts(options: {
     await runScratchSetup({
       repos: entries.flatMap((entry) => {
         const repo = checkout.repos.find((r) => r.name === entry.name)
-        return repo ? [{ ...repo, ...(entry.setup && { setup: entry.setup }) }] : []
+        return repo
+          ? [
+              {
+                ...repo,
+                ...(entry.setup && { setup: entry.setup }),
+                ...(entry.network !== undefined && { network: entry.network }),
+              },
+            ]
+          : []
       }),
       factoryId: checkout.factoryId,
       sandbox: options.sandbox,

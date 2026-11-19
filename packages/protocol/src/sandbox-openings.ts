@@ -1,10 +1,20 @@
 import type { PermissionMode } from './run.ts'
 import type { LayerKind } from './workflow.ts'
 
+export const networkLevels = ['none', 'localhost', 'outbound'] as const
+export type NetworkLevel = (typeof networkLevels)[number]
+export const defaultNetwork: NetworkLevel = 'localhost'
+
 export interface ElectronApp {
   repo: string
   name: string
 }
+
+export type NetworkGrant =
+  | { place: 'factory'; from: LayerKind }
+  | { place: 'worktree'; repo: string }
+  | { place: 'app'; repo: string; app: string }
+  | { place: 'check'; check: string }
 
 export interface SandboxOpeningsInput {
   permissions: PermissionMode
@@ -13,6 +23,7 @@ export interface SandboxOpeningsInput {
   sockets: readonly string[]
   socketsFrom?: LayerKind
   electronApps: readonly ElectronApp[]
+  networkGrants?: readonly NetworkGrant[]
 }
 
 export type SandboxOpening =
@@ -21,6 +32,7 @@ export type SandboxOpening =
   | { kind: 'pi-unsandboxed'; unsandboxed: true }
   | { kind: 'socket'; unsandboxed: false; socket: string; from: LayerKind }
   | { kind: 'electron-app'; unsandboxed: false; repo: string; app: string }
+  | { kind: 'network'; unsandboxed: false; grant: NetworkGrant }
 
 export type SandboxSummary =
   | { kind: 'closed' }
@@ -47,6 +59,9 @@ export function sandboxOpenings(input: SandboxOpeningsInput): SandboxOpening[] {
   }
   for (const { repo, name } of input.electronApps) {
     openings.push({ kind: 'electron-app', unsandboxed: false, repo, app: name })
+  }
+  for (const grant of input.networkGrants ?? []) {
+    openings.push({ kind: 'network', unsandboxed: false, grant })
   }
   return openings
 }

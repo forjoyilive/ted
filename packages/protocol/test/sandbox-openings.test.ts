@@ -55,3 +55,16 @@ test('a socket row names the layer its list comes from', () => {
     { kind: 'socket', unsandboxed: false, socket: '/a.sock', from: 'library' },
   ])
 })
+
+test('outbound network grants widen the sandbox, after the other rows', () => {
+  const openings = sandboxOpenings({
+    ...none,
+    electronApps: [{ repo: 'ted', name: 'Ted Dev' }],
+    networkGrants: [{ place: 'worktree', repo: 'ted' }],
+  })
+  expect(openings).toEqual([
+    { kind: 'electron-app', unsandboxed: false, repo: 'ted', app: 'Ted Dev' },
+    { kind: 'network', unsandboxed: false, grant: { place: 'worktree', repo: 'ted' } },
+  ])
+  expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
+})

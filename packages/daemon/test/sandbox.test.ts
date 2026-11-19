@@ -11,8 +11,8 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises'
-import { createServer, type Server } from 'node:net'
-import { homedir, tmpdir } from 'node:os'
+import { type AddressInfo, createServer, type Server } from 'node:net'
+import { homedir, networkInterfaces, tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -102,6 +102,22 @@ async function listen(socket: string): Promise<Server> {
 
 const tryConnect = (socket: string) =>
   `'${process.execPath}' -e "require('net').connect('${socket}').on('connect', () => { console.log('connected'); process.exit() }).on('error', () => { console.log('refused'); process.exit() })"`
+
+const tryTcp = (host: string, port: number) =>
+  `'${process.execPath}' -e "require('net').connect(${port}, '${host}').on('connect', () => { console.log('connected'); process.exit() }).on('error', () => { console.log('refused'); process.exit() })"`
+
+function machineAddress(): string | undefined {
+  return Object.values(networkInterfaces())
+    .flat()
+    .find((address) => address?.family === 'IPv4' && !address.internal)?.address
+}
+
+async function listenTcp(): Promise<{ server: Server; port: number }> {
+  const server = createServer((connection) => connection.end())
+  await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', resolve))
+  const address = server.address() as AddressInfo
+  return { server, port: address.port }
+}
 
 const tryWrite = (file: string) => `echo x > '${file}' 2>/dev/null && echo wrote || echo refused`
 const tryRead = (file: string) => `cat '${file}' >/dev/null 2>&1 && echo read || echo refused`
@@ -765,6 +781,46 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
   })
 
+  test('without a grant it reaches only loopback; none closes loopback too, and outbound opens the rest', async (context) => {
+    const address = machineAddress()
+    context.skip(address === undefined, 'this machine has no non-loopback IPv4 address')
+    const { server, port } = await listenTcp()
+    const sandbox = createSandbox({ tedHome, env: () => process.env })
+    const attempt = async (network?: 'none' | 'localhost' | 'outbound') => {
+      const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], {
+        ...scope(),
+        ...(network !== undefined && { network }),
+      })
+      const [command, ...args] = argv
+      const { stdout } = await execFileAsync(
+        command,
+        [...args, [tryTcp('127.0.0.1', port), tryTcp(address ?? '', port)].join('; ')],
+        { cwd: worktree, env: withSandboxEnv(process.env, env) },
+      )
+      return stdout.trim().split('\n')
+    }
+    try {
+      expect(await attempt()).toEqual(['connected', 'refused'])
+      expect(await attempt('localhost')).toEqual(['connected', 'refused'])
+      expect(await attempt('none')).toEqual(['refused', 'refused'])
+      expect(await attempt('outbound')).toEqual(['connected', 'connected'])
+    } finally {
+      server.close()
+    }
+  })
+
+  test('only an outbound grant reaches mDNSResponder, so lookups can’t carry data out', async () => {
+    const sandbox = createSandbox({ tedHome, env: () => process.env })
+    const closed = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    const open = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), network: 'outbound' })
+    expect(closed.argv.join('\n')).not.toContain('mDNSResponder')
+    expect(open.argv.join('\n')).toContain('mDNSResponder')
+    const result = await inSandbox(
+      `'${process.execPath}' -e "require('dns').lookup('localhost', (error) => console.log(error ? 'unresolved' : 'resolved'))"`,
+    )
+    expect(result.stdout.trim()).toBe('resolved')
+  })
+
   test('it reaches Unix sockets only in its own folders and the ones the Factory lists', async (context) => {
     const own = path.join(tmp, 'o.s')
     const listed = path.join(outside, 'listed.sock')
@@ -859,6 +915,28 @@ describe('the folders a sandbox opens', () => {
     expect(argv.join(' ')).toContain(`--ro-bind ${await realpath(clone)}`)
     expect(argv.join(' ')).toContain(`--bind ${real} ${real}`)
     expect(argv.indexOf(home)).toBeLessThan(argv.indexOf(real))
+  })
+
+  test('on Linux, a command gets its own network unless it has an outbound grant or is an App serving a port', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin' }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const ownNetwork = async (extra: {
+      network?: 'none' | 'localhost' | 'outbound'
+      serves?: boolean
+    }) =>
+      (await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })).argv.includes(
+        '--unshare-net',
+      )
+    expect(await ownNetwork({})).toBe(true)
+    expect(await ownNetwork({ network: 'none' })).toBe(true)
+    expect(await ownNetwork({ network: 'outbound' })).toBe(false)
+    expect(await ownNetwork({ serves: true })).toBe(false)
+    expect(await ownNetwork({ network: 'none', serves: true })).toBe(true)
   })
 
   test('on Linux, a scope that hides protected folders covers each one that exists in HOME', async () => {

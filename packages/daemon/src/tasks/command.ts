@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { NetworkLevel } from '@ted/protocol'
 import { markProcessRoot, type ProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import { type Sandbox, type SandboxScope, withSandboxEnv } from '../sandbox.ts'
@@ -22,9 +23,10 @@ export async function runTaskCommand(
     sandbox?: CommandSandbox
     prepareLaunch?: () => Promise<CommandLaunch>
     root?: ProcessRoot
+    network?: NetworkLevel
   },
 ): Promise<CommandResult> {
-  const { sandbox: givenSandbox, prepareLaunch, label, root, ...base } = input
+  const { sandbox: givenSandbox, prepareLaunch, label, root, network, ...base } = input
   let release = () => {}
   let unmark = () => {}
   let closeFds = async () => {}
@@ -46,6 +48,7 @@ export async function runTaskCommand(
     tmp = await mkdtemp(path.join(sandbox.tmpRoot, 'tmp-'))
     const wrapped = await sandbox.sandbox.wrap(input.shell ?? ['/bin/sh', '-c'], {
       ...sandbox.scope,
+      ...(network !== undefined && { network }),
       tmp,
     })
     closeFds = wrapped.close

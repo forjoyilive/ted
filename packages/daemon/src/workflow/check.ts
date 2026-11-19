@@ -8,6 +8,8 @@ import {
   isModelName,
   type LayerKind,
   maxCleanupStepName,
+  type NetworkLevel,
+  networkLevels,
   type PullRequestCiMode,
   previewPresets,
   pullRequestCiModes,
@@ -52,6 +54,7 @@ export interface CommandCheckSettings {
   run: string
   repo?: string
   timeout?: string
+  network?: NetworkLevel
   instruction?: never
   fix?: never
   agent?: never
@@ -69,6 +72,7 @@ export interface InstructionCheckSettings {
   effort?: string
   run?: never
   repo?: never
+  network?: never
 }
 
 export type CheckSettings = CommandCheckSettings | InstructionCheckSettings
@@ -131,6 +135,7 @@ export interface RepoSettings {
     teardown?: WorktreeCommand
     env?: Record<string, string>
     copy?: string[]
+    network?: NetworkLevel
   }
   apps?: unknown[]
 }
@@ -144,6 +149,7 @@ export interface WorkflowSettings {
   max_working_runs?: number
   sandbox_sockets?: string[]
   sandbox_reads?: string[]
+  sandbox_network?: NetworkLevel
   repos?: RepoSettings[]
   order?: AgentStageId[]
   stages: Partial<Record<StageId, StageSettings>>
@@ -400,6 +406,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         if (reads) settings.sandbox_reads = reads
         break
       }
+      case 'sandbox_network': {
+        const network = networkLevel(value, '`sandbox_network`')
+        if (network) settings.sandbox_network = network
+        break
+      }
       case 'repos':
         if (context.kind === 'library') warn(key, `\`${name}${factoryOnly}`)
         else {
@@ -448,6 +459,12 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       } else warn(entry.key, `unknown key \`${path}\``)
     }
     return choice
+  }
+
+  function networkLevel(value: Node | null, what: string): NetworkLevel | undefined {
+    const level = networkLevels.find((l) => l === scalar(value))
+    if (level === undefined) error(value, `${what} must be none, localhost or outbound`)
+    return level
   }
 
   function checkSandboxPaths(
@@ -740,6 +757,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     const choice: AgentChoice = {}
     let timeout: string | undefined
     let fix: boolean | undefined
+    let network: NetworkLevel | undefined
     let bad = false
     const keyOf = (name: string) => entries(item).find((entry) => entry.name === name)?.key ?? item
     for (const entry of entries(item)) {
@@ -758,6 +776,10 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             error(entry.value, durationMessage)
             bad = true
           } else timeout = String(scalar(entry.value))
+          break
+        case 'network':
+          network = networkLevel(entry.value, 'a check’s `network`')
+          if (network === undefined) bad = true
           break
         case 'fix':
           if (scalar(entry.value) !== true && scalar(entry.value) !== false) {
@@ -805,6 +827,8 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           keyOf('repo'),
           'an instruction check runs across all the Task’s repos, so it takes no `repo`',
         )
+      if (network !== undefined)
+        return void error(keyOf('network'), 'only a check with a `run` command takes `network`')
       return {
         name,
         instruction,
@@ -825,6 +849,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       run,
       ...(repo !== undefined && { repo }),
       ...(timeout !== undefined && { timeout }),
+      ...(network !== undefined && { network }),
     }
   }
 
@@ -980,6 +1005,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           case 'device':
             if (!isText(node)) error(node, '`device` must be text')
             break
+          case 'network':
+            networkLevel(node, 'an App’s `network`')
+            break
           case 'preview':
             if (!oneOf(node, [...previewPresets]))
               error(node, '`preview` must be desktop, tablet or mobile')
@@ -1067,6 +1095,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             } else env[variable.name] = String(v)
           }
           worktree.env = env
+          break
+        }
+        case 'network': {
+          const network = networkLevel(node, '`worktree.network`')
+          if (network) worktree.network = network
           break
         }
         case 'copy': {

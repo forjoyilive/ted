@@ -770,7 +770,16 @@ export function createApps(options: AppsOptions): Apps {
         options.env?.() ?? process.env,
       )
       const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
-      const sandboxed = await sandboxFor(scope && { ...scope, electron }, task, dir)
+      const sandboxed = await sandboxFor(
+        scope && {
+          ...scope,
+          electron,
+          serves: true,
+          ...(app.network !== undefined && { network: app.network }),
+        },
+        task,
+        dir,
+      )
       if ('problem' in sandboxed) {
         pool.endTurn(key)
         await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)

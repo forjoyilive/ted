@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
+import type { NetworkLevel } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { redactSecrets } from '../redact.ts'
@@ -14,6 +15,7 @@ export interface ScratchRepo {
   worktree: string
   env: Record<string, string>
   setup?: WorktreeCommand
+  network?: NetworkLevel
 }
 
 export async function sandboxProblem(
@@ -60,6 +62,7 @@ export async function runScratchSetup(input: {
       lowPriority: input.lowPriority,
       ...(input.signal !== undefined && { signal: input.signal }),
       sandbox: { sandbox: input.sandbox, scope: input.scope, tmpRoot: input.tmpRoot },
+      ...(repo.network !== undefined && { network: repo.network }),
     })
     if (result.outcome === 'interrupted') throw new SetupFailed('The setup was stopped.')
     if (result.outcome !== 'passed') {

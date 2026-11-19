@@ -2,6 +2,8 @@ import {
   type AppKind,
   appKinds,
   isLoopbackUrl,
+  type NetworkLevel,
+  networkLevels,
   type PreviewPreset,
   previewPresets,
 } from '@ted/protocol'
@@ -17,6 +19,7 @@ export interface AppDeclaration {
   device?: string
   electron?: true
   preview?: PreviewPreset
+  network?: NetworkLevel
 }
 
 export const defaultAppUrl = `http://localhost:\${PORT}`
@@ -31,6 +34,7 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
     const kind = appKinds.find((k) => k === fields.kind) ?? 'web'
     const electron = kind === 'command' && fields.electron === true
     const preview = kind === 'web' ? previewPresets.find((p) => p === fields.preview) : undefined
+    const network = networkLevels.find((l) => l === fields.network)
     const url =
       kind !== 'web'
         ? undefined
@@ -72,6 +76,7 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
         ...(typeof fields.device === 'string' && { device: fields.device }),
         ...(electron && { electron: true as const }),
         ...(preview !== undefined && { preview }),
+        ...(network !== undefined && { network }),
       },
     ]
   })

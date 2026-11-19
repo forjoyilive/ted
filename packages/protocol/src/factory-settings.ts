@@ -1,7 +1,7 @@
 import type { AgentFileChange, AgentFileRow } from './agent-files.ts'
 import type { PreviewPreset } from './preview-size.ts'
 import type { PermissionMode } from './run.ts'
-import type { ElectronApp } from './sandbox-openings.ts'
+import type { ElectronApp, NetworkGrant } from './sandbox-openings.ts'
 import type {
   AgentStageId,
   CiSignal,
@@ -327,6 +327,7 @@ export interface FactorySettingsView {
   sandboxSockets: string[]
   sandboxSocketsFrom?: LayerKind
   electronApps: ElectronApp[]
+  networkGrants: NetworkGrant[]
   notes: string
   invalid?: InvalidSettings
 }

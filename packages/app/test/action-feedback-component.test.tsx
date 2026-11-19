@@ -244,6 +244,7 @@ test('Check Run now acknowledges before a remote running state and restores afte
     machineMaxWorkingRuns: 6,
     sandboxSockets: [],
     electronApps: [],
+    networkGrants: [],
     notes: '',
   }
   const draft = {

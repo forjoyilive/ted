@@ -6,6 +6,7 @@ import {
   checkFailed,
   checkLabel,
   defaultInstructionCheckTimeout,
+  type NetworkLevel,
 } from '@ted/protocol'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import { type MemoryWatch, memoryKill } from '../memory-kills.ts'
@@ -34,6 +35,7 @@ export interface RunnableCheck {
   check: PlannedCheck
   cwd?: string
   env?: Record<string, string>
+  network?: NetworkLevel
 }
 
 export interface CheckRunnerResult {
@@ -125,7 +127,14 @@ export async function planChecks(input: {
       state: repo && changed(name) ? 'waiting' : 'skipped',
     }
     commands.push(
-      check.state === 'skipped' || !repo ? { check } : { check, cwd: repo.worktree, env: repo.env },
+      check.state === 'skipped' || !repo
+        ? { check }
+        : {
+            check,
+            cwd: repo.worktree,
+            env: repo.env,
+            ...(settings.network !== undefined && { network: settings.network }),
+          },
     )
   }
   if (
@@ -184,7 +193,7 @@ export async function runChecks(input: {
   ) => void
 }): Promise<CheckRunnerResult> {
   const notFound: string[] = []
-  for (const [position, { check, cwd, env }] of input.checks.entries()) {
+  for (const [position, { check, cwd, env, network }] of input.checks.entries()) {
     if (position < (input.from ?? 0)) continue
     if (input.to !== undefined && position >= input.to) break
     if (check.state === 'skipped' || check.notRerun || cwd === undefined) continue
@@ -237,6 +246,7 @@ export async function runChecks(input: {
             lowPriority: input.lowPriority,
             ...(input.signal !== undefined && { signal: input.signal }),
             prepareLaunch: input.prepareLaunch,
+            ...(network !== undefined && { network }),
             root: {
               kind: 'check',
               ...(input.taskDisplayId !== undefined && { task: input.taskDisplayId }),

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { constants } from 'node:fs'
 import { copyFile, glob, lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { CopySkip, WorktreeCommandOutcome } from '@ted/protocol'
+import type { CopySkip, NetworkLevel, WorktreeCommandOutcome } from '@ted/protocol'
 import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RepoSettings } from '../workflow/check.ts'
@@ -20,6 +20,7 @@ export interface RepoWorktree {
   teardown?: WorktreeCommand
   env: Record<string, string>
   copy: string[]
+  network?: NetworkLevel
 }
 
 export interface CopyResult {
@@ -52,7 +53,7 @@ export function primaryRepoWorktree(
 
 export function worktreeCommands(
   worktree: RepoSettings['worktree'],
-): Pick<RepoWorktree, 'setup' | 'teardown' | 'env' | 'copy'> {
+): Pick<RepoWorktree, 'setup' | 'teardown' | 'env' | 'copy' | 'network'> {
   const command = (c: { run: string; timeout?: string } | undefined) =>
     c && { run: c.run, timeoutMs: c.timeout ? durationMs(c.timeout) : defaultTimeoutMs }
   const setup = command(worktree?.setup)
@@ -62,6 +63,7 @@ export function worktreeCommands(
     ...(teardown && { teardown }),
     env: worktree?.env ?? {},
     copy: worktree?.copy ?? [],
+    ...(worktree?.network !== undefined && { network: worktree.network }),
   }
 }
 

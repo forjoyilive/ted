@@ -63,6 +63,7 @@ const lastWins = [
   'max_working_runs',
   'sandbox_sockets',
   'sandbox_reads',
+  'sandbox_network',
   'repos',
   'order',
 ] as const

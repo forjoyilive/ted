@@ -362,6 +362,62 @@ describe('layers', () => {
     }
   })
 
+  test('sandbox_network sets the Factory’s level, and a worktree, a command check and an App can each set their own', async () => {
+    const good = factory({
+      'workflow.yaml': [
+        'version: 1',
+        'sandbox_network: none',
+        'repos:',
+        '  - name: app',
+        '    worktree:',
+        '      setup: npm install',
+        '      network: outbound',
+        '    apps:',
+        '      - name: Web',
+        '        run: npm run dev',
+        '        network: outbound',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Test, run: npm test, network: localhost }',
+        '',
+      ].join('\n'),
+    })
+    const { settings } = resolveWorkflow([
+      await defaults(),
+      library({ 'workflow.yaml': 'version: 1\nsandbox_network: outbound\n' }),
+      good,
+    ])
+    expect(good.problems).toEqual([])
+    expect(settings.sandbox_network).toBe('none')
+    expect(settings.repos?.[0]?.worktree?.network).toBe('outbound')
+    expect(settings.stages.validate?.checks?.[0]).toMatchObject({ network: 'localhost' })
+    expect(appDeclarations(settings.repos?.[0]?.apps)[0]?.network).toBe('outbound')
+
+    const bad = factory({
+      'workflow.yaml': [
+        'version: 1',
+        'sandbox_network: all',
+        'repos:',
+        '  - name: app',
+        '    worktree: { network: yes }',
+        '    apps:',
+        '      - { name: Web, run: npm run dev, network: example.com }',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Docs, instruction: Read the docs., network: outbound }',
+        '',
+      ].join('\n'),
+    })
+    expect(bad.problems.map((p) => p.message)).toEqual([
+      '`sandbox_network` must be none, localhost or outbound',
+      '`worktree.network` must be none, localhost or outbound',
+      'an App’s `network` must be none, localhost or outbound',
+      'only a check with a `run` command takes `network`',
+    ])
+  })
+
   test('Factory notes come from the Factory layer', async () => {
     const workflow = resolveWorkflow([
       await defaults(),

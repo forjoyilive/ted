@@ -6333,6 +6333,7 @@ export function createTasks(options: {
         kind: 'teardown',
         command: teardown,
         env: entry.env,
+        ...(entry.network !== undefined && { network: entry.network }),
         remaining: (remainingRepos ?? current.repos)
           .filter((r) => !r.removed)
           .map((r) => lifecycle.worktree(ref, r)),
@@ -7274,6 +7275,12 @@ export function createTasks(options: {
     return reports
   }
 
+  async function setupNetwork(task: StoredTask, repo: TaskRepo) {
+    const factory = factoryOf(task)
+    const { workflow } = await taskWorkflow(task, { fetch: false })
+    return repoEntry(factoryRepos(workflow, factory), repo)?.network
+  }
+
   async function runSetup(
     task: StoredTask,
     repo: TaskRepo,
@@ -7283,11 +7290,13 @@ export function createTasks(options: {
   ): Promise<{ result: CommandResult; report?: string } | undefined> {
     const log = commandLog(task, 'setup', repo.name)
     const ref = await execution.local(task.id)
+    const network = await setupNetwork(task, repo)
     const result = await lifecycle.command(lifecycle.worktree(ref, repo), {
       kind: 'setup',
       command: { run: setup.command, timeoutMs: setup.timeoutMs },
       env: setup.env,
       signal,
+      ...(network !== undefined && { network }),
     })
     const now = find(task.id)
     if (result.outcome === 'interrupted' || now.archived || (untilStopped && now.stopped)) {

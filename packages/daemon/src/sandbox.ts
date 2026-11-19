@@ -3,7 +3,7 @@ import { constants, type Stats } from 'node:fs'
 import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import { outsideTedEnv } from '@ted/protocol'
+import { defaultNetwork, type NetworkLevel, outsideTedEnv } from '@ted/protocol'
 import { protectedPaths } from './protected-folders.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -14,6 +14,8 @@ export interface SandboxScope {
   cache: string
   sockets?: readonly string[]
   reads?: readonly string[]
+  network?: NetworkLevel
+  serves?: boolean
   electron?: boolean
   ownTempOnly?: boolean
   hideProtected?: boolean
@@ -31,13 +33,19 @@ export const firstBindFd = 3
 export interface SandboxGrants {
   sockets: readonly string[]
   reads: readonly string[]
+  network: NetworkLevel
 }
 
 export function sandboxGrants(settings: {
   sandbox_sockets?: readonly string[]
   sandbox_reads?: readonly string[]
+  sandbox_network?: NetworkLevel
 }): SandboxGrants {
-  return { sockets: settings.sandbox_sockets ?? [], reads: settings.sandbox_reads ?? [] }
+  return {
+    sockets: settings.sandbox_sockets ?? [],
+    reads: settings.sandbox_reads ?? [],
+    network: settings.sandbox_network ?? defaultNetwork,
+  }
 }
 
 export interface Sandbox {
@@ -227,6 +235,7 @@ export function createSandbox(options: {
               scope.electron === true,
               await personalFolders(env),
               pipeMode,
+              scope.network ?? defaultNetwork,
             ),
             ...(pipeMode === undefined
               ? []
@@ -256,7 +265,12 @@ export function createSandbox(options: {
         throw error
       }
       return {
-        argv: [ready, ...bwrapArgs(paths, env, linux, binds, bindFds, hidden), '--', ...argv],
+        argv: [
+          ready,
+          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, ownNetwork(scope)),
+          '--',
+          ...argv,
+        ],
         env: added,
         fds: handles.map((handle) => handle.fd),
         close,
@@ -515,6 +529,7 @@ function seatbeltArgs(
   electron: boolean,
   personal: readonly string[],
   pipeMode: number | undefined,
+  network: NetworkLevel,
 ): string[] {
   const params: string[] = []
   const param = (prefix: string, values: readonly string[]) =>
@@ -589,7 +604,9 @@ function seatbeltArgs(
       : []),
     '(deny user-preference-write)',
     '(deny network-outbound (remote unix-socket))',
-    `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets, ...sockets])})`,
+    `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets(network), ...sockets])})`,
+    ...(network === 'outbound' ? [] : ['(deny network-outbound (remote ip "*:*"))']),
+    ...(network === 'localhost' ? ['(allow network-outbound (remote ip "localhost:*"))'] : []),
   ].join('\n')
   return [...params, '-p', profile]
 }
@@ -619,6 +636,7 @@ function bwrapArgs(
   binds: readonly Bind[],
   byFd: boolean,
   hidden: readonly string[],
+  ownNetwork: boolean,
 ): string[] {
   const runtime = runtimeDir(env)
   const bind = (b: Bind, i: number) =>
@@ -629,6 +647,7 @@ function bwrapArgs(
   return [
     '--die-with-parent',
     '--unshare-pid',
+    ...(ownNetwork ? ['--unshare-net'] : []),
     '--ro-bind',
     '/',
     '/',
@@ -653,7 +672,18 @@ function runtimeDir(env: NodeJS.ProcessEnv): string | undefined {
   return env.XDG_RUNTIME_DIR?.startsWith('/') ? env.XDG_RUNTIME_DIR : undefined
 }
 
-const macSystemSockets = ['/private/var/run/mDNSResponder', '/private/var/run/syslog']
+// mDNSResponder answers DNS lookups, which can carry data out; localhost still resolves without it.
+function macSystemSockets(network: NetworkLevel): string[] {
+  return network === 'outbound'
+    ? ['/private/var/run/mDNSResponder', '/private/var/run/syslog']
+    : ['/private/var/run/syslog']
+}
+
+// An App's port must stay reachable from the host, and bwrap can't share host loopback without host networking.
+function ownNetwork(scope: SandboxScope): boolean {
+  const network = scope.network ?? defaultNetwork
+  return network === 'none' || (network === 'localhost' && scope.serves !== true)
+}
 
 interface LinuxSockets {
   masks: string[]

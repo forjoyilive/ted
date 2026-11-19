@@ -43,6 +43,7 @@ const view: FactorySettingsView = {
   machineMaxWorkingRuns: 6,
   sandboxSockets: [],
   electronApps: [],
+  networkGrants: [],
   notes: '',
 }
 

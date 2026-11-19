@@ -24,6 +24,7 @@ import {
   type InvalidSettings,
   type LayerKind,
   type MergeSettingsRequest,
+  type NetworkGrant,
   type PullRequestCiFound,
   type PullRequestCiMode,
   type RepoSettingsInput,
@@ -161,6 +162,24 @@ function socketsView(
   return layer?.settings.sandbox_sockets
     ? { sandboxSockets: layer.settings.sandbox_sockets, sandboxSocketsFrom: layer.kind }
     : { sandboxSockets: [] }
+}
+
+function networkGrants(base: Base, repos: readonly { name: string }[]): NetworkGrant[] {
+  const layer = [...base.inherited, base.own].findLast((l) => l.settings.sandbox_network)
+  const grants: NetworkGrant[] =
+    layer?.settings.sandbox_network === 'outbound' ? [{ place: 'factory', from: layer.kind }] : []
+  for (const [i, entry] of (base.settings?.repos ?? []).entries()) {
+    const repo = repos[i]?.name ?? ''
+    if (entry.worktree?.network === 'outbound') grants.push({ place: 'worktree', repo })
+    for (const app of appDeclarations(entry.apps)) {
+      if (app.network === 'outbound') grants.push({ place: 'app', repo, app: app.name })
+    }
+  }
+  const checks = resolveWorkflow([...base.inherited, base.own]).settings.stages.validate?.checks
+  for (const check of checks ?? []) {
+    if (check.network === 'outbound') grants.push({ place: 'check', check: check.name })
+  }
+  return grants
 }
 
 function ignoredStageFiles(files: readonly string[], base: Base): string[] {
@@ -733,6 +752,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             .filter((app) => app.electron === true)
             .map((app) => ({ repo: repos[i]?.name ?? '', name: app.name })),
         ),
+        networkGrants: networkGrants(base, repos),
         notes: typeof notes === 'string' ? notes : '',
         ...(problem && { invalid: problem }),
       }
