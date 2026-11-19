@@ -13,6 +13,7 @@ import type {
   DashboardTask,
   TaskStatusKind,
 } from '@ted/protocol'
+import { isPreset, localDayStart, rangeDays } from '@ted/protocol/dashboard'
 import { isEntryStage } from '@ted/protocol/stage'
 import { type CostInput, type CostWindow, dashboardCost } from './dashboard-cost.ts'
 import { dashboardFlow, type FlowFacts } from './dashboard-flow.ts'
@@ -173,6 +174,12 @@ function dailyEdges(from: number, to: number): { edges: Edges; perPoint: number 
 function periodBounds(range: Exclude<DashboardRange, 'all'>, asOf: number) {
   const today = startOfDay(asOf)
   const year = new Date(asOf).getFullYear()
+  if (!isPreset(range)) {
+    const from = localDayStart(range.from)
+    const length = rangeDays(range)
+    const to = Math.min(addDays(from, length), asOf)
+    return { from, to, previousFrom: addDays(from, -length), previousTo: addDays(to, -length) }
+  }
   switch (range) {
     case 'today':
       return {
@@ -215,7 +222,7 @@ function periodBounds(range: Exclude<DashboardRange, 'all'>, asOf: number) {
 export function rangeWindows(range: Exclude<DashboardRange, 'all'>, asOf: number) {
   const { from, to, previousFrom, previousTo } = periodBounds(range, asOf)
   const previous = { from: previousFrom, to: Math.min(from, previousTo) }
-  if (range === 'today')
+  if (range === 'today' || (!isPreset(range) && range.from === range.to))
     return { from, to, previous, edges: hours(from, to), previousEdges: hours(previousFrom, from) }
   const { edges, perPoint } = dailyEdges(from, to)
   const before = days(previous.from, previous.to, perPoint)

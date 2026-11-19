@@ -1,9 +1,12 @@
 import {
   type AsanaIntakeCheck,
   agentStageIds,
+  customRange,
+  type DashboardRange,
   dashboardRange,
   dashboardRanges,
   factoryNotifications,
+  localCalendarDate,
   parseAddFactoryRequest,
   parseCheckRepoRequest,
   parseCheckTryRequest,
@@ -36,14 +39,27 @@ import { addFactory } from '../factories.ts'
 import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { jsonRoute, type Route } from './route.ts'
 
+function dashboardRequestRange(query: URLSearchParams): DashboardRange {
+  if (!query.has('from') && !query.has('to')) {
+    const range = dashboardRange(query.get('range') ?? '30d')
+    if (!range) throw new HttpError(400, `Choose ${dashboardRanges.join(', ')}`)
+    return range
+  }
+  const range = customRange(query.get('from') ?? '', query.get('to') ?? '')
+  if (!range)
+    throw new HttpError(400, 'Give from and to as YYYY-MM-DD dates, with from on or before to')
+  if (range.to > localCalendarDate(Date.now()))
+    throw new HttpError(400, 'A custom range can’t end after today')
+  return range
+}
+
 export const factoryRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/dashboard(?:\?.*)?$/,
     async handle({ req }, { store }) {
       const query = new URL(req.url ?? '', 'http://localhost').searchParams
-      const range = dashboardRange(query.get('range') ?? '30d')
-      if (!range) throw new HttpError(400, `Choose ${dashboardRanges.join(', ')}`)
+      const range = dashboardRequestRange(query)
       const asked = new Set(query.getAll('factory'))
       const known = store.listFactories().map((factory) => factory.id)
       for (const id of asked) if (!known.includes(id)) throw new HttpError(404, 'Factory not found')
