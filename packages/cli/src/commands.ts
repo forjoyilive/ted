@@ -92,6 +92,7 @@ const flags = {
   task: { type: 'string' },
   to: { type: 'string' },
   yes: { type: 'boolean' },
+  key: { type: 'string' },
 } as const
 
 export type Options = {
@@ -1355,6 +1356,16 @@ export const commands = [
     help: '  ted dev seed [--reset]                    Seed an isolated Ted Dev demo; --reset rebuilds it',
     callers: 'Terminal',
     options: options('reset'),
+  },
+  {
+    name: 'dev factory add',
+    handler: 'addLocalFactory',
+    min: 1,
+    max: 1,
+    help: '  ted dev factory add <folder> --key <key>  Add a one-repo Factory to TED_HOME from a local git repo’s commits',
+    callers: 'Everyone',
+    requires: ['key'],
+    options: options('key'),
   },
   {
     name: 'dev stop',

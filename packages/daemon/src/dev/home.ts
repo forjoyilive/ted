@@ -51,6 +51,32 @@ async function checkDemoLinks(home: string, directory = home): Promise<void> {
   }
 }
 
+const scratchFolders = ['worktrees', 'runs', 'sandbox']
+
+export async function checkTrialHome(home: string): Promise<string> {
+  if (edition !== 'dev') throw new Error('Local Factories can be added only in Ted Dev.')
+  const resolved = path.resolve(home)
+  const comparable = async (p: string) => (await canonicalPath(p)).toLowerCase()
+  const protectedHomes = ['.ted', '.ted-dev'].map((name) => path.join(homedir(), name))
+  const [candidate, userHome, protectedPaths] = await Promise.all([
+    comparable(resolved),
+    comparable(homedir()),
+    Promise.all(protectedHomes.map(comparable)),
+  ])
+  const within = (parent: string) => candidate.startsWith(`${parent}${path.sep}`)
+  const containsProtected = [userHome, path.parse(candidate).root, ...protectedPaths].some(
+    (p) => candidate === p || p.startsWith(`${candidate}${path.sep}`),
+  )
+  const insideProtected = protectedPaths.some(
+    (p) => within(p) && !scratchFolders.some((folder) => within(path.join(p, folder))),
+  )
+  if (containsProtected || insideProtected)
+    throw new Error(
+      'Choose a separate TED_HOME, such as node_modules/.cache/ted-home in your worktree, not the Ted or Ted Dev home.',
+    )
+  return resolved
+}
+
 export async function checkDemoHome(home: string): Promise<DemoManifest | undefined> {
   if (edition !== 'dev') throw new Error('Demo data is available only in Ted Dev.')
   const resolved = path.resolve(home)
