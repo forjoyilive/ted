@@ -28,6 +28,7 @@ export {
   isLoopbackUrl,
   isSimulatorApp,
   type RecordAppRequest,
+  type RestartAppRequest,
   type SimulatorAsk,
   type SimulatorSlots,
   type StartAppRequest,
@@ -48,7 +49,12 @@ export {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
-export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
+export {
+  parseAppRef,
+  parseRecordAppRequest,
+  parseRestartAppRequest,
+  parseStartAppRequest,
+} from './app-parsers.ts'
 export {
   type AsanaConfiguration,
   type AsanaStatus,

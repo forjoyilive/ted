@@ -10,6 +10,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { lowPriorityNiceness, workCommand } from '../src/priority.ts'
 import {
   api,
+  approveAppsOutsideSandboxBy,
   assistantTexts,
   commitToOrigin,
   killAppHosts,
@@ -212,6 +213,7 @@ describe('Low priority for the work Ted starts', () => {
       JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'Web'] }, { endTurn: true }] }),
     )
     expect(await appLevel(client, task, 'task-lead')).toBe(low)
+    await approveAppsOutsideSandboxBy(client, task)
     await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Web' })
     expect(await appLevel(client, task, 'human')).toBe(own)
   })

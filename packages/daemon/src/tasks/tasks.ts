@@ -82,6 +82,7 @@ import type {
   RepoSetupReport,
   RequestArchiveRequest,
   ResolveFailureRequest,
+  RestartAppRequest,
   RoundInput,
   Run,
   RunMessage,
@@ -889,7 +890,7 @@ export interface Tasks {
   listApps(ref: string, caller: Caller): Promise<TaskApp[]>
   startApp(ref: string, caller: Caller, app: StartAppRequest): Promise<TaskApp>
   stopApp(ref: string, app: AppRef): Promise<TaskApp>
-  restartApp(ref: string, app: AppRef): Promise<TaskApp>
+  restartApp(ref: string, app: RestartAppRequest): Promise<TaskApp>
   appLog(ref: string, app: AppRef): Promise<AppLog>
   showApp(ref: string, app: AppRef): Promise<TaskApp>
   screenshotApp(ref: string, caller: Caller, app: AppRef): Promise<AppCapture>
@@ -14371,9 +14372,10 @@ export function createTasks(options: {
     listApps(ref, caller) {
       return apps.list(appCaller(ref, caller).task.id)
     },
-    startApp(ref, caller, { shutDown, reason, ...app }) {
+    startApp(ref, caller, { shutDown, reason, declaration, ...app }) {
       const { task, by, runId } = runnableApps(ref, caller)
       return apps.start(task.id, app, by, {
+        ...(by === 'human' && { confirmed: { ...(declaration !== undefined && { declaration }) } }),
         ...(runId !== undefined && { runId }),
         ...(runId === undefined && shutDown !== undefined && { shutDown }),
         ...(runId !== undefined && reason !== undefined && { reason }),
@@ -14501,10 +14503,10 @@ export function createTasks(options: {
       browser.cancel(find(ref).id, app)
       return apps.stop(find(ref).id, app)
     },
-    restartApp(ref, app) {
+    restartApp(ref, { declaration, ...app }) {
       const { task, by } = runnableApps(ref, { kind: 'app' })
       browser.cancel(task.id, app)
-      return apps.restart(task.id, app, by)
+      return apps.restart(task.id, app, by, declaration)
     },
     appLog(ref, app) {
       return apps.log(find(ref).id, app)

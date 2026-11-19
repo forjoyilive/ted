@@ -111,6 +111,23 @@ export function outsideSandboxApproval(
   return { repo: repo.name, app: app.name, declaration }
 }
 
+function refuseUnconfirmed(
+  task: AppTask,
+  repo: AppRepo,
+  app: AppDeclaration,
+  by: AppStarter,
+  confirmed: { declaration?: string },
+): void {
+  if (by !== 'human' || task.sandbox === undefined) return
+  const current = outsideSandboxApproval(repo, app)
+  if (confirmed.declaration === current.declaration) return
+  if (approvedOutsideSandbox(task.outsideSandbox, current)) return
+  throw new RequestError(
+    409,
+    `Ted didn’t start ${app.name}: running it outside the sandbox needs your confirmation for its current command. Start it again and confirm.`,
+  )
+}
+
 export interface SimulatorOptions {
   dir: string
   supported?: boolean
@@ -140,6 +157,7 @@ export interface StartOptions {
   runId?: string
   shutDown?: string
   reason?: string
+  confirmed?: { declaration?: string }
 }
 
 export interface AppsOptions {
@@ -166,7 +184,7 @@ export interface Apps {
   list(taskId: string): Promise<TaskApp[]>
   start(taskId: string, ref: AppRef, by: AppStarter, options?: StartOptions): Promise<TaskApp>
   stop(taskId: string, ref: AppRef): Promise<TaskApp>
-  restart(taskId: string, ref: AppRef, by: AppStarter, runId?: string): Promise<TaskApp>
+  restart(taskId: string, ref: AppRef, by: AppStarter, declaration?: string): Promise<TaskApp>
   log(taskId: string, ref: AppRef): Promise<AppLog>
   envFor(taskId: string): Promise<Record<string, string>>
   stopRepo(taskId: string, repo: string): Promise<void>
@@ -662,6 +680,7 @@ export function createApps(options: AppsOptions): Apps {
     restarting: boolean,
   ): Promise<TaskApp> {
     const { task, repo, app } = await find(taskId, ref)
+    if (start.confirmed !== undefined) refuseUnconfirmed(task, repo, app, by, start.confirmed)
     const { runId } = start
     let restart = restarting
     const dir = dirOf(taskId, repo.name, app.name)
@@ -1346,17 +1365,13 @@ export function createApps(options: AppsOptions): Apps {
         return toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))
       })
     },
-    async restart(taskId, ref, by, runId) {
-      const { repo, app } = await find(taskId, ref)
+    async restart(taskId, ref, by, declaration) {
+      const { task, repo, app } = await find(taskId, ref)
+      const confirmed = { ...(declaration !== undefined && { declaration }) }
+      refuseUnconfirmed(task, repo, app, by, confirmed)
       return serial(keyOf(taskId, repo.name, app.name), async () => {
         const wasLive = await stopNow(taskId, repo.name, app.name)
-        return startNow(
-          taskId,
-          { repo: repo.name, name: app.name },
-          by,
-          runId === undefined ? {} : { runId },
-          wasLive,
-        )
+        return startNow(taskId, { repo: repo.name, name: app.name }, by, { confirmed }, wasLive)
       })
     },
     simulators: () => sims.slots(),

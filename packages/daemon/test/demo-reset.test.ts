@@ -6,7 +6,13 @@ import { parseAppRecords } from '../src/apps/host-files.ts'
 import { demoEnvironment, prepareDemo, until } from '../src/dev/demo.ts'
 import { demoVersion, markDemo } from '../src/dev/home.ts'
 import { superviseDaemon } from '../src/launch.ts'
-import { isAlive, killAppHosts, killRunHosts, stopDaemonIn } from './helpers.ts'
+import {
+  approveAppsOutsideSandbox,
+  isAlive,
+  killAppHosts,
+  killRunHosts,
+  stopDaemonIn,
+} from './helpers.ts'
 
 const original = { ...process.env }
 let home: string | undefined
@@ -71,6 +77,7 @@ test('reset stops detached Apps before deleting their worktrees', async () => {
       async () => (await supervisor.client.listTasks()).find((t) => t.id === task.id)?.leadRunId,
       'Task worktree',
     )
+    await approveAppsOutsideSandbox(supervisor.client, task)
     const app = await supervisor.client.startApp(task.id, { repo: 'web', name: 'Web' })
     port = app.port
     expect(port).toBeDefined()

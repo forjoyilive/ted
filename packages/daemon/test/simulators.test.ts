@@ -21,6 +21,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { checkCpus } from '../src/tasks/check-slots.ts'
 import {
   api,
+  approveAppsOutsideSandboxBy,
   assistantTexts,
   commitToOrigin,
   killAppHosts,
@@ -171,6 +172,7 @@ async function taskWithWorktree(client: Client, title = '{"steps": [{"endTurn": 
   const task = await client.ok<Task>('POST', '/tasks', { title, factory: 'NB' })
   await client.ok('POST', `/tasks/${task.id}/start`)
   await waitUntil(async () => (await taskNow(client, task)).leadRunId, 'the Task Lead Run')
+  await approveAppsOutsideSandboxBy(client, task)
   return task
 }
 

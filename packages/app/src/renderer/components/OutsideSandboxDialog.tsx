@@ -1,4 +1,5 @@
-import { type Task, type TaskApp, withOutsideSandboxApproval } from '@ted/protocol'
+import type { Task, TaskApp } from '@ted/protocol'
+import { withOutsideSandboxApproval } from '@ted/protocol/outside-sandbox'
 import { type ReactNode, useState } from 'react'
 import { readableError, ted } from '../ted.ts'
 import styles from './ArchiveDialogs.module.css'
@@ -8,23 +9,30 @@ import { Button } from './Button.tsx'
 export function useOutsideSandbox(
   task: Task,
   app: Pick<TaskApp, 'name' | 'confirmOutsideSandbox' | 'outsideSandboxApproval'>,
-): { confirm: (run: () => unknown) => unknown; dialog: ReactNode } {
-  const [pending, setPending] = useState<() => unknown>()
-  const confirm = (run: () => unknown) => {
+): { confirm: (run: (confirmed: Confirmed) => unknown) => unknown; dialog: ReactNode } {
+  const [pending, setPending] = useState<(confirmed: Confirmed) => unknown>()
+  const confirm = (run: (confirmed: Confirmed) => unknown) => {
     if (app.confirmOutsideSandbox === true) setPending(() => run)
-    else return run()
+    else return run({})
   }
   const dialog = pending && (
     <OutsideSandboxDialog
       task={task}
       app={app}
       onRun={() => {
-        return Promise.resolve(pending()).then(() => setPending(undefined))
+        return Promise.resolve(pending(confirmedOf(app))).then(() => setPending(undefined))
       }}
       onCancel={() => setPending(undefined)}
     />
   )
   return { confirm, dialog }
+}
+
+export type Confirmed = { declaration?: string }
+
+export function confirmedOf(app: Pick<TaskApp, 'outsideSandboxApproval'>): Confirmed {
+  const declaration = app.outsideSandboxApproval?.declaration
+  return declaration === undefined ? {} : { declaration }
 }
 
 export function OutsideSandboxDialog({

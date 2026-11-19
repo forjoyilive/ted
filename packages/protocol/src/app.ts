@@ -94,6 +94,11 @@ export interface SimulatorAsk {
 export interface StartAppRequest extends AppRef {
   shutDown?: string
   reason?: string
+  declaration?: string
+}
+
+export interface RestartAppRequest extends AppRef {
+  declaration?: string
 }
 
 export interface RecordAppRequest extends AppRef {

@@ -11,6 +11,7 @@ import type {
   AppLog,
   AppRef,
   RecordAppRequest,
+  RestartAppRequest,
   SimulatorSlots,
   StartAppRequest,
   TaskApp,
@@ -1469,7 +1470,7 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/stop`, app)
   }
 
-  restartApp(ref: string, app: AppRef): Promise<TaskApp> {
+  restartApp(ref: string, app: RestartAppRequest): Promise<TaskApp> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/restart`, app)
   }
 

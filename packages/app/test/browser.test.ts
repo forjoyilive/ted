@@ -9,6 +9,7 @@ import { type ElectronApplication, _electron as electron } from 'playwright'
 import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { loadRunTokens } from '../../daemon/src/run-token.ts'
 import {
+  approveAppsOutsideSandbox,
   commitToOrigin,
   daemonAsApp,
   killAppHosts,
@@ -96,6 +97,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     async () => (await client.listTasks()).find((t) => t.id === task.id && t.leadRunId),
     'Task Lead',
   )
+  await approveAppsOutsideSandbox(client, task)
   await client.startApp(task.id, { name: 'Web' })
   const running = await waitUntil(
     async () => (await client.listApps(task.id)).find((a) => a.state === 'running'),
