@@ -13,7 +13,7 @@ repos:
   - name: ted-mobile
     remote: https://github.com/forjoyilive/ted-mobile.git
     worktree:
-      setup: npm install --frozen-lockfile
+      setup: '[ -f package.json ] || exit 0; pnpm install --frozen-lockfile'
     apps:
       - name: Ted iPhone
         kind: ios-simulator
