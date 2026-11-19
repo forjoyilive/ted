@@ -2420,7 +2420,28 @@
       "count": 5
     }
   },
-  "packages/daemon/src/store/schema.ts": {
+  "packages/daemon/src/store/schema/chats.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/store/schema/checks.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/store/schema/machine.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/store/schema/task-log.ts": {
     "anti-slop/no-known-value-widening": {
       "count": 1
     },
@@ -2434,10 +2455,15 @@
       "count": 2
     },
     "anti-slop/no-unsafe-dictionary-type": {
-      "count": 6
+      "count": 3
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 8
+      "count": 2
+    }
+  },
+  "packages/daemon/src/store/schema/tasks.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
     }
   },
   "packages/daemon/src/store/side-chats.ts": {
