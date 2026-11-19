@@ -46,6 +46,7 @@
   line-height: var(--leading-17);
   box-shadow: 0 4px 6px var(--shadow-popover);
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .floating {
