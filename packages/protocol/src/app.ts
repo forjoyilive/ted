@@ -1,4 +1,5 @@
 import type { AppKind } from './factory-settings.ts'
+import type { OutsideSandboxApproval } from './outside-sandbox.ts'
 import type { PreviewPreset } from './preview-size.ts'
 import type { Attachment } from './task.ts'
 
@@ -27,6 +28,7 @@ export interface TaskApp {
   asking?: true
   simulator?: AppSimulator
   confirmOutsideSandbox?: true
+  outsideSandboxApproval?: OutsideSandboxApproval
   electron?: true
   preview?: PreviewPreset
 }

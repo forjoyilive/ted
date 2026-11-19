@@ -816,6 +816,14 @@ export {
   parseOutsideCommandAnswer,
   parseRunOutsideCommandRequest,
 } from './outside-command.ts'
+export {
+  approvedOutsideSandbox,
+  type OutsideSandboxApproval,
+  type OutsideSandboxApprovals,
+  parseOutsideSandboxApprovalsRequest,
+  readOutsideSandboxApprovals,
+  withOutsideSandboxApproval,
+} from './outside-sandbox.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {

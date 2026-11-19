@@ -439,7 +439,7 @@ export function TaskBrowserView({
       {confirming && (
         <OutsideSandboxDialog
           task={task}
-          app={confirming.name}
+          app={confirming}
           onRun={() => start(confirming).then(() => setConfirming(undefined))}
           onCancel={() => setConfirming(undefined)}
         />

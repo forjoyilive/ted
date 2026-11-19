@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
@@ -15,11 +16,13 @@ import {
   type AppRef,
   type AppStarter,
   appEnvName,
+  approvedOutsideSandbox,
   type DaemonEvent,
   type DeviceRequest,
   isDeviceApp,
   isEmulatorApp,
   isSimulatorApp,
+  type OutsideSandboxApproval,
   type SimulatorSlots,
   type TaskApp,
   tedEnv,
@@ -82,8 +85,30 @@ export interface AppTask {
   factoryId: string
   repos: AppRepo[]
   sandbox?: Omit<SandboxScope, 'tmp'>
-  outsideSandbox?: readonly string[]
+  outsideSandbox?: readonly OutsideSandboxApproval[]
   cache?: string
+}
+
+export function outsideSandboxApproval(
+  repo: Pick<AppRepo, 'name' | 'env'>,
+  app: AppDeclaration,
+): OutsideSandboxApproval {
+  const sorted = (env: Record<string, string>) =>
+    Object.entries(env).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  const declaration = createHash('sha256')
+    .update(
+      JSON.stringify([
+        repo.name,
+        app.name,
+        app.kind,
+        app.run,
+        sorted(app.env),
+        sorted(repo.env),
+        app.electron === true,
+      ]),
+    )
+    .digest('hex')
+  return { repo: repo.name, app: app.name, declaration }
 }
 
 export interface SimulatorOptions {
@@ -1131,10 +1156,12 @@ export function createApps(options: AppsOptions): Apps {
     for (const repo of task.repos) {
       for (const app of repo.apps) {
         if (!supportedApp(app)) continue
-        const ask = task.sandbox !== undefined && !task.outsideSandbox?.includes(app.name)
+        const approval = outsideSandboxApproval(repo, app)
+        const ask =
+          task.sandbox !== undefined && !approvedOutsideSandbox(task.outsideSandbox, approval)
         apps.push({
           ...toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name))),
-          ...(ask && { confirmOutsideSandbox: true }),
+          ...(ask && { confirmOutsideSandbox: true, outsideSandboxApproval: approval }),
         })
       }
     }

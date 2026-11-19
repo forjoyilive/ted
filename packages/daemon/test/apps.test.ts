@@ -368,14 +368,41 @@ describe('Apps', () => {
         (await asLead.call('POST', `/tasks/${task.id}/apps/${action}`, { name: 'Web' })).status,
         `the Task’s own Run asks to ${action}`,
       ).toBe(403)
+    const approval = (await appNamed(client, task, 'API'))?.outsideSandboxApproval
+    expect(approval).toEqual({
+      repo: 'widgets',
+      app: 'API',
+      declaration: expect.stringMatching(/^[0-9a-f]{64}$/),
+    })
     const refused = await asLead.call('PATCH', '/settings', {
-      appsOutsideSandbox: { [task.factoryId]: ['API'] },
+      appsOutsideSandbox: { [task.factoryId]: [approval] },
     })
     expect(refused.status).toBe(403)
     expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
-    await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: ['API'] } })
+    await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: [approval] } })
     expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBeUndefined()
     expect((await appNamed(client, task, 'Web'))?.confirmOutsideSandbox).toBe(true)
+  })
+
+  test('an Always approval for an older declaration of the App, or a name-only one, asks again', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
+    const client = await start()
+    const task = await taskWithWorktree(client)
+    const approval = (await appNamed(client, task, 'API'))?.outsideSandboxApproval
+    if (approval === undefined) throw new Error('API carries no approval to save')
+
+    const older = { ...approval, declaration: '0'.repeat(64) }
+    await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: [older] } })
+    expect(await appNamed(client, task, 'API')).toMatchObject({
+      confirmOutsideSandbox: true,
+      outsideSandboxApproval: approval,
+    })
+
+    const nameOnly = await client.call('PATCH', '/settings', {
+      appsOutsideSandbox: { [task.factoryId]: ['API'] },
+    })
+    expect(nameOnly.status).toBe(400)
+    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
   })
 
   test('a running App removed from the settings stays listed and stoppable, and ted run-app stops waiting for it', async () => {
