@@ -102,13 +102,14 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
     .poll(() => preview.textContent())
     .toContain('3 Tasks: 1 assigned to you, 1 to others, 1 unassigned')
   expect(await preview.getByRole('listitem').count()).toBe(4)
-  const attach = newTask.getByRole('button', { name: 'Drop files here, or click to attach' })
   expect(
-    await attach.evaluate((button) => {
-      const { left, top, width, height } = button.getBoundingClientRect()
-      return button.contains(document.elementFromPoint(left + width / 2, top + height / 2))
+    await preview.evaluate((card) => {
+      const box = card.parentElement
+      if (!box) return 'no description box'
+      if (card.getBoundingClientRect().bottom <= box.getBoundingClientRect().bottom) return 'fits'
+      return getComputedStyle(box).overflowY === 'visible' ? 'spills' : 'scrolls'
     }),
-  ).toBe(true)
+  ).toMatch(/^(fits|scrolls)$/)
   await expect.poll(() => newTask.getByLabel('Title').inputValue()).toBe('Checkout redesign')
   expect(await preview.getByLabel('Sync these Tasks with Asana').isChecked()).toBe(true)
   expect(await preview.textContent()).toContain('Ted comments on each Asana task')
