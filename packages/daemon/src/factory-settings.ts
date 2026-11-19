@@ -52,6 +52,7 @@ import {
   stageFileId,
   validates,
 } from '@ted/protocol/stage'
+import { appDeclarations } from './apps/declared.ts'
 import type { CheckTries } from './check-tries.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
@@ -717,6 +718,12 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           maxWorkingRuns: base.settings.max_working_runs,
         }),
         machineMaxWorkingRuns: store.settings().maxWorkingRuns,
+        sandboxSockets: base.settings?.sandbox_sockets ?? [],
+        electronApps: (base.settings?.repos ?? []).flatMap((entry, i) =>
+          appDeclarations(entry.apps)
+            .filter((app) => app.electron === true)
+            .map((app) => ({ repo: repos[i]?.name ?? '', name: app.name })),
+        ),
         notes: typeof notes === 'string' ? notes : '',
         ...(problem && { invalid: problem }),
       }

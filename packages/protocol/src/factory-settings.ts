@@ -1,6 +1,7 @@
 import type { AgentFileChange, AgentFileRow } from './agent-files.ts'
 import type { PreviewPreset } from './preview-size.ts'
 import type { PermissionMode } from './run.ts'
+import type { ElectronApp } from './sandbox-openings.ts'
 import type {
   AgentStageId,
   CiSignal,
@@ -323,6 +324,8 @@ export interface FactorySettingsView {
   repoPermissions?: PermissionMode
   maxWorkingRuns?: number
   machineMaxWorkingRuns: number
+  sandboxSockets: string[]
+  electronApps: ElectronApp[]
   notes: string
   invalid?: InvalidSettings
 }
