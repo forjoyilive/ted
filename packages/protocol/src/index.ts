@@ -391,7 +391,14 @@ export {
   maxCrashType,
   parseRendererCrash,
 } from './crash-report.ts'
-export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
+export {
+  type CallerInfo,
+  type DaemonInfo,
+  type PublicDaemonInfo,
+  readDaemonInfo,
+  readDaemonInfoFor,
+  readPublicDaemonInfo,
+} from './daemon-info.ts'
 export type {
   CostBucket,
   CostFactory,

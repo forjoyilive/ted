@@ -66,7 +66,7 @@ import {
   RequestValidationError,
   type RoundInput,
   type RunWithConversation,
-  readDaemonInfo,
+  readDaemonInfoFor,
   remoteExecutionOff,
   remoteExecutionOn,
   runOnlyBrowserActions,
@@ -366,7 +366,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       banners: await client.listBanners(),
       factories: await client.listFactories(),
     }))
-    const pid = (await readDaemonInfo(home))?.pid
+    const pid = (await readDaemonInfoFor(home, runTokenFrom(env)))?.pid
     return {
       pid,
       banners: formatBanners(banners, factories),
@@ -375,7 +375,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
   }
 
   async function openApp(): Promise<void> {
-    const info = await readDaemonInfo(home)
+    const info = await readDaemonInfoFor(home, runTokenFrom(env))
     const token = runTokenFrom(env) ?? info?.token
     const result = await (info ? new DaemonClient(info, token).openApp() : undefined)?.catch(
       (error: unknown) => {

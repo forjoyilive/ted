@@ -5,6 +5,7 @@ import {
   DaemonClient,
   type DaemonInfo,
   type DataStatus,
+  type PublicDaemonInfo,
   type Run,
   remoteExecutionOn,
   tedEnv,
@@ -1031,6 +1032,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const tmp = `${paths.daemonInfo}.${process.pid}.tmp`
   await writeFile(tmp, JSON.stringify(info), { mode: 0o600 })
   await rename(tmp, paths.daemonInfo)
+  await writePublicDaemonInfo(paths, { port, pid: process.pid, version: options.version })
   await data.open()
 
   return {
@@ -1049,6 +1051,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       slow.close()
       profiler.close()
       await rm(paths.daemonInfo, { force: true })
+      await rm(paths.publicDaemonInfo, { force: true })
       onStep?.('connections')
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
@@ -1058,4 +1061,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       lock.release()
     },
   }
+}
+
+async function writePublicDaemonInfo(
+  paths: ReturnType<typeof tedPaths>,
+  info: PublicDaemonInfo,
+): Promise<void> {
+  await mkdir(paths.public, { recursive: true, mode: 0o700 })
+  const tmp = `${paths.publicDaemonInfo}.${process.pid}.tmp`
+  await writeFile(tmp, JSON.stringify(info), { mode: 0o600 })
+  await rename(tmp, paths.publicDaemonInfo)
 }
