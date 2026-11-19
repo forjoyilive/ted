@@ -230,13 +230,8 @@ interface SandboxPaths {
 }
 
 const xcodeSavers =
-  'xcodebuild|SWBBuildService|XCBBuildService|actool|swift-build|swift-run|swift-test'
-const xcodeTempNames =
-  /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8}|ResultBundle_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{4}\.xcresult)$/
-
-function digits(count: number): string {
-  return '[0-9]'.repeat(count)
-}
+  'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtoold|swift-build|swift-run|swift-test'
+const xcodeTempNames = /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8})$/
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -383,8 +378,6 @@ function seatbeltArgs(
           // Seatbelt regexes have no {n} repeat, so the random characters are written out.
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
-          // xcodebuild saves a failed build’s result bundle there too, named for the time. Its name is predictable, so no links, which the user’s own xcodebuild would follow.
-          `(allow file-write* (require-all (regex #"^${escapeRegex(paths.userTemp)}/ResultBundle_${digits(4)}-${digits(2)}-${digits(2)}_${digits(2)}-${digits(2)}-${digits(4)}\\.xcresult(/|$)") (require-any (vnode-type REGULAR-FILE) (vnode-type DIRECTORY))))`,
         ]),
     ...(paths.manifestLogs === undefined
       ? []

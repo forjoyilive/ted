@@ -112,6 +112,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     const id = randomUUID()
     const xcodeSave = path.join(saves, `NSIRD_SWBBuildService_${id}`)
     const assetSave = path.join(saves, `NSIRD_actool_${id}`)
+    const assetHelperSave = path.join(saves, `NSIRD_ibtoold_${id}`)
     const swiftSave = path.join(saves, `NSIRD_swift-build_${id}`)
     const otherSave = path.join(saves, `NSIRD_TextEdit_${id}`)
     const interfaceSave = path.join(saves, `NSIRD_ibtool_${id}`)
@@ -127,6 +128,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         'echo x > "$CP_HOME_DIR/e" && echo wrote',
         `mkdir '${xcodeSave}' && ${tryWrite(path.join(xcodeSave, 'x'))}`,
         `mkdir '${assetSave}' && ${tryWrite(path.join(assetSave, 'x'))}`,
+        `mkdir '${assetHelperSave}' && ${tryWrite(path.join(assetHelperSave, 'x'))}`,
         `mkdir '${swiftSave}' && ${tryWrite(path.join(swiftSave, 'x'))}`,
         tryWrite(path.join(otherSave, 'x')),
         tryWrite(path.join(interfaceSave, 'x')),
@@ -135,7 +137,8 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         'echo "$TMPDIR"',
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 12)).toEqual([
+    expect(result.stdout.split('\n').slice(0, 13)).toEqual([
+      'wrote',
       'wrote',
       'wrote',
       'wrote',
@@ -154,7 +157,15 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(await readFile(path.join(cache, 'xcode', 'DerivedData', 'd'), 'utf8')).toBe('x\n')
     expect(await readFile(path.join(cache, 'cocoapods', 'e'), 'utf8')).toBe('x\n')
     expect(result.stdout).toContain(path.basename(tmp))
-    for (const dir of [xcodeSave, assetSave, swiftSave, otherSave, interfaceSave, looseSave])
+    for (const dir of [
+      xcodeSave,
+      assetSave,
+      assetHelperSave,
+      swiftSave,
+      otherSave,
+      interfaceSave,
+      looseSave,
+    ])
       await rm(dir, { recursive: true, force: true })
   })
 
@@ -165,18 +176,8 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     const swbuildLonger = path.join(userTemp, `swbuild.tmp.${id.slice(0, 8)}x`)
     const swbuildShorter = path.join(userTemp, `swbuild.tmp.${id.slice(0, 7)}`)
     const loose = path.join(userTemp, `ted-${id}`)
-    const stamp = `${Date.now()}`.slice(-4)
-    const bundle = path.join(userTemp, `ResultBundle_2026-18-11_23-33-${stamp}.xcresult`)
-    const shortBundle = path.join(
-      userTemp,
-      `ResultBundle_2026-18-11_23-33-${stamp.slice(1)}.xcresult`,
-    )
     const result = await inSandbox(
       [
-        `mkdir '${bundle}' && echo x > '${bundle}/Info.plist' && rm -r '${bundle}' && echo wrote || echo refused`,
-        `mkdir '${shortBundle}' 2>/dev/null && echo wrote || echo refused`,
-        `ln -s '${outside}' '${bundle}' 2>/dev/null && echo wrote || echo refused`,
-        `mkdir '${bundle}' && ln -s '${outside}' '${bundle}/Data' 2>/dev/null && echo wrote || echo refused`,
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && rm -r "$d" && test ! -e "$d" && echo wrote || echo refused`,
         `d=$(mktemp -d '${userTemp}/swbuild.tmp.XXXXXXXX') && echo x > "$d/build.db" && rm -r "$d" && test ! -e "$d" && echo wrote || echo refused`,
         `mkdir '${longer}' 2>/dev/null && echo wrote || echo refused`,
@@ -186,11 +187,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(loose),
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 11)).toEqual([
-      'wrote',
-      'refused',
-      'refused',
-      'refused',
+    expect(result.stdout.split('\n').slice(0, 7)).toEqual([
       'wrote',
       'wrote',
       'refused',
@@ -199,7 +196,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'refused',
       'refused',
     ])
-    for (const dir of [longer, shorter, swbuildLonger, swbuildShorter, loose, bundle, shortBundle])
+    for (const dir of [longer, shorter, swbuildLonger, swbuildShorter, loose])
       await rm(dir, { recursive: true, force: true })
   })
 
