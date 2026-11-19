@@ -143,3 +143,11 @@ test('usage lists turned-on agents that are installed or not yet checked', async
   expect(usageAgents([], ['antigravity', 'claude'])).toEqual(['claude', 'antigravity'])
   expect(usageAgents([], [])).toEqual([])
 })
+
+test('usage for Pi reads Not available, whatever the billing', async () => {
+  const { usageEmpty, usageNone } = await import('../src/renderer/plan-usage.ts')
+  expect(usageNone('pi', undefined)).toBe('Not available')
+  expect(usageNone('codex', 'api-key')).toBe('API key')
+  expect(usageNone('claude', 'subscription')).toBe('No usage yet')
+  expect(usageEmpty('pi', 'subscription')).toBe('Pi doesn’t report plan usage.')
+})

@@ -32,6 +32,7 @@ import { FactoryPicker } from '../components/FactoryPicker.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
+import { PiAutoNote } from '../components/PiAutoNote.tsx'
 import { Select } from '../components/Select.tsx'
 import grow from '../components/TextGrow.module.css'
 import { useFileDrop } from '../file-drop.ts'
@@ -842,6 +843,7 @@ function NewTaskForm({
                     id={headingId}
                     lead={lead}
                     factoryLead={defaultLead}
+                    factoryId={factory}
                     onChange={setLead}
                   />
                 )}
@@ -1126,6 +1128,7 @@ export function LeadFields({
   id,
   lead,
   factoryLead,
+  factoryId,
   onChange,
   stageEffort = false,
   label = 'Task Lead',
@@ -1134,6 +1137,7 @@ export function LeadFields({
   id: string
   lead: TaskLead
   factoryLead: TaskLead | undefined
+  factoryId: string | undefined
   onChange: (lead: TaskLead) => void
   stageEffort?: boolean
   label?: string
@@ -1199,6 +1203,7 @@ export function LeadFields({
           ))}
         </Select>
       </div>
+      <PiAutoNote agent={lead.agent} factoryId={factoryId} />
     </div>
   )
 }

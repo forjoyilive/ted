@@ -122,7 +122,7 @@ function OnboardingSteps({
           Ted runs your software work like a factory, and you’re the one steering it.
         </p>
         <p className={styles.body}>
-          You write a Task. A Task Lead, run by a Provider (Claude Code, Codex or Antigravity),
+          You write a Task. A Task Lead, run by a Provider (Claude Code, Codex, Antigravity or Pi),
           carries it through your Workflow: it asks what it needs to know, plans the change, writes
           the code, checks it and opens a pull request.
         </p>

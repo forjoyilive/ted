@@ -6,6 +6,7 @@ import {
   fullestWindow,
   usageAgents,
   usageEmpty,
+  usageNone,
   usageReset,
   usageTone,
   usageWindowNames,
@@ -72,7 +73,7 @@ export function PlanUsage({
                 agentBilling(billing, agent) ?? 'subscription',
               ),
             )
-            return `${agentShortNames[agent]}: ${window ? `${usageWindowNames[window.window]}, ${Math.round(window.percent)}%` : agentBilling(billing, agent) === 'api-key' ? 'API key' : 'No usage yet'}`
+            return `${agentShortNames[agent]}: ${window ? `${usageWindowNames[window.window]}, ${Math.round(window.percent)}%` : usageNone(agent, agentBilling(billing, agent))}`
           })
           .join('; ')}
         aria-haspopup="dialog"
@@ -91,7 +92,7 @@ export function PlanUsage({
           const reset = usageReset(window?.resetsAt, now)
           const label = window
             ? `${agentShortNames[agent]} · ${usageWindowNames[window.window]} · ${Math.round(window.percent)}%${reset ? ` · ${reset === 'Awaiting update' ? reset : `resets in ${reset}`}` : ''}`
-            : `${agentShortNames[agent]} · ${agentBilling(billing, agent) === 'api-key' ? 'API key' : 'No usage yet'}`
+            : `${agentShortNames[agent]} · ${usageNone(agent, agentBilling(billing, agent))}`
           return (
             <span
               key={agent}
@@ -223,10 +224,8 @@ function UsagePopover({
                     <span>{reset === 'Awaiting update' ? 'Update due' : reset}</span>{' '}
                     <b data-tone={usageTone(top.percent)}>{Math.round(top.percent)}%</b>
                   </>
-                ) : agentBilling(billing, agent) === 'api-key' ? (
-                  'API key'
                 ) : (
-                  'No usage yet'
+                  usageNone(agent, agentBilling(billing, agent))
                 )}
               </span>
             </div>

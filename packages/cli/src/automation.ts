@@ -17,6 +17,7 @@ import {
   scheduleFromExpression,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { agentKindList } from '@ted/protocol/run'
 
 export class AutomationUsageError extends Error {}
 
@@ -200,7 +201,7 @@ export async function automationCommand(
     }
     if (options.agent !== undefined) {
       if (!agentKinds.includes(options.agent as AgentKind)) {
-        throw new AutomationUsageError('--provider must be claude, codex or antigravity')
+        throw new AutomationUsageError(`--provider must be ${agentKindList}`)
       }
       input.agent = options.agent as AgentKind
     }

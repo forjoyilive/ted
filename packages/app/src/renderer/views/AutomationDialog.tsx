@@ -625,6 +625,7 @@ export function AutomationDialog({
               id={id}
               lead={lead}
               factoryLead={factoryLead}
+              factoryId={factory === '' ? undefined : factory}
               onChange={setLead}
               label="Provider · model · effort"
               help="The Provider used for drafting and each firing. Filled from the Factory’s lead."
