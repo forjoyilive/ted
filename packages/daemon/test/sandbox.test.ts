@@ -318,6 +318,57 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     }
   })
 
+  test('a sandboxed command writes ibtoold’s storyboard copy in the per-user temp folder, but no near-miss names, links or folders', async () => {
+    const id = randomUUID().toUpperCase()
+    const at = (name: string) => path.join(userTemp, name)
+    const other = () => at(`${randomUUID().toUpperCase()}.storyboard`)
+    const story = at(`${id}.storyboard`)
+    const longer = at(`${id}.storyboardc`)
+    const suffixed = at(`${id}x.storyboard`)
+    const shorter = at(`${id.slice(1)}.storyboard`)
+    const linked = other()
+    const hardLinked = other()
+    const folder = other()
+    const items = [story, longer, suffixed, shorter, linked, hardLinked, folder]
+    const attempt = (command: string) => `(${command}) 2>/dev/null && echo wrote || echo refused`
+    const result = await inSandbox(
+      [
+        tryWrite(path.join(worktree, 'source.txt')),
+        attempt(
+          `echo x > '${story}' && echo y >> '${story}' && rm '${story}' && echo x > '${story}'`,
+        ),
+        tryWrite(longer),
+        tryWrite(suffixed),
+        tryWrite(shorter),
+        attempt(`ln -s '${outside}/x' '${linked}'`),
+        attempt(`ln '${path.join(worktree, 'source.txt')}' '${hardLinked}'`),
+        attempt(`mkdir '${folder}'`),
+      ].join('; '),
+    )
+    try {
+      expect(result.stdout.trim().split('\n')).toEqual([
+        'wrote',
+        'wrote',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+      ])
+    } finally {
+      for (const item of items) await rm(item, { recursive: true, force: true })
+    }
+  })
+
+  test('a sandboxed command can’t reach ibtool’s shared-memory registry, so it can’t hand work to the user’s own ibtoold', async () => {
+    const id = randomUUID().replaceAll('-', '').slice(0, 20)
+    const open = (name: string) =>
+      `/usr/bin/python3 -c "import ctypes, os, sys; c = ctypes.CDLL(None); c.shm_open.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_int]; n = sys.argv[1].encode(); f = c.shm_open(n, os.O_CREAT | os.O_RDWR, 0o600); c.shm_unlink(n); print('opened' if f >= 0 else 'refused')" '${name}'`
+    const result = await inSandbox([open(`ib${id}`), open(`ted${id}`)].join('; '))
+    expect(result.stdout.trim().split('\n')).toEqual(['refused', 'opened'])
+  })
+
   test('a Ted home inside a lowercase UUID folder in the per-user temp folder gets no rules there', async () => {
     const folder = path.join(userTemp, randomUUID().toLowerCase())
     await mkdir(folder)

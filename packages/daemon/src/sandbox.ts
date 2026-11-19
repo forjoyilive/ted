@@ -289,6 +289,7 @@ function actoolTempRules(userTemp: string, pipeMode: number | undefined): string
       ? ownPipes(at(`ibtoold-[0-9]+(/IB(/${uuid}\\.(HostToRemote|RemoteToHost))?)?$`), pipeMode)
       : []),
     `(deny file-read-data (regex #"${at('ibtoold-[0-9]+(/IB)?/?$')}"))`,
+    ...noLinks(at(`${uuid}\\.storyboard$`), ['REGULAR-FILE']),
     ...noLinks(at(`Untitled-${chars('A-Za-z0-9', 8)}\\.uicatalog(-journal)?$`), ['REGULAR-FILE']),
     ...noLinks(
       at(
@@ -456,7 +457,7 @@ function seatbeltArgs(
           // Seatbelt regexes have no {n} repeat, so the random characters are written out.
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
-          // actool’s helpers write these in the per-user temp folder, ignoring TMPDIR. ibtoold-<pid> names are guessable and stay behind, so links are refused.
+          // actool’s and ibtool’s helpers write these in the per-user temp folder, ignoring TMPDIR. ibtoold-<pid> names are guessable and stay behind, so links are refused.
           ...actoolTempRules(paths.userTemp, pipeMode),
         ]),
     ...(paths.manifestLogs === undefined
@@ -469,6 +470,9 @@ function seatbeltArgs(
     ...(paths.unlisted === undefined
       ? []
       : [`(deny file-read-data ${literalPath('U', paths.unlisted)})`]),
+    // ibtool hands its job to any idle ibtoold listed in this shared-memory registry, including the user's own unsandboxed one.
+    // Without it, ibtool runs ibtoold itself, inside the sandbox.
+    '(deny ipc-posix-shm* (ipc-posix-name-prefix "ib"))',
     '(deny appleevent-send)',
     '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
     '(allow mach-lookup (global-name "com.apple.lsd.mapdb"))',
