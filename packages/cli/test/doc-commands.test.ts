@@ -29,9 +29,9 @@ function codeOf(markdown: string): { line: number; code: string }[] {
 
 function namedCommands(markdown: string): NamedCommand[] {
   return codeOf(markdown).flatMap(({ line, code }) =>
-    [...code.matchAll(/(?:^|[\s(;&|])ted((?: [a-z][a-z0-9-]*)+)/g)].map((match) => ({
+    [...code.matchAll(/(?:^|[\s(;&|])ted((?:[ \t]+[a-z][a-z0-9-]*)+)/g)].map((match) => ({
       line,
-      command: `ted${match[1] ?? ''}`,
+      command: ['ted', ...(match[1] ?? '').trim().split(/[ \t]+/)].join(' '),
     })),
   )
 }
@@ -56,12 +56,13 @@ async function agentDocs(): Promise<string[]> {
 describe('commands named in the agent docs', () => {
   test('finds commands only in code and matches them against the command table', () => {
     const markdown = [
-      'Ted started only by the queue.',
+      'the ted task start rule is prose.',
       'Run `pnpm ted dev factory add <owner/repo> --key NB`, then `ted task start NB-1`.',
       '```sh',
       'TED_HOME="$PWD/home" pnpm ted coordinator',
       '```',
       'Use `ted run-app web` and `.ted/workflow.yaml`.',
+      'Spaced out: `ted  dev\tfactory   add`.',
     ].join('\n')
 
     const named = namedCommands(markdown)
@@ -71,9 +72,10 @@ describe('commands named in the agent docs', () => {
       { line: 2, command: 'ted task start' },
       { line: 4, command: 'ted coordinator' },
       { line: 6, command: 'ted run-app web' },
+      { line: 7, command: 'ted dev factory add' },
     ])
-    expect(named.filter((entry) => !known(entry.command)).map((entry) => entry.command)).toEqual([
-      'ted dev factory add',
+    expect(named.filter((entry) => !known(entry.command)).map((entry) => entry.line)).toEqual([
+      2, 7,
     ])
   })
 
