@@ -384,6 +384,7 @@ function seatbeltArgs(
       : [
           // Xcode’s package resolution writes <package>.dia here whatever its cache options say. Plain files only, so no link can send the user’s own builds elsewhere.
           `(allow file-write* (require-all (regex #"^${escapeRegex(paths.manifestLogs)}/[^/]+\\.dia$") (vnode-type REGULAR-FILE)))`,
+          `(deny file-link (regex #"^${escapeRegex(paths.manifestLogs)}/"))`,
         ]),
     ...(paths.unlisted === undefined
       ? []

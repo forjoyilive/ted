@@ -333,6 +333,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(logs, 'apple.dia')),
         `ln -s '${target}' '${path.join(logs, 'linked.dia')}' 2>/dev/null && echo wrote || echo refused`,
         `ln '${target}' '${path.join(logs, 'hard.dia')}' 2>/dev/null && echo wrote || echo refused`,
+        `echo own > own.txt && ln own.txt '${path.join(logs, 'own.dia')}' 2>/dev/null && echo wrote || echo refused`,
         `mkdir '${path.join(logs, 'folder.dia')}' 2>/dev/null && echo wrote || echo refused`,
         tryWrite(path.join(logs, 'apple.txt')),
         tryWrite(path.join(manifests, 'manifest.db')),
@@ -343,6 +344,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'wrote',
+      'refused',
       'refused',
       'refused',
       'refused',
