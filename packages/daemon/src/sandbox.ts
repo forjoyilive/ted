@@ -224,7 +224,7 @@ interface SandboxPaths {
   unlisted?: string[]
 }
 
-const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService|actool'
+const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtoold'
 const xcodeTempNames = /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8})$/
 
 function escapeRegex(text: string): string {
