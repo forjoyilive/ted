@@ -43,6 +43,7 @@ export function buildCacheEnv(cache: string): Record<string, string> {
       Object.entries(buildFolders).map(([name, dir]) => [name, path.join(cache, 'xcode', dir)]),
     ),
     GRADLE_USER_HOME: path.join(cache, 'gradle'),
+    CP_HOME_DIR: path.join(cache, 'cocoapods'),
   }
 }
 
@@ -149,6 +150,9 @@ export function createSandbox(options: {
           const [first = ''] = path.relative(found, paths.tedHome).split(path.sep)
           if (!inside(paths.tedHome, found) && !xcodeTempNames.test(first)) paths.userTemp = found
         }
+        const logs = await manifestLogFolder(env)
+        if (logs !== undefined && !inside(paths.tedHome, logs) && !inside(logs, paths.tedHome))
+          paths.manifestLogs = logs
       }
       const sockets = await allowedSockets(scope.sockets ?? [], env)
       const cache = (name: string) => path.join(paths.cache, name)
@@ -222,10 +226,17 @@ interface SandboxPaths {
   saves?: string
   userTemp?: string
   unlisted?: string[]
+  manifestLogs?: string
 }
 
-const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService|actool'
-const xcodeTempNames = /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8})$/
+const xcodeSavers =
+  'xcodebuild|SWBBuildService|XCBBuildService|actool|swift-build|swift-run|swift-test'
+const xcodeTempNames =
+  /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8}|ResultBundle_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{4}\.xcresult)$/
+
+function digits(count: number): string {
+  return '[0-9]'.repeat(count)
+}
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -272,6 +283,25 @@ async function sandboxPaths(
     tedHome: home,
     ...(sharedTmp !== undefined && !inside(sharedTmp, daemonTmp) && { sharedTmp }),
   }
+}
+
+async function manifestLogFolder(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+  const home = await real(env.HOME?.startsWith('/') ? env.HOME : homedir())
+  const dir = path.join(
+    home,
+    'Library',
+    'Caches',
+    'org.swift.swiftpm',
+    'manifests',
+    'ManifestLoading',
+  )
+  const made = await mkdir(dir, { recursive: true }).then(
+    () => true,
+    () => false,
+  )
+  if (!made || /["\n\r]/.test(dir)) return undefined
+  const found = await realpath(dir).catch(() => undefined)
+  return found === dir ? dir : undefined
 }
 
 async function personalFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
@@ -353,6 +383,14 @@ function seatbeltArgs(
           // Seatbelt regexes have no {n} repeat, so the random characters are written out.
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
+          // xcodebuild saves a failed build’s result bundle there too, named for the time.
+          `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/ResultBundle_${digits(4)}-${digits(2)}-${digits(2)}_${digits(2)}-${digits(2)}-${digits(4)}\\.xcresult(/|$)"))`,
+        ]),
+    ...(paths.manifestLogs === undefined
+      ? []
+      : [
+          // Xcode’s package resolution writes <package>.dia here whatever its cache options say. Plain files only, so no link can send the user’s own builds elsewhere.
+          `(allow file-write* (require-all (regex #"^${escapeRegex(paths.manifestLogs)}/[^/]+\\.dia$") (vnode-type REGULAR-FILE)))`,
         ]),
     ...(paths.unlisted === undefined
       ? []
