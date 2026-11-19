@@ -36,6 +36,7 @@ test('a Pi folder that is a symlink to a folder is copied from the real folder, 
   const link = path.join(userHome, '.pi', 'agent')
   await symlink(dotfiles, link)
   const home = path.join(scratch, 'ted-home')
+  await mkdir(path.join(home, 'runs', 'run-1'), { recursive: true })
   const cwd = path.join(scratch, 'elsewhere')
   await mkdir(cwd, { recursive: true })
 
