@@ -178,8 +178,11 @@ describe('Checks at Validate entry', () => {
     await writeFile(await worktreeFile(client, task, 'stub-moved'), '')
 
     await waitUntil(
-      async () => (await getTask(client, task.id))?.stage === 'done' || undefined,
-      'the Task to finish',
+      async () => {
+        const stage = (await getTask(client, task.id))?.stage
+        return stage === 'merge' || stage === 'done' || undefined
+      },
+      'the Task to pass Validate',
       60_000,
     )
     const [first, second, ...more] = await checkRuns(client, task)
