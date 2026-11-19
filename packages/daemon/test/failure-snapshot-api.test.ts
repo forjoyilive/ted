@@ -89,7 +89,7 @@ test('acceptance, capture, obligations and the Gate each reject local verificati
     await pollFinished()
     await client.ok('GET', `${root}/validation-obligations`)
     await pollFinished()
-    const original = git.workingChanges
+    const original = git.workingTree
     let enter = () => {},
       release = () => {},
       reads = 0
@@ -99,7 +99,7 @@ test('acceptance, capture, obligations and the Gate each reject local verificati
     const gate = new Promise<void>((r) => {
       release = r
     })
-    const spy = vi.spyOn(git, 'workingChanges').mockImplementation(async (...args) => {
+    const spy = vi.spyOn(git, 'workingTree').mockImplementation(async (...args) => {
       const changes = await original(...args)
       if (++reads === (boundary === 'acceptance' ? 2 : 1)) {
         enter()
