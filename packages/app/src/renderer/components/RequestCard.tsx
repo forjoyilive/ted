@@ -83,7 +83,7 @@ import { ReferenceText } from './References.tsx'
 import styles from './RequestCard.module.css'
 import { RequestSnoozeLine } from './RequestSnooze.tsx'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
-import { AccessChanges } from './SandboxAccess.tsx'
+import { AccessChanges, AccessUnknown } from './SandboxAccess.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 import grow from './TextGrow.module.css'
 
@@ -1373,6 +1373,7 @@ export function RequestCard({
           changes={request.gate.sandboxAccess}
         />
       )}
+      {request.gate?.sandboxAccessUnknown && <AccessUnknown />}
       {rows && changes && <MergeChangesLine changes={changes} />}
       {changes && !rows && <ChangesBlock changes={changes} current={taskChanges} />}
       {request.kind === 'signoff' &&

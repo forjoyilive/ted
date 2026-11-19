@@ -1241,8 +1241,7 @@ function CommandCheckRow({
       <div className={multiRepo ? styles.commandRowRepo : styles.commandRow}>
         <DragHandle controls={controls} />
         <span className={styles.checkName}>
-          {name || <span className={styles.dash}>Untitled</span>}{' '}
-          <AccessChips groups={check.sandboxAccess} />
+          {name || <span className={styles.dash}>Untitled</span>}
         </span>
         <span className={`${styles.truncated} ${base.mono}`} title={check.run.trim() || undefined}>
           {check.run.trim() || <span className={styles.dash}>No command</span>}
@@ -1273,6 +1272,11 @@ function CommandCheckRow({
           runLabel="Run now"
           onRun={onRun}
         />
+        {check.sandboxAccess && check.sandboxAccess.length > 0 && (
+          <span className={styles.accessLine}>
+            <AccessChips groups={check.sandboxAccess} />
+          </span>
+        )}
       </div>
       {controls.open && (
         <div className={styles.checkEditor}>

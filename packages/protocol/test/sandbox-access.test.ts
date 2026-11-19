@@ -38,3 +38,21 @@ test('a holder that gains, loses or is removed with a group is listed; an unchan
     'Worktree teardown in mobile loses ios-xcode',
   ])
 })
+
+test('holders that share a name are each compared with their own earlier entry', () => {
+  const sim = (groups: AccessHolder['groups']): AccessHolder => ({
+    kind: 'app',
+    repo: 'mobile',
+    name: 'Sim',
+    groups,
+  })
+  expect(
+    sandboxAccessChanges([sim([]), sim(['ios-xcode'])], [sim(['ios-xcode']), sim([])]),
+  ).toEqual([
+    { kind: 'app', repo: 'mobile', name: 'Sim', gained: ['ios-xcode'], lost: [] },
+    { kind: 'app', repo: 'mobile', name: 'Sim', gained: [], lost: ['ios-xcode'] },
+  ])
+  expect(sandboxAccessChanges([sim([])], [sim([]), sim(['ios-xcode'])])).toEqual([
+    { kind: 'app', repo: 'mobile', name: 'Sim', gained: ['ios-xcode'], lost: [] },
+  ])
+})

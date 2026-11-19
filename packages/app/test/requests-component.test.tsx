@@ -1851,13 +1851,30 @@ test('Review and Merge sign-offs show sandbox access changes on their own line, 
   expect(screen.queryByText(/ios-xcode is shared access/)).toBeNull()
   merge.unmount()
 
-  render(
+  const plain = render(
     <RequestCard
       task={task()}
       request={comment({ kind: 'signoff', stage: 'review', gate: { approveLabel: 'Approve' } })}
     />,
   )
   expect(screen.queryByRole('region', { name: 'Sandbox access changes' })).toBeNull()
+  plain.unmount()
+
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'signoff',
+        stage: 'review',
+        gate: { approveLabel: 'Approve', sandboxAccessUnknown: true },
+      })}
+    />,
+  )
+  expect(
+    within(screen.getByRole('region', { name: 'Sandbox access changes' })).getByText(
+      'Ted couldn’t compare sandbox access in .ted/workflow.yaml. Check the file’s changes.',
+    ),
+  ).toBeTruthy()
 })
 
 test('an obsolete Check repair does not claim a later execution', () => {

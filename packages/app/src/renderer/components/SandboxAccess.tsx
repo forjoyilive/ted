@@ -104,3 +104,13 @@ export function AccessChanges({
     </section>
   )
 }
+
+export function AccessUnknown() {
+  return (
+    <section className={styles.changes} aria-label="Sandbox access changes">
+      <p className={styles.changesTitle}>
+        Ted couldn’t compare sandbox access in .ted/workflow.yaml. Check the file’s changes.
+      </p>
+    </section>
+  )
+}

@@ -25,8 +25,8 @@ import {
 import type { PermissionMode } from '@ted/protocol/run'
 import {
   type AccessHolder,
+  accessChange,
   type SandboxAccessChange,
-  sandboxAccessChanges,
 } from '@ted/protocol/sandbox-access'
 import type { AgentStageId, ClarifyDepth, StageId } from '@ted/protocol/task'
 import { type AgentDraft, agentChangedFiles, agentChanges, agentDrafts } from './agent-files.ts'
@@ -613,42 +613,44 @@ export function settingsAccessChanges(
   view: Pick<FactorySettingsView, 'repos' | 'checks'>,
   changes: FactorySettingsChanges,
 ): SandboxAccessChange[] {
-  const before: AccessHolder[] = []
-  const after: AccessHolder[] = []
+  const pairs: [AccessHolder | undefined, AccessHolder | undefined][] = []
   const keptRepos = new Set<string>()
   for (const repo of changes.repos) {
     const loaded = view.repos.find((r) => repo.was !== undefined && r.was === repo.was)
     if (loaded) keptRepos.add(loaded.was)
     const name = repo.name.trim()
     for (const kind of ['setup', 'teardown'] as const) {
-      const was = loaded?.[kind]?.sandboxAccess ?? []
-      if (loaded?.[kind]) before.push({ kind, repo: name, name: kind, groups: was })
+      const old = loaded?.[kind]
+      const was = old?.sandboxAccess ?? []
       const command = repo[kind]
-      if (command && command.run.trim() !== '') {
-        after.push({ kind, repo: name, name: kind, groups: command.sandboxAccess ?? was })
-      }
+      const now = command && command.run.trim() !== '' ? command : undefined
+      pairs.push([
+        old ? { kind, repo: name, name: kind, groups: was } : undefined,
+        now ? { kind, repo: name, name: kind, groups: now.sandboxAccess ?? was } : undefined,
+      ])
     }
     const usedApps = new Set<number>()
     for (const app of repo.apps) {
       const old = app.was === undefined ? undefined : loaded?.apps[app.was]
       if (old && app.was !== undefined) usedApps.add(app.was)
       const was = old?.sandboxAccess ?? []
-      const appName = app.name.trim()
-      if (old) before.push({ kind: 'app', repo: name, name: appName, groups: was })
-      after.push({ kind: 'app', repo: name, name: appName, groups: app.sandboxAccess ?? was })
+      const holder = { kind: 'app' as const, repo: name, name: app.name.trim() }
+      pairs.push([
+        old ? { ...holder, groups: was } : undefined,
+        { ...holder, groups: app.sandboxAccess ?? was },
+      ])
     }
     loaded?.apps.forEach((app, index) => {
       if (usedApps.has(index)) return
-      before.push({
-        kind: 'app',
-        repo: name,
-        name: app.name.trim(),
-        groups: app.sandboxAccess ?? [],
-      })
+      pairs.push([
+        { kind: 'app', repo: name, name: app.name.trim(), groups: app.sandboxAccess ?? [] },
+        undefined,
+      ])
     })
   }
   for (const repo of view.repos) {
-    if (!keptRepos.has(repo.was)) before.push(...repoHolders(repo, repo.name))
+    if (keptRepos.has(repo.was)) continue
+    for (const holder of repoHolders(repo, repo.name)) pairs.push([holder, undefined])
   }
   if (changes.checks) {
     const used = new Set<number>()
@@ -658,10 +660,14 @@ export function settingsAccessChanges(
       const [holder] = checkHolders([check])
       if (!holder) continue
       const was = old?.sandboxAccess ?? []
-      if (old) before.push({ ...holder, groups: was })
-      after.push({ ...holder, groups: check.sandboxAccess ?? was })
+      pairs.push([
+        old ? { ...holder, groups: was } : undefined,
+        { ...holder, groups: check.sandboxAccess ?? was },
+      ])
     }
-    before.push(...checkHolders(view.checks.filter((c) => !used.has(c.was))))
+    for (const holder of checkHolders(view.checks.filter((c) => !used.has(c.was)))) {
+      pairs.push([holder, undefined])
+    }
   }
-  return sandboxAccessChanges(before, after)
+  return pairs.flatMap(([before, after]) => accessChange(before, after) ?? [])
 }

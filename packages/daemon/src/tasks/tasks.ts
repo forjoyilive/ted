@@ -37,6 +37,7 @@ import type {
   ClarifyDepth,
   Comment,
   CommentAnswer,
+  CommentGate,
   CommitChanges,
   CreatedTask,
   DaemonEvent,
@@ -1578,22 +1579,32 @@ export function createTasks(options: {
   async function signOffAccess(
     task: StoredTask,
     workflow: ResolvedWorkflow,
-  ): Promise<SandboxAccessChange[]> {
+  ): Promise<SandboxAccessChange[] | undefined> {
     const { repo, baseBranch } = primaryRepo(task, workflow)
-    if (!repo) return []
+    if (!repo) return undefined
+    const file = '.ted/workflow.yaml'
     try {
       const base = `origin/${baseBranch ?? (await git.defaultBranch(repo.worktree))}`
       const from = await git.mergeBase(repo.worktree, base, 'HEAD')
-      const read = (commit: string) =>
-        git.showFile(repo.worktree, commit, '.ted/workflow.yaml').catch(() => undefined)
+      const read = async (commit: string) =>
+        (await git.blobIds(repo.worktree, commit, [file]))[file] === undefined
+          ? undefined
+          : await git.showFile(repo.worktree, commit, file)
       return workflowAccessChanges(await read(from), await read('HEAD'))
     } catch (error) {
       console.error(
         `couldn’t compare sandbox access for ${task.displayId}:`,
         redactSecrets(textOf(error)),
       )
-      return []
+      return undefined
     }
+  }
+
+  function accessGate(
+    access: SandboxAccessChange[] | undefined,
+  ): Pick<CommentGate, 'sandboxAccess' | 'sandboxAccessUnknown'> {
+    if (access === undefined) return { sandboxAccessUnknown: true as const }
+    return access.length > 0 ? { sandboxAccess: access } : {}
   }
 
   async function settingsFingerprint(worktree: string): Promise<string> {
@@ -4496,7 +4507,7 @@ export function createTasks(options: {
         pullRequests: rows,
         ...(changes && { changes }),
         ...(noCi.length > 0 && { noCi }),
-        ...(access.length > 0 && { sandboxAccess: access }),
+        ...accessGate(access),
       },
     })
   }
@@ -13817,7 +13828,7 @@ export function createTasks(options: {
               ...gateButtons(workflow, stage),
               ...(changes && { changes }),
               ...(noCi.length > 0 && { noCi }),
-              ...(access.length > 0 && { sandboxAccess: access }),
+              ...accessGate(access),
             },
             ...(design && { attachments: designFiles(design) }),
             ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),

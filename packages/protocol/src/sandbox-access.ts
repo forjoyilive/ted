@@ -22,39 +22,53 @@ function holderKey(holder: Pick<AccessHolder, 'kind' | 'repo' | 'name'>): string
   return JSON.stringify([holder.kind, holder.repo ?? '', holder.name])
 }
 
+export function accessChange(
+  before: AccessHolder | undefined,
+  after: AccessHolder | undefined,
+): SandboxAccessChange | undefined {
+  const holder = after ?? before
+  if (!holder) return undefined
+  const was = before?.groups ?? []
+  const now = after?.groups ?? []
+  const gained = [...new Set(now.filter((g) => !was.includes(g)))]
+  const lost = [...new Set(was.filter((g) => !now.includes(g)))]
+  if (gained.length === 0 && lost.length === 0) return undefined
+  return {
+    kind: holder.kind,
+    ...(holder.repo !== undefined && { repo: holder.repo }),
+    name: holder.name,
+    gained,
+    lost,
+  }
+}
+
+function byOccurrence(holders: readonly AccessHolder[]): Map<string, AccessHolder> {
+  const seen = new Map<string, number>()
+  const keyed = new Map<string, AccessHolder>()
+  for (const holder of holders) {
+    const key = holderKey(holder)
+    const n = seen.get(key) ?? 0
+    seen.set(key, n + 1)
+    keyed.set(`${key}#${n}`, holder)
+  }
+  return keyed
+}
+
 export function sandboxAccessChanges(
   before: readonly AccessHolder[],
   after: readonly AccessHolder[],
 ): SandboxAccessChange[] {
-  const earlier = new Map<string, readonly SandboxGroup[]>()
-  for (const holder of before) {
-    const key = holderKey(holder)
-    earlier.set(key, [...(earlier.get(key) ?? []), ...holder.groups])
-  }
+  const earlier = byOccurrence(before)
+  const later = byOccurrence(after)
   const changes: SandboxAccessChange[] = []
-  const seen = new Set<string>()
-  const compare = (holder: AccessHolder, was: readonly SandboxGroup[]) => {
-    const gained = [...new Set(holder.groups.filter((g) => !was.includes(g)))]
-    const lost = [...new Set(was.filter((g) => !holder.groups.includes(g)))]
-    if (gained.length === 0 && lost.length === 0) return
-    changes.push({
-      kind: holder.kind,
-      ...(holder.repo !== undefined && { repo: holder.repo }),
-      name: holder.name,
-      gained,
-      lost,
-    })
+  for (const [key, holder] of later) {
+    const change = accessChange(earlier.get(key), holder)
+    if (change) changes.push(change)
   }
-  for (const holder of after) {
-    const key = holderKey(holder)
-    seen.add(key)
-    compare(holder, earlier.get(key) ?? [])
-  }
-  for (const holder of before) {
-    const key = holderKey(holder)
-    if (seen.has(key)) continue
-    seen.add(key)
-    compare({ ...holder, groups: [] }, earlier.get(key) ?? [])
+  for (const [key, holder] of earlier) {
+    if (later.has(key)) continue
+    const change = accessChange(holder, undefined)
+    if (change) changes.push(change)
   }
   return changes
 }

@@ -974,6 +974,7 @@ export interface CommentGate {
   changes?: SignOffChanges
   noCi?: string[]
   sandboxAccess?: SandboxAccessChange[]
+  sandboxAccessUnknown?: true
 }
 
 export interface MergeRow {

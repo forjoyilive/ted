@@ -1480,13 +1480,16 @@ function Apps({
               <span className={styles.appName} title={app.name || undefined}>
                 {app.name || 'Unnamed App'}
               </span>
-              <span className={styles.appKind}>
-                {appKindLabels[app.kind]} <AccessChips groups={app.sandboxAccess} />
-              </span>
+              <span className={styles.appKind}>{appKindLabels[app.kind]}</span>
               <span className={styles.appRun}>{app.run}</span>
               <ActionButton type="button" className={styles.link} onClick={() => setEditing(index)}>
                 Edit
               </ActionButton>
+              {app.sandboxAccess && app.sandboxAccess.length > 0 && (
+                <span className={styles.accessLine}>
+                  <AccessChips groups={app.sandboxAccess} />
+                </span>
+              )}
             </div>
           ),
         )}
