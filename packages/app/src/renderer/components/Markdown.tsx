@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useEffect, useRef, useState } from 'react'
+import { memo, type ReactNode, useEffect, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { webLink } from '../../web-link.ts'
@@ -6,11 +6,12 @@ import { type Reference, references } from '../references.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import { CopyIcon } from './icons.tsx'
+import { useLastLines } from './LastLines.tsx'
 import styles from './Markdown.module.css'
 import { ReferenceLink, useReferenceLinks } from './References.tsx'
 
-function CodeBlock({ children }: { children?: ReactNode }) {
-  const pre = useRef<HTMLPreElement>(null)
+function CodeBlock({ text, children }: { text: string; children?: ReactNode }) {
+  const lines = useLastLines(text)
   const [copied, setCopied] = useState(false)
   const [copying, setCopying] = useState(false)
   const [error, setError] = useState<string>()
@@ -26,7 +27,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
     setCopied(false)
     setError(undefined)
     try {
-      await ted.copyText(pre.current?.textContent ?? '')
+      await ted.copyText(text)
       setCopied(true)
     } catch (failure) {
       setError(readableError(failure))
@@ -37,9 +38,10 @@ function CodeBlock({ children }: { children?: ReactNode }) {
 
   return (
     <div className={styles.code}>
+      {lines.toggle}
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Horizontal scroll regions need keyboard focus. */}
       <section className={styles.codeScroll} aria-label="Code block" tabIndex={0}>
-        <pre ref={pre}>{children}</pre>
+        <pre>{lines.collapsed ? <code>{lines.tail}</code> : children}</pre>
       </section>
       <Button
         variant="quiet"
@@ -176,7 +178,7 @@ const components: Components = {
       <table>{children}</table>
     </section>
   ),
-  pre: CodeBlock,
+  pre: ({ node, children }) => <CodeBlock text={node ? textOf(node) : ''}>{children}</CodeBlock>,
   ...({ [referenceTag]: LinkedReference } as Components),
 }
 

@@ -192,6 +192,8 @@ function ChangesBlock({
   changes: SignOffChanges
   current?: TaskChanges | undefined
 }) {
+  const [all, setAll] = useState(false)
+  const files = changes.repos.reduce((sum, repo) => sum + Math.max(1, repo.files.length), 0)
   return (
     <section className={styles.changes} aria-label="Since your last approval">
       <h3 className={styles.sectionHeading}>Since your last approval</h3>
@@ -199,34 +201,45 @@ function ChangesBlock({
         <Markdown className={styles.sectionBody} text={changes.summary} />
       )}
       <ul className={styles.changedFiles}>
-        {changes.repos.flatMap((repo) =>
-          repo.files.length === 0
-            ? [
-                <li key={repo.name} className={styles.changedFile}>
-                  <span className={styles.changedRepo}>{repo.name}</span>
-                  <span className={styles.noChanges}>
-                    {repo.unavailable ? 'Ted couldn’t compare this repo' : 'no changes'}
-                  </span>
-                </li>,
-              ]
-            : repo.files.map((file) => (
-                <li key={`${repo.name}:${file.path}`} className={styles.changedFile}>
-                  <span className={styles.changedRepo}>{repo.name}</span>
-                  <span className={styles.changedPath} title={file.path}>
-                    {file.path}
-                  </span>
-                  {current?.repos.some((r) => r.name === repo.name && !r.unavailable) &&
-                    !current.repos.some(
-                      (r) => r.name === repo.name && r.files.some((f) => f.path === file.path),
-                    ) && <span className={styles.noChanges}>Not in the current Task diff</span>}
-                  <span className={styles.counts}>
-                    <span className={styles.added}>{`+${file.added}`}</span>{' '}
-                    <span className={styles.removed}>{`−${file.removed}`}</span>
-                  </span>
-                </li>
-              )),
-        )}
+        {changes.repos
+          .flatMap((repo) =>
+            repo.files.length === 0
+              ? [
+                  <li key={repo.name} className={styles.changedFile}>
+                    <span className={styles.changedRepo}>{repo.name}</span>
+                    <span className={styles.noChanges}>
+                      {repo.unavailable ? 'Ted couldn’t compare this repo' : 'no changes'}
+                    </span>
+                  </li>,
+                ]
+              : repo.files.map((file) => (
+                  <li key={`${repo.name}:${file.path}`} className={styles.changedFile}>
+                    <span className={styles.changedRepo}>{repo.name}</span>
+                    <span className={styles.changedPath} title={file.path}>
+                      {file.path}
+                    </span>
+                    {current?.repos.some((r) => r.name === repo.name && !r.unavailable) &&
+                      !current.repos.some(
+                        (r) => r.name === repo.name && r.files.some((f) => f.path === file.path),
+                      ) && <span className={styles.noChanges}>Not in the current Task diff</span>}
+                    <span className={styles.counts}>
+                      <span className={styles.added}>{`+${file.added}`}</span>{' '}
+                      <span className={styles.removed}>{`−${file.removed}`}</span>
+                    </span>
+                  </li>
+                )),
+          )
+          .slice(0, all ? undefined : 10)}
       </ul>
+      {files > 10 && (
+        <button
+          type="button"
+          className={styles.moreFiles}
+          onClick={() => setAll((shown) => !shown)}
+        >
+          {all ? 'Show fewer' : `Show ${files - 10} more`}
+        </button>
+      )}
     </section>
   )
 }
@@ -286,7 +299,7 @@ function ReviewChanges({
             <p className={styles.summary}>No current Task changes.</p>
           )}
           <div>
-            <ChangeList changes={changes} onOpen={onOpen} since={since} />
+            <ChangeList changes={changes} onOpen={onOpen} since={since} limit={10} />
           </div>
         </>
       )}

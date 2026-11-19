@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { ago, useNow } from '../requests.ts'
 import { Collapsible } from './Collapsible.tsx'
 import styles from './EventLine.module.css'
+import { useLastLines } from './LastLines.tsx'
 import { ReferenceText } from './References.tsx'
 
 export function EventLine({
@@ -48,11 +49,13 @@ export function Findings({ text }: { text: string }) {
 }
 
 export function OutputBlock({ text }: { text: string }) {
+  const lines = useLastLines(text)
   return (
     <section className={styles.output} aria-label="Output" data-chat-wide>
-      <Collapsible className={styles.outputText}>
-        <pre>{text}</pre>
-      </Collapsible>
+      {lines.toggle}
+      <div className={styles.outputText}>
+        <pre>{lines.collapsed ? lines.tail : text}</pre>
+      </div>
     </section>
   )
 }
