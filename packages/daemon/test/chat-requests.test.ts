@@ -76,7 +76,7 @@ describe('planPost', () => {
     })
     expect(planPost([open('p1', 'proposal')], { kind: 'proposal', supersedes: 'p1' })).toEqual({
       supersedes: 'p1',
-      roundNumber: 1,
+      roundNumber: 0,
     })
   })
 
