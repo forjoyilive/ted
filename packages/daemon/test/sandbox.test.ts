@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
   mkdir,
@@ -788,6 +788,81 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
   })
 })
 
+describe.runIf(process.platform === 'linux')('the sandbox on Linux', () => {
+  let userHome: string
+  beforeEach(async (context) => {
+    skipInsideTedSandbox(context)
+    userHome = await mkdtemp('/var/tmp/ted-sandbox-user-')
+    const secrets: [string, string][] = [
+      ['.ssh', 'id_rsa'],
+      ['.aws', 'credentials'],
+      ['.config/gh', 'hosts.yml'],
+    ]
+    for (const [dir, file] of secrets) {
+      await mkdir(path.join(userHome, dir), { recursive: true })
+      await writeFile(path.join(userHome, dir, file), 'secret')
+    }
+  })
+
+  afterEach(async () => {
+    await rm(userHome, { recursive: true, force: true })
+  })
+
+  async function inBwrap(script: string, reads: string[] = []) {
+    const sandbox = createSandbox({ tedHome, env: () => ({ ...process.env, HOME: userHome }) })
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), reads })
+    const [command, ...args] = wrapped.argv
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        let stdout = ''
+        const child = spawn(command, [...args, script], {
+          cwd: worktree,
+          env: withSandboxEnv(process.env, wrapped.env),
+          stdio: ['ignore', 'pipe', 'inherit', ...wrapped.fds],
+        })
+        child.stdout?.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString('utf8')
+        })
+        child.once('error', reject)
+        child.once('close', () => resolve(stdout))
+      })
+    } finally {
+      await wrapped.close()
+    }
+  }
+
+  test('a sandboxed command can’t read files in HOME outside the allowed set', async () => {
+    const output = await inBwrap(
+      [
+        tryRead(path.join(userHome, '.ssh', 'id_rsa')),
+        tryRead(path.join(userHome, '.aws', 'credentials')),
+        tryRead(path.join(userHome, '.config', 'gh', 'hosts.yml')),
+        tryWrite(path.join(worktree, 'a.txt')),
+        tryRead('/etc/passwd'),
+      ].join('; '),
+    )
+    expect(output.split('\n').slice(0, 5)).toEqual([
+      'refused',
+      'refused',
+      'refused',
+      'wrote',
+      'read',
+    ])
+  })
+
+  test('a folder listed in sandbox_reads can be read, and nothing beside it', async () => {
+    const output = await inBwrap(
+      [
+        tryRead(path.join(userHome, '.config', 'gh', 'hosts.yml')),
+        tryRead(path.join(userHome, '.ssh', 'id_rsa')),
+        tryWrite(path.join(userHome, '.config', 'gh', 'hosts.yml')),
+      ].join('; '),
+      ['~/.config/gh'],
+    )
+    expect(output.split('\n').slice(0, 3)).toEqual(['read', 'refused', 'refused'])
+  })
+})
+
 describe('the folders a sandbox opens', () => {
   test('a worktree swapped for a link to somewhere else is refused', async () => {
     const sandbox = createSandbox({
@@ -859,6 +934,60 @@ describe('the folders a sandbox opens', () => {
     expect(argv.join(' ')).toContain(`--ro-bind ${await realpath(clone)}`)
     expect(argv.join(' ')).toContain(`--bind ${real} ${real}`)
     expect(argv.indexOf(home)).toBeLessThan(argv.indexOf(real))
+  })
+
+  test('on Linux, bwrap mounts the base read set and sandbox_reads, never the host root', async () => {
+    const userHome = await mkdtemp(path.join(outside, 'home-'))
+    for (const dir of ['.nvm', '.ssh', '.config/gh', 'Documents/notes']) {
+      await mkdir(path.join(userHome, dir), { recursive: true })
+    }
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', HOME: userHome }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const realHome = await realpath(userHome)
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      reads: ['~/.config/gh', '~/Documents/notes'],
+    })
+    const pairs = argv.flatMap((arg, i) =>
+      arg === '--ro-bind' ? [`${argv[i + 1]} ${argv[i + 2]}`] : [],
+    )
+    expect(pairs).not.toContain('/ /')
+    expect(pairs).toContain('/usr /usr')
+    expect(pairs).toContain(`${path.join(realHome, '.nvm')} ${path.join(realHome, '.nvm')}`)
+    expect(pairs).toContain(
+      `${path.join(realHome, '.config/gh')} ${path.join(realHome, '.config/gh')}`,
+    )
+    const joined = argv.join(' ')
+    expect(joined).not.toContain(path.join(realHome, '.ssh'))
+    expect(joined).not.toContain(path.join(realHome, 'Documents'))
+    expect(argv.lastIndexOf(path.join(realHome, '.nvm'))).toBeLessThan(argv.indexOf('--dev'))
+    expect(argv.indexOf(path.join(realHome, '.config/gh'))).toBeLessThan(
+      argv.lastIndexOf(await realpath(tedHome)),
+    )
+  })
+
+  test('on Linux, a linked folder in the read set is mounted where it really is and linked to there', async () => {
+    const tools = path.join(outside, 'tools-1.2')
+    await mkdir(tools)
+    await symlink('tools-1.2', path.join(outside, 'tools'))
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: `/usr/bin:${path.join(outside, 'tools')}` }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    const realTools = await realpath(tools)
+    const after = (flag: string) =>
+      argv.flatMap((arg, i) => (arg === flag ? [`${argv[i + 1]} ${argv[i + 2]}`] : []))
+    expect(after('--ro-bind')).toContain(`${realTools} ${realTools}`)
+    expect(after('--symlink')).toContain(`tools-1.2 ${path.join(outside, 'tools')}`)
   })
 
   test('on Linux, a scope that hides protected folders covers each one that exists in HOME', async () => {
