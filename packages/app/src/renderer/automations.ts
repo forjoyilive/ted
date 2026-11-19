@@ -280,6 +280,7 @@ export function duplicateOf(automation: Automation): CreateAutomationRequest {
     ...(automation.model !== undefined && { model: automation.model }),
     ...(automation.effort !== undefined && { effort: automation.effort }),
     ...(automation.checkout && { checkout: true }),
+    priority: automation.priority,
     ...(automation.check && { check: automation.check }),
     on: false,
   }

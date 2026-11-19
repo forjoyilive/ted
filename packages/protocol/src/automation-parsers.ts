@@ -16,7 +16,9 @@ import {
   type DraftAutomationPromptRequest,
   type EditAutomationRequest,
 } from './automation.ts'
+import { isOneOf } from './parse.ts'
 import { type AutomationSchedule, type Weekday, weekdays } from './schedule.ts'
+import { priorities } from './task.ts'
 import {
   agentChoice,
   bodyObject,
@@ -147,6 +149,12 @@ function fields(body: Record<string, unknown>): Partial<Omit<AutomationInput, 't
       throw new HttpError(400, 'checkout must be true or false')
     }
     out.checkout = body.checkout
+  }
+  if (body.priority !== undefined) {
+    if (!isOneOf(body.priority, priorities)) {
+      throw new HttpError(400, `priority must be one of ${priorities.join(', ')}`)
+    }
+    out.priority = body.priority
   }
   if (body.check !== undefined) out.check = parseAutomationCheck(body.check)
   return out

@@ -47,6 +47,7 @@ const automation = (fields: Partial<Automation> = {}): Automation => ({
   on: true,
   createdAt: minutes(-10_000),
   nextFirings: [],
+  priority: 'high',
   failuresInARow: 0,
   totals: { runs: 0, tasksCreated: 0 },
   ...fields,
@@ -276,7 +277,7 @@ describe('the Automation view', () => {
   })
 
   test('Duplicate copies everything but turns the copy off', () => {
-    expect(duplicateOf(automation({ checkout: true }))).toEqual({
+    expect(duplicateOf(automation({ checkout: true, priority: 'low' }))).toEqual({
       factory: 'NB',
       name: 'Daily triage copy',
       prompt: 'Triage',
@@ -285,6 +286,7 @@ describe('the Automation view', () => {
       model: 'sonnet',
       effort: 'medium',
       checkout: true,
+      priority: 'low',
       on: false,
     })
   })

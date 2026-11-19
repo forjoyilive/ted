@@ -20,6 +20,7 @@ const core = {
   effort: 'high',
   on: true,
   checkout: true,
+  priority: 'urgent',
 } as const
 const check = {
   command: 'pnpm check --wait-for-quiet',
@@ -58,6 +59,7 @@ roundTrip(P.parseAnswerAutomationRequest, { choice: 'Yes', text: 'Continue' })
 roundTrip(P.parseAutomationNoteTaskRequest, { body: 'It failed again for the same cause.' })
 roundTrip(P.parseAutomationReportRequest, { summary: 'Two flaky tests; filed NB-4.' })
 rejects(P.parseAutomationCheck, { command: 'x', agentStep: 'sometimes' }, 'check.agentStep')
+rejects(P.parseEditAutomationRequest, { priority: 'soon' }, 'priority')
 rejects(P.parseAutomationCheck, { command: 'x', startTasks: 'yes' }, 'check.startTasks')
 rejects(P.parseAutomationNoteTaskRequest, { body: ' ' }, 'body is required')
 rejects(P.parseAutomationNoteTaskRequest, { body: 'x'.repeat(20_001) }, 'at most 20000')
