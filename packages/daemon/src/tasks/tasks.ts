@@ -144,6 +144,7 @@ import {
   archiveChoice,
   asanaAddChoice,
   asanaSyncAllowable,
+  type Banner,
   backlogStartFactories,
   bannerId,
   briefHeadings,
@@ -180,6 +181,8 @@ import {
   parseLinearUrl,
   type RequestMoveRequest,
   type ResetRefusal,
+  repoAddedProblem,
+  repoAddedText,
   resetRefusal,
   runOnlyBrowserActions,
   type SetPullRequestTitleRequest,
@@ -234,6 +237,7 @@ import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import type { FileStore } from '../downloads.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
+import { bannerSubject } from '../factory-setup.ts'
 import * as git from '../git.ts'
 import { fetchGitHubFiles, type GitHubUploads, uploadRefs } from '../github/files.ts'
 import { type Gh, GhError } from '../github/gh.ts'
@@ -10093,9 +10097,41 @@ export function createTasks(options: {
     return store.lastValidWorkflowLayer(`factory:${factoryId}`) !== undefined
   }
 
+  function reportRepoAdded(factoryId: string): void {
+    const added = banners
+      .list()
+      .filter((b) => b.problem === repoAddedProblem && b.factoryId === factoryId)
+    if (added.length === 0) return
+    const setupIds = store
+      .taskOutlines()
+      .filter((t) => t.factoryId === factoryId && t.setup)
+      .map((t) => t.id)
+    const setupTasks = store.tasksIn(new Set(setupIds))
+    const open = openSetupTask(factoryId)
+    for (const banner of added) {
+      const repo = bannerSubject(banner.id)
+      if (repo === undefined) continue
+      const ref = { problem: repoAddedProblem, factoryId, subject: repo }
+      const merged = setupTasks.some((t) => t.createdAt >= banner.raisedAt && store.isMerged(t.id))
+      if (merged) {
+        banners.clear(ref)
+        continue
+      }
+      banners.raise({
+        ...ref,
+        severity: 'warning',
+        text: repoAddedText(repo),
+        action: open
+          ? { label: `Open ${open.displayId}`, opens: { kind: 'task', taskId: open.id } }
+          : { label: 'New setup Task' },
+      })
+    }
+  }
+
   function reportSetup(factoryId: string): void {
     const factory = store.getFactory(factoryId)
     if (!factory) return
+    reportRepoAdded(factoryId)
     const ref = { problem: setupProblem, factoryId }
     const setupTasks = store.taskOutlines().filter((t) => t.factoryId === factoryId && t.setup)
     const done =
@@ -11859,13 +11895,24 @@ export function createTasks(options: {
     if ((event.type === 'task-created' || event.type === 'task-updated') && event.task.setup) {
       reportSetupSoon(event.task.factoryId)
     }
+    if (
+      event.type === 'banner-raised' &&
+      event.banner.problem === repoAddedProblem &&
+      event.banner.factoryId !== undefined
+    ) {
+      reportSetupSoon(event.banner.factoryId)
+    }
   })
-  banners.onAction(setupProblem, async ({ factoryId }) => {
-    if (factoryId !== undefined && !openSetupTask(factoryId)) {
+  const newSetupTask = async ({ factoryId }: Banner): Promise<void> => {
+    if (factoryId === undefined) return
+    if (!openSetupTask(factoryId)) {
       const factory = store.getFactory(factoryId)
       if (factory) await makeSetupTask(factory, true)
     }
-  })
+    reportSetup(factoryId)
+  }
+  banners.onAction(setupProblem, newSetupTask)
+  banners.onAction(repoAddedProblem, newSetupTask)
   for (const factory of store.listFactories()) reportSetup(factory.id)
   void pump()
   wake()

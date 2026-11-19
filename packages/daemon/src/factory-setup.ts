@@ -19,6 +19,8 @@ import {
   type RepoProblem,
   type RepoSetup,
   type RepoSource,
+  repoAddedProblem,
+  repoAddedText,
   repoNamePattern,
   withoutGroups,
 } from '@ted/protocol'
@@ -82,7 +84,6 @@ export interface FactoriesOptions {
 
 export const cloneFailedProblem = 'clone-failed'
 export const localFolderProblem = 'local-folder-missing'
-export const repoAddedProblem = 'repo-added'
 export const repoInFileProblem = 'repo-in-workflow'
 const maxNameLength = 60
 const githubHost = 'github.com'
@@ -556,7 +557,8 @@ export function createFactories(options: FactoriesOptions): Factories {
         factoryId,
         subject: repo.repo,
         severity: 'warning',
-        text: `${repo.repo} was added · a New setup Task can set up its checks and Apps`,
+        text: repoAddedText(repo.repo),
+        action: { label: 'New setup Task' },
       })
     }
     if (added.length === 0 || factory.clonedAt === undefined) return

@@ -1,5 +1,19 @@
-import type { CostKind, DashboardMetric, DashboardRange, StagePart } from '@ted/protocol'
-import { dashboardRange } from '@ted/protocol/dashboard'
+import type {
+  CostKind,
+  DashboardCustomRange,
+  DashboardMetric,
+  DashboardPreset,
+  DashboardRange,
+  StagePart,
+} from '@ted/protocol'
+import {
+  dashboardRange,
+  isCalendarDate,
+  isPreset,
+  localCalendarDate,
+  localDayStart,
+  rangeDays,
+} from '@ted/protocol/dashboard'
 
 export type StageSelection = { period: 'current' | 'previous' } & (
   | { kind: 'stage'; stage: string; part?: StagePart }
@@ -37,7 +51,10 @@ export const dashboardPanels = ['overview', 'stages', 'cost'] as const
 export type DashboardPanel = (typeof dashboardPanels)[number]
 const knownPanel = (value: unknown) => dashboardPanels.find((p) => p === value)
 
-export function rememberedDashboard(storage: Pick<Storage, 'getItem'> = localStorage): Remembered {
+export function rememberedDashboard(
+  storage: Pick<Storage, 'getItem'> = localStorage,
+  now = Date.now(),
+): Remembered {
   let stored: unknown
   try {
     stored = JSON.parse(storage.getItem(storageKey) ?? '{}')
@@ -45,7 +62,11 @@ export function rememberedDashboard(storage: Pick<Storage, 'getItem'> = localSto
     stored = {}
   }
   const value = (stored ?? {}) as Record<string, unknown>
-  const range = dashboardRange(value.range) ?? '30d'
+  const restored = dashboardRange(value.range)
+  const range =
+    restored === undefined || (!isPreset(restored) && restored.to > localCalendarDate(now))
+      ? '30d'
+      : restored
   const panel = knownPanel(value.panel)
   const ids = Array.isArray(value.factoryIds)
     ? value.factoryIds.filter((id): id is string => typeof id === 'string')
@@ -99,7 +120,7 @@ export function dashboardState(
   return { ...stored, ...(panel === undefined && remembered && { panel: remembered }), ...shown }
 }
 
-export const rangeLabels: Record<DashboardRange, string> = {
+export const rangeLabels: Record<DashboardPreset, string> = {
   today: 'Today',
   '7d': 'Last 7 days',
   '30d': 'Last 30 days',
@@ -111,11 +132,22 @@ export const rangeLabels: Record<DashboardRange, string> = {
   all: 'All time',
 }
 
-export function rangeComparison(range: DashboardRange): {
+export interface RangeComparison {
   earlier: string
   against: string
   versus: string
-} {
+}
+
+export function rangeComparison(range: DashboardRange): RangeComparison {
+  if (!isPreset(range)) {
+    const length = rangeDays(range)
+    const days = length === 1 ? 'day' : `${length} days`
+    return {
+      earlier: `Previous ${days}`,
+      against: `previous ${days}`,
+      versus: `vs previous ${days}`,
+    }
+  }
   switch (range) {
     case 'today':
       return { earlier: 'Yesterday', against: 'yesterday', versus: 'vs yesterday to this time' }
@@ -127,5 +159,51 @@ export function rangeComparison(range: DashboardRange): {
       return { earlier: 'Last year', against: 'last year', versus: 'vs last year to this date' }
     default:
       return { earlier: 'Previous', against: 'previous', versus: 'vs previous period' }
+  }
+}
+
+export function customRangeLabel(range: DashboardCustomRange, now = new Date()): string {
+  const from = new Date(localDayStart(range.from))
+  const to = new Date(localDayStart(range.to))
+  const year = now.getFullYear()
+  const thisYear = from.getFullYear() === year && to.getFullYear() === year
+  const date = (at: Date, withYear: boolean) =>
+    new Intl.DateTimeFormat('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      ...(withYear && { year: 'numeric' }),
+    }).format(at)
+  if (range.from === range.to) return date(from, !thisYear)
+  if (from.getFullYear() === to.getFullYear())
+    return `${date(from, false)} – ${date(to, !thisYear)}`
+  return `${date(from, true)} – ${date(to, true)}`
+}
+
+export function rangeLabel(range: DashboardRange, now = new Date()): string {
+  return isPreset(range) ? rangeLabels[range] : customRangeLabel(range, now)
+}
+
+export function hourlyRange(range: DashboardRange): boolean {
+  return isPreset(range) ? range === 'today' : range.from === range.to
+}
+
+export function customRangeProblem(from: string, to: string, today: string): string | undefined {
+  if (!isCalendarDate(from) || !isCalendarDate(to)) return 'Choose a start and an end date.'
+  if (to > today) return 'End can’t be after today.'
+  if (from > to) return 'Start must be on or before End.'
+  return undefined
+}
+
+export function customStart(
+  range: DashboardRange,
+  current: { from: string | null; to: string } | undefined,
+  now: number,
+): DashboardCustomRange {
+  if (!isPreset(range)) return range
+  const today = localCalendarDate(now)
+  if (!current?.from) return { from: localCalendarDate(now - 6 * 86_400_000), to: today }
+  return {
+    from: localCalendarDate(Date.parse(current.from)),
+    to: localCalendarDate(Math.min(Date.parse(current.to) - 1, now)),
   }
 }
