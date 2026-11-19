@@ -553,6 +553,8 @@ describe('Apps', () => {
 })
 
 describe('the Apps’ sandbox', () => {
+  const fixtures = path.dirname(stubApp)
+  const readsStub = (yaml: string) => `sandbox_reads: [${JSON.stringify(fixtures)}]\n${yaml}`
   const toucher = (files: string) =>
     [
       '      - name: Toucher',
@@ -575,7 +577,7 @@ describe('the Apps’ sandbox', () => {
       const planted = path.join(home, 'planted')
       await commitToOrigin(scratch, {
         '.gitignore': 'stub-*\n',
-        '.ted/workflow.yaml': appsYaml(toucher(`${planted}:stub-inside`)),
+        '.ted/workflow.yaml': readsStub(appsYaml(toucher(`${planted}:stub-inside`))),
       })
       const client = await start()
       const task = await taskWithWorktree(
@@ -594,7 +596,9 @@ describe('the Apps’ sandbox', () => {
     async (context) => {
       skipInsideTedSandbox(context)
       const outside = path.join(scratch, 'outside')
-      await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml(toucher(outside)) })
+      await commitToOrigin(scratch, {
+        '.ted/workflow.yaml': readsStub(appsYaml(toucher(outside))),
+      })
       const client = await start()
       const task = await taskWithWorktree(
         client,
@@ -623,7 +627,7 @@ describe('the Apps’ sandbox', () => {
       if (!consent) skipInsideTedSandbox(context)
       const outside = path.join(scratch, 'outside')
       await commitToOrigin(scratch, {
-        '.ted/workflow.yaml': `permissions: bypass\n${appsYaml(toucher(outside))}`,
+        '.ted/workflow.yaml': readsStub(`permissions: bypass\n${appsYaml(toucher(outside))}`),
       })
       const client = await start()
       const task = await taskWithWorktree(client)
