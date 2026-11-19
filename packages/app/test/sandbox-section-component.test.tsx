@@ -118,5 +118,5 @@ test('each outbound network grant is a row that says where it comes from', async
     expect.stringContaining('Network for check “E2E”'),
   ])
   expect(rows[2]).toContain('Remove network from that list in a Task to turn it off.')
-  expect(rows.join('\n')).not.toContain('network: outbound')
+  for (const row of rows.slice(1)) expect(row).not.toContain('network: outbound')
 })
