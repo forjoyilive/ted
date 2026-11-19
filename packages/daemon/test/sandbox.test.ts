@@ -322,6 +322,25 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     ])
   })
 
+  test('a scope limited to its own temp folder can’t write /private/tmp or the per-user temp folder', async () => {
+    const sandbox = createSandbox({ tedHome, env: () => process.env })
+    const shared = path.join('/private/tmp', `ted-sandbox-${randomUUID()}`)
+    const swift = path.join(userTemp, `TemporaryDirectory.${randomUUID().slice(0, 6)}`)
+    const script = `${tryWrite(shared)}; mkdir '${swift}' 2>/dev/null && echo made || echo refused; ${tryWrite(path.join(tmp, 'own'))}`
+    try {
+      const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ownTempOnly: true })
+      const [command, ...args] = argv
+      const { stdout } = await execFileAsync(command, [...args, script], {
+        cwd: worktree,
+        env: { ...process.env, ...env },
+      })
+      expect(stdout.trim().split('\n')).toEqual(['refused', 'refused', 'wrote'])
+    } finally {
+      await rm(shared, { force: true })
+      await rm(swift, { recursive: true, force: true })
+    }
+  })
+
   test('it writes plain .dia files in SwiftPM’s ManifestLoading folder and nothing else in SwiftPM’s caches', async () => {
     const home = await realpath(outside)
     const manifests = path.join(home, 'Library', 'Caches', 'org.swift.swiftpm', 'manifests')
@@ -368,6 +387,31 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       home,
     )
     expect(result.stdout.trim()).toBe('refused')
+  })
+
+  test('a scope limited to its own temp folder gets no SwiftPM ManifestLoading grant', async () => {
+    const home = await realpath(outside)
+    const logs = path.join(
+      home,
+      'Library',
+      'Caches',
+      'org.swift.swiftpm',
+      'manifests',
+      'ManifestLoading',
+    )
+    await mkdir(logs, { recursive: true })
+    const sandbox = createSandbox({ tedHome, env: () => ({ ...process.env, HOME: home }) })
+    const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ownTempOnly: true })
+    const [command, ...args] = argv
+    const { stdout } = await execFileAsync(
+      command,
+      [...args, tryWrite(path.join(logs, 'apple.dia'))],
+      {
+        cwd: worktree,
+        env: { ...process.env, ...env },
+      },
+    )
+    expect(stdout.trim()).toBe('refused')
   })
 
   test('it can’t hand work to launchd or write preferences through cfprefsd', async () => {
@@ -492,6 +536,27 @@ describe('the folders a sandbox opens', () => {
     expect(argv.join(' ')).toContain(`--ro-bind ${await realpath(clone)}`)
     expect(argv.join(' ')).toContain(`--bind ${real} ${real}`)
     expect(argv.indexOf(home)).toBeLessThan(argv.indexOf(real))
+  })
+
+  test('on Linux, a scope that hides protected folders covers each one that exists in HOME', async () => {
+    const userHome = await mkdtemp(path.join(outside, 'home-'))
+    await mkdir(path.join(userHome, 'Documents'))
+    await mkdir(path.join(userHome, 'Library', 'Mail'), { recursive: true })
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', HOME: userHome }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const realHome = await realpath(userHome)
+    const plain = (await sandbox.wrap(['/bin/sh', '-c'], scope())).argv.join(' ')
+    expect(plain).not.toContain(path.join(realHome, 'Documents'))
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), hideProtected: true })
+    const joined = argv.join(' ')
+    expect(joined).toContain(`--tmpfs ${path.join(realHome, 'Documents')}`)
+    expect(joined).toContain(`--tmpfs ${path.join(realHome, 'Library', 'Mail')}`)
+    expect(joined).not.toContain(path.join(realHome, 'Downloads'))
   })
 
   test.skipIf(tmpdir().startsWith('/tmp'))(

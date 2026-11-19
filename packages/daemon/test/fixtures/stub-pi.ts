@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { JsonObject } from '@ted/protocol/parse'
 
@@ -50,7 +51,13 @@ if (argv.includes('--no-session')) {
 
 const sessionDir = flag('--session-dir') ?? '.'
 const runDir = path.dirname(path.resolve(sessionDir))
-appendFileSync(path.join(runDir, 'stub-pi-launches.jsonl'), `${JSON.stringify({ argv })}\n`)
+// Under Ted's real sandbox the Run folder outside pi-sessions isn't writable.
+const note = (file: string, text: string) => {
+  try {
+    appendFileSync(path.join(runDir, file), text)
+  } catch {}
+}
+note('stub-pi-launches.jsonl', `${JSON.stringify({ argv })}\n`)
 
 const opened = flag('--session')
 const sessionId = opened ? path.basename(opened, '.jsonl').split('_').at(-1) : randomUUID()
@@ -62,7 +69,49 @@ if (!opened) {
 
 const send = (record: JsonObject) => process.stdout.write(`${JSON.stringify(record)}\n`)
 const record = (command: JsonObject) =>
-  appendFileSync(path.join(runDir, 'stub-pi-commands.jsonl'), `${JSON.stringify(command)}\n`)
+  note('stub-pi-commands.jsonl', `${JSON.stringify(command)}\n`)
+
+const attempt = (work: () => string) => {
+  try {
+    return { ok: true, output: work() }
+  } catch (error) {
+    return { ok: false, output: error instanceof Error ? error.message : String(error) }
+  }
+}
+const write = (file: string) => () => {
+  writeFileSync(file, 'x')
+  return ''
+}
+
+function originalAgentDir(agentDir: string): string {
+  const settings = JSON.parse(readFileSync(path.join(agentDir, 'settings.json'), 'utf8')) as {
+    tedOriginal?: string
+  }
+  return settings.tedOriginal ?? agentDir
+}
+
+function probeSandbox() {
+  const home = process.env.TED_HOME ?? ''
+  const agentDir = process.env.PI_CODING_AGENT_DIR ?? ''
+  const result = {
+    insideWrite: attempt(write(path.join(process.cwd(), 'stub-pi-wrote'))),
+    outsideWrite: attempt(write(path.join(home, 'stub-pi-escaped'))),
+    sharedTmpWrite: attempt(() => {
+      const file = path.join('/private/tmp', `stub-pi-escaped-${process.pid}`)
+      writeFileSync(file, 'x')
+      rmSync(file)
+      return ''
+    }),
+    daemonInfo: attempt(() => readFileSync(path.join(home, 'daemon.json'), 'utf8')),
+    piAgentRead: attempt(() => readFileSync(path.join(agentDir, 'settings.json'), 'utf8')),
+    piAgentCopyWrite: attempt(write(path.join(agentDir, 'stub-pi-wrote'))),
+    piAgentWrite: attempt(write(path.join(originalAgentDir(agentDir), 'stub-pi-wrote'))),
+    ted: attempt(() =>
+      execFileSync('ted', ['task', 'list'], { encoding: 'utf8', timeout: 60_000 }),
+    ),
+  }
+  writeFileSync(path.join(sessionDir, 'stub-pi-probe.json'), JSON.stringify(result))
+}
 
 const usage = (input: number, output: number, cost: number) => ({
   input,
@@ -93,6 +142,7 @@ function assistant(content: JsonObject[], stopReason: string, extra: JsonObject 
 }
 
 async function turn(text: string) {
+  if (text.includes('STUB_PROBE')) probeSandbox()
   streaming = true
   send({ type: 'agent_start' })
   send({ type: 'turn_start' })

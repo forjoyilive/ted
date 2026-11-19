@@ -158,6 +158,7 @@ export interface MachineSettings {
   appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
   lowPriorityWork: boolean
   antigravityPlanAccepted: boolean
+  piUnsandboxedAllowed: boolean
   maxChecksAtOnce: number
   checkCpuPercent: number
   limitScheduledCheckCpus: boolean
@@ -224,6 +225,7 @@ export const defaultMachineSettings: MachineSettings = {
   appsOutsideSandbox: {},
   lowPriorityWork: true,
   antigravityPlanAccepted: false,
+  piUnsandboxedAllowed: false,
   maxChecksAtOnce: 2,
   checkCpuPercent: 50,
   limitScheduledCheckCpus: true,

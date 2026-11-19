@@ -24,9 +24,11 @@ Side chats and Automation drafts start Pi with no tools: `--no-tools --no-mcp --
 
 ## Permission modes
 
-Pi runs only in Bypass Factories for now. In an Auto Factory all Pi work waits, tool-free chats included, until sandbox support arrives. Pi stays selectable there, and the pickers show “Pi work waits in this Factory until sandbox support arrives.”
+In a Bypass Factory Pi runs as before, with no sandbox. Everywhere else, including planning chats, Automations, Coordinator chats, side chats and Automation drafts in any Factory, Ted runs the `pi` process inside its own OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux). A blocked action fails as a command error in the Run’s chat; nobody is asked. Network stays on.
 
-Planning chats, Automations and Coordinator chats always run in Auto, so with Pi they wait in every Factory, and their pickers say so. Task work, sub-agents, reviewers and Instruction Checks in a Bypass Factory run.
+In a Task, Pi can write the Task’s worktrees and the git data it needs to commit, and its own Run folders. Outside a Task it writes only its Run folders and a worktree the Run owns. Pi takes lock files beside `settings.json` and `auth.json` even to read them, so at each agent start Ted copies `~/.pi/agent` (or `PI_CODING_AGENT_DIR`), without its `sessions` folder, to the Run’s `pi-agent` folder and points `PI_CODING_AGENT_DIR` there. The Run may write the copy; the user’s own folder stays read-only and unchanged, so a refreshed Pi sign-in isn’t saved, and commands can read the copied `auth.json`. The repo’s `.pi/` folder stays trusted and runs inside the sandbox. `ted` works inside the sandbox: it finds the daemon through `TED_HOME/public/daemon.json`, which holds no token. Ted’s Runs don’t appear in Pi’s resume list.
+
+When the sandbox doesn’t work on the machine, Pi work outside Bypass waits with “Ted can’t sandbox Pi here (reason). Pi will run every command without asking. Run it anyway?”, and a banner opens Settings → Providers. The Pi card there has a Sandbox section with the reason and the switch “Run Pi without a sandbox in Auto Factories”. Only the app can turn it on; with it on, Pi runs without a sandbox there. While the sandbox works, the switch has no effect.
 
 ## Offline, limits and billing
 

@@ -1346,6 +1346,8 @@ export interface TedStore extends TaskHistory {
   persisted(): Promise<void>
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
+  setPiSandboxProblem(reason: string | undefined): void
+  piSandboxProblem(): string | undefined
   holdWhenBusy(held: BusyHold | undefined): void
   busyHold(): BusyHold | undefined
   setTaskChecking(taskId: string, on: boolean): void
@@ -1474,6 +1476,7 @@ export async function openStore({
   const writeListeners = new Set<(error?: unknown) => void>()
   let writeFailing = false
   let newWorkHeld: string | undefined
+  let piSandboxReason: string | undefined
   let heldBusy: BusyHold | undefined
   const waitingOnSubAgents = new Set<string>()
   const asleepRuns = new Set<string>()
@@ -7804,6 +7807,10 @@ export async function openStore({
       updatedTasks(tasksWaitingForSlots())
     },
     newWorkHold: () => newWorkHeld,
+    setPiSandboxProblem(reason) {
+      piSandboxReason = reason
+    },
+    piSandboxProblem: () => piSandboxReason,
     busyHold: () => heldBusy,
     holdWhenBusy(held) {
       const changed =
