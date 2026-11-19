@@ -10,6 +10,8 @@ repos:
         kind: command
         electron: true
         run: MAC_CHROMIUM_TMPDIR="$TMPDIR" TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app $TED_ELECTRON_ARGS
+  - name: ted-mobile
+    remote: https://github.com/forjoyilive/ted-mobile.git
 order: [intake, clarify, design, work, validate, review, merge]
 stages:
   design: { gate: true, based_on: f7500a6 }
