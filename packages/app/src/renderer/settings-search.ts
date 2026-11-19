@@ -24,6 +24,7 @@ export const factorySections = [
   ['agent-files', 'Agents'],
   ['agents', 'Providers'],
   ['permissions', 'Permissions'],
+  ['sandbox', 'Sandbox'],
   ['notifications', 'Notifications'],
   ['notes', 'Factory notes'],
   ['danger-zone', 'Danger zone'],
@@ -509,6 +510,12 @@ const entries = {
   'factory.permissions.working-run-limit': {
     name: 'Working Run limit',
     help: 'This Factory’s limit follows its Workflow.',
+    heading: true,
+  },
+  'factory.sandbox': {
+    name: 'Sandbox',
+    keywords: 'sandbox openings unsandboxed outside bypass sockets electron pi access',
+    help: 'Everything that widens Ted’s sandbox for this Factory, or runs something outside it.',
     heading: true,
   },
   'factory.notifications': {

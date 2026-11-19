@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { SandboxGroup } from '@ted/protocol'
 import { markProcessRoot, type ProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import { type Sandbox, type SandboxScope, withSandboxEnv } from '../sandbox.ts'
@@ -22,9 +23,11 @@ export async function runTaskCommand(
     sandbox?: CommandSandbox
     prepareLaunch?: () => Promise<CommandLaunch>
     root?: ProcessRoot
+    groups?: readonly SandboxGroup[]
   },
 ): Promise<CommandResult> {
   const { sandbox: givenSandbox, prepareLaunch, label, root, ...base } = input
+  const groups = input.groups ?? input.command.groups ?? []
   let release = () => {}
   let unmark = () => {}
   let closeFds = async () => {}
@@ -47,6 +50,7 @@ export async function runTaskCommand(
     const wrapped = await sandbox.sandbox.wrap(input.shell ?? ['/bin/sh', '-c'], {
       ...sandbox.scope,
       tmp,
+      groups,
     })
     closeFds = wrapped.close
     return await runWorktreeCommand({

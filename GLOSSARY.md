@@ -4,7 +4,7 @@ Ted (“Totally Excellent Development”) runs software factories: agents carry 
 
 ## Language
 
-These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview and banner. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
+These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview, banner and sandbox opening. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
 
 **Controller**:
 The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when Ted uses several machines.
@@ -43,6 +43,10 @@ _Avoid_: Local path, working copy, checkout
 **Factory key**:
 The short code at the start of a Factory’s Task IDs, such as NB in NB-41; unique on the machine and fixed once the Factory is added.
 _Avoid_: Prefix, project key
+
+**Sandbox opening**:
+A setting that widens what sandboxed commands can reach or allows something to run outside the sandbox, listed in Factory settings → Sandbox. An opening that widens access keeps commands in the sandbox; one marked Unsandboxed allows commands outside it.
+_Avoid_: Escape hatch, sandbox bypass (when meaning any opening)
 
 **Workflow**:
 The ordered list of Stages a Factory runs Tasks through, with each Stage’s settings.
@@ -223,6 +227,10 @@ _Avoid_: Tool, script, task
 **Outside command**:
 A command with a name that an Agent’s settings list under `outside_commands` in `agents.yaml`, written as plain words with at most one argument slot such as `<version>`. A chat whose Agent has Run outside commands asks for one with `ted agent run-outside <name> [argument]`; Ted runs it on this Mac, outside the sandbox, in the repo’s local folder, only after the user clicks Run on its card, or at once when the user ticked Always allow for that exact command and folder.
 _Avoid_: Escape hatch, unsandboxed command
+
+**Sandbox access group**:
+A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` is the first: it opens what Xcode writes outside its temp folder, which is shared access on the user’s Mac.
+_Avoid_: Sandbox permission, allowance, entitlement
 
 **Chat**:
 One conversation with an Agent, from its first message until it is deleted: a Coordinator chat or a planning chat. A Factory can have several at once, each with its own title, status, Run and requests. A chat stays open until the user archives it; an archived chat is read only, listed under Archived, and can be unarchived or deleted.

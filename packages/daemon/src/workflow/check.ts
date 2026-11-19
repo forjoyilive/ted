@@ -6,16 +6,19 @@ import {
   appKinds,
   isLoopbackUrl,
   isModelName,
+  isSandboxGroup,
   type LayerKind,
   maxCleanupStepName,
   type PullRequestCiMode,
   previewPresets,
   pullRequestCiModes,
+  type SandboxGroup,
   type StageId,
+  sandboxGroupNames,
   type WorkflowProblem,
 } from '@ted/protocol'
 import { builtInAgentIds } from '@ted/protocol/agent-files'
-import { isBoolean, isInteger, isOneOf } from '@ted/protocol/parse'
+import { isBoolean, isInteger, isOneOf, isString } from '@ted/protocol/parse'
 import {
   handsOff,
   hasClarifyRounds,
@@ -52,6 +55,7 @@ export interface CommandCheckSettings {
   run: string
   repo?: string
   timeout?: string
+  sandbox_access?: SandboxGroup[]
   instruction?: never
   fix?: never
   agent?: never
@@ -69,6 +73,7 @@ export interface InstructionCheckSettings {
   effort?: string
   run?: never
   repo?: never
+  sandbox_access?: never
 }
 
 export type CheckSettings = CommandCheckSettings | InstructionCheckSettings
@@ -118,6 +123,7 @@ export interface StageSettings {
 export interface WorktreeCommand {
   run: string
   timeout?: string
+  sandbox_access?: SandboxGroup[]
 }
 
 export interface RepoSettings {
@@ -143,6 +149,7 @@ export interface WorkflowSettings {
   permissions?: string
   max_working_runs?: number
   sandbox_sockets?: string[]
+  sandbox_reads?: string[]
   repos?: RepoSettings[]
   order?: AgentStageId[]
   stages: Partial<Record<StageId, StageSettings>>
@@ -390,8 +397,13 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         } else settings.max_working_runs = scalar(value) as number
         break
       case 'sandbox_sockets': {
-        const sockets = checkSandboxSockets(value)
+        const sockets = checkSandboxPaths(value, 'sandbox_sockets', 'socket paths')
         if (sockets) settings.sandbox_sockets = sockets
+        break
+      }
+      case 'sandbox_reads': {
+        const reads = checkSandboxPaths(value, 'sandbox_reads', 'files or folders')
+        if (reads) settings.sandbox_reads = reads
         break
       }
       case 'repos':
@@ -444,17 +456,20 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     return choice
   }
 
-  function checkSandboxSockets(value: Node | null): string[] | undefined {
-    const message =
-      '`sandbox_sockets` must be a list of socket paths: absolute, starting with ~/, or a whole $NAME'
+  function checkSandboxPaths(
+    value: Node | null,
+    name: 'sandbox_sockets' | 'sandbox_reads',
+    what: string,
+  ): string[] | undefined {
+    const message = `\`${name}\` must be a list of ${what}: absolute, starting with ~/, or a whole $NAME`
     if (!isSeq(value)) return void error(value, message)
-    const sockets: string[] = []
+    const found: string[] = []
     for (const item of value.items as (Node | null)[]) {
       const entry = scalar(item)
-      if (typeof entry !== 'string' || !isSocketEntry(entry)) return void error(item, message)
-      sockets.push(entry)
+      if (typeof entry !== 'string' || !isSandboxPath(entry)) return void error(item, message)
+      found.push(entry)
     }
-    return sockets
+    return found
   }
 
   function checkOrder(value: Node | null): AgentStageId[] | undefined {
@@ -731,6 +746,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     const choice: AgentChoice = {}
     let timeout: string | undefined
     let fix: boolean | undefined
+    let access: SandboxGroup[] | undefined
     let bad = false
     const keyOf = (name: string) => entries(item).find((entry) => entry.name === name)?.key ?? item
     for (const entry of entries(item)) {
@@ -749,6 +765,10 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             error(entry.value, durationMessage)
             bad = true
           } else timeout = String(scalar(entry.value))
+          break
+        case 'sandbox_access':
+          access = checkAccess(entry.value)
+          if (access === undefined) bad = true
           break
         case 'fix':
           if (scalar(entry.value) !== true && scalar(entry.value) !== false) {
@@ -796,6 +816,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           keyOf('repo'),
           'an instruction check runs across all the Task’s repos, so it takes no `repo`',
         )
+      if (access !== undefined)
+        return void error(
+          keyOf('sandbox_access'),
+          'an instruction check runs no command in the sandbox, so it takes no `sandbox_access`',
+        )
       return {
         name,
         instruction,
@@ -816,7 +841,27 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       run,
       ...(repo !== undefined && { repo }),
       ...(timeout !== undefined && { timeout }),
+      ...(access !== undefined && { sandbox_access: access }),
     }
+  }
+
+  function checkAccess(value: Node | null): SandboxGroup[] | undefined {
+    const known = sandboxGroupNames.join(', ')
+    if (!isSeq(value))
+      return void error(value, `\`sandbox_access\` must be a list of access groups: ${known}`)
+    const groups: SandboxGroup[] = []
+    let bad = false
+    for (const item of value.items) {
+      const name = isScalar(item) && isString(item.value) ? item.value : undefined
+      if (name === undefined || !isSandboxGroup(name)) {
+        error(
+          isScalar(item) ? item : value,
+          `\`${name ?? ''}\` isn’t a sandbox access group. Ted’s groups: ${known}`,
+        )
+        bad = true
+      } else if (!groups.includes(name)) groups.push(name)
+    }
+    return bad ? undefined : groups
   }
 
   function checkRepos(value: Node | null): RepoSettings[] | undefined {
@@ -976,6 +1021,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
               error(node, '`preview` must be desktop, tablet or mobile')
             else if (kind !== 'web') warn(entry.key, 'only a web App has a `preview` size')
             break
+          case 'sandbox_access':
+            checkAccess(node)
+            break
           case 'electron': {
             const value = scalar(node)
             if (typeof value !== 'boolean') error(node, '`electron` must be true or false')
@@ -1076,7 +1124,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
   function checkCommand(name: string, value: Node | null): WorktreeCommand | undefined {
     if (isText(value)) return { run: scalar(value) as string }
     if (!isMap(value))
-      return void error(value, `\`${name}\` must be a command, or { run, timeout }`)
+      return void error(value, `\`${name}\` must be a command, or { run, timeout, sandbox_access }`)
     const command: Partial<WorktreeCommand> = {}
     for (const entry of entries(value)) {
       if (entry.name === 'run') {
@@ -1085,6 +1133,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       } else if (entry.name === 'timeout') {
         if (!durationValue(entry.value)) error(entry.value, durationMessage)
         else command.timeout = scalar(entry.value) as string
+      } else if (entry.name === 'sandbox_access') {
+        const access = checkAccess(entry.value)
+        if (access !== undefined) command.sandbox_access = access
       } else warn(entry.key, `unknown key \`${name}.${entry.name}\``)
     }
     if (command.run === undefined) return void error(value, `\`${name}\` needs a \`run\` command`)
@@ -1125,7 +1176,7 @@ function entries(map: YAMLMap): { key: Node | null; value: Node | null; name: st
   })
 }
 
-export function isSocketEntry(entry: string): boolean {
+export function isSandboxPath(entry: string): boolean {
   if (entry.includes('\0') || entry.length > 1024) return false
   if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(entry)) return true
   const rest = entry.startsWith('~/')

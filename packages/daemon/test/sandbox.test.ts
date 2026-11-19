@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
   mkdir,
@@ -12,9 +12,10 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
-import { homedir, tmpdir } from 'node:os'
+import { homedir, tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import type { SandboxGroup } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
   createSandbox,
@@ -58,12 +59,21 @@ afterEach(async () => {
   for (const dir of [tedHome, outside]) await rm(dir, { recursive: true, force: true })
 })
 
-async function inSandbox(script: string, sockets: string[] = [], home?: string) {
+async function inSandbox(
+  script: string,
+  options: { sockets?: string[]; home?: string; reads?: string[]; groups?: SandboxGroup[] } = {},
+) {
+  const { sockets = [], home, reads = [], groups } = options
   const sandbox = createSandbox({
     tedHome,
     env: () => (home === undefined ? process.env : { ...process.env, HOME: home }),
   })
-  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), sockets })
+  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], {
+    ...scope(),
+    sockets,
+    reads,
+    ...(groups !== undefined && { groups }),
+  })
   const [command, ...args] = argv
   return execFileAsync(command, [...args, script], {
     cwd: worktree,
@@ -97,6 +107,8 @@ async function listen(socket: string): Promise<Server> {
 
 const tryConnect = (socket: string) =>
   `'${process.execPath}' -e "require('net').connect('${socket}').on('connect', () => { console.log('connected'); process.exit() }).on('error', () => { console.log('refused'); process.exit() })"`
+
+const xcode: SandboxGroup[] = ['ios-xcode']
 
 const tryWrite = (file: string) => `echo x > '${file}' 2>/dev/null && echo wrote || echo refused`
 const tryRead = (file: string) => `cat '${file}' >/dev/null 2>&1 && echo read || echo refused`
@@ -141,6 +153,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.split('\n').slice(0, 13)).toEqual([
       'wrote',
@@ -191,6 +204,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         `mkdir '${swbuildShorter}' 2>/dev/null && echo wrote || echo refused`,
         tryWrite(loose),
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.split('\n').slice(0, 7)).toEqual([
       'wrote',
@@ -262,6 +276,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         ),
         attempt(`chmod 777 '${userHelper}/IB'`),
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'wrote',
@@ -315,6 +330,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     try {
       const result = await inSandbox(
         `(mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${randomUUID().toUpperCase()}.HostToRemote') 2>/dev/null && echo wrote || echo refused`,
+        { groups: xcode },
       )
       expect(result.stdout.trim()).toBe('refused')
     } finally {
@@ -363,6 +379,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         attempt(`mkfifo '${pipe('IN')}'`),
         attempt(`mkfifo '${pipe('OUT')}'`),
       ].join('; '),
+      { groups: xcode },
     )
     try {
       expect(result.stdout.trim().split('\n')).toEqual([
@@ -440,6 +457,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(folder, 'assets.uicatalog')),
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused'])
     await rm(folder, { recursive: true, force: true })
@@ -457,6 +475,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && ls "$d" && cat "$d/Package.swift" && rm -r "$d" && echo reached || echo refused`,
         `mkdir '${xcodeSave}' && echo x > '${xcodeSave}/x' && ls '${xcodeSave}' && echo reached || echo refused`,
       ].join('; '),
+      { groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'refused',
@@ -470,6 +489,54 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'reached',
     ])
     await rm(xcodeSave, { recursive: true, force: true })
+  })
+
+  test('without ios-xcode, a sandboxed command gets none of Xcode’s folders and runs with the daemon’s own umask', async () => {
+    const id = randomUUID()
+    const xcodeSave = path.join(saves, `NSIRD_xcodebuild_${id}`)
+    const helper = path.join(userTemp, `ibtoold-${900000 + Math.floor(Math.random() * 90000)}`)
+    const home = await realpath(outside)
+    const logs = path.join(
+      home,
+      'Library',
+      'Caches',
+      'org.swift.swiftpm',
+      'manifests',
+      'ManifestLoading',
+    )
+    await mkdir(logs, { recursive: true })
+    const previous = process.umask(0o022)
+    try {
+      const script = [
+        `mkdir '${xcodeSave}' 2>/dev/null && echo wrote || echo refused`,
+        `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
+        `d=$(mktemp -d '${userTemp}/swbuild.tmp.XXXXXXXX' 2>/dev/null) && rm -r "$d" && echo wrote || echo refused`,
+        `mkdir '${helper}' 2>/dev/null && echo wrote || echo refused`,
+        tryWrite(path.join(logs, 'apple.dia')),
+        'umask',
+      ].join('; ')
+      const without = await inSandbox(script, { home })
+      expect(without.stdout.trim().split('\n')).toEqual([
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        'refused',
+        '0022',
+      ])
+      const granted = await inSandbox(script, { home, groups: xcode })
+      expect(granted.stdout.trim().split('\n')).toEqual([
+        'wrote',
+        'wrote',
+        'wrote',
+        'wrote',
+        'wrote',
+        '0023',
+      ])
+    } finally {
+      process.umask(previous)
+      for (const dir of [xcodeSave, helper]) await rm(dir, { recursive: true, force: true })
+    }
   })
 
   test('git reads the worktree through the Task’s clone', async () => {
@@ -554,8 +621,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryRead(path.join(worktree, 'own.txt')),
         tryWrite(path.join(worktree, 'new.txt')),
       ].join('; '),
-      [],
-      home,
+      { home },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'refused',
@@ -565,6 +631,79 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'read',
       'wrote',
     ])
+  })
+
+  test('it reads no credentials in the home folder, only Git’s settings, toolchains and what the Factory lists', async () => {
+    const home = await realpath(outside)
+    const files = {
+      ssh: path.join(home, '.ssh', 'id_ed25519'),
+      aws: path.join(home, '.aws', 'credentials'),
+      gh: path.join(home, '.config', 'gh', 'hosts.yml'),
+      npmrc: path.join(home, '.npmrc'),
+      gitCredentials: path.join(home, '.config', 'git', 'credentials'),
+      gemCredentials: path.join(home, '.gem', 'credentials'),
+      gitconfig: path.join(home, '.gitconfig'),
+      xdgGitconfig: path.join(home, '.config', 'git', 'config'),
+      gem: path.join(home, '.gem', 'ruby', '3.3.0', 'bin', 'pod'),
+      nvm: path.join(home, '.nvm', 'alias', 'default'),
+      desktop: path.join(home, 'Desktop', 'notes.txt'),
+    }
+    for (const file of Object.values(files)) {
+      await mkdir(path.dirname(file), { recursive: true })
+      await writeFile(file, 'x')
+    }
+    const script = [
+      ...Object.values(files).map(tryRead),
+      `ls '${home}' >/dev/null 2>&1 && echo listed || echo refused`,
+      `'${process.execPath}' -e "console.log('node ran')"`,
+    ].join('; ')
+
+    const plain = await inSandbox(script, { home })
+    expect(plain.stdout.trim().split('\n')).toEqual([
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'read',
+      'read',
+      'read',
+      'read',
+      'refused',
+      'refused',
+      'node ran',
+    ])
+
+    const listed = await inSandbox(script, { home, reads: ['~/.config/gh', '~/Desktop'] })
+    expect(listed.stdout.trim().split('\n')).toEqual([
+      'refused',
+      'refused',
+      'read',
+      'refused',
+      'refused',
+      'refused',
+      'read',
+      'read',
+      'read',
+      'read',
+      'refused',
+      'refused',
+      'node ran',
+    ])
+  })
+
+  test('a file outside the base read set can’t be read or listed', async () => {
+    await writeFile(path.join(outside, 'secret.txt'), 'secret')
+    const result = await inSandbox(
+      [
+        tryRead(path.join(outside, 'secret.txt')),
+        `ls '${outside}' >/dev/null 2>&1 && echo listed || echo refused`,
+        tryRead('/etc/hosts'),
+        tryRead('/usr/bin/true'),
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused', 'read', 'read'])
   })
 
   test('a scope limited to its own temp folder can’t write /private/tmp or the per-user temp folder', async () => {
@@ -603,8 +742,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(manifests, 'manifest.db')),
         `mv '${logs}' '${path.join(manifests, 'moved')}' 2>/dev/null && echo wrote || echo refused`,
       ].join('; '),
-      [],
-      home,
+      { home, groups: xcode },
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'wrote',
@@ -626,11 +764,10 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     await mkdir(manifests, { recursive: true })
     await mkdir(elsewhere)
     await symlink(elsewhere, path.join(manifests, 'ManifestLoading'))
-    const result = await inSandbox(
-      tryWrite(path.join(manifests, 'ManifestLoading', 'apple.dia')),
-      [],
+    const result = await inSandbox(tryWrite(path.join(manifests, 'ManifestLoading', 'apple.dia')), {
       home,
-    )
+      groups: xcode,
+    })
     expect(result.stdout.trim()).toBe('refused')
   })
 
@@ -676,14 +813,35 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       await execFileAsync('defaults', ['delete', label]).catch(() => undefined)
     }
   })
-  test('only an Electron App’s sandbox reaches launchservicesd, and it says so in its environment', async () => {
+  test('it reaches only the listed system services, so not the keychain or the pasteboard', async () => {
+    const result = await inSandbox(
+      [
+        'security show-keychain-info /Library/Keychains/System.keychain >/dev/null 2>&1 && echo keychain || echo refused',
+        'pbpaste >/dev/null 2>&1 && echo pasteboard || echo refused',
+        'id -un',
+        `node -e 'require("node:dns").lookup("localhost", (e) => console.log(e ? "no dns" : "dns"))'`,
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'refused',
+      'refused',
+      userInfo().username,
+      'dns',
+    ])
+  })
+
+  test('only an Electron App’s sandbox reaches launchservicesd and the window server, and it says so in its environment', async () => {
     const sandbox = createSandbox({ tedHome, env: () => process.env })
     const plain = await sandbox.wrap(['/bin/sh', '-c'], scope())
     const electron = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), electron: true })
-    const service = 'com.apple.coreservices.launchservicesd'
-    expect(plain.argv.join('\n')).not.toContain(service)
+    for (const service of [
+      'com.apple.coreservices.launchservicesd',
+      'com.apple.windowserver.active',
+    ]) {
+      expect(plain.argv.join('\n')).not.toContain(service)
+      expect(electron.argv.join('\n')).toContain(`(global-name "${service}")`)
+    }
     expect(plain.env.TED_SANDBOX_ELECTRON).toBeUndefined()
-    expect(electron.argv.join('\n')).toContain(`(allow mach-lookup (global-name "${service}"))`)
     expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
   })
 
@@ -696,7 +854,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     try {
       const result = await inSandbox(
         [tryConnect(own), tryConnect(listed), tryConnect(other), 'echo resolved'].join('; '),
-        [listed],
+        { sockets: [listed] },
       )
       expect(result.stdout.trim().split('\n')).toEqual([
         'connected',
@@ -707,6 +865,81 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     } finally {
       for (const server of servers) server.close()
     }
+  })
+})
+
+describe.runIf(process.platform === 'linux')('the sandbox on Linux', () => {
+  let userHome: string
+  beforeEach(async (context) => {
+    skipInsideTedSandbox(context)
+    userHome = await mkdtemp('/var/tmp/ted-sandbox-user-')
+    const secrets: [string, string][] = [
+      ['.ssh', 'id_rsa'],
+      ['.aws', 'credentials'],
+      ['.config/gh', 'hosts.yml'],
+    ]
+    for (const [dir, file] of secrets) {
+      await mkdir(path.join(userHome, dir), { recursive: true })
+      await writeFile(path.join(userHome, dir, file), 'secret')
+    }
+  })
+
+  afterEach(async () => {
+    await rm(userHome, { recursive: true, force: true })
+  })
+
+  async function inBwrap(script: string, reads: string[] = []) {
+    const sandbox = createSandbox({ tedHome, env: () => ({ ...process.env, HOME: userHome }) })
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), reads })
+    const [command, ...args] = wrapped.argv
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        let stdout = ''
+        const child = spawn(command, [...args, script], {
+          cwd: worktree,
+          env: withSandboxEnv(process.env, wrapped.env),
+          stdio: ['ignore', 'pipe', 'inherit', ...wrapped.fds],
+        })
+        child.stdout?.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString('utf8')
+        })
+        child.once('error', reject)
+        child.once('close', () => resolve(stdout))
+      })
+    } finally {
+      await wrapped.close()
+    }
+  }
+
+  test('a sandboxed command can’t read files in HOME outside the allowed set', async () => {
+    const output = await inBwrap(
+      [
+        tryRead(path.join(userHome, '.ssh', 'id_rsa')),
+        tryRead(path.join(userHome, '.aws', 'credentials')),
+        tryRead(path.join(userHome, '.config', 'gh', 'hosts.yml')),
+        tryWrite(path.join(worktree, 'a.txt')),
+        tryRead('/etc/passwd'),
+      ].join('; '),
+    )
+    expect(output.split('\n').slice(0, 5)).toEqual([
+      'refused',
+      'refused',
+      'refused',
+      'wrote',
+      'read',
+    ])
+  })
+
+  test('a folder listed in sandbox_reads can be read, and nothing beside it', async () => {
+    const output = await inBwrap(
+      [
+        tryRead(path.join(userHome, '.config', 'gh', 'hosts.yml')),
+        tryRead(path.join(userHome, '.ssh', 'id_rsa')),
+        tryWrite(path.join(userHome, '.config', 'gh', 'hosts.yml')),
+      ].join('; '),
+      ['~/.config/gh'],
+    )
+    expect(output.split('\n').slice(0, 3)).toEqual(['read', 'refused', 'refused'])
   })
 })
 
@@ -781,6 +1014,107 @@ describe('the folders a sandbox opens', () => {
     expect(argv.join(' ')).toContain(`--ro-bind ${await realpath(clone)}`)
     expect(argv.join(' ')).toContain(`--bind ${real} ${real}`)
     expect(argv.indexOf(home)).toBeLessThan(argv.indexOf(real))
+  })
+
+  test('on Linux, bwrap mounts the base read set and sandbox_reads, never the host root', async () => {
+    const userHome = await mkdtemp(path.join(outside, 'home-'))
+    for (const dir of ['.nvm', '.ssh', '.config/gh', 'Documents/notes']) {
+      await mkdir(path.join(userHome, dir), { recursive: true })
+    }
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', HOME: userHome }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const realHome = await realpath(userHome)
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      reads: ['~/.config/gh', '~/Documents/notes'],
+    })
+    const pairs = argv.flatMap((arg, i) =>
+      arg === '--ro-bind' ? [`${argv[i + 1]} ${argv[i + 2]}`] : [],
+    )
+    expect(pairs).not.toContain('/ /')
+    expect(pairs).toContain('/usr /usr')
+    expect(pairs).toContain(`${path.join(realHome, '.nvm')} ${path.join(realHome, '.nvm')}`)
+    expect(pairs).toContain(
+      `${path.join(realHome, '.config/gh')} ${path.join(realHome, '.config/gh')}`,
+    )
+    const joined = argv.join(' ')
+    expect(joined).not.toContain(path.join(realHome, '.ssh'))
+    expect(joined).not.toContain(path.join(realHome, 'Documents'))
+    expect(argv.lastIndexOf(path.join(realHome, '.nvm'))).toBeLessThan(argv.indexOf('--dev'))
+    expect(argv.indexOf(path.join(realHome, '.config/gh'))).toBeLessThan(
+      argv.lastIndexOf(await realpath(tedHome)),
+    )
+  })
+
+  test('on Linux, a chain of linked folders in the read set is linked straight to where it really is', async () => {
+    const tools = path.join(outside, 'versions', 'v1')
+    await mkdir(tools, { recursive: true })
+    await symlink('v1', path.join(outside, 'versions', 'current'))
+    await symlink('versions/current', path.join(outside, 'tools'))
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: `/usr/bin:${path.join(outside, 'tools')}` }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    const realTools = await realpath(tools)
+    const after = (flag: string) =>
+      argv.flatMap((arg, i) => (arg === flag ? [`${argv[i + 1]} ${argv[i + 2]}`] : []))
+    expect(after('--ro-bind')).toContain(`${realTools} ${realTools}`)
+    expect(after('--symlink')).toContain(`${realTools} ${path.join(outside, 'tools')}`)
+  })
+
+  test('on Linux, a sandbox_reads entry that leads into TED_HOME through a link isn’t mounted', async () => {
+    const userHome = await mkdtemp(path.join(outside, 'home-'))
+    await mkdir(path.join(userHome, '.config'))
+    await symlink(tedHome, path.join(userHome, '.config', 'ted-alias'))
+    await writeFile(path.join(tedHome, 'credentials'), 'secret')
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', HOME: userHome }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      reads: ['~/.config/ted-alias/credentials', '~/.config/ted-alias'],
+    })
+    const joined = argv.join(' ')
+    expect(joined).not.toContain('ted-alias')
+    expect(joined).not.toContain(path.join(await realpath(tedHome), 'credentials'))
+  })
+
+  test('on Linux, a sandbox_reads entry reached through a link is only a link, so a TED_HOME inside it stays hidden', async () => {
+    const holder = path.join(outside, 'holder')
+    await mkdir(path.join(holder, 'inner'), { recursive: true })
+    await rm(tedHome, { recursive: true, force: true })
+    await makeHome(path.join(holder, 'inner'))
+    const userHome = await mkdtemp(path.join(outside, 'home-'))
+    await symlink(holder, path.join(userHome, 'x'))
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', HOME: userHome }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), reads: ['~/x/inner'] })
+    const realInner = await realpath(path.join(holder, 'inner'))
+    const alias = path.join(userHome, 'x', 'inner')
+    const after = (flag: string) =>
+      argv.flatMap((arg, i) => (arg === flag ? [`${argv[i + 1]} ${argv[i + 2]}`] : []))
+    expect(after('--ro-bind')).toContain(`${realInner} ${realInner}`)
+    expect(after('--ro-bind').some((pair) => pair.endsWith(` ${alias}`))).toBe(false)
+    expect(after('--symlink')).toContain(`${realInner} ${alias}`)
+    expect(argv.lastIndexOf(await realpath(tedHome))).toBeGreaterThan(argv.indexOf(realInner))
   })
 
   test('on Linux, a scope that hides protected folders covers each one that exists in HOME', async () => {
