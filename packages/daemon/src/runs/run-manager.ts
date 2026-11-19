@@ -55,7 +55,12 @@ import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { type MemoryWatch, type MemoryWatching, runKilledForMemory } from '../memory-kills.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
-import { acquireRunPermissions, runPermissions, withRunPermissions } from '../permissions.ts'
+import {
+  acquireRunPermissions,
+  factoryPermissions,
+  runPermissions,
+  withRunPermissions,
+} from '../permissions.ts'
 import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
@@ -269,6 +274,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     permissions: PermissionMode,
   ): Promise<LaunchSandbox | undefined> => {
     if (kind !== 'pi' || permissions === 'bypass') return undefined
+    const side = store.sideChats.forRun(runId)
+    if (side !== undefined && factoryPermissions(store, side.factoryId) === 'bypass')
+      return undefined
     const problem = options.sandbox
       ? await options.sandbox.problem()
       : 'Ted has no sandbox for agents here'

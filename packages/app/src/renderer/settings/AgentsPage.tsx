@@ -330,14 +330,35 @@ export function PiSandboxSection({
   onAllow: (allowed: boolean) => void
 }) {
   const problem = health.sandboxProblem
+  const toggle = (
+    <div className={styles.switchRow}>
+      <Switch
+        label="Run Pi without a sandbox in Auto Factories"
+        checked={allowed}
+        onChange={onAllow}
+      />
+      <span>Run Pi without a sandbox in Auto Factories</span>
+    </div>
+  )
   return (
     <div className={styles.section}>
       <h3 className={styles.sectionTitle}>Sandbox</h3>
       {problem === undefined ? (
-        <p className={styles.line}>
-          In Auto Factories, Pi runs inside Ted’s sandbox. It can change only the Task’s worktrees
-          and its own Run folder, and it can’t read your personal folders. Network stays on.
-        </p>
+        <>
+          <p className={styles.line}>
+            In Auto Factories, Pi runs inside Ted’s sandbox. It can change only the Task’s worktrees
+            and its own Run folder, and it can’t read your personal folders. Network stays on.
+          </p>
+          {allowed && (
+            <div className={styles.planNotice} role="note" aria-label="Pi sandbox">
+              <p className={styles.line}>
+                You allowed Pi to run without a sandbox. Ted uses the sandbox while it works, but if
+                it stops working, Pi runs every command in Auto Factories without asking.
+              </p>
+              {toggle}
+            </div>
+          )}
+        </>
       ) : (
         <>
           <div className={styles.planNotice} role="note" aria-label="Pi sandbox">
@@ -346,14 +367,7 @@ export function PiSandboxSection({
               Without a sandbox, Pi runs every command in Auto Factories without asking, like in a
               Bypass Factory.
             </p>
-            <div className={styles.switchRow}>
-              <Switch
-                label="Run Pi without a sandbox in Auto Factories"
-                checked={allowed}
-                onChange={onAllow}
-              />
-              <span>Run Pi without a sandbox in Auto Factories</span>
-            </div>
+            {toggle}
           </div>
           <p className={styles.line}>
             {allowed

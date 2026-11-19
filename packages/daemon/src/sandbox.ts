@@ -14,6 +14,8 @@ export interface SandboxScope {
   cache: string
   sockets?: readonly string[]
   electron?: boolean
+  ownTempOnly?: boolean
+  hideProtected?: boolean
 }
 
 export interface Sandboxed {
@@ -145,9 +147,11 @@ export function createSandbox(options: {
         if (found !== undefined) {
           const saves = path.join(found, 'TemporaryItems')
           paths.unlisted = [found, saves]
-          if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
           const [first = ''] = path.relative(found, paths.tedHome).split(path.sep)
-          if (!inside(paths.tedHome, found) && !xcodeTempNames.test(first)) paths.userTemp = found
+          if (scope.ownTempOnly !== true) {
+            if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
+            if (!inside(paths.tedHome, found) && !xcodeTempNames.test(first)) paths.userTemp = found
+          }
         }
       }
       const sockets = await allowedSockets(scope.sockets ?? [], env)
@@ -185,6 +189,8 @@ export function createSandbox(options: {
       const table = await socketTable()
       const linux = await linuxSockets(table, paths, sockets, env)
       const binds = bwrapBinds(paths)
+      const hidden =
+        scope.hideProtected === true ? await existingFolders(await personalFolders(env)) : []
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -198,7 +204,7 @@ export function createSandbox(options: {
         throw error
       }
       return {
-        argv: [ready, ...bwrapArgs(paths, env, linux, binds, bindFds), '--', ...argv],
+        argv: [ready, ...bwrapArgs(paths, env, linux, binds, bindFds, hidden), '--', ...argv],
         env: added,
         fds: handles.map((handle) => handle.fd),
         close,
@@ -247,7 +253,7 @@ async function sandboxPaths(
   scope: SandboxScope,
 ): Promise<SandboxPaths> {
   const daemonTmp = await real(tmpdir())
-  const sharedTmp = platform === 'darwin' ? '/private/tmp' : undefined
+  const sharedTmp = platform === 'darwin' && scope.ownTempOnly !== true ? '/private/tmp' : undefined
   const home = await real(tedHome)
   const given = path.resolve(tedHome)
   const plain = (dir: string, create = false) => plainFolder(home, given, dir, create)
@@ -276,6 +282,17 @@ async function sandboxPaths(
 
 async function personalFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
   return protectedPaths(await real(env.HOME?.startsWith('/') ? env.HOME : homedir()))
+}
+
+async function existingFolders(dirs: readonly string[]): Promise<string[]> {
+  const found = await Promise.all(
+    dirs.map(async (dir) => {
+      const resolved = await realpath(dir).catch(() => undefined)
+      const info = resolved === undefined ? undefined : await lstat(resolved).catch(() => undefined)
+      return info?.isDirectory() === true ? resolved : undefined
+    }),
+  )
+  return [...new Set(found.filter((dir) => dir !== undefined))]
 }
 
 async function allowedSockets(
@@ -395,6 +412,7 @@ function bwrapArgs(
   sockets: LinuxSockets,
   binds: readonly Bind[],
   byFd: boolean,
+  hidden: readonly string[],
 ): string[] {
   const runtime = runtimeDir(env)
   const bind = (b: Bind, i: number) =>
@@ -414,6 +432,7 @@ function bwrapArgs(
     '/proc',
     ...(tmpBind ?? []),
     ...(runtime === undefined ? [] : ['--tmpfs', runtime]),
+    ...hidden.flatMap((dir) => ['--tmpfs', dir]),
     '--tmpfs',
     paths.tedHome,
     ...taskBinds.flat(),

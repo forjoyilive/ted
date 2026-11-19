@@ -692,6 +692,7 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
       ),
     )
     expect(launch.sandbox.scope.tmp).toBe(path.join(runDir, 'tmp'))
+    expect(launch.sandbox.scope).toMatchObject({ ownTempOnly: true, hideProtected: true })
     expect(launch.sandbox.scope.cache).toBe(path.join(home, 'sandbox', task.displayId, 'cache'))
 
     const probe = JSON.parse(
@@ -704,6 +705,7 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
     expect(probe.ted).toMatchObject({ ok: true, output: expect.stringContaining(task.displayId) })
     if (realSandbox) {
       expect(probe.outsideWrite.ok).toBe(false)
+      expect(probe.sharedTmpWrite.ok).toBe(false)
       expect(probe.daemonInfo.ok).toBe(false)
       expect(probe.piAgentWrite.ok).toBe(false)
       await expect(readFile(path.join(agentDir, 'stub-pi-wrote'))).rejects.toThrow()

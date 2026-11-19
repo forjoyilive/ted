@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { JsonObject } from '@ted/protocol/parse'
 
@@ -96,6 +96,12 @@ function probeSandbox() {
   const result = {
     insideWrite: attempt(write(path.join(process.cwd(), 'stub-pi-wrote'))),
     outsideWrite: attempt(write(path.join(home, 'stub-pi-escaped'))),
+    sharedTmpWrite: attempt(() => {
+      const file = path.join('/private/tmp', `stub-pi-escaped-${process.pid}`)
+      writeFileSync(file, 'x')
+      rmSync(file)
+      return ''
+    }),
     daemonInfo: attempt(() => readFileSync(path.join(home, 'daemon.json'), 'utf8')),
     piAgentRead: attempt(() => readFileSync(path.join(agentDir, 'settings.json'), 'utf8')),
     piAgentCopyWrite: attempt(write(path.join(agentDir, 'stub-pi-wrote'))),

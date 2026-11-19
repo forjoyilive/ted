@@ -349,4 +349,14 @@ test('the Pi card’s Sandbox section says what Pi can write, or shows the reaso
       .getAttribute('aria-checked'),
   ).toBe('true')
   expect(screen.getByText(/You allowed Pi to run without a sandbox/)).toBeTruthy()
+
+  health = [pi]
+  await act(async () => api.emit({ type: 'agent-health-changed', health: pi }))
+  expect(card.getByText(/In Auto Factories, Pi runs inside Ted’s sandbox/)).toBeTruthy()
+  const still = within(card.getByRole('note', { name: 'Pi sandbox' }))
+  expect(still.getByText(/if it stops working, Pi runs every command/)).toBeTruthy()
+  const kept = still.getByRole('switch', { name: 'Run Pi without a sandbox in Auto Factories' })
+  expect(kept.getAttribute('aria-checked')).toBe('true')
+  await user().click(kept)
+  expect(api.request).toHaveBeenCalledWith('updateSettings', { piUnsandboxedAllowed: false })
 })
