@@ -56,19 +56,43 @@ test('a socket row names the layer its list comes from', () => {
   ])
 })
 
-test('outbound network grants widen the sandbox, after the other rows', () => {
+test('each access group an App, Check or setup has is its own row, and widens the sandbox', () => {
   const openings = sandboxOpenings({
     ...none,
-    electronApps: [{ repo: 'ted', name: 'Ted Dev' }],
-    networkGrants: [{ place: 'worktree', repo: 'ted', commands: ['setup'] }],
+    access: [
+      { kind: 'app', repo: 'mobile', name: 'iOS simulator', groups: ['ios-xcode', 'ios-xcode'] },
+      { kind: 'check', name: 'Lint', groups: [] },
+      { kind: 'setup', repo: 'mobile', name: 'setup', groups: ['ios-xcode'] },
+    ],
   })
   expect(openings).toEqual([
-    { kind: 'electron-app', unsandboxed: false, repo: 'ted', app: 'Ted Dev' },
     {
-      kind: 'network',
+      kind: 'access-group',
       unsandboxed: false,
-      grant: { place: 'worktree', repo: 'ted', commands: ['setup'] },
+      holder: 'app',
+      repo: 'mobile',
+      name: 'iOS simulator',
+      group: 'ios-xcode',
+    },
+    {
+      kind: 'access-group',
+      unsandboxed: false,
+      holder: 'setup',
+      repo: 'mobile',
+      name: 'setup',
+      group: 'ios-xcode',
     },
   ])
+  expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
+})
+
+test('outbound network for the whole Factory widens the sandbox, before the access groups', () => {
+  const openings = sandboxOpenings({
+    ...none,
+    networkFrom: 'library',
+    access: [{ kind: 'check', name: 'E2E', groups: ['network'] }],
+  })
+  expect(openings.map((o) => o.kind)).toEqual(['network', 'access-group'])
+  expect(openings[0]).toEqual({ kind: 'network', unsandboxed: false, from: 'library' })
   expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
 })

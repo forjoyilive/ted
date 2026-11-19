@@ -13,16 +13,24 @@ const view: Pick<
   | 'sandboxSockets'
   | 'sandboxSocketsFrom'
   | 'electronApps'
-  | 'networkGrants'
+  | 'sandboxNetworkFrom'
+  | 'repos'
+  | 'checks'
 > = {
   factoryId: 'factory',
   permissions: 'auto',
   sandboxSockets: [],
   electronApps: [],
-  networkGrants: [],
+  repos: [],
+  checks: [],
 }
 
-const links = { onOpenPermissions: vi.fn(), onOpenRepos: vi.fn(), onOpenProviders: vi.fn() }
+const links = {
+  onOpenPermissions: vi.fn(),
+  onOpenRepos: vi.fn(),
+  onOpenChecks: vi.fn(),
+  onOpenProviders: vi.fn(),
+}
 
 test('a Factory with nothing open says so and lists nothing', async () => {
   bridge({})
@@ -87,36 +95,76 @@ test('a socket inherited from the Library says where to turn it off', async () =
   expect(row.textContent).toContain('sandbox_sockets: []')
 })
 
-test('each outbound network grant is a row that says where it comes from', async () => {
+test('access groups on Apps, Checks and setup widen the sandbox and link to where they are set', async () => {
   bridge({})
+  const repo = {
+    was: 'mobile',
+    repo: 'me/mobile',
+    name: 'mobile',
+    primary: true,
+    setup: { run: 'pod install', sandboxAccess: ['ios-xcode' as const] },
+    env: [],
+    copy: [],
+    apps: [
+      {
+        was: 0,
+        name: 'iOS simulator',
+        kind: 'ios-simulator' as const,
+        run: 'run.sh',
+        sandboxAccess: ['ios-xcode' as const],
+      },
+      { was: 1, name: 'Web', kind: 'web' as const, run: 'pnpm dev' },
+    ],
+  }
   render(
     <SandboxSection
       view={{
         ...view,
-        networkGrants: [
-          { place: 'factory', from: 'factory' },
-          { place: 'worktree', repo: 'web', commands: ['teardown'] },
-          { place: 'worktree', repo: 'api', commands: ['setup', 'teardown'] },
-          { place: 'app', repo: 'web', app: 'Site' },
-          { place: 'check', check: 'E2E' },
-        ],
+        repos: [repo],
+        checks: [{ was: 0, name: 'iOS build', run: 'xcodebuild', sandboxAccess: ['ios-xcode'] }],
       }}
       {...links}
     />,
   )
   expect(
-    await screen.findByText('5 settings widen what sandboxed commands can reach.'),
+    await screen.findByText('3 settings widen what sandboxed commands can reach.'),
   ).toBeTruthy()
-  const rows = screen.getAllByRole('listitem').map((row) => row.textContent)
+  const rows = within(screen.getByRole('list', { name: 'Sandbox openings' })).getAllByRole(
+    'listitem',
+  )
+  expect(rows.map((row) => row.textContent)).toEqual([
+    expect.stringContaining('Worktree setup in mobile has ios-xcode'),
+    expect.stringContaining('iOS simulator App in mobile has ios-xcode'),
+    expect.stringContaining('iOS build Check has ios-xcode'),
+  ])
+  await user().click(within(rows[2] as HTMLElement).getByRole('button', { name: 'Open Checks' }))
+  expect(links.onOpenChecks).toHaveBeenCalled()
+  await user().click(within(rows[1] as HTMLElement).getByRole('button', { name: 'Open Repos' }))
+  expect(links.onOpenRepos).toHaveBeenCalled()
+})
+
+test('outbound network for the whole Factory is a row, and the network group says what it opens', async () => {
+  bridge({})
+  render(
+    <SandboxSection
+      view={{
+        ...view,
+        sandboxNetworkFrom: 'factory',
+        checks: [{ was: 0, name: 'E2E', run: 'node e2e.js', sandboxAccess: ['network'] }],
+      }}
+      {...links}
+    />,
+  )
+  expect(
+    await screen.findByText('2 settings widen what sandboxed commands can reach.'),
+  ).toBeTruthy()
+  const rows = within(screen.getByRole('list', { name: 'Sandbox openings' }))
+    .getAllByRole('listitem')
+    .map((row) => row.textContent)
   expect(rows).toEqual([
     expect.stringContaining('From sandbox_network: outbound in .ted/workflow.yaml.'),
-    expect.stringMatching(/worktree teardown.*Its teardown command can connect to any host/),
-    expect.stringContaining(
-      'From sandbox_access: [network] on worktree.setup and worktree.teardown in the api repo’s entry',
-    ),
-    expect.stringContaining('Network for App “Site”'),
-    expect.stringContaining('Network for check “E2E”'),
+    expect.stringContaining('E2E Check has network'),
   ])
-  expect(rows[2]).toContain('Remove network from that list in a Task to turn it off.')
-  for (const row of rows.slice(1)) expect(row).not.toContain('network: outbound')
+  expect(rows[0]).toContain('Network for every sandboxed command')
+  expect(rows[1]).toContain('Its commands can connect to any host')
 })

@@ -1,7 +1,7 @@
 import type { LayerKind } from '@ted/protocol'
 import type { FactorySettingsView } from '@ted/protocol/factory-settings'
+import { accessHolderLabel } from '@ted/protocol/sandbox-access'
 import {
-  type NetworkGrant,
   type SandboxOpening,
   type SandboxSummary,
   sandboxOpenings,
@@ -10,6 +10,7 @@ import {
 import { type ReactNode, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { useSettings } from '../data.ts'
+import { settingsAccessHolders } from '../factory-settings.ts'
 import { readableError, ted } from '../ted.ts'
 import base from './FactorySettings.module.css'
 import { SectionHeading } from './FactorySettingsSections.tsx'
@@ -21,6 +22,7 @@ export function SandboxSection({
   view,
   onOpenPermissions,
   onOpenRepos,
+  onOpenChecks,
   onOpenProviders,
 }: {
   view: Pick<
@@ -30,10 +32,13 @@ export function SandboxSection({
     | 'sandboxSockets'
     | 'sandboxSocketsFrom'
     | 'electronApps'
-    | 'networkGrants'
+    | 'sandboxNetworkFrom'
+    | 'repos'
+    | 'checks'
   >
   onOpenPermissions: () => void
   onOpenRepos: () => void
+  onOpenChecks: () => void
   onOpenProviders: () => void
 }) {
   const settings = useSettings()
@@ -46,7 +51,8 @@ export function SandboxSection({
     sockets: view.sandboxSockets,
     ...(view.sandboxSocketsFrom && { socketsFrom: view.sandboxSocketsFrom }),
     electronApps: view.electronApps,
-    networkGrants: view.networkGrants,
+    ...(view.sandboxNetworkFrom && { networkFrom: view.sandboxNetworkFrom }),
+    access: settingsAccessHolders(view),
   })
 
   const stopAllowing = async (app: string) => {
@@ -94,6 +100,12 @@ export function SandboxSection({
         return (
           <Button size="small" onClick={onOpenRepos}>
             Open Repos
+          </Button>
+        )
+      case 'access-group':
+        return (
+          <Button size="small" onClick={opening.holder === 'check' ? onOpenChecks : onOpenRepos}>
+            {opening.holder === 'check' ? 'Open Checks' : 'Open Repos'}
           </Button>
         )
       case 'socket':
@@ -195,8 +207,8 @@ function rowKey(opening: SandboxOpening): string {
       return `socket:${opening.socket}`
     case 'electron-app':
       return `electron:${opening.repo}:${opening.app}`
-    case 'network':
-      return `network:${JSON.stringify(opening.grant)}`
+    case 'access-group':
+      return `access:${opening.holder}:${opening.repo ?? ''}:${opening.name}:${opening.group}`
     default:
       return opening.kind
   }
@@ -251,80 +263,58 @@ function describe(opening: SandboxOpening): OpeningText {
         ),
       }
     case 'network':
-      return networkRow(opening.grant)
-  }
-}
-
-function networkRow(grant: NetworkGrant): OpeningText {
-  const file = <code className={styles.code}>.ted/workflow.yaml</code>
-  const key = (name: string) => <code className={styles.code}>{name}: outbound</code>
-  const group = <code className={styles.code}>sandbox_access: [network]</code>
-  const remove = (
-    <>
-      Remove <code className={styles.code}>network</code> from that list in a Task to turn it off.
-    </>
-  )
-  switch (grant.place) {
-    case 'factory':
       return {
         name: 'Network for every sandboxed command',
         what: 'Checks, Apps and setup commands can connect to any host on the internet.',
-        where:
-          grant.from === 'factory' ? (
-            <>
-              From {key('sandbox_network')} in {file}. Remove it in a Task to turn it off.
-            </>
-          ) : (
-            <>
-              From {key('sandbox_network')} in{' '}
-              {grant.from === 'library' ? 'the Library’s' : 'Ted’s default'}{' '}
-              <code className={styles.code}>workflow.yaml</code>. Set{' '}
-              <code className={styles.code}>sandbox_network: localhost</code> in this Factory’s{' '}
-              {file} in a Task to turn it off.
-            </>
-          ),
+        where: <NetworkSource from={opening.from} />,
       }
-    case 'worktree': {
-      const both = grant.commands.length > 1
-      const which = both ? 'setup and teardown' : (grant.commands[0] ?? 'setup')
+    case 'access-group':
       return {
-        name: `Network for ${grant.repo}’s worktree ${which}`,
-        what: `Its ${which} ${both ? 'commands' : 'command'} can connect to any host, for example to install packages.`,
-        where: (
+        name: (
           <>
-            From {group} on <code className={styles.code}>worktree.{both ? 'setup' : which}</code>
-            {both && (
-              <>
-                {' '}
-                and <code className={styles.code}>worktree.teardown</code>
-              </>
-            )}{' '}
-            in the {grant.repo} repo’s entry in {file}. {remove}
+            {accessHolderLabel({
+              kind: opening.holder,
+              ...(opening.repo !== undefined && { repo: opening.repo }),
+              name: opening.name,
+            })}{' '}
+            has <code className={styles.code}>{opening.group}</code>
           </>
         ),
-      }
-    }
-    case 'app':
-      return {
-        name: `Network for App “${grant.app}”`,
-        what: 'When an agent or Ted starts it, it can connect to any host.',
+        what:
+          opening.group === 'ios-xcode'
+            ? 'Its commands can write where Xcode, SwiftPM, actool and ibtool keep temp files. These folders are shared with your other apps on this Mac.'
+            : opening.group === 'network'
+              ? 'Its commands can connect to any host, for example to install packages or call an outside service.'
+              : 'Its commands get this extra sandbox access.',
         where: (
           <>
-            From {group} on the App in the {grant.repo} repo’s entry in {file}. {remove}
-          </>
-        ),
-      }
-    case 'check':
-      return {
-        name: `Network for check “${grant.check}”`,
-        what: 'The check’s command can connect to any host.',
-        where: (
-          <>
-            From {group} on the check in {file}. {remove}
+            From <code className={styles.code}>sandbox_access</code> in{' '}
+            <code className={styles.code}>.ted/workflow.yaml</code>. Remove it in{' '}
+            {opening.holder === 'check' ? 'Checks' : 'Repos'} and save to turn it off.
           </>
         ),
       }
   }
+}
+
+function NetworkSource({ from }: { from: LayerKind }) {
+  const key = <code className={styles.code}>sandbox_network: outbound</code>
+  const file = <code className={styles.code}>.ted/workflow.yaml</code>
+  if (from === 'factory') {
+    return (
+      <>
+        From {key} in {file}. Remove it in a Task to turn it off.
+      </>
+    )
+  }
+  return (
+    <>
+      From {key} in {from === 'library' ? 'the Library’s' : 'Ted’s default'}{' '}
+      <code className={styles.code}>workflow.yaml</code>. Set{' '}
+      <code className={styles.code}>sandbox_network: localhost</code> in this Factory’s {file} in a
+      Task to turn it off.
+    </>
+  )
 }
 
 function SocketSource({ from }: { from: LayerKind }) {

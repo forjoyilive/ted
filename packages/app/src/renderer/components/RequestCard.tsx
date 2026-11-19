@@ -83,6 +83,7 @@ import { ReferenceText } from './References.tsx'
 import styles from './RequestCard.module.css'
 import { RequestSnoozeLine } from './RequestSnooze.tsx'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
+import { AccessChanges, AccessUnknown } from './SandboxAccess.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 import grow from './TextGrow.module.css'
 
@@ -1366,6 +1367,13 @@ export function RequestCard({
       </h2>
       {rows && <MergeRows rows={rows} taskId={task.id} noCi={request.gate?.noCi ?? []} />}
       {!rows && request.gate?.noCi && <NoCiLines names={request.gate.noCi} />}
+      {request.gate?.sandboxAccess && (
+        <AccessChanges
+          title="Sandbox access changes in .ted/workflow.yaml"
+          changes={request.gate.sandboxAccess}
+        />
+      )}
+      {request.gate?.sandboxAccessUnknown && <AccessUnknown />}
       {rows && changes && <MergeChangesLine changes={changes} />}
       {changes && !rows && <ChangesBlock changes={changes} current={taskChanges} />}
       {request.kind === 'signoff' &&

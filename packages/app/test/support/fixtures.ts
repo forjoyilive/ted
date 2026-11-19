@@ -127,7 +127,6 @@ export function settingsView(): import('@ted/protocol').FactorySettingsView {
     machineMaxWorkingRuns: 6,
     sandboxSockets: [],
     electronApps: [],
-    networkGrants: [],
     notes: '',
   }
 }

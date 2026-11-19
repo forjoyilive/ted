@@ -13,6 +13,7 @@ import {
   lastValidLine,
   missingCopies,
   remoteFor,
+  settingsAccessChanges,
   settingsChanges,
   settingsDraft,
   stageEdited,
@@ -137,7 +138,6 @@ const view: FactorySettingsView = {
   machineMaxWorkingRuns: 6,
   sandboxSockets: [],
   electronApps: [],
-  networkGrants: [],
   notes: '',
 }
 
@@ -383,6 +383,51 @@ describe('Pull request CI row', () => {
     expect([...editedFields({ ...before, pullRequestCi: 'auto' }, [before])]).toEqual([])
     expect([...editedFields({ ...before, pullRequestCi: 'none' }, [before])]).toEqual([
       'pullRequestCi',
+    ])
+  })
+})
+
+describe('Sandbox access changes before a save', () => {
+  test('two Apps with the same name are each compared with their own saved entry', () => {
+    const repo = {
+      was: 'mobile',
+      repo: 'kriya/mobile',
+      name: 'mobile',
+      primary: true,
+      env: [],
+      copy: [],
+      apps: [
+        { was: 0, name: 'Sim', kind: 'command' as const, run: 'a' },
+        {
+          was: 1,
+          name: 'Sim',
+          kind: 'command' as const,
+          run: 'b',
+          sandboxAccess: ['ios-xcode' as const],
+        },
+      ],
+    }
+    const changes = {
+      repos: [
+        {
+          ...repo,
+          apps: [
+            { was: 1, name: 'Sim', kind: 'command' as const, run: 'b', sandboxAccess: [] },
+            {
+              was: 0,
+              name: 'Sim',
+              kind: 'command' as const,
+              run: 'a',
+              sandboxAccess: ['ios-xcode' as const],
+            },
+            { name: 'Sim', kind: 'command' as const, run: 'c' },
+          ],
+        },
+      ],
+    }
+    expect(settingsAccessChanges({ repos: [repo], checks: [] }, changes)).toEqual([
+      { kind: 'app', repo: 'mobile', name: 'Sim', gained: [], lost: ['ios-xcode'] },
+      { kind: 'app', repo: 'mobile', name: 'Sim', gained: ['ios-xcode'], lost: [] },
     ])
   })
 })

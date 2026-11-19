@@ -24,7 +24,6 @@ import {
   type InvalidSettings,
   type LayerKind,
   type MergeSettingsRequest,
-  type NetworkGrant,
   type PullRequestCiFound,
   type PullRequestCiMode,
   type RepoSettingsInput,
@@ -53,7 +52,7 @@ import {
   stageFileId,
   validates,
 } from '@ted/protocol/stage'
-import { appDeclarations } from './apps/declared.ts'
+import { appDeclarations, sandboxAccessOf } from './apps/declared.ts'
 import type { CheckTries } from './check-tries.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
@@ -164,26 +163,9 @@ function socketsView(
     : { sandboxSockets: [] }
 }
 
-function networkGrants(base: Base, repos: readonly { name: string }[]): NetworkGrant[] {
+function networkView(base: Base): Pick<FactorySettingsView, 'sandboxNetworkFrom'> {
   const layer = [...base.inherited, base.own].findLast((l) => l.settings.sandbox_network)
-  const grants: NetworkGrant[] =
-    layer?.settings.sandbox_network === 'outbound' ? [{ place: 'factory', from: layer.kind }] : []
-  for (const [i, entry] of (base.settings?.repos ?? []).entries()) {
-    const repo = repos[i]?.name ?? ''
-    const commands = (['setup', 'teardown'] as const).filter((name) =>
-      entry.worktree?.[name]?.sandbox_access?.includes('network'),
-    )
-    if (commands.length > 0) grants.push({ place: 'worktree', repo, commands })
-    for (const app of appDeclarations(entry.apps)) {
-      if (app.sandboxAccess?.includes('network')) grants.push({ place: 'app', repo, app: app.name })
-    }
-  }
-  const checks = resolveWorkflow([...base.inherited, base.own]).settings.stages.validate?.checks
-  for (const check of checks ?? []) {
-    if (check.sandbox_access?.includes('network'))
-      grants.push({ place: 'check', check: check.name })
-  }
-  return grants
+  return layer?.settings.sandbox_network === 'outbound' ? { sandboxNetworkFrom: layer.kind } : {}
 }
 
 function ignoredStageFiles(files: readonly string[], base: Base): string[] {
@@ -691,6 +673,9 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
                 run: c.run,
                 ...(c.repo !== undefined && { repo: c.repo }),
                 ...(c.timeout !== undefined && { timeout: c.timeout }),
+                ...(sandboxAccessOf(c.sandbox_access).length > 0 && {
+                  sandboxAccess: sandboxAccessOf(c.sandbox_access),
+                }),
               },
             ],
       )
@@ -756,7 +741,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             .filter((app) => app.electron === true)
             .map((app) => ({ repo: repos[i]?.name ?? '', name: app.name })),
         ),
-        networkGrants: networkGrants(base, repos),
+        ...networkView(base),
         notes: typeof notes === 'string' ? notes : '',
         ...(problem && { invalid: problem }),
       }

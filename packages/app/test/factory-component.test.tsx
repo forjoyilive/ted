@@ -423,6 +423,67 @@ test('repo settings explain saving and let the user retry merging without losing
   expect(screen.queryByRole('button', { name: 'Merge pull request' })).toBeNull()
 })
 
+test('Apps, setup and Checks add and remove sandbox access groups, and the save dialog lists each change', async () => {
+  const loaded = settingsView()
+  const repo = loaded.repos[0]
+  if (!repo) throw new Error('the fixture has a repo')
+  repo.setup = { run: 'pnpm install', sandboxAccess: ['ios-xcode'] }
+  repo.apps = [{ was: 0, name: 'Phone', kind: 'ios-simulator', run: 'sim.sh' }]
+  const api = open({
+    factorySettings: () => loaded,
+    previewFactorySettings: () => ({ valid: true, sideEffects: [], problems: [], files: [] }),
+  })
+  const u = user()
+  await page('Repos')
+  const repos = within(await screen.findByRole('region', { name: 'Repos' }))
+  const setup = within(repos.getByRole('group', { name: 'Sandbox access for Setup command' }))
+  expect(setup.getByText('ios-xcode')).toBeTruthy()
+  expect(setup.queryByRole('button', { name: 'Add group…' })).toBeNull()
+  await u.click(setup.getByRole('button', { name: 'Remove ios-xcode' }))
+  expect(setup.getByText('None')).toBeTruthy()
+
+  const appRow = repos.getByText('Phone').parentElement as HTMLElement
+  await u.click(within(appRow).getByRole('button', { name: 'Edit' }))
+  const app = within(repos.getByRole('group', { name: 'Sandbox access for App Phone' }))
+  await u.click(app.getByRole('button', { name: 'Add group…' }))
+  await u.click(await screen.findByRole('menuitem', { name: /^ios-xcode/ }))
+  expect(app.getByText('ios-xcode')).toBeTruthy()
+  await u.click(repos.getByRole('button', { name: 'Done' }))
+  expect(
+    within(repos.getByText('Phone').parentElement as HTMLElement).getByText('ios-xcode'),
+  ).toBeTruthy()
+
+  await page('Checks')
+  const typecheck = within(screen.getByRole('listitem', { name: 'Typecheck' }))
+  await u.click(typecheck.getByRole('button', { name: 'Edit' }))
+  const check = within(screen.getByRole('group', { name: 'Sandbox access for Check Typecheck' }))
+  await u.click(check.getByRole('button', { name: 'Add group…' }))
+  await u.click(await screen.findByRole('menuitem', { name: /^ios-xcode/ }))
+  expect(typecheck.getAllByText('ios-xcode').length).toBeGreaterThan(0)
+
+  await u.click(screen.getByRole('button', { name: 'Review and save…' }))
+  const dialog = within(await screen.findByRole('dialog', { name: 'Save Ted settings' }))
+  const access = within(dialog.getByRole('region', { name: 'Sandbox access changes' }))
+  expect(access.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+    'Worktree setup in widgets loses ios-xcode',
+    'Phone App in widgets gains ios-xcode',
+    'Typecheck Check gains ios-xcode',
+  ])
+  expect(api.request).toHaveBeenCalledWith(
+    'previewFactorySettings',
+    'f1',
+    expect.objectContaining({
+      repos: [
+        expect.objectContaining({
+          setup: { run: 'pnpm install', sandboxAccess: [] },
+          apps: [expect.objectContaining({ name: 'Phone', sandboxAccess: ['ios-xcode'] })],
+        }),
+      ],
+      checks: [expect.objectContaining({ name: 'Typecheck', sandboxAccess: ['ios-xcode'] })],
+    }),
+  )
+})
+
 test('Remove Factory requires the exact key and sends the pull-request choice', async () => {
   const removed = vi.fn()
   const api = bridge({

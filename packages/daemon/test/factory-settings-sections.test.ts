@@ -405,11 +405,7 @@ describe('Factory settings: Workflow', () => {
     expect(view.sandboxSockets).toEqual(['~/.orbstack/run/docker.sock'])
     expect(view.sandboxSocketsFrom).toBe('library')
     expect(view.electronApps).toEqual([{ repo: 'widgets', name: 'Desktop' }])
-    expect(view.networkGrants).toEqual([
-      { place: 'factory', from: 'library' },
-      { place: 'worktree', repo: 'widgets', commands: ['setup'] },
-      { place: 'app', repo: 'widgets', app: 'Web' },
-    ])
+    expect(view.sandboxNetworkFrom).toBe('library')
   })
 })
 

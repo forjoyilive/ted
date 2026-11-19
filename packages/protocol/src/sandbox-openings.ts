@@ -1,4 +1,6 @@
 import type { PermissionMode } from './run.ts'
+import type { AccessHolder, AccessHolderKind } from './sandbox-access.ts'
+import type { SandboxGroup } from './sandbox-groups.ts'
 import type { LayerKind } from './workflow.ts'
 
 export const networkLevels = ['none', 'localhost', 'outbound'] as const
@@ -10,12 +12,6 @@ export interface ElectronApp {
   name: string
 }
 
-export type NetworkGrant =
-  | { place: 'factory'; from: LayerKind }
-  | { place: 'worktree'; repo: string; commands: readonly ('setup' | 'teardown')[] }
-  | { place: 'app'; repo: string; app: string }
-  | { place: 'check'; check: string }
-
 export interface SandboxOpeningsInput {
   permissions: PermissionMode
   appsOutsideSandbox: readonly string[]
@@ -23,7 +19,8 @@ export interface SandboxOpeningsInput {
   sockets: readonly string[]
   socketsFrom?: LayerKind
   electronApps: readonly ElectronApp[]
-  networkGrants?: readonly NetworkGrant[]
+  networkFrom?: LayerKind
+  access?: readonly AccessHolder[]
 }
 
 export type SandboxOpening =
@@ -32,7 +29,15 @@ export type SandboxOpening =
   | { kind: 'pi-unsandboxed'; unsandboxed: true }
   | { kind: 'socket'; unsandboxed: false; socket: string; from: LayerKind }
   | { kind: 'electron-app'; unsandboxed: false; repo: string; app: string }
-  | { kind: 'network'; unsandboxed: false; grant: NetworkGrant }
+  | { kind: 'network'; unsandboxed: false; from: LayerKind }
+  | {
+      kind: 'access-group'
+      unsandboxed: false
+      holder: AccessHolderKind
+      repo?: string
+      name: string
+      group: SandboxGroup
+    }
 
 export type SandboxSummary =
   | { kind: 'closed' }
@@ -60,8 +65,20 @@ export function sandboxOpenings(input: SandboxOpeningsInput): SandboxOpening[] {
   for (const { repo, name } of input.electronApps) {
     openings.push({ kind: 'electron-app', unsandboxed: false, repo, app: name })
   }
-  for (const grant of input.networkGrants ?? []) {
-    openings.push({ kind: 'network', unsandboxed: false, grant })
+  if (input.networkFrom !== undefined) {
+    openings.push({ kind: 'network', unsandboxed: false, from: input.networkFrom })
+  }
+  for (const holder of input.access ?? []) {
+    for (const group of new Set(holder.groups)) {
+      openings.push({
+        kind: 'access-group',
+        unsandboxed: false,
+        holder: holder.kind,
+        ...(holder.repo !== undefined && { repo: holder.repo }),
+        name: holder.name,
+        group,
+      })
+    }
   }
   return openings
 }

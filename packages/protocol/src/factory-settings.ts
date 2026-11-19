@@ -1,7 +1,8 @@
 import type { AgentFileChange, AgentFileRow } from './agent-files.ts'
 import type { PreviewPreset } from './preview-size.ts'
 import type { PermissionMode } from './run.ts'
-import type { ElectronApp, NetworkGrant } from './sandbox-openings.ts'
+import type { SandboxGroup } from './sandbox-groups.ts'
+import type { ElectronApp } from './sandbox-openings.ts'
 import type {
   AgentStageId,
   CiSignal,
@@ -21,6 +22,7 @@ export type SettingsMergeMethod = (typeof settingsMergeMethods)[number]
 export interface WorktreeCommandInput {
   run: string
   timeout?: string
+  sandboxAccess?: SandboxGroup[]
 }
 
 export interface EnvVariable {
@@ -36,6 +38,7 @@ export interface AppInput {
   url?: string
   device?: string
   preview?: PreviewPreset
+  sandboxAccess?: SandboxGroup[]
 }
 
 export interface RepoSettingsInput {
@@ -68,6 +71,7 @@ export interface CheckInput {
   run: string
   repo?: string
   timeout?: string
+  sandboxAccess?: SandboxGroup[]
 }
 
 export interface InstructionCheckInput {
@@ -327,7 +331,7 @@ export interface FactorySettingsView {
   sandboxSockets: string[]
   sandboxSocketsFrom?: LayerKind
   electronApps: ElectronApp[]
-  networkGrants: NetworkGrant[]
+  sandboxNetworkFrom?: LayerKind
   notes: string
   invalid?: InvalidSettings
 }
@@ -395,18 +399,34 @@ function normalized(repo: RepoSettingsInput) {
     baseBranch: repo.baseBranch?.trim() || undefined,
     mergeMethod: repo.mergeMethod,
     pullRequestCi: repo.pullRequestCi === 'auto' ? undefined : repo.pullRequestCi,
-    setup: command(repo.setup),
-    teardown: command(repo.teardown),
+    setup: commandCompared(repo.setup),
+    teardown: commandCompared(repo.teardown),
     env: repo.env.filter((v) => v.name.trim() !== '' || v.value !== ''),
     copy: repo.copy,
-    apps: repo.apps,
+    apps: repo.apps.map(appCompared),
   }
 }
 
-function command(given: WorktreeCommandInput | undefined) {
+export function comparedAccess(
+  access: readonly SandboxGroup[] | undefined,
+): readonly SandboxGroup[] | undefined {
+  return access !== undefined && access.length > 0 ? access : undefined
+}
+
+export function appCompared(app: AppInput): AppInput {
+  const { sandboxAccess, ...rest } = app
+  const access = comparedAccess(sandboxAccess)
+  return access === undefined ? rest : { ...rest, sandboxAccess: [...access] }
+}
+
+export function commandCompared(given: WorktreeCommandInput | undefined) {
   const run = given?.run.trim() ?? ''
   if (run === '') return undefined
-  return { run, timeout: given?.timeout?.trim() || undefined }
+  return {
+    run,
+    timeout: given?.timeout?.trim() || undefined,
+    sandboxAccess: comparedAccess(given?.sandboxAccess),
+  }
 }
 
 export interface LibraryChanges {
