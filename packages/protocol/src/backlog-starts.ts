@@ -7,6 +7,7 @@ export interface BacklogStarts {
   all: boolean
   groupIds: readonly string[]
   factoryIds: readonly string[]
+  includeAgentFiled: boolean
 }
 
 export type SetBacklogStartsRequest = BacklogStarts
@@ -16,6 +17,7 @@ export const noBacklogStarts: BacklogStarts = {
   all: false,
   groupIds: [],
   factoryIds: [],
+  includeAgentFiled: false,
 }
 
 const maxIds = 500
@@ -43,6 +45,7 @@ export function parseSetBacklogStartsRequest(value: Untyped): SetBacklogStartsRe
     all: read.boolean(body, 'all'),
     groupIds: ids(body, 'groupIds'),
     factoryIds: ids(body, 'factoryIds'),
+    includeAgentFiled: read.optional(body, 'includeAgentFiled', read.boolean) ?? false,
   }
 }
 
@@ -75,6 +78,7 @@ export function sameBacklogStarts(a: BacklogStarts, b: BacklogStarts): boolean {
   return (
     a.enabled === b.enabled &&
     a.all === b.all &&
+    a.includeAgentFiled === b.includeAgentFiled &&
     same(a.groupIds, b.groupIds) &&
     same(a.factoryIds, b.factoryIds)
   )

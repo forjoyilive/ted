@@ -1,6 +1,5 @@
-import type { BacklogStarts, Factory, FactoryLayout, Task } from '@ted/protocol'
+import type { BacklogStarts, BacklogWait, Factory, FactoryLayout, Task } from '@ted/protocol'
 import { backlogStartFactories } from '@ted/protocol/backlog-starts'
-import { parseGitHubIssueUrl } from '@ted/protocol/github-issue'
 import { useState } from 'react'
 import { arrange } from '../factory-layout.ts'
 import { Segmented, Switch } from '../settings/controls.tsx'
@@ -181,6 +180,15 @@ export function BacklogStartsMenu({
           onChange={(enabled) => save({ ...starts, enabled })}
         />
       </div>
+      <div className={styles.menuOption}>
+        <span>{includeLabel}</span>
+        <Switch
+          label={includeLabel}
+          checked={starts.includeAgentFiled}
+          disabled={saving || !starts.enabled}
+          onChange={(includeAgentFiled) => save({ ...starts, includeAgentFiled })}
+        />
+      </div>
       {error !== undefined && (
         <span className={styles.error} role="alert">
           {error}
@@ -213,12 +221,29 @@ export function startsOnItsOwn(task: Task, startsIn: (factoryId: string) => bool
     task.openBlockers === undefined &&
     !task.statuses.includes('stopped') &&
     !task.statuses.includes('failed') &&
-    task.createdBy !== 'task-lead' &&
-    !(
-      task.createdBy === 'automation' &&
-      task.source !== undefined &&
-      parseGitHubIssueUrl(task.source.url) !== undefined
-    ) &&
+    task.backlogWait === undefined &&
     startsIn(task.factoryId)
   )
+}
+
+export function backlogStatus(
+  task: Task,
+  startsIn: (factoryId: string) => boolean,
+): { label: string; hint?: string } | undefined {
+  if (task.backlogWait !== undefined) return backlogWaitText[task.backlogWait]
+  return startsOnItsOwn(task, startsIn) ? { label: 'Starts automatically' } : undefined
+}
+
+const includeLabel = 'Include agent-filed Tasks'
+const includeHint = `Turn on “${includeLabel}” or start it yourself.`
+
+const backlogWaitText: Record<BacklogWait, { label: string; hint: string }> = {
+  'task-lead': { label: 'Filed by a Task Lead', hint: includeHint },
+  automation: { label: 'From an Automation', hint: includeHint },
+  'follow-up': {
+    label: 'Follow-up of a follow-up',
+    hint: 'Agents’ follow-ups of follow-ups always start by hand.',
+  },
+  'start-failed': { label: 'Auto-start failed', hint: 'Start it yourself to see the error.' },
+  repo: { label: 'Waiting for the repo', hint: 'Ted is still cloning this Factory’s repo.' },
 }

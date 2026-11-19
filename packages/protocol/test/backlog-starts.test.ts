@@ -16,6 +16,7 @@ roundTrip(parseSetBacklogStartsRequest, {
   all: false,
   groupIds: ['g1'],
   factoryIds: ['f1', 'f2'],
+  includeAgentFiled: true,
 })
 
 test('parseSetBacklogStartsRequest drops repeated IDs', () => {
@@ -26,7 +27,13 @@ test('parseSetBacklogStartsRequest drops repeated IDs', () => {
       groupIds: ['g1', 'g1'],
       factoryIds: ['f1', 'f1'],
     }),
-  ).toEqual({ enabled: true, all: false, groupIds: ['g1'], factoryIds: ['f1'] })
+  ).toEqual({
+    enabled: true,
+    all: false,
+    groupIds: ['g1'],
+    factoryIds: ['f1'],
+    includeAgentFiled: false,
+  })
 })
 
 rejects(parseSetBacklogStartsRequest, null, 'backlog starts must be an object')
@@ -49,6 +56,11 @@ rejects(
   parseSetBacklogStartsRequest,
   { enabled: true, all: false, groupIds: [], factoryIds: [' '] },
   'factoryIds must be a list of IDs',
+)
+rejects(
+  parseSetBacklogStartsRequest,
+  { enabled: true, all: false, groupIds: [], factoryIds: [], includeAgentFiled: 'yes' },
+  'includeAgentFiled must be true or false',
 )
 rejects(
   parseSetBacklogStartsRequest,
@@ -107,4 +119,5 @@ test('sameBacklogStarts ignores the order of IDs', () => {
     sameBacklogStarts(starts({ factoryIds: ['a', 'b'] }), starts({ factoryIds: ['b', 'a'] })),
   ).toBe(true)
   expect(sameBacklogStarts(starts({}), { ...starts({}), enabled: false })).toBe(false)
+  expect(sameBacklogStarts(starts({}), starts({ includeAgentFiled: true }))).toBe(false)
 })

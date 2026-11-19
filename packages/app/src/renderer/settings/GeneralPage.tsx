@@ -283,13 +283,17 @@ function BacklogStartsGroup({ settings }: Pick<SettingsPageProps, 'settings'>) {
           onChange={(enabled) => save({ ...starts, enabled })}
         />
       </SettingRow>
+      <SettingRow setting="app.general.backlog-starts.agent-filed">
+        <Switch
+          label="Include agent-filed Tasks"
+          checked={starts.includeAgentFiled}
+          disabled={saving || !starts.enabled}
+          onChange={(includeAgentFiled) => save({ ...starts, includeAgentFiled })}
+        />
+      </SettingRow>
       <div className={styles.row} data-setting="app.general.backlog-starts.from">
         <div className={styles.rowText}>
           <span className={styles.rowTitle}>Start from</span>
-          <div className={styles.rowDetail}>
-            Tick a group to include every Factory in it, now and later. A snoozed Task starts when
-            its snooze ends, whichever Factories are ticked.
-          </div>
           {error !== undefined && (
             <div className={styles.rowDetail} role="alert">
               {error}

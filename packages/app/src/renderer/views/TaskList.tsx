@@ -30,8 +30,8 @@ import {
   BacklogStartsDot,
   BacklogStartsMenu,
   backlogStartsSummary,
+  backlogStatus,
   startsAutomatically,
-  startsOnItsOwn,
 } from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
@@ -834,8 +834,11 @@ export function TaskList({
             </span>
           )
         if (!task.status && task.markers.length === 0 && activeSubAgentCount(task.runs) === 0) {
-          return allTasks && startsOnItsOwn(task, startsIn) ? (
-            <span className={styles.meta}>Starts automatically</span>
+          const backlog = allTasks ? backlogStatus(task, startsIn) : undefined
+          return backlog ? (
+            <span className={styles.meta} title={backlog.hint}>
+              {backlog.label}
+            </span>
           ) : (
             <span className={styles.none}>—</span>
           )

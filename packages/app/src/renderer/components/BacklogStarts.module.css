@@ -112,6 +112,13 @@
   font-weight: var(--weight-medium);
 }
 
+.menuOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .menuFoot {
   display: flex;
   justify-content: flex-end;

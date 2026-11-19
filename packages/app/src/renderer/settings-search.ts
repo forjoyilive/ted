@@ -97,13 +97,16 @@ const entries = {
     name: 'Start Backlog Tasks automatically',
     keywords: 'auto start automatic backlog queue',
     detail:
-      'When a working-Run slot is free, start the next Backlog Task: highest Priority first, then the order in All Tasks. Skips blocked Tasks; Queued work goes first. Turning this off leaves started Tasks running.',
+      'When a working-Run slot is free, start the next Backlog Task: highest Priority first, then the order in All Tasks. Skips blocked Tasks; Queued work goes first.',
+  },
+  'app.general.backlog-starts.agent-filed': {
+    name: 'Include agent-filed Tasks',
+    keywords: 'auto start automatic backlog task lead automation follow-up filed',
+    detail: 'Tasks a Task Lead or Automation filed. Their own follow-ups still wait for you.',
   },
   'app.general.backlog-starts.from': {
     name: 'Start from',
-    keywords: 'auto start automatic backlog factories groups',
-    detail:
-      'Tick a group to include every Factory in it, now and later. A snoozed Task starts when its snooze ends, whichever Factories are ticked.',
+    keywords: 'auto start automatic backlog factories groups snooze',
   },
   'app.general.startup': { name: 'Startup and quitting', heading: true },
   'app.general.startup.login': {
