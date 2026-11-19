@@ -93,6 +93,11 @@ export interface AgentHealthSpec {
     billing: Billing
     planAccepted: boolean
   }): Promise<AuthCheck>
+  models?(options: {
+    binary: string
+    env: NodeJS.ProcessEnv
+    cwd: string
+  }): Promise<string[] | undefined>
   minimumVersion: string
   versionArgs: string[]
   authArgs: string[]

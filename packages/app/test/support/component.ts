@@ -16,6 +16,7 @@ export function bridge(given: Record<string, Handler>) {
   const handlers: Record<string, Handler> = {
     getSettings: () => defaultMachineSettings,
     agentAvailability: () => [],
+    agentModels: () => ({ models: [] }),
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
     getSideChat: () => null,
     messageDraft: () => ({ draft: null }),

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -8,6 +8,7 @@ import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { antigravityPlanNotice } from '@ted/protocol'
+import type { JsonObject } from '@ted/protocol/parse'
 import { afterAll, describe, expect, test, vi } from 'vitest'
 import { parseStartSubAgentRequest } from '../../protocol/src/run-parsers.ts'
 import { antigravityAgent } from '../src/agents/antigravity.ts'
@@ -15,8 +16,10 @@ import { type AntigravityPlan, drive } from '../src/agents/antigravity-driver.ts
 import { createAgents } from '../src/agents/index.ts'
 import { piAgent } from '../src/agents/pi.ts'
 import { drive as piDrive } from '../src/agents/pi-driver.ts'
+import { piModels, piModelsReply } from '../src/agents/pi-models.ts'
 import { resolveAgentChoices } from '../src/workflow/agent-choices.ts'
 import { checkLayer } from '../src/workflow/check.ts'
+import { stubPiPath } from './helpers.ts'
 
 const home = mkdtempSync(path.join(tmpdir(), 'ted-agents-'))
 afterAll(() => rmSync(home, { recursive: true, force: true }))
@@ -1759,5 +1762,73 @@ describe('Pi', () => {
       files: { 'workflow.yaml': 'lead: pi\nreviewer: pi\nplanner: pi\n' },
     })
     expect(layer.problems.filter((p) => p.severity === 'error')).toEqual([])
+  })
+})
+
+describe('Pi’s model list', () => {
+  test('reads provider/id from Pi’s get_available_models reply and skips everything else', () => {
+    const reply = (data: JsonObject, success = true) =>
+      JSON.stringify({ id: 'x', type: 'response', command: 'get_available_models', success, data })
+    expect(
+      piModelsReply(
+        reply({
+          models: [
+            { provider: 'ollama', id: 'gemma4:12b', name: 'Gemma' },
+            { provider: 'zai', id: 'glm-5.3' },
+            { provider: 'zai', id: 'glm-5.3' },
+            { provider: 'zai' },
+            { id: 'no-provider' },
+            'junk',
+            { provider: 'bad name', id: 'x' },
+          ],
+        }),
+      ),
+    ).toEqual(['ollama/gemma4:12b', 'zai/glm-5.3'])
+    expect(piModelsReply(reply({ models: [] }))).toEqual([])
+    expect(piModelsReply(reply({}, false))).toEqual([])
+    expect(
+      piModelsReply('{"type":"response","command":"get_state","success":true}'),
+    ).toBeUndefined()
+    expect(piModelsReply('{"type":"agent_start"}')).toBeUndefined()
+    expect(piModelsReply('not json')).toBeUndefined()
+  })
+
+  test('asks Pi over RPC, and gives undefined when Pi is missing, exits without answering or floods its output, and stops a Pi that ignores SIGTERM', async () => {
+    const piHome = mkdtempSync(path.join(home, 'pi-models-'))
+    const env = { ...process.env, TED_HOME: piHome }
+    writeFileSync(path.join(piHome, 'stub-pi.json'), JSON.stringify({ models: 1 }))
+    expect(await piModels({ binary: stubPiPath, env, cwd: piHome })).toEqual(['stub/model-0'])
+    expect(
+      await piModels({ binary: path.join(piHome, 'missing-pi'), env, cwd: piHome }),
+    ).toBeUndefined()
+    const silent = path.join(piHome, 'silent-pi')
+    writeFileSync(silent, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    expect(await piModels({ binary: silent, env, cwd: piHome })).toBeUndefined()
+    const flooding = path.join(piHome, 'flooding-pi')
+    writeFileSync(flooding, `#!/bin/sh\nprintf '%02000d' 0\nexec sleep 600\n`, { mode: 0o755 })
+    expect(
+      await piModels({ binary: flooding, env, cwd: piHome, maxBytes: 1000, timeoutMs: 600_000 }),
+    ).toBeUndefined()
+    const stubborn = path.join(piHome, 'stubborn-pi')
+    const pidFile = path.join(piHome, 'stubborn-pi.pid')
+    writeFileSync(
+      stubborn,
+      `#!/bin/sh\ntrap '' TERM\necho $$ > '${pidFile}'\nwhile :; do printf '%0100d' 0; done\n`,
+      { mode: 0o755 },
+    )
+    expect(
+      await piModels({ binary: stubborn, env, cwd: piHome, maxBytes: 1000, timeoutMs: 600_000 }),
+    ).toBeUndefined()
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    await expect
+      .poll(() => {
+        try {
+          process.kill(pid, 0)
+          return 'running'
+        } catch {
+          return 'gone'
+        }
+      })
+      .toBe('gone')
   })
 })

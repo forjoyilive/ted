@@ -41,11 +41,10 @@ export function modelOptions(
   agent: string | undefined,
   value: string | undefined,
   extra: readonly (string | undefined)[] = [],
+  listed: readonly string[] = agent !== undefined && Object.hasOwn(modelChoices, agent)
+    ? modelChoices[agent as AgentKind]
+    : [],
 ): string[] {
-  const listed =
-    agent !== undefined && Object.hasOwn(modelChoices, agent)
-      ? modelChoices[agent as AgentKind]
-      : []
   return [...new Set([...listed, ...extra, value].filter((model): model is string => !!model))]
 }
 

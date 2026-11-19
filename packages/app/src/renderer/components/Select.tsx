@@ -48,6 +48,14 @@ type Handlers = Pick<
 
 const openingKeys = ['ArrowDown', 'ArrowUp', 'Enter', ' ']
 
+function readOptions(element: HTMLSelectElement) {
+  return [...element.options].map((option) => ({
+    value: option.value,
+    label: option.label,
+    disabled: option.disabled,
+  }))
+}
+
 export function useOptionList(handlers: Handlers = {}) {
   const listId = useId()
   const select = useRef<HTMLSelectElement>(null)
@@ -78,11 +86,32 @@ export function useOptionList(handlers: Handlers = {}) {
         return
       hide()
     }
+    const changed = new MutationObserver(() =>
+      setShown((current) => {
+        if (!current) return current
+        const options = readOptions(anchor)
+        const was = current.options[current.active]?.value
+        const kept = options.findIndex((option) => option.value === was && !option.disabled)
+        return {
+          ...current,
+          options,
+          chosen: anchor.selectedIndex,
+          active: kept === -1 ? startIndex(options, anchor.selectedIndex) : kept,
+        }
+      }),
+    )
+    changed.observe(anchor, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributeFilter: ['value', 'label', 'disabled'],
+    })
     window.addEventListener('pointerdown', outside, true)
     window.addEventListener('scroll', outside, true)
     window.addEventListener('resize', hide)
     anchor.addEventListener('change', hide)
     return () => {
+      changed.disconnect()
       window.removeEventListener('pointerdown', outside, true)
       window.removeEventListener('scroll', outside, true)
       window.removeEventListener('resize', hide)
@@ -99,11 +128,7 @@ export function useOptionList(handlers: Handlers = {}) {
   function show() {
     const element = select.current
     if (!element || element.disabled) return
-    const options = [...element.options].map((option) => ({
-      value: option.value,
-      label: option.label,
-      disabled: option.disabled,
-    }))
+    const options = readOptions(element)
     const label =
       element.getAttribute('aria-label') ?? element.labels?.[0]?.textContent ?? undefined
     setShown({
@@ -117,8 +142,11 @@ export function useOptionList(handlers: Handlers = {}) {
   function choose(index: number) {
     const element = select.current
     setShown(undefined)
-    if (!element || shown?.options[index]?.disabled || element.selectedIndex === index) return
-    element.selectedIndex = index
+    const picked = shown?.options[index]
+    if (!element || !picked || picked.disabled) return
+    const target = [...element.options].findIndex((option) => option.value === picked.value)
+    if (target === -1 || element.selectedIndex === target) return
+    element.selectedIndex = target
     element.dispatchEvent(new Event('input', { bubbles: true }))
     element.dispatchEvent(new Event('change', { bubbles: true }))
   }

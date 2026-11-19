@@ -3,25 +3,18 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { isModelName } from '@ted/protocol'
 import { isObject, isString, parseJson } from '@ted/protocol/parse'
-import { runCli } from '../health/cli.ts'
 import type { AuthCheck } from './agent.ts'
+import { piModels } from './pi-models.ts'
 
 export const piNoModels = 'Pi lists no models. Add a model to Pi, then choose Check again.'
-
-export function piModelRows(listing: string): number {
-  const lines = listing.split('\n').map((line) => line.trim())
-  const header = lines.findIndex((line) => /^provider\s+model\b/.test(line))
-  if (header === -1) return 0
-  return lines.slice(header + 1).filter((line) => /^\S+\s+\S+/.test(line)).length
-}
 
 export async function piHealth(options: {
   binary: string
   env: NodeJS.ProcessEnv
   cwd: string
 }): Promise<AuthCheck> {
-  const listing = await runCli(options.binary, ['--list-models'], { ...options, timeoutMs: 30_000 })
-  if (listing.code !== 0 || piModelRows(listing.stdout) === 0)
+  const models = await piModels(options)
+  if (models === undefined || models.length === 0)
     return { signedIn: false, problem: { reason: piNoModels } }
   return { signedIn: true }
 }
