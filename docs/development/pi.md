@@ -14,7 +14,7 @@ Effort maps by name to `--thinking`: low, medium, high, xhigh and max; ultra bec
 
 ## Models
 
-Pi names a model `provider/id`, for example `ollama/gemma4:12b`. Type it under Other… in the model picker; the picker lists no models of its own for Pi. When no model is set on the request or in Ted’s defaults, Ted uses the default model in Pi’s own settings. When none of these names a model, Ted holds the work and asks the user to set one in the default model fields.
+Pi names a model `provider/id`, for example `ollama/gemma4:12b`. The model picker lists the models Pi reports (`get_available_models`, the same list as `pi --list-models`); a model it doesn’t list can be typed under Other…. When Pi can’t start, such as inside a sandboxed Ted Dev, the picker offers only Other…. When no model is set on the request or in Ted’s defaults, Ted uses the default model in Pi’s own settings. When none of these names a model, Ted holds the work and asks the user to set one in the default model fields.
 
 ## The user’s setup
 
