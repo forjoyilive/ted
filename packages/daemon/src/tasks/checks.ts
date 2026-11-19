@@ -6,7 +6,7 @@ import {
   checkFailed,
   checkLabel,
   defaultInstructionCheckTimeout,
-  type SandboxGroup,
+  type SandboxAccess,
 } from '@ted/protocol'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import { type MemoryWatch, memoryKill } from '../memory-kills.ts'
@@ -35,7 +35,7 @@ export interface RunnableCheck {
   check: PlannedCheck
   cwd?: string
   env?: Record<string, string>
-  groups?: readonly SandboxGroup[]
+  groups?: readonly SandboxAccess[]
 }
 
 export interface CheckRunnerResult {

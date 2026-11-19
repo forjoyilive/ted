@@ -1,7 +1,7 @@
 import type { AgentFileChange, AgentFileRow } from './agent-files.ts'
 import type { PreviewPreset } from './preview-size.ts'
 import type { PermissionMode } from './run.ts'
-import type { SandboxGroup } from './sandbox-groups.ts'
+import type { NamedSocket, SandboxAccess } from './sandbox-groups.ts'
 import type { ElectronApp } from './sandbox-openings.ts'
 import type {
   AgentStageId,
@@ -22,7 +22,7 @@ export type SettingsMergeMethod = (typeof settingsMergeMethods)[number]
 export interface WorktreeCommandInput {
   run: string
   timeout?: string
-  sandboxAccess?: SandboxGroup[]
+  sandboxAccess?: SandboxAccess[]
 }
 
 export interface EnvVariable {
@@ -38,7 +38,7 @@ export interface AppInput {
   url?: string
   device?: string
   preview?: PreviewPreset
-  sandboxAccess?: SandboxGroup[]
+  sandboxAccess?: SandboxAccess[]
 }
 
 export interface RepoSettingsInput {
@@ -71,7 +71,7 @@ export interface CheckInput {
   run: string
   repo?: string
   timeout?: string
-  sandboxAccess?: SandboxGroup[]
+  sandboxAccess?: SandboxAccess[]
 }
 
 export interface InstructionCheckInput {
@@ -328,7 +328,7 @@ export interface FactorySettingsView {
   repoPermissions?: PermissionMode
   maxWorkingRuns?: number
   machineMaxWorkingRuns: number
-  sandboxSockets: string[]
+  sandboxSockets: NamedSocket[]
   sandboxSocketsFrom?: LayerKind
   electronApps: ElectronApp[]
   notes: string
@@ -407,8 +407,8 @@ function normalized(repo: RepoSettingsInput) {
 }
 
 export function comparedAccess(
-  access: readonly SandboxGroup[] | undefined,
-): readonly SandboxGroup[] | undefined {
+  access: readonly SandboxAccess[] | undefined,
+): readonly SandboxAccess[] | undefined {
   return access !== undefined && access.length > 0 ? access : undefined
 }
 

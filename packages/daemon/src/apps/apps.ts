@@ -20,7 +20,7 @@ import {
   isDeviceApp,
   isEmulatorApp,
   isSimulatorApp,
-  type SandboxGroup,
+  type SandboxAccess,
   type SimulatorSlots,
   type TaskApp,
   tedEnv,
@@ -175,7 +175,8 @@ interface Instance {
   runId?: string
   restart?: boolean
   sandboxed?: boolean
-  groups?: SandboxGroup[]
+  groups?: SandboxAccess[]
+  missingSockets?: readonly string[]
   waitingFor?: string
   readyAt?: string
   builtAt?: string
@@ -773,11 +774,7 @@ export function createApps(options: AppsOptions): Apps {
         options.env?.() ?? process.env,
       )
       const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
-      const sandboxed = await sandboxFor(
-        scope && { ...scope, electron, groups: app.sandboxAccess ?? [] },
-        task,
-        dir,
-      )
+      const sandboxed = await sandboxFor(scope && { ...scope, groups: appAccess(app) }, task, dir)
       if ('problem' in sandboxed) {
         pool.endTurn(key)
         await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)
@@ -794,8 +791,9 @@ export function createApps(options: AppsOptions): Apps {
         startedAt: new Date().toISOString(),
         startedBy: by,
         ...(sandboxed.shell !== undefined && { sandboxed: true }),
-        ...(sandboxed.shell !== undefined &&
-          app.sandboxAccess !== undefined && { groups: app.sandboxAccess }),
+        ...(sandboxed.shell !== undefined && { groups: appAccess(app) }),
+        ...(sandboxed.missingSockets !== undefined &&
+          sandboxed.missingSockets.length > 0 && { missingSockets: sandboxed.missingSockets }),
         ...(logFrom !== undefined && { readyFrom: logFrom }),
       }
       try {
@@ -843,6 +841,7 @@ export function createApps(options: AppsOptions): Apps {
         fds?: readonly number[]
         close?: () => Promise<void>
         env: Record<string, string>
+        missingSockets?: readonly string[]
       }
     | { problem: string }
   > {
@@ -855,7 +854,13 @@ export function createApps(options: AppsOptions): Apps {
     await mkdir(tmp, { mode: 0o700 })
     try {
       const wrapped = await options.sandbox.wrap(['/bin/sh', '-c'], { ...scope, tmp })
-      return { shell: wrapped.argv, fds: wrapped.fds, close: wrapped.close, env: wrapped.env }
+      return {
+        shell: wrapped.argv,
+        fds: wrapped.fds,
+        close: wrapped.close,
+        env: wrapped.env,
+        missingSockets: wrapped.missingSockets,
+      }
     } catch (error) {
       if (error instanceof SandboxUnavailable) return { problem: error.message }
       throw error
@@ -944,6 +949,7 @@ export function createApps(options: AppsOptions): Apps {
           appFiles(dir).log,
           instance.groups ?? [],
           `the App “${instance.name}”`,
+          instance.missingSockets,
         )
       }
       thread.appExited({
@@ -1556,6 +1562,13 @@ export async function portFree(port: number): Promise<boolean> {
     socket.once('error', () => resolve(false))
   })
   return !answered
+}
+
+export function appAccess(
+  app: Pick<AppDeclaration, 'electron' | 'sandboxAccess'>,
+): SandboxAccess[] {
+  const access = app.sandboxAccess ?? []
+  return app.electron === true && !access.includes('electron') ? [...access, 'electron'] : access
 }
 
 export function electronEnv(

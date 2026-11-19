@@ -1,4 +1,4 @@
-import type { SandboxGroup, SetupAppTried, SetupCheckTried, SetupProposal } from '@ted/protocol'
+import type { SandboxAccess, SetupAppTried, SetupCheckTried, SetupProposal } from '@ted/protocol'
 import type { AppDeclaration } from '../apps/declared.ts'
 import {
   type CheckSettings,
@@ -8,9 +8,9 @@ import {
 } from '../workflow/check.ts'
 
 export function approvedGroups(
-  declared: readonly SandboxGroup[] | undefined,
-  approved: readonly SandboxGroup[] | undefined,
-): SandboxGroup[] | undefined {
+  declared: readonly SandboxAccess[] | undefined,
+  approved: readonly SandboxAccess[] | undefined,
+): SandboxAccess[] | undefined {
   const kept = (declared ?? []).filter((g) => approved?.includes(g) === true)
   return kept.length > 0 ? kept : undefined
 }
@@ -70,7 +70,7 @@ export function setupWorktreeDifferences(
       [...line.sandboxAccess],
     ]),
   )
-  const declared = new Map<string, SandboxGroup[]>()
+  const declared = new Map<string, SandboxAccess[]>()
   repos.forEach((repo, i) => {
     const remoteName =
       repo.remote === undefined

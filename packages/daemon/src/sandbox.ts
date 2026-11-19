@@ -3,7 +3,13 @@ import { constants, type Stats } from 'node:fs'
 import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import { outsideTedEnv, type SandboxGroup } from '@ted/protocol'
+import {
+  accessGroups,
+  accessSockets,
+  type NamedSocket,
+  outsideTedEnv,
+  type SandboxAccess,
+} from '@ted/protocol'
 import { protectedPaths } from './protected-folders.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -12,30 +18,30 @@ export interface SandboxScope {
   readable: readonly string[]
   tmp: string
   cache: string
-  sockets?: readonly string[]
+  sockets?: readonly NamedSocket[]
   reads?: readonly string[]
-  electron?: boolean
   ownTempOnly?: boolean
   hideProtected?: boolean
-  groups?: readonly SandboxGroup[]
+  groups?: readonly SandboxAccess[]
 }
 
 export interface Sandboxed {
   argv: [string, ...string[]]
   env: Record<string, string>
   fds: readonly number[]
+  missingSockets: readonly string[]
   close(): Promise<void>
 }
 
 export const firstBindFd = 3
 
 export interface SandboxGrants {
-  sockets: readonly string[]
+  sockets: readonly NamedSocket[]
   reads: readonly string[]
 }
 
 export function sandboxGrants(settings: {
-  sandbox_sockets?: readonly string[]
+  sandbox_sockets?: readonly NamedSocket[]
   sandbox_reads?: readonly string[]
 }): SandboxGrants {
   return { sockets: settings.sandbox_sockets ?? [], reads: settings.sandbox_reads ?? [] }
@@ -169,7 +175,12 @@ export function createSandbox(options: {
       if (why !== undefined || ready === undefined) throw new SandboxUnavailable(why)
       const env = options.env()
       const paths = await sandboxPaths(platform, options.tedHome, scope)
-      const xcode = scope.ownTempOnly !== true && scope.groups?.includes('ios-xcode') === true
+      const groups = accessGroups(scope.groups)
+      const electron = groups.includes('electron')
+      const xcode = scope.ownTempOnly !== true && groups.includes('ios-xcode')
+      const asked = accessSockets(scope.groups)
+      const named = new Map((scope.sockets ?? []).map((socket) => [socket.name, socket.path]))
+      const missingSockets = asked.filter((name) => !named.has(name))
       let perUserTemp: string | undefined
       if (platform === 'darwin') {
         userTemp ??= userTempFolder()
@@ -188,7 +199,11 @@ export function createSandbox(options: {
         if (logs !== undefined && !inside(paths.tedHome, logs) && !inside(logs, paths.tedHome))
           paths.manifestLogs = logs
       }
-      const sockets = await listedPaths('sandbox_sockets', scope.sockets ?? [], env)
+      const sockets = await listedPaths(
+        'sandbox_sockets',
+        asked.flatMap((name) => named.get(name) ?? []),
+        env,
+      )
       const cache = (name: string) => path.join(paths.cache, name)
       const added: Record<string, string> = {
         TMPDIR: paths.tmp,
@@ -207,7 +222,7 @@ export function createSandbox(options: {
         ...(platform === 'darwin' && { MAC_CHROMIUM_TMPDIR: paths.tmp }),
         // The JVM on macOS ignores TMPDIR and uses the per-user temp folder.
         JAVA_TOOL_OPTIONS: `-Djava.io.tmpdir="${paths.tmp}"`,
-        ...(scope.electron === true && { TED_SANDBOX_ELECTRON: '1' }),
+        ...(electron && { TED_SANDBOX_ELECTRON: '1' }),
         ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }
       if (platform === 'darwin') {
@@ -226,7 +241,7 @@ export function createSandbox(options: {
                 ...(await baseReads(env, perUserTemp)),
                 ...(await listedPaths('sandbox_reads', scope.reads ?? [], env)),
               ],
-              scope.electron === true,
+              electron,
               await personalFolders(env),
               pipeMode,
             ),
@@ -237,6 +252,7 @@ export function createSandbox(options: {
           ],
           env: added,
           fds: [],
+          missingSockets,
           close: async () => {},
         }
       }
@@ -268,6 +284,7 @@ export function createSandbox(options: {
         ],
         env: added,
         fds: handles.map((handle) => handle.fd),
+        missingSockets,
         close,
       }
     },

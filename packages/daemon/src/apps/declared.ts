@@ -2,12 +2,12 @@ import {
   type AppKind,
   appKinds,
   isLoopbackUrl,
+  isSandboxAccess,
   type PreviewPreset,
   previewPresets,
-  type SandboxGroup,
-  sandboxGroupNames,
+  type SandboxAccess,
 } from '@ted/protocol'
-import { isArray, isOneOf, type Untyped } from '@ted/protocol/parse'
+import { isArray, isString, type Untyped } from '@ted/protocol/parse'
 
 export interface AppDeclaration {
   name: string
@@ -20,7 +20,7 @@ export interface AppDeclaration {
   device?: string
   electron?: true
   preview?: PreviewPreset
-  sandboxAccess?: SandboxGroup[]
+  sandboxAccess?: SandboxAccess[]
 }
 
 export const defaultAppUrl = `http://localhost:\${PORT}`
@@ -83,7 +83,7 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
   })
 }
 
-export function sandboxAccessOf(value: Untyped): SandboxGroup[] {
+export function sandboxAccessOf(value: Untyped): SandboxAccess[] {
   if (!isArray(value)) return []
-  return [...new Set(value.filter((name) => isOneOf(name, sandboxGroupNames)))]
+  return [...new Set(value.filter((name) => isString(name) && isSandboxAccess(name)))]
 }

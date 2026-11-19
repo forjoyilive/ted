@@ -1,12 +1,12 @@
 import { type SandboxAccessChange, sandboxAccessChangeText } from '@ted/protocol/sandbox-access'
-import { type SandboxGroup, sandboxGroups } from '@ted/protocol/sandbox-groups'
+import { type SandboxAccess, sandboxGroups, socketOf } from '@ted/protocol/sandbox-groups'
 import type { ReactNode } from 'react'
 import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
 import { buttonPosition, useActionMenu } from './ContextMenu.tsx'
 import styles from './SandboxAccess.module.css'
 
-export function AccessChips({ groups }: { groups: readonly SandboxGroup[] | undefined }) {
+export function AccessChips({ groups }: { groups: readonly SandboxAccess[] | undefined }) {
   if (!groups || groups.length === 0) return null
   return (
     <span className={styles.chips}>
@@ -25,8 +25,8 @@ export function SandboxAccessField({
   onChange,
 }: {
   label: string
-  groups: readonly SandboxGroup[] | undefined
-  onChange: (groups: SandboxGroup[]) => void
+  groups: readonly SandboxAccess[] | undefined
+  onChange: (groups: SandboxAccess[]) => void
 }) {
   const current = groups ?? []
   const left = sandboxGroups.filter((g) => !current.includes(g.name))
@@ -71,9 +71,11 @@ export function SandboxAccessField({
 }
 
 export const sandboxAccessHelp =
-  'Named groups of extra access Ted’s sandbox gives this command. ios-xcode lets Xcode, SwiftPM, actool and ibtool write in shared folders on your Mac that your other apps also use. Takes effect once the change merges.'
+  'Named groups of extra access Ted’s sandbox gives this command. ios-xcode lets Xcode, SwiftPM, actool and ibtool write in shared folders on your Mac that your other apps also use. electron lets Electron start and open windows. socket:<name> connects to a socket your Library names. Takes effect once the change merges.'
 
-function groupLabel(group: SandboxGroup): string {
+function groupLabel(group: SandboxAccess): string {
+  const socket = socketOf(group)
+  if (socket !== undefined) return `The socket your Library names ${socket}`
   return sandboxGroups.find((g) => g.name === group)?.label ?? group
 }
 

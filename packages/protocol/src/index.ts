@@ -911,8 +911,24 @@ export {
   parseStartSubAgentRequest,
 } from './run-parsers.ts'
 export * from './sandbox-access.ts'
-export type { SandboxGroup, SandboxGroupInfo } from './sandbox-groups.ts'
-export { isSandboxGroup, sandboxGroupNames, sandboxGroups } from './sandbox-groups.ts'
+export type {
+  NamedSocket,
+  SandboxAccess,
+  SandboxGroup,
+  SandboxGroupInfo,
+  SocketAccess,
+} from './sandbox-groups.ts'
+export {
+  accessGroups,
+  accessSockets,
+  isSandboxAccess,
+  isSandboxGroup,
+  isSocketName,
+  sandboxGroupNames,
+  sandboxGroups,
+  socketAccess,
+  socketOf,
+} from './sandbox-groups.ts'
 export * from './sandbox-openings.ts'
 export {
   type AutomationSchedule,
