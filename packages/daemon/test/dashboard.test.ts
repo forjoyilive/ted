@@ -1299,3 +1299,54 @@ test('Cost splits spend by kind of work, gives one cost per merged pull request 
   expect(unpriced.current.perPullRequest.samples).toHaveLength(1)
   expect(unpriced.current.byFactory[0]?.perPullRequest.median).toBe(10)
 })
+
+test('a custom range covers whole days and compares with the same number of days before it', () => {
+  const zone = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
+  try {
+    const at = (year: number, month: number, day: number, hours = 0, minutes = 0) =>
+      iso(new Date(year, month, day, hours, minutes).getTime())
+    const asOf = new Date(2026, 10, 12, 14, 26).getTime()
+    const done = (id: string, time: string): Facts => ({
+      ...completed(id, 0, 1, null),
+      createdAt: iso(Date.parse(time) - hour),
+      entries: [{ stage: 'done', at: time }],
+    })
+    const past = factoryDashboard(
+      [
+        done('first-day', at(2026, 10, 1, 0, 5)),
+        done('last-day', at(2026, 10, 3, 23, 50)),
+        done('after', at(2026, 10, 4, 0, 5)),
+        done('before', at(2026, 9, 31, 23, 50)),
+        done('too-early', at(2026, 9, 28, 23, 50)),
+      ],
+      { from: '2026-11-01', to: '2026-11-03' },
+      asOf,
+    )
+    expect(past).toMatchObject({
+      range: { from: '2026-11-01', to: '2026-11-03' },
+      current: { from: at(2026, 10, 1), to: at(2026, 10, 4), taskIds: ['first-day', 'last-day'] },
+      previous: { from: at(2026, 9, 29), to: at(2026, 10, 1), taskIds: ['before'] },
+    })
+    expect(past.current.buckets).toHaveLength(3)
+    expect(past.previous?.buckets).toHaveLength(3)
+
+    const toToday = factoryDashboard([], { from: '2026-11-10', to: '2026-11-12' }, asOf)
+    expect(toToday.current).toMatchObject({ from: at(2026, 10, 10), to: iso(asOf) })
+    expect(toToday.previous).toMatchObject({ from: at(2026, 10, 7), to: at(2026, 10, 9, 14, 26) })
+    expect(toToday.current.buckets.at(-1)).toMatchObject({ from: at(2026, 10, 12), to: iso(asOf) })
+
+    const oneDay = factoryDashboard([], { from: '2026-11-03', to: '2026-11-03' }, asOf)
+    expect(oneDay.current).toMatchObject({ from: at(2026, 10, 3), to: at(2026, 10, 4) })
+    expect(oneDay.previous).toMatchObject({ from: at(2026, 10, 2), to: at(2026, 10, 3) })
+    expect(oneDay.current.buckets).toHaveLength(24)
+    expect(oneDay.previous?.buckets).toHaveLength(24)
+
+    const long = factoryDashboard([], { from: '2026-01-01', to: '2026-03-31' }, asOf)
+    expect(long.current.buckets).toHaveLength(30)
+    expect(long.previous).toMatchObject({ from: at(2025, 9, 3), to: at(2026, 0, 1) })
+  } finally {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  }
+})

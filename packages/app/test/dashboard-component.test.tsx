@@ -572,6 +572,7 @@ test('Stages shares the range selector and shows an empty period as unavailable'
     'This month',
     'Year to date',
     'All time',
+    'Custom range…',
   ])
   expect(within(list).getByRole('option', { selected: true }).textContent).toBe('All time')
   await user().click(within(list).getByRole('option', { name: 'Today' }))
@@ -1111,4 +1112,90 @@ test('every By Factory table figure opens the Tasks behind it for that Factory',
   expect(within(sample).getByRole('heading').textContent).toContain('Garden')
   expect(within(sample).getByRole('button', { name: /NB-2/ })).toBeTruthy()
   await close()
+})
+
+test('a custom range is picked from the calendar, applied to every request and remembered', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 10, 19, 10))
+  try {
+    localStorage.clear()
+    const api = bridge({ dashboard: () => dashboardFixture() })
+    render(<DashboardView open={vi.fn()} />)
+    await screen.findByRole('region', { name: 'Tasks completed' })
+    const select = screen.getByRole('combobox', { name: 'Historical period' })
+    await user().selectOptions(select, 'custom-edit')
+    const box = screen.getByRole('dialog', { name: 'Custom range' })
+    const start = within(box).getByLabelText('Start')
+    const end = within(box).getByLabelText('End')
+    expect(document.activeElement).toBe(start)
+    expect(select).toHaveProperty('value', '7d')
+
+    fireEvent.change(start, { target: { value: '2026-11-03' } })
+    fireEvent.change(end, { target: { value: '2026-11-15' } })
+    expect(box.textContent).toContain('13 days, end day included')
+
+    await user().click(start)
+    const startCalendar = within(box).getByRole('dialog', { name: 'Choose start date' })
+    expect(startCalendar.textContent).toContain('November 2026')
+    await user().click(within(startCalendar).getByRole('button', { name: 'Previous month' }))
+    expect(startCalendar.textContent).toContain('October 2026')
+    await user().click(
+      within(startCalendar).getByRole('button', { name: /^Monday,? 26 October 2026$/ }),
+    )
+    expect(start).toHaveProperty('value', '2026-10-26')
+
+    const endCalendar = within(box).getByRole('dialog', { name: 'Choose end date' })
+    expect(endCalendar.textContent).toContain('November 2026')
+    expect(within(endCalendar).getByRole('button', { name: 'Next month' })).toHaveProperty(
+      'disabled',
+      true,
+    )
+    expect(within(endCalendar).getByRole('button', { name: /20 November 2026/ })).toHaveProperty(
+      'disabled',
+      true,
+    )
+    await user().click(within(endCalendar).getByRole('button', { name: 'Previous month' }))
+    expect(within(endCalendar).getByRole('button', { name: /25 October 2026/ })).toHaveProperty(
+      'disabled',
+      true,
+    )
+    await user().click(within(endCalendar).getByRole('button', { name: 'Next month' }))
+    await user().click(within(endCalendar).getByRole('button', { name: /12 November 2026/ }))
+    expect(end).toHaveProperty('value', '2026-11-12')
+    expect(within(box).queryByRole('dialog')).toBeNull()
+
+    const apply = within(box).getByRole('button', { name: 'Apply' })
+    fireEvent.change(end, { target: { value: '2026-10-01' } })
+    expect(apply).toHaveProperty('disabled', true)
+    expect(box.textContent).toContain('Start must be on or before End.')
+    fireEvent.change(end, { target: { value: '2026-11-20' } })
+    expect(apply).toHaveProperty('disabled', true)
+    expect(box.textContent).toContain('End can’t be after today.')
+    fireEvent.change(end, { target: { value: '2026-11-12' } })
+    await user().click(apply)
+
+    expect(screen.queryByRole('dialog', { name: 'Custom range' })).toBeNull()
+    expect(api.request).toHaveBeenLastCalledWith(
+      'dashboard',
+      { from: '2026-10-26', to: '2026-11-12' },
+      [],
+    )
+    expect(select).toHaveProperty('value', 'custom')
+    expect(within(select).getByRole('option', { selected: true }).textContent).toBe(
+      '26 Oct – 12 Nov',
+    )
+    expect(JSON.parse(localStorage.getItem('ted.dashboard') ?? '{}')).toMatchObject({
+      range: { from: '2026-10-26', to: '2026-11-12' },
+    })
+
+    await user().selectOptions(select, 'custom-edit')
+    const again = screen.getByRole('dialog', { name: 'Custom range' })
+    expect(within(again).getByLabelText('Start')).toHaveProperty('value', '2026-10-26')
+    expect(within(again).getByLabelText('End')).toHaveProperty('value', '2026-11-12')
+    await user().keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Custom range' })).toBeNull()
+    expect(select).toHaveProperty('value', 'custom')
+  } finally {
+    vi.useRealTimers()
+  }
 })
