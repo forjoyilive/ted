@@ -1,5 +1,6 @@
 import type { LayerKind } from '@ted/protocol'
 import type { FactorySettingsView } from '@ted/protocol/factory-settings'
+import { accessHolderLabel } from '@ted/protocol/sandbox-access'
 import {
   type SandboxOpening,
   type SandboxSummary,
@@ -9,6 +10,7 @@ import {
 import { type ReactNode, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { useSettings } from '../data.ts'
+import { settingsAccessHolders } from '../factory-settings.ts'
 import { readableError, ted } from '../ted.ts'
 import base from './FactorySettings.module.css'
 import { SectionHeading } from './FactorySettingsSections.tsx'
@@ -20,14 +22,22 @@ export function SandboxSection({
   view,
   onOpenPermissions,
   onOpenRepos,
+  onOpenChecks,
   onOpenProviders,
 }: {
   view: Pick<
     FactorySettingsView,
-    'factoryId' | 'permissions' | 'sandboxSockets' | 'sandboxSocketsFrom' | 'electronApps'
+    | 'factoryId'
+    | 'permissions'
+    | 'sandboxSockets'
+    | 'sandboxSocketsFrom'
+    | 'electronApps'
+    | 'repos'
+    | 'checks'
   >
   onOpenPermissions: () => void
   onOpenRepos: () => void
+  onOpenChecks: () => void
   onOpenProviders: () => void
 }) {
   const settings = useSettings()
@@ -40,6 +50,7 @@ export function SandboxSection({
     sockets: view.sandboxSockets,
     ...(view.sandboxSocketsFrom && { socketsFrom: view.sandboxSocketsFrom }),
     electronApps: view.electronApps,
+    access: settingsAccessHolders(view),
   })
 
   const stopAllowing = async (repo: string, app: string) => {
@@ -89,6 +100,12 @@ export function SandboxSection({
         return (
           <Button size="small" onClick={onOpenRepos}>
             Open Repos
+          </Button>
+        )
+      case 'access-group':
+        return (
+          <Button size="small" onClick={opening.holder === 'check' ? onOpenChecks : onOpenRepos}>
+            {opening.holder === 'check' ? 'Open Checks' : 'Open Repos'}
           </Button>
         )
       case 'socket':
@@ -189,6 +206,8 @@ function rowKey(opening: SandboxOpening): string {
       return `socket:${opening.socket}`
     case 'electron-app':
       return `electron:${opening.repo}:${opening.app}`
+    case 'access-group':
+      return `access:${opening.holder}:${opening.repo ?? ''}:${opening.name}:${opening.group}`
     default:
       return opening.kind
   }
@@ -239,6 +258,30 @@ function describe(opening: SandboxOpening): OpeningText {
             From <code className={styles.code}>electron: true</code> on the App in the{' '}
             {opening.repo} repo’s entry in <code className={styles.code}>.ted/workflow.yaml</code>.
             Remove it in a Task to turn it off.
+          </>
+        ),
+      }
+    case 'access-group':
+      return {
+        name: (
+          <>
+            {accessHolderLabel({
+              kind: opening.holder,
+              ...(opening.repo !== undefined && { repo: opening.repo }),
+              name: opening.name,
+            })}{' '}
+            has <code className={styles.code}>{opening.group}</code>
+          </>
+        ),
+        what:
+          opening.group === 'ios-xcode'
+            ? 'Its commands can write where Xcode, SwiftPM, actool and ibtool keep temp files. These folders are shared with your other apps on this Mac.'
+            : 'Its commands get this extra sandbox access.',
+        where: (
+          <>
+            From <code className={styles.code}>sandbox_access</code> in{' '}
+            <code className={styles.code}>.ted/workflow.yaml</code>. Remove it in{' '}
+            {opening.holder === 'check' ? 'Checks' : 'Repos'} and save to turn it off.
           </>
         ),
       }

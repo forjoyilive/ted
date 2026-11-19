@@ -585,6 +585,7 @@ export {
   type AppInput,
   type AppKind,
   agentRoles,
+  appCompared,
   appKinds,
   type CheckInput,
   type CheckTry,
@@ -600,6 +601,8 @@ export {
   type CommandCheckTryRequest,
   type CopyFileState,
   cleanupStepProblem,
+  commandCompared,
+  comparedAccess,
   type DiffLine,
   type DiffLineKind,
   type DriftCounts,
@@ -921,6 +924,7 @@ export {
   parseStartDevRunRequest,
   parseStartSubAgentRequest,
 } from './run-parsers.ts'
+export * from './sandbox-access.ts'
 export type { SandboxGroup, SandboxGroupInfo } from './sandbox-groups.ts'
 export { isSandboxGroup, sandboxGroupNames, sandboxGroups } from './sandbox-groups.ts'
 export * from './sandbox-openings.ts'

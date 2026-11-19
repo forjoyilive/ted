@@ -1049,3 +1049,15 @@
   align-self: end;
   min-height: var(--button-height);
 }
+
+.access {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.accessLine {
+  grid-column: 1 / -1;
+  padding-bottom: 6px;
+}

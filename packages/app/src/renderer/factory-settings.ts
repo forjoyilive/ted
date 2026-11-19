@@ -14,8 +14,20 @@ import type {
   RepoSettingsView,
   StageDrift,
 } from '@ted/protocol/factory-settings'
-import { agentRoles, cleanupStepProblem, settingsInput } from '@ted/protocol/factory-settings'
+import {
+  agentRoles,
+  appCompared,
+  cleanupStepProblem,
+  commandCompared,
+  comparedAccess,
+  settingsInput,
+} from '@ted/protocol/factory-settings'
 import type { PermissionMode } from '@ted/protocol/run'
+import {
+  type AccessHolder,
+  accessChange,
+  type SandboxAccessChange,
+} from '@ted/protocol/sandbox-access'
 import type { AgentStageId, ClarifyDepth, StageId } from '@ted/protocol/task'
 import { type AgentDraft, agentChangedFiles, agentChanges, agentDrafts } from './agent-files.ts'
 import { ago } from './requests.ts'
@@ -59,16 +71,14 @@ function value(repo: RepoSettingsInput, field: RepoField): unknown {
     case 'pullRequestCi':
       return repo.pullRequestCi ?? 'auto'
     case 'setup':
-    case 'teardown': {
-      const run = repo[field]?.run.trim() ?? ''
-      return run === '' ? undefined : { run, timeout: repo[field]?.timeout?.trim() || undefined }
-    }
+    case 'teardown':
+      return commandCompared(repo[field])
     case 'env':
       return repo.env.filter((v) => v.name.trim() !== '' || v.value !== '')
     case 'copy':
       return repo.copy
     case 'apps':
-      return repo.apps
+      return repo.apps.map(appCompared)
   }
 }
 
@@ -277,6 +287,7 @@ function checkKey(check: CheckInput): string {
     run: check.run.trim(),
     repo: check.repo?.trim() || undefined,
     timeout: check.timeout?.trim() || undefined,
+    sandboxAccess: comparedAccess(check.sandboxAccess),
   })
 }
 
@@ -559,4 +570,104 @@ export function lastValidLine(invalid: LibraryInvalid & { url?: string }, now: n
     return 'Ted has no earlier valid version, so the inherited settings apply. Saving from here replaces the broken file.'
   }
   return `Ted is using the last valid version, from ${invalid.lastValid.version}, ${ago(invalid.lastValid.at, now)}. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.`
+}
+
+export function settingsAccessHolders(
+  view: Pick<FactorySettingsView, 'repos' | 'checks'>,
+): AccessHolder[] {
+  return [
+    ...view.repos.flatMap((repo) => repoHolders(repo, repo.name)),
+    ...checkHolders(view.checks),
+  ]
+}
+
+function repoHolders(repo: RepoSettingsInput, name: string): AccessHolder[] {
+  const holders: AccessHolder[] = []
+  for (const kind of ['setup', 'teardown'] as const) {
+    const command = repo[kind]
+    if (command && command.run.trim() !== '') {
+      holders.push({ kind, repo: name, name: kind, groups: command.sandboxAccess ?? [] })
+    }
+  }
+  for (const app of repo.apps) {
+    holders.push({
+      kind: 'app',
+      repo: name,
+      name: app.name.trim(),
+      groups: app.sandboxAccess ?? [],
+    })
+  }
+  return holders
+}
+
+function checkHolders(checks: readonly CheckInput[]): AccessHolder[] {
+  return checks.map((check) => ({
+    kind: 'check',
+    ...(check.repo?.trim() && { repo: check.repo.trim() }),
+    name: check.name.trim(),
+    groups: check.sandboxAccess ?? [],
+  }))
+}
+
+export function settingsAccessChanges(
+  view: Pick<FactorySettingsView, 'repos' | 'checks'>,
+  changes: FactorySettingsChanges,
+): SandboxAccessChange[] {
+  const pairs: [AccessHolder | undefined, AccessHolder | undefined][] = []
+  const keptRepos = new Set<string>()
+  for (const repo of changes.repos) {
+    const loaded = view.repos.find((r) => repo.was !== undefined && r.was === repo.was)
+    if (loaded) keptRepos.add(loaded.was)
+    const name = repo.name.trim()
+    for (const kind of ['setup', 'teardown'] as const) {
+      const old = loaded?.[kind]
+      const was = old?.sandboxAccess ?? []
+      const command = repo[kind]
+      const now = command && command.run.trim() !== '' ? command : undefined
+      pairs.push([
+        old ? { kind, repo: name, name: kind, groups: was } : undefined,
+        now ? { kind, repo: name, name: kind, groups: now.sandboxAccess ?? was } : undefined,
+      ])
+    }
+    const usedApps = new Set<number>()
+    for (const app of repo.apps) {
+      const old = app.was === undefined ? undefined : loaded?.apps[app.was]
+      if (old && app.was !== undefined) usedApps.add(app.was)
+      const was = old?.sandboxAccess ?? []
+      const holder = { kind: 'app' as const, repo: name, name: app.name.trim() }
+      pairs.push([
+        old ? { ...holder, groups: was } : undefined,
+        { ...holder, groups: app.sandboxAccess ?? was },
+      ])
+    }
+    loaded?.apps.forEach((app, index) => {
+      if (usedApps.has(index)) return
+      pairs.push([
+        { kind: 'app', repo: name, name: app.name.trim(), groups: app.sandboxAccess ?? [] },
+        undefined,
+      ])
+    })
+  }
+  for (const repo of view.repos) {
+    if (keptRepos.has(repo.was)) continue
+    for (const holder of repoHolders(repo, repo.name)) pairs.push([holder, undefined])
+  }
+  if (changes.checks) {
+    const used = new Set<number>()
+    for (const check of changes.checks) {
+      const old = view.checks.find((c) => check.was !== undefined && c.was === check.was)
+      if (old) used.add(old.was)
+      const [holder] = checkHolders([check])
+      if (!holder) continue
+      const was = old?.sandboxAccess ?? []
+      pairs.push([
+        old ? { ...holder, groups: was } : undefined,
+        { ...holder, groups: check.sandboxAccess ?? was },
+      ])
+    }
+    for (const holder of checkHolders(view.checks.filter((c) => !used.has(c.was)))) {
+      pairs.push([holder, undefined])
+    }
+  }
+  return pairs.flatMap(([before, after]) => accessChange(before, after) ?? [])
 }

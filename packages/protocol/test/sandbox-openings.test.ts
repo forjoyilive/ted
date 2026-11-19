@@ -55,3 +55,33 @@ test('a socket row names the layer its list comes from', () => {
     { kind: 'socket', unsandboxed: false, socket: '/a.sock', from: 'library' },
   ])
 })
+
+test('each access group an App, Check or setup has is its own row, and widens the sandbox', () => {
+  const openings = sandboxOpenings({
+    ...none,
+    access: [
+      { kind: 'app', repo: 'mobile', name: 'iOS simulator', groups: ['ios-xcode', 'ios-xcode'] },
+      { kind: 'check', name: 'Lint', groups: [] },
+      { kind: 'setup', repo: 'mobile', name: 'setup', groups: ['ios-xcode'] },
+    ],
+  })
+  expect(openings).toEqual([
+    {
+      kind: 'access-group',
+      unsandboxed: false,
+      holder: 'app',
+      repo: 'mobile',
+      name: 'iOS simulator',
+      group: 'ios-xcode',
+    },
+    {
+      kind: 'access-group',
+      unsandboxed: false,
+      holder: 'setup',
+      repo: 'mobile',
+      name: 'setup',
+      group: 'ios-xcode',
+    },
+  ])
+  expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
+})

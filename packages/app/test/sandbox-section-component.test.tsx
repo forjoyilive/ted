@@ -8,15 +8,28 @@ import { bridge, user } from './support/component.ts'
 
 const view: Pick<
   FactorySettingsView,
-  'factoryId' | 'permissions' | 'sandboxSockets' | 'sandboxSocketsFrom' | 'electronApps'
+  | 'factoryId'
+  | 'permissions'
+  | 'sandboxSockets'
+  | 'sandboxSocketsFrom'
+  | 'electronApps'
+  | 'repos'
+  | 'checks'
 > = {
   factoryId: 'factory',
   permissions: 'auto',
   sandboxSockets: [],
   electronApps: [],
+  repos: [],
+  checks: [],
 }
 
-const links = { onOpenPermissions: vi.fn(), onOpenRepos: vi.fn(), onOpenProviders: vi.fn() }
+const links = {
+  onOpenPermissions: vi.fn(),
+  onOpenRepos: vi.fn(),
+  onOpenChecks: vi.fn(),
+  onOpenProviders: vi.fn(),
+}
 
 test('a Factory with nothing open says so and lists nothing', async () => {
   bridge({})
@@ -82,4 +95,52 @@ test('a socket inherited from the Library says where to turn it off', async () =
   expect(row.textContent).toContain('From sandbox_sockets in the Library’s workflow.yaml.')
   expect(row.textContent).toContain('Settings → Library')
   expect(row.textContent).toContain('sandbox_sockets: []')
+})
+
+test('access groups on Apps, Checks and setup widen the sandbox and link to where they are set', async () => {
+  bridge({})
+  const repo = {
+    was: 'mobile',
+    repo: 'me/mobile',
+    name: 'mobile',
+    primary: true,
+    setup: { run: 'pod install', sandboxAccess: ['ios-xcode' as const] },
+    env: [],
+    copy: [],
+    apps: [
+      {
+        was: 0,
+        name: 'iOS simulator',
+        kind: 'ios-simulator' as const,
+        run: 'run.sh',
+        sandboxAccess: ['ios-xcode' as const],
+      },
+      { was: 1, name: 'Web', kind: 'web' as const, run: 'pnpm dev' },
+    ],
+  }
+  render(
+    <SandboxSection
+      view={{
+        ...view,
+        repos: [repo],
+        checks: [{ was: 0, name: 'iOS build', run: 'xcodebuild', sandboxAccess: ['ios-xcode'] }],
+      }}
+      {...links}
+    />,
+  )
+  expect(
+    await screen.findByText('3 settings widen what sandboxed commands can reach.'),
+  ).toBeTruthy()
+  const rows = within(screen.getByRole('list', { name: 'Sandbox openings' })).getAllByRole(
+    'listitem',
+  )
+  expect(rows.map((row) => row.textContent)).toEqual([
+    expect.stringContaining('Worktree setup in mobile has ios-xcode'),
+    expect.stringContaining('iOS simulator App in mobile has ios-xcode'),
+    expect.stringContaining('iOS build Check has ios-xcode'),
+  ])
+  await user().click(within(rows[2] as HTMLElement).getByRole('button', { name: 'Open Checks' }))
+  expect(links.onOpenChecks).toHaveBeenCalled()
+  await user().click(within(rows[1] as HTMLElement).getByRole('button', { name: 'Open Repos' }))
+  expect(links.onOpenRepos).toHaveBeenCalled()
 })

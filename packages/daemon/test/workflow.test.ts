@@ -2,6 +2,7 @@ import type { RepoSettingsInput } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { appDeclarations } from '../src/apps/declared.ts'
 import { promptGuidance } from '../src/guidance.ts'
+import { workflowAccessChanges } from '../src/workflow/access.ts'
 import { applyChanges, repoSettingsFrom } from '../src/workflow/edit.ts'
 import {
   boardStages,
@@ -1468,5 +1469,124 @@ describe('sandbox access through Settings edits', () => {
     expect(layer.settings.stages.validate?.checks).toEqual([
       { name: 'Build', run: 'xcodebuild test', sandbox_access: ['ios-xcode'] },
     ])
+  })
+
+  test('Settings read each group, add one where it is missing and remove one set to none', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: web',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown: clean',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '      - name: Old',
+      '        run: serve',
+      '        sandbox_access: [ios-xcode]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - { name: Build, run: xcodebuild }',
+      '',
+    ].join('\n')
+    const stored = [
+      { repo: 'owner/web', name: 'web', cloneUrl: 'https://github.com/owner/web.git' },
+    ]
+    const current = repoSettingsFrom(factory({ 'workflow.yaml': yaml }).settings, stored)
+    expect(current[0]).toMatchObject({
+      setup: { run: 'make', sandboxAccess: ['ios-xcode'] },
+      teardown: { run: 'clean' },
+      apps: [
+        { name: 'Sim', run: 'xcodebuild' },
+        { name: 'Old', run: 'serve', sandboxAccess: ['ios-xcode'] },
+      ],
+    })
+    expect(current[0]?.setup).not.toHaveProperty('sandbox_access')
+    expect(current[0]?.apps[0]).not.toHaveProperty('sandboxAccess')
+    const edited = applyChanges(
+      yaml,
+      {
+        repos: [
+          {
+            was: 'web',
+            repo: 'owner/web',
+            name: 'web',
+            setup: { run: 'make', sandboxAccess: [] },
+            teardown: { run: 'clean', sandboxAccess: ['ios-xcode'] },
+            env: [],
+            copy: [],
+            apps: [
+              {
+                was: 0,
+                name: 'Sim',
+                kind: 'command',
+                run: 'xcodebuild',
+                sandboxAccess: ['ios-xcode'],
+              },
+              { was: 1, name: 'Old', kind: 'web', run: 'serve', sandboxAccess: [] },
+            ],
+          },
+        ],
+        checks: [{ was: 0, name: 'Build', run: 'xcodebuild', sandboxAccess: ['ios-xcode'] }],
+      },
+      current,
+    )
+    expect(edited).toContain('setup: make\n')
+    const layer = factory({ 'workflow.yaml': edited })
+    expect(layer.problems).toEqual([])
+    const repo = layer.settings.repos?.[0]
+    expect(repo?.worktree?.setup).toEqual({ run: 'make' })
+    expect(repo?.worktree?.teardown).toEqual({ run: 'clean', sandbox_access: ['ios-xcode'] })
+    expect(appDeclarations(repo?.apps)).toMatchObject([
+      { name: 'Sim', sandboxAccess: ['ios-xcode'] },
+      { name: 'Old' },
+    ])
+    expect(appDeclarations(repo?.apps)[1]).not.toHaveProperty('sandboxAccess')
+    expect(layer.settings.stages.validate?.checks).toEqual([
+      { name: 'Build', run: 'xcodebuild', sandbox_access: ['ios-xcode'] },
+    ])
+  })
+
+  test('a sign-off’s access changes compare sandbox_access between two workflow.yaml files', () => {
+    const before = [
+      'version: 1',
+      'repos:',
+      '  - name: mobile',
+      '    worktree:',
+      '      setup: { run: pod install, sandbox_access: [ios-xcode] }',
+      '    apps:',
+      '      - { name: iOS simulator, kind: command, run: sim.sh }',
+      '      - { name: Gone, run: gone.sh, sandbox_access: [ios-xcode] }',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - { name: Build, run: xcodebuild }',
+      '',
+    ].join('\n')
+    const after = [
+      'version: 1',
+      'repos:',
+      '  - name: mobile',
+      '    worktree:',
+      '      setup: pod install',
+      '    apps:',
+      '      - { name: iOS simulator, kind: command, run: sim.sh, sandbox_access: [ios-xcode] }',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - { name: Build, run: xcodebuild, sandbox_access: [ios-xcode] }',
+      '',
+    ].join('\n')
+    expect(workflowAccessChanges(before, after)).toEqual([
+      { kind: 'setup', repo: 'mobile', name: 'setup', gained: [], lost: ['ios-xcode'] },
+      { kind: 'app', repo: 'mobile', name: 'iOS simulator', gained: ['ios-xcode'], lost: [] },
+      { kind: 'check', name: 'Build', gained: ['ios-xcode'], lost: [] },
+      { kind: 'app', repo: 'mobile', name: 'Gone', gained: [], lost: ['ios-xcode'] },
+    ])
+    expect(workflowAccessChanges(after, after)).toEqual([])
+    expect(workflowAccessChanges(undefined, after)).toHaveLength(2)
   })
 })

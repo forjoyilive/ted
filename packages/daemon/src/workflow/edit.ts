@@ -13,16 +13,19 @@ import {
   isCleanupCommand,
   previewPresets,
   type RepoSettingsInput,
+  type SandboxGroup,
   type WorkflowProblem,
   type WorktreeCommandInput,
 } from '@ted/protocol'
 import { Document, isMap, isScalar, isSeq, parseDocument, YAMLMap, YAMLSeq } from 'yaml'
+import { sandboxAccessOf } from '../apps/declared.ts'
 import {
   githubRepoOf,
   isReservedEnvName,
   maxFactoryRepos,
   type RepoSettings,
   type WorkflowSettings,
+  type WorktreeCommand,
 } from './check.ts'
 
 export const workflowFile = '.ted/workflow.yaml'
@@ -64,13 +67,22 @@ export function repoSettingsFrom(
       ...(isMergeMethod(entry.merge_method) && { mergeMethod: entry.merge_method }),
       ...(entry.pull_request_ci !== undefined &&
         entry.pull_request_ci !== 'auto' && { pullRequestCi: entry.pull_request_ci }),
-      ...(entry.worktree?.setup && { setup: entry.worktree.setup }),
-      ...(entry.worktree?.teardown && { teardown: entry.worktree.teardown }),
+      ...(entry.worktree?.setup && { setup: commandFrom(entry.worktree.setup) }),
+      ...(entry.worktree?.teardown && { teardown: commandFrom(entry.worktree.teardown) }),
       env: Object.entries(entry.worktree?.env ?? {}).map(([n, value]) => ({ name: n, value })),
       copy: entry.worktree?.copy ?? [],
       apps: appsFrom(entry),
     }
   })
+}
+
+function commandFrom(command: WorktreeCommand): WorktreeCommandInput {
+  const access = sandboxAccessOf(command.sandbox_access)
+  return {
+    run: command.run,
+    ...(command.timeout !== undefined && { timeout: command.timeout }),
+    ...(access.length > 0 && { sandboxAccess: access }),
+  }
 }
 
 function appsFrom(entry: RepoSettings): AppInput[] {
@@ -79,6 +91,7 @@ function appsFrom(entry: RepoSettings): AppInput[] {
     const fields = app as Record<string, unknown>
     const kind = appKinds.find((k) => k === fields.kind) ?? 'web'
     const preview = kind === 'web' ? previewPresets.find((p) => p === fields.preview) : undefined
+    const access = sandboxAccessOf(fields.sandbox_access)
     return [
       {
         was,
@@ -88,6 +101,7 @@ function appsFrom(entry: RepoSettings): AppInput[] {
         ...(typeof fields.url === 'string' && { url: fields.url }),
         ...(typeof fields.device === 'string' && { device: fields.device }),
         ...(preview !== undefined && { preview }),
+        ...(access.length > 0 && { sandboxAccess: access }),
       },
     ]
   })
@@ -391,6 +405,7 @@ function writeChecks(
           setKeepingStyle(map, 'run', check.run.trim())
           setOrDelete(map, 'repo', check.repo?.trim() || undefined)
           setOrDelete(map, 'timeout', check.timeout?.trim() || undefined)
+          setAccess(doc, map, check.sandboxAccess)
           return map
         })
   const instructionItems =
@@ -576,6 +591,7 @@ function writeRepo(doc: Document, map: YAMLMap, repo: RepoSettingsInput, primary
           : undefined,
       )
       setOrDelete(appMap, 'preview', app.kind === 'web' ? app.preview : undefined)
+      setAccess(doc, appMap, app.sandboxAccess)
       apps.items.push(appMap)
     }
     if (isSeq(appsNode)) appsNode.items = apps.items
@@ -593,18 +609,35 @@ function setCommand(
   const timeout = command?.timeout?.trim() ?? ''
   if (run === '') return void tree.delete(key)
   const node = tree.get(key, true)
-  if (timeout === '' && !(isMap(node) && node.has('sandbox_access'))) {
+  const access = command?.sandboxAccess
+  const hasAccess =
+    access === undefined ? isMap(node) && node.has('sandbox_access') : access.length > 0
+  if (timeout === '' && !hasAccess) {
     setKeepingStyle(tree, key, run)
     return
   }
   if (isMap(node)) {
     setKeepingStyle(node, 'run', run)
     setOrDelete(node, 'timeout', timeout || undefined)
+    setAccess(doc, node, access)
   } else {
-    const map = doc.createNode({ run, timeout }) as YAMLMap
+    const map = doc.createNode({ run, ...(timeout !== '' && { timeout }) }) as YAMLMap
     map.flow = true
+    setAccess(doc, map, access)
     setKeepingStyle(tree, key, map)
   }
+}
+
+function setAccess(doc: Document, map: YAMLMap, access: readonly SandboxGroup[] | undefined): void {
+  if (access === undefined) return
+  const groups = [...new Set(access)]
+  if (groups.length === 0) return void map.delete('sandbox_access')
+  const node = map.get('sandbox_access', true)
+  if (isSeq(node) && JSON.stringify(node.toJSON()) === JSON.stringify(groups)) return
+  // SAFETY: createNode turns a JavaScript array into a YAMLSeq.
+  const next = doc.createNode(groups) as YAMLSeq
+  next.flow = isSeq(node) ? node.flow === true : true
+  setKeepingStyle(map, 'sandbox_access', next)
 }
 
 function setOrDelete(map: YAMLMap, key: string, value: string | undefined): void {

@@ -51,9 +51,10 @@ import {
   settingsMergeMethods,
   type WorktreeCommandInput,
 } from './factory-settings.ts'
-import { isOneOf } from './parse.ts'
+import { isOneOf, type Untyped } from './parse.ts'
 import { previewPresets } from './preview-size.ts'
 import { permissionModes } from './run.ts'
+import { type SandboxGroup, sandboxGroupNames } from './sandbox-groups.ts'
 import { handsOff, isBuiltInStage, isStageId, mergesHere, stageFileId, validates } from './stage.ts'
 import {
   type AgentStageId,
@@ -198,12 +199,14 @@ function checkInput(given: unknown): CheckInput {
   }
   const repo = optionalText(body.repo, 'Check repo')
   const timeout = optionalText(body.timeout, 'Check timeout')
+  const access = sandboxAccess(body.sandboxAccess, 'Check sandboxAccess')
   return {
     ...(typeof was === 'number' && { was }),
     name: text(body.name, 'Check name'),
     run: text(body.run, 'Check command'),
     ...(repo !== undefined && { repo }),
     ...(timeout !== undefined && { timeout }),
+    ...(access !== undefined && { sandboxAccess: access }),
   }
 }
 
@@ -260,7 +263,23 @@ function command(given: unknown, field: string): WorktreeCommandInput | undefine
   if (given === undefined || given === null) return undefined
   const body = record(given)
   const timeout = optionalText(body.timeout, `${field}.timeout`)
-  return { run: text(body.run, `${field}.run`), ...(timeout !== undefined && { timeout }) }
+  const access = sandboxAccess(body.sandboxAccess, `${field}.sandboxAccess`)
+  return {
+    run: text(body.run, `${field}.run`),
+    ...(timeout !== undefined && { timeout }),
+    ...(access !== undefined && { sandboxAccess: access }),
+  }
+}
+
+function sandboxAccess(given: Untyped, field: string): SandboxGroup[] | undefined {
+  if (given === undefined) return undefined
+  const groups = list(given, field).map((name) => {
+    if (!isOneOf(name, sandboxGroupNames)) {
+      throw new HttpError(400, `${field} has an unknown sandbox access group`)
+    }
+    return name
+  })
+  return [...new Set(groups)]
 }
 
 export function parseFactorySettingsChanges(given: unknown): FactorySettingsChanges {
@@ -354,6 +373,7 @@ function settingsApp(given: unknown): AppInput {
   const preview = optionalText(body.preview, 'preview')
   if (preview !== undefined && !isOneOf(preview, previewPresets))
     throw new HttpError(400, 'an App’s preview must be desktop, tablet or mobile')
+  const access = sandboxAccess(body.sandboxAccess, 'App sandboxAccess')
   return {
     ...(typeof was === 'number' && { was }),
     name: text(body.name, 'App name'),
@@ -362,6 +382,7 @@ function settingsApp(given: unknown): AppInput {
     ...(url !== undefined && { url }),
     ...(device !== undefined && { device }),
     ...(preview !== undefined && isOneOf(preview, previewPresets) && { preview }),
+    ...(access !== undefined && { sandboxAccess: access }),
   }
 }
 

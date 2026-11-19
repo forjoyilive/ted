@@ -38,6 +38,7 @@ import { CloseIcon } from '../components/icons.tsx'
 import { Loading } from '../components/Loading.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { PiAutoNote } from '../components/PiAutoNote.tsx'
+import { AccessChips, SandboxAccessField, sandboxAccessHelp } from '../components/SandboxAccess.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
 import grow from '../components/TextGrow.module.css'
@@ -1271,6 +1272,11 @@ function CommandCheckRow({
           runLabel="Run now"
           onRun={onRun}
         />
+        {check.sandboxAccess && check.sandboxAccess.length > 0 && (
+          <span className={styles.accessLine}>
+            <AccessChips groups={check.sandboxAccess} />
+          </span>
+        )}
       </div>
       {controls.open && (
         <div className={styles.checkEditor}>
@@ -1323,6 +1329,16 @@ function CommandCheckRow({
                 onChange={(event) => onChange({ timeout: event.target.value })}
               />
             </EditorField>
+          </div>
+          <div className={styles.editorAccess}>
+            <span className={styles.editorLabel}>
+              Sandbox access <Help>{sandboxAccessHelp}</Help>
+            </span>
+            <SandboxAccessField
+              label={`Check ${name}`}
+              groups={check.sandboxAccess}
+              onChange={(sandboxAccess) => onChange({ sandboxAccess })}
+            />
           </div>
           <div className={styles.editorFoot}>
             <ActionButton type="button" className={base.dangerLink} onClick={controls.onRemove}>
