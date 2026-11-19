@@ -15,18 +15,33 @@ const groupPaths: Record<SandboxGroup, RegExp> = {
     ].join('|'),
     'i',
   ),
+  'shared-tmp': /(?<![\w./~-])\/(?:private\/)?tmp(?:\/|$|[\s'"`:,)])/m,
 }
 
 const refused =
   /operation not permitted|permission denied|(?:don[’']t|do not) have permission|not allowed to|sandbox(?:-exec)?:.*deny/i
 
-export function refusedGroups(output: string): SandboxGroup[] {
+const macOnly: readonly SandboxGroup[] = ['shared-tmp']
+
+export function refusedGroups(
+  output: string,
+  platform: NodeJS.Platform = process.platform,
+): SandboxGroup[] {
   const lines = output.split('\n').filter((line) => refused.test(line))
-  return sandboxGroupNames.filter((group) => lines.some((line) => groupPaths[group].test(line)))
+  return sandboxGroupNames.filter(
+    (group) =>
+      (platform === 'darwin' || !macOnly.includes(group)) &&
+      lines.some((line) => groupPaths[group].test(line)),
+  )
 }
 
-export function refusalHints(output: string, held: readonly SandboxGroup[], who: string): string[] {
-  return refusedGroups(output)
+export function refusalHints(
+  output: string,
+  held: readonly SandboxGroup[],
+  who: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  return refusedGroups(output, platform)
     .filter((group) => !held.includes(group))
     .map(
       (group) =>

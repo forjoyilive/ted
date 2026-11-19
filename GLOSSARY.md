@@ -229,7 +229,7 @@ A command with a name that an Agent’s settings list under `outside_commands` i
 _Avoid_: Escape hatch, unsandboxed command
 
 **Sandbox access group**:
-A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` is the first: it opens what Xcode writes outside its temp folder, which is shared access on the user’s Mac.
+A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` is the first: it opens what Xcode writes outside its temp folder, which is shared access on the user’s Mac. `shared-tmp` opens the shared `/private/tmp` (`/tmp`) folder for reading and writing on macOS, for tools that ignore `TMPDIR`; on Linux it changes nothing, because `/tmp` is already the command’s own temp folder.
 _Avoid_: Sandbox permission, allowance, entitlement
 
 **Chat**:

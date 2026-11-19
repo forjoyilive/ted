@@ -747,6 +747,7 @@ describe('ted sandbox groups', () => {
     const { stdout } = await ted(['sandbox', 'groups'])
 
     expect(stdout).toContain('ios-xcode: ')
+    expect(stdout).toContain('shared-tmp: ')
     expect(stdout).toContain('shared access on the user’s Mac')
     expect(stdout).toContain('  - Per-user temp folder: TemporaryItems/NSIRD_(xcodebuild|')
     expect(stdout).toContain('ManifestLoading: plain .dia files')

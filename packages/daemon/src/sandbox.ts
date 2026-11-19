@@ -365,7 +365,10 @@ async function sandboxPaths(
   scope: SandboxScope,
 ): Promise<SandboxPaths> {
   const daemonTmp = await real(tmpdir())
-  const sharedTmp = platform === 'darwin' && scope.ownTempOnly !== true ? '/private/tmp' : undefined
+  const sharedTmp =
+    platform === 'darwin' && scope.ownTempOnly !== true && scope.groups?.includes('shared-tmp')
+      ? '/private/tmp'
+      : undefined
   const home = await real(tedHome)
   const given = path.resolve(tedHome)
   const plain = (dir: string, create = false) => plainFolder(home, given, dir, create)
