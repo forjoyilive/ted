@@ -483,6 +483,7 @@ const systemReads = [
   '/private/etc',
   '/private/var/db',
   '/private/var/select',
+  '/private/var/run/resolv.conf',
   '/dev',
 ]
 
