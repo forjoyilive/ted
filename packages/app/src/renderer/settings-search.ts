@@ -272,7 +272,7 @@ const entries = {
   },
   'app.integrations.disclosure': {
     name: 'AI disclosure',
-    help: 'Marks what agents post to Asana, Linear and GitHub as written by AI.',
+    help: 'Marks what agents post outside Ted as written by AI.',
     heading: true,
   },
   'app.integrations.disclosure.preface': {
