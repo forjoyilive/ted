@@ -1392,3 +1392,61 @@ describe('App preview size edits', () => {
     expect(cleared).not.toContain('preview')
   })
 })
+
+describe('sandbox access through Settings edits', () => {
+  test('saving Settings keeps sandbox_access on setup, teardown, Apps and command checks', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: web',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown: { run: clean, timeout: 5m, sandbox_access: [ios-xcode] }',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: Build',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      '',
+    ].join('\n')
+    const stored = [
+      { repo: 'owner/web', name: 'web', cloneUrl: 'https://github.com/owner/web.git' },
+    ]
+    const edited = applyChanges(
+      yaml,
+      {
+        repos: [
+          {
+            was: 'web',
+            repo: 'owner/web',
+            name: 'web',
+            setup: { run: 'make all' },
+            teardown: { run: 'clean' },
+            env: [],
+            copy: [],
+            apps: [{ was: 0, name: 'Sim', kind: 'command', run: 'xcodebuild build' }],
+          },
+        ],
+        checks: [{ was: 0, name: 'Build', run: 'xcodebuild test' }],
+      },
+      repoSettingsFrom(factory({ 'workflow.yaml': yaml }).settings, stored),
+    )
+    const layer = factory({ 'workflow.yaml': edited })
+    expect(layer.problems).toEqual([])
+    const repo = layer.settings.repos?.[0]
+    expect(repo?.worktree?.setup).toEqual({ run: 'make all', sandbox_access: ['ios-xcode'] })
+    expect(repo?.worktree?.teardown).toEqual({ run: 'clean', sandbox_access: ['ios-xcode'] })
+    expect(appDeclarations(repo?.apps)).toMatchObject([
+      { name: 'Sim', run: 'xcodebuild build', sandboxAccess: ['ios-xcode'] },
+    ])
+    expect(layer.settings.stages.validate?.checks).toEqual([
+      { name: 'Build', run: 'xcodebuild test', sandbox_access: ['ios-xcode'] },
+    ])
+  })
+})
