@@ -103,6 +103,7 @@ export function createSandbox(options: {
   program?: string
   bindFds?: boolean
   unixSockets?: () => Promise<string>
+  simulatorRuntimes?: string
 }): Sandbox {
   const platform = options.platform ?? process.platform
   let ready: string | undefined
@@ -195,6 +196,7 @@ export function createSandbox(options: {
               paths.userTemp = perUserTemp
           }
         }
+        if (xcode) paths.simulatorRuntimes = options.simulatorRuntimes ?? simulatorRuntimeMounts
         const logs = xcode ? await manifestLogFolder(env) : undefined
         if (logs !== undefined && !inside(paths.tedHome, logs) && !inside(logs, paths.tedHome))
           paths.manifestLogs = logs
@@ -307,7 +309,10 @@ interface SandboxPaths {
   userTemp?: string
   unlisted?: string[]
   manifestLogs?: string
+  simulatorRuntimes?: string
 }
+
+const simulatorRuntimeMounts = '/private/var/run/com.apple.security.cryptexd/mnt'
 
 const xcodeSavers =
   'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtool|ibtoold|swift-build|swift-run|swift-test'
@@ -669,6 +674,11 @@ function seatbeltArgs(
           // Xcode’s package resolution writes <package>.dia here whatever its cache options say. Plain files only, so no link can send the user’s own builds elsewhere.
           `(allow ${ownTemp} (require-all (regex #"^${escapeRegex(paths.manifestLogs)}/[^/]+\\.dia$") (vnode-type REGULAR-FILE)))`,
           `(deny file-link (regex #"^${escapeRegex(paths.manifestLogs)}/"))`,
+        ]),
+    ...(paths.simulatorRuntimes === undefined
+      ? []
+      : [
+          `(allow file-read-data file-read-xattr (regex #"^${escapeRegex(paths.simulatorRuntimes)}/com\\.apple\\.iPhoneOS\\.SimulatorRuntime-[^/]+(/|$)"))`,
         ]),
     ...(paths.unlisted === undefined
       ? []
