@@ -641,6 +641,49 @@ describe('checking a layer', () => {
     ])
   })
 
+  test('sandbox_access names only Ted’s access groups, on an App, a command check or worktree setup and teardown', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: app',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown:',
+      '        run: clean',
+      '        sandbox_access: ios-xcode',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode, android-gradle]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: Build',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      '      - name: Review',
+      '        instruction: Look it over',
+      '        sandbox_access: [ios-xcode]',
+      '',
+    ].join('\n')
+    const checked = checkLayer({ kind: 'factory', files: { 'workflow.yaml': yaml } })
+    expect(problems({ 'workflow.yaml': yaml })).toEqual([
+      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode',
+      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode',
+      'error .ted/workflow.yaml 22 9 an instruction check runs no command in the sandbox, so it takes no `sandbox_access`',
+    ])
+    expect(checked.settings.repos?.[0]?.worktree?.setup).toEqual({
+      run: 'make',
+      sandbox_access: ['ios-xcode'],
+    })
+    expect(checked.settings.stages.validate?.checks?.[0]).toEqual({
+      name: 'Build',
+      run: 'xcodebuild',
+      sandbox_access: ['ios-xcode'],
+    })
+  })
+
   test('a bad Stage id in order or stages is an error at its line', () => {
     expect(
       problems({

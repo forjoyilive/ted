@@ -907,6 +907,8 @@ export {
   parseStartDevRunRequest,
   parseStartSubAgentRequest,
 } from './run-parsers.ts'
+export type { SandboxGroup, SandboxGroupInfo } from './sandbox-groups.ts'
+export { isSandboxGroup, sandboxGroupNames, sandboxGroups } from './sandbox-groups.ts'
 export {
   type AutomationSchedule,
   checkSchedule,
@@ -918,8 +920,6 @@ export {
   type Weekday,
   weekdays,
 } from './schedule.ts'
-export type { SandboxGroup, SandboxGroupInfo } from './sandbox-groups.ts'
-export { isSandboxGroup, sandboxGroupNames, sandboxGroups } from './sandbox-groups.ts'
 export { scriptLiteral } from './script-literal.ts'
 export {
   type AutomationHit,
