@@ -1,4 +1,4 @@
-import type { PlanRequest, PlanTask, RoundAnswer } from '@ted/protocol'
+import type { PlanRequest, PlanTask } from '@ted/protocol'
 import type { AgentCommand, AgentPower } from '@ted/protocol/agent-files'
 import { chatCommandLines, proposalFormat, roundFormat } from '../chats/powers.ts'
 import type { StoredFactory } from '../store/index.ts'
@@ -76,6 +76,7 @@ export function plannerInstructions(input: {
       ...(propose
         ? [
             `- After the user confirms the plan and asks to split it, propose the fewest coherent Tasks with \`ted task propose --file <file>\`. ${proposalFormat} Each Task should deliver a verifiable result in one pull request per repo, with success criteria and dependencies. Keep the layers needed for that result together rather than making a Task for each implementation layer. Use \`to-spec\` or \`to-tickets\` if available to capture the agreed specification or split it. Then end your turn.`,
+            '- While a proposal is open, replace it with `ted task propose --supersedes <request-id> --file <file>`.',
             '- When the human approves, Ted creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
           ]
         : []),
@@ -153,28 +154,8 @@ export function earlierPlanContext(input: {
   return parts.join('\n\n')
 }
 
-export function planRoundAnswerMessage(
-  request: PlanRequest,
-  answers: readonly RoundAnswer[],
-): string {
-  const lines = (request.round?.questions ?? []).map((question, i) => {
-    const answer = answers[i]
-    if (!answer) return ''
-    const tag = answer.changed
-      ? `changed from your recommendation “${question.recommended}”`
-      : 'recommended'
-    return [
-      `${i + 1}. ${question.question}`,
-      `   ${answer.answer} (${tag})`,
-      ...(answer.note !== undefined ? [`   Note: ${answer.note}`] : []),
-    ].join('\n')
-  })
-  return [
-    `The human answered Round ${request.round?.number ?? ''} “${request.title ?? ''}”:`,
-    lines.join('\n'),
-    'Update the agreed decisions and unresolved questions from these answers. Follow newly exposed decisions into another focused round until the discovery completion criteria in your instructions are met. Then summarize the plan and ask the user to confirm it and whether to split it into Tasks; wait for their answer. If these answers already confirm the current plan and ask for Tasks, post the smallest coherent proposal with `ted task propose --file <file>`.',
-  ].join('\n\n')
-}
+export const planRoundNext =
+  'Update the agreed decisions and unresolved questions from these answers. Follow newly exposed decisions into another focused round until the discovery completion criteria in your instructions are met. Then summarize the plan and ask the user to confirm it and whether to split it into Tasks; wait for their answer. If these answers already confirm the current plan and ask for Tasks, post the smallest coherent proposal with `ted task propose --file <file>`.'
 
 export function planChangesMessage(text: string): string {
   return [

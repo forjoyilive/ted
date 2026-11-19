@@ -1854,7 +1854,7 @@ test('answer closes a Task Lead’s open question, which leaves the Inbox', asyn
   ).toBe(409)
   const again = await answer({ operation: 'again', request: question.id, choice: 'Wait' })
   expect(again.status).toBe(409)
-  expect((again.body as { error: string }).error).toContain('already closed')
+  expect((again.body as { error: string }).error).toContain('already been answered')
 
   const archiveAsk = (
     await other.lead.call('POST', `/tasks/${other.task.id}/archive-request`, {
