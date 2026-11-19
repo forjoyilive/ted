@@ -717,10 +717,10 @@ function setupProposal(value: unknown): SetupProposal {
       throw new HttpError(400, 'each worktree step is setup or teardown')
     }
     const repo = shortText(line.repo, `the worktree ${step}’s repo`, 100)
-    const access = setupAccess(line.sandboxAccess, `the worktree ${step}`)
-    if (access === undefined) {
+    if (line.sandboxAccess === undefined) {
       throw new HttpError(400, `the worktree ${step} lists its sandboxAccess`)
     }
+    const access = setupAccess(line.sandboxAccess, `the worktree ${step}`) ?? []
     return { ...(repo !== undefined && { repo }), step, sandboxAccess: access }
   })
   const agents = input.agents === undefined ? undefined : parseSetupAgents(input.agents, badRequest)

@@ -57,6 +57,7 @@ describe('setup Tasks', () => {
               run: 'npm run dev',
               ready: 'ready in 9s at localhost:5174',
               passed: true,
+              sandboxAccess: ['ios-xcode'],
             },
           ],
           agents: [
@@ -144,6 +145,12 @@ describe('setup Tasks', () => {
     const apps = card.getByRole('region', { name: 'Apps · started on main' })
     await apps.getByText('web · ready in 9s at localhost:5174').waitFor()
     await apps.getByText('npm run dev', { exact: true }).waitFor()
+    const access = card.getByRole('region', { name: 'Sandbox access' })
+    await access.getByText('ios-xcode', { exact: true }).waitFor()
+    expect(await access.locator('dl > div').allTextContents()).toEqual([
+      'App Webios-xcode',
+      'Check Unit testsBase sandbox only',
+    ])
     const agents = card.getByRole('region', { name: 'Agents · suggested for this repo' })
     await agents.getByText('Walks through cutting a release.').waitFor()
     expect(await agents.getByRole('list', { name: 'Release helper’s powers' }).textContent()).toBe(

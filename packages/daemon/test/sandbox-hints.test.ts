@@ -21,6 +21,12 @@ test('a refused Xcode path in the per-user temp folder or ManifestLoading names 
   ).toEqual(['ios-xcode'])
 })
 
+test('a refused rendered icon or its ImageIO temp file names ios-xcode', () => {
+  const icon = 'AppIcon_0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0-4242-0123456789ABCDEF.png'
+  expect(refusedGroups(`${temp}/${icon}: Operation not permitted`)).toEqual(['ios-xcode'])
+  expect(refusedGroups(`${temp}/.${icon}-a1B2c3: Operation not permitted`)).toEqual(['ios-xcode'])
+})
+
 test('a refusal elsewhere, or a group path without a refusal, gives no hint', () => {
   expect(refusedGroups('/Users/someone/.ssh/id_ed25519: Operation not permitted')).toEqual([])
   expect(refusedGroups(`${temp}/xcrun_db: Operation not permitted`)).toEqual([])

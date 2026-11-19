@@ -1,6 +1,11 @@
 import type { SandboxGroup, SetupAppTried, SetupCheckTried, SetupProposal } from '@ted/protocol'
 import type { AppDeclaration } from '../apps/declared.ts'
-import type { CheckSettings, CommandCheckSettings, RepoSettings } from '../workflow/check.ts'
+import {
+  type CheckSettings,
+  type CommandCheckSettings,
+  githubRepoOf,
+  type RepoSettings,
+} from '../workflow/check.ts'
 
 export function approvedGroups(
   declared: readonly SandboxGroup[] | undefined,
@@ -67,8 +72,11 @@ export function setupWorktreeDifferences(
   )
   const declared = new Map<string, SandboxGroup[]>()
   repos.forEach((repo, i) => {
-    const name = i === 0 ? primaryName : repo.name
-    if (name === undefined) return
+    const remoteName =
+      repo.remote === undefined
+        ? undefined
+        : githubRepoOf(repo.remote)?.split('/')[1]?.toLowerCase()
+    const name = i === 0 ? primaryName : (repo.name ?? remoteName ?? `repo ${i + 1} (no name)`)
     for (const step of ['setup', 'teardown'] as const) {
       const groups = repo.worktree?.[step]?.sandbox_access ?? []
       if (groups.length > 0) declared.set(key(name, step), [...groups])

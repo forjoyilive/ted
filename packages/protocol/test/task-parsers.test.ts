@@ -377,6 +377,14 @@ test('a setup proposal’s sandbox access drops repeats and an empty list', () =
   expect(parsed.setup?.apps[0]?.sandboxAccess).toEqual(['ios-xcode'])
   expect(parsed.setup?.checks[0]).not.toHaveProperty('sandboxAccess')
 })
+
+test('a worktree step may propose no sandbox access', () => {
+  const parsed = P.parseDesignReviewInput({
+    ...design,
+    setup: { ...setup, worktree: [{ step: 'teardown', sandboxAccess: [] }] },
+  })
+  expect(parsed.setup?.worktree).toEqual([{ step: 'teardown', sandboxAccess: [] }])
+})
 rejects(
   P.parseAnswerRequest,
   { action: 'approve', removeAgents: ['Not An Id'] },

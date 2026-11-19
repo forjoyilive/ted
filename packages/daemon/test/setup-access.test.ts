@@ -90,3 +90,17 @@ test('worktree setup and teardown must ask for exactly the approved access group
     'app’s worktree teardown asks for sandbox access none; the approved proposal lists ios-xcode',
   ])
 })
+
+test('a secondary repo without a name is matched by its remote, and refused when it has neither', () => {
+  const xcode = { run: 'pod install', sandbox_access: ['ios-xcode' as const] }
+  expect(
+    setupWorktreeDifferences(
+      { worktree: [{ repo: 'widgets', step: 'setup', sandboxAccess: ['ios-xcode'] }] },
+      [{}, { remote: 'git@github.com:acme/Widgets.git', worktree: { setup: xcode } }],
+      'app',
+    ),
+  ).toEqual([])
+  expect(setupWorktreeDifferences({}, [{}, { worktree: { setup: xcode } }], 'app')).toEqual([
+    'repo 2 (no name)’s worktree setup asks for sandbox access ios-xcode; the approved proposal lists none',
+  ])
+})
