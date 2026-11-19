@@ -113,3 +113,12 @@ export function appsSummary(apps: readonly TaskApp[], hosted: number): string | 
   if (hosted > 0) return hosted === 1 ? '1 hosted preview' : `${hosted} hosted previews`
   return undefined
 }
+
+export type AppsTabMark = 'failed' | 'running' | 'waiting'
+
+export function appsTabMark(apps: readonly TaskApp[]): AppsTabMark | undefined {
+  if (apps.some((a) => a.state === 'failed')) return 'failed'
+  if (apps.some((a) => a.state === 'running' || a.state === 'starting')) return 'running'
+  if (apps.some((a) => a.state === 'waiting')) return 'waiting'
+  return undefined
+}
