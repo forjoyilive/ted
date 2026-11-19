@@ -6,6 +6,7 @@ import {
   bannerId,
   bannerOrder,
   type DaemonEvent,
+  dismissClears,
   type RaiseBanner,
 } from '@ted/protocol'
 import { RequestError } from './errors.ts'
@@ -77,8 +78,14 @@ export function createBanners({
     },
     list: () => [...store.listBanners(), ...unsaved.values()].sort(bannerOrder),
     dismiss(id) {
-      if (find(id).severity === 'stops-work') {
+      const banner = find(id)
+      if (banner.severity === 'stops-work') {
         throw new RequestError(409, 'a problem that stops work can’t be dismissed')
+      }
+      if (dismissClears(banner)) {
+        if (unsaved.delete(id)) emit({ type: 'banner-cleared', id })
+        else store.clearBanner(id)
+        return banner
       }
       const until = new Date(Date.now() + bannerDismissMs).toISOString()
       return store.dismissBanner(id, until) ?? find(id)

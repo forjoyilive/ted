@@ -327,7 +327,7 @@ The wide column in the middle of the app’s window, left of a Task’s details.
 _Avoid_: Main pane, content area
 
 **Banner**:
-A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears. A banner either stops work (red, can’t be dismissed) or is a warning (amber, hidden for 24 hours by ×). Banners are never Inbox items.
+A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears. A banner either stops work (red, can’t be dismissed) or is a warning (amber, hidden for 24 hours by ×, except the repo-added warning, which × clears for good). Banners are never Inbox items.
 _Avoid_: Alert, error bar, toast
 
 **Onboarding**:

@@ -44,6 +44,18 @@ export interface RaiseBanner extends BannerRef {
 
 export const bannerDismissMs = 24 * 60 * 60 * 1000
 
+export const repoAddedProblem = 'repo-added'
+
+export function repoAddedText(repo: string): string {
+  return `${repo} was added · Set up its checks and Apps with a setup Task`
+}
+
+const clearedOnDismiss: ReadonlySet<string> = new Set([repoAddedProblem])
+
+export function dismissClears(banner: Pick<Banner, 'problem'>): boolean {
+  return clearedOnDismiss.has(banner.problem)
+}
+
 export function bannerId({ problem, factoryId, subject }: BannerRef): string {
   return [problem, factoryId ?? 'app', ...(subject === undefined ? [] : [subject])].join(':')
 }
