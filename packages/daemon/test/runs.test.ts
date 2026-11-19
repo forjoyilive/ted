@@ -1,23 +1,27 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { readDaemonInfo } from '@ted/protocol'
+import { type DaemonClient, type RunChat, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { hostProtocol } from '../src/runs/host-files.ts'
 import {
   api,
+  appClient,
   assistantTexts,
   hostRecords,
+  hostsStarted,
   isAlive,
   killRunHosts,
+  makeOriginRepo,
   makeTempHome,
   spawnDaemonProcess,
   stubClaudePath,
+  stubPiPath,
   testAppToken,
   waitUntil,
 } from './helpers.ts'
@@ -472,3 +476,217 @@ test('the host passes the Task workspace to new and resumed Antigravity sessions
     }),
   ])
 })
+
+async function startPiFactory(piBin: string) {
+  daemon = await startDaemon({ home, version: '9.9.9', piBin, nudgeAfterMs: 600_000 })
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('Missing daemon info')
+  const client = appClient(info, daemon.appToken)
+  const factory = await client.addFactory({ repo: await makeOriginRepo(cwd), key: 'NB' })
+  await client.setFactoryPermissions(factory.id, 'bypass', true)
+  return { client, raw: api(daemon.port, { appKey: daemon.appToken }) }
+}
+
+const piLeadOf = (client: DaemonClient, taskId: string, timeoutMs?: number) =>
+  waitUntil(
+    async () => (await client.listTasks()).find((task) => task.id === taskId)?.leadRunId,
+    'the Pi Task Lead to start',
+    timeoutMs,
+  )
+
+test('a Pi Task Lead in a Bypass Factory streams its chat, takes a follow-up, stops a turn, resumes its session and counts tokens', async () => {
+  const { client, raw } = await startPiFactory(stubPiPath)
+  await expect(raw.startRun([], cwd, 'pi')).rejects.toThrow('only in a Bypass Factory')
+  const task = await client.createTask({
+    factory: 'NB',
+    title: 'Talk with Pi',
+    lead: { agent: 'pi', model: 'stub/model-1' },
+    start: true,
+  })
+  const runId = await piLeadOf(client, task.id)
+  const chat = async () => (await raw.call('GET', `/runs/${runId}/chat`)).body as RunChat
+  const said = (text: string) =>
+    waitUntil(async () => {
+      const now = await chat()
+      return now.run.state === 'idle' &&
+        now.items.some((item) => item.kind === 'agent' && item.text.includes(text))
+        ? now
+        : undefined
+    }, `Pi to answer “${text}”`)
+  const lines = async (file: string) =>
+    (await readFile(path.join(home, 'runs', runId, file), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+
+  const first = await said('Hello\u2028from Pi')
+  expect(first.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: 'tool', tool: 'Thinking', output: 'Thinking it over' }),
+      expect.objectContaining({
+        kind: 'tool',
+        tool: 'bash',
+        title: 'ls -la',
+        status: 'done',
+        output: 'stub-output',
+      }),
+      expect.objectContaining({ kind: 'agent', text: 'Done.' }),
+    ]),
+  )
+  expect(first.run.tokens).toBe(34)
+  const [launched] = await lines('stub-pi-launches.jsonl')
+  expect(launched.argv.slice(0, 5)).toEqual([
+    '--mode',
+    'rpc',
+    '--approve',
+    '--session-dir',
+    path.join(home, 'runs', runId, 'pi-sessions'),
+  ])
+  expect(launched.argv[launched.argv.indexOf('--model') + 1]).toBe('stub/model-1')
+  const sessionId = (await client.getRun(runId)).run.sessionId
+  expect(sessionId).toMatch(/^[0-9a-f-]{36}$/)
+
+  await raw.call('POST', `/runs/${runId}/messages`, { text: 'PI_FOLLOW_UP' })
+  expect((await said('from Pi: PI_FOLLOW_UP')).run.tokens).toBe(68)
+
+  await raw.call('POST', `/runs/${runId}/messages`, { text: 'STUB_WAIT for a stop' })
+  await waitUntil(
+    async () =>
+      ((await lines('stub-pi-commands.jsonl')).some((c) => c.message?.includes('STUB_WAIT')) &&
+        (await client.getRun(runId)).run.state === 'working') ||
+      undefined,
+    'Pi to start the long turn',
+  )
+  expect((await raw.call('POST', `/runs/${runId}/interrupt`)).status).toBe(200)
+  await waitUntil(
+    async () => (await client.getRun(runId)).run.state === 'idle' || undefined,
+    'Pi to stop the turn',
+  )
+  expect((await lines('stub-pi-commands.jsonl')).map((c) => c.type)).toEqual(
+    expect.arrayContaining(['clear_queue', 'abort']),
+  )
+
+  expect((await raw.call('POST', `/runs/${runId}/restart`)).status).toBe(200)
+  await waitUntil(
+    async () => (await lines('stub-pi-launches.jsonl')).length === 2 || undefined,
+    'Pi to start again',
+  )
+  const resumed = (await lines('stub-pi-launches.jsonl'))[1].argv
+  expect(resumed[resumed.indexOf('--session') + 1]).toMatch(new RegExp(`_${sessionId}\\.jsonl$`))
+  await raw.call('POST', `/runs/${runId}/messages`, { text: 'PI_AFTER_RESTART' })
+  await said('from Pi: PI_AFTER_RESTART')
+  expect((await client.getRun(runId)).run.sessionId).toBe(sessionId)
+}, 90_000)
+
+test('a Pi side chat starts Pi without tools and shows its thinking without stopping the reply', async () => {
+  const { client } = await startPiFactory(stubPiPath)
+  const task = await client.createTask({
+    factory: 'NB',
+    title: 'Talk with Pi',
+    lead: { agent: 'pi', model: 'stub/model-1' },
+    start: true,
+  })
+  const leadId = await piLeadOf(client, task.id)
+  await waitUntil(
+    async () => (await client.getRun(leadId)).run.state === 'idle' || undefined,
+    'the Pi Task Lead to finish its turn',
+  )
+  const opened = await client.openSideChat(leadId)
+  await client.sendSideChat(leadId, 'PI_SIDE_CHAT')
+  const side = await waitUntil(async () => {
+    const now = await client.getSideChat(leadId)
+    if (now?.state === 'failed') throw new Error(now.error)
+    return now?.state === 'ready' &&
+      (now.chat?.items ?? []).some(
+        (item) => item.kind === 'agent' && item.text.includes('PI_SIDE_CHAT'),
+      )
+      ? now
+      : undefined
+  }, 'the side chat to answer')
+  expect(side.chat?.items).toEqual(
+    expect.arrayContaining([expect.objectContaining({ kind: 'tool', tool: 'Thinking' })]),
+  )
+  const launches = (
+    await readFile(path.join(home, 'runs', opened.id, 'stub-pi-launches.jsonl'), 'utf8')
+  )
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  expect(launches[0].argv).toEqual(
+    expect.arrayContaining(['--no-tools', '--no-mcp', '--no-extensions', '--no-skills']),
+  )
+
+  await client.sendSideChat(leadId, 'STUB_ERROR')
+  await waitUntil(
+    async () => (await client.getSideChat(leadId))?.state === 'failed' || undefined,
+    'the side chat to fail on Pi’s error',
+  )
+  const ended = await waitUntil(
+    async () => (await client.getRun(opened.id)).run.ended,
+    'the side chat’s Pi Run to end',
+  )
+  expect(ended.errorLines).toContain('Pi: The stub provider failed')
+}, 90_000)
+
+const realPi = process.env.TED_REAL_PI_BIN
+
+test.skipIf(!realPi)(
+  'a real Pi side chat in a Bypass Factory answers, takes a follow-up and resumes its session after a restart',
+  async () => {
+    if (!realPi) throw new Error('Missing Pi path')
+    const before = process.env.PI_CODING_AGENT_DIR
+    process.env.PI_CODING_AGENT_DIR = path.join(homedir(), '.pi', 'agent')
+    try {
+      const started = await startPiFactory(realPi)
+      let client = started.client
+      const task = await client.createTask({
+        factory: 'NB',
+        title: 'Say hello',
+        lead: { agent: 'pi' },
+        start: true,
+      })
+      const leadId = await piLeadOf(client, task.id, 120_000)
+      await hostsStarted(home)
+      if ((await client.getRun(leadId)).run.state === 'working')
+        await started.raw.call('POST', `/runs/${leadId}/interrupt`)
+
+      const opened = await client.openSideChat(leadId)
+      const answered = (count: number, label: string) =>
+        waitUntil(
+          async () => {
+            const side = await client.getSideChat(leadId)
+            if (side?.state === 'failed') throw new Error(side.error)
+            const answers = (side?.chat?.items ?? []).filter(
+              (item) => item.kind === 'agent' && item.text.trim() !== '',
+            )
+            return side?.state === 'ready' && answers.length >= count ? true : undefined
+          },
+          label,
+          240_000,
+        )
+      await client.sendSideChat(leadId, 'Reply with one short sentence.')
+      await answered(1, 'Pi to answer')
+      await client.sendSideChat(leadId, 'Say that again in French.')
+      await answered(2, 'Pi to answer the follow-up')
+      const sessionId = (await client.getRun(opened.id)).run.sessionId
+      expect(sessionId).toBeDefined()
+
+      await daemon?.stop()
+      daemon = await startDaemon({ home, version: '9.9.9', piBin: realPi, nudgeAfterMs: 600_000 })
+      const info = await readDaemonInfo(home)
+      if (!info) throw new Error('Missing daemon info')
+      client = appClient(info, daemon.appToken)
+      await client.sendSideChat(leadId, 'And now in German.')
+      await answered(3, 'Pi to answer after the restart')
+      expect((await client.getRun(opened.id)).run.sessionId).toBe(sessionId)
+      const sessions = (await readdir(path.join(home, 'runs', opened.id, 'pi-sessions'))).filter(
+        (name) => name.endsWith('.jsonl'),
+      )
+      expect(sessions).toEqual([expect.stringMatching(new RegExp(`_${sessionId}\\.jsonl$`))])
+    } finally {
+      if (before === undefined) delete process.env.PI_CODING_AGENT_DIR
+      else process.env.PI_CODING_AGENT_DIR = before
+    }
+  },
+  900_000,
+)

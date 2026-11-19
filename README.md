@@ -29,7 +29,7 @@ Every stage, check and sign-off can be changed per project. Turn sign-offs off a
 - **A loop that fixes things.** Work and Validate repeat until your checks pass and the reviewer has nothing left to report.
 - **Work you can trust.** Require a sign-off after Clarify, Design or Review, or before Merge. Nothing gets past one without your yes.
 - **A workspace per task.** Each task gets its own branch and working copy. Tasks never touch each other, or the folder you’re working in.
-- **Claude Code or Codex.** One agent carries each task from start to finish and can hand parts of the job to sub-agents. Ted uses your own subscription or API key.
+- **Claude Code, Codex, Antigravity or Pi.** One agent carries each task from start to finish and can hand parts of the job to sub-agents. Ted uses your own subscription or API key, or Pi’s own model setup.
 - **Tasks from anywhere.** Write tasks in the app, or import them from GitHub, Linear and Asana.
 - **As busy as you allow.** You set how many agents work at once. The rest wait in a queue, in the order you rank them, and new starts hold while your computer is busy.
 - **A running app to look at.** Ted can start the task’s app (a web server, an iOS simulator or an Android emulator) so you see the real thing before you sign off.
@@ -52,7 +52,7 @@ Ted updates itself from this repository’s releases.
 
 - Git, signed in the way you normally push to GitHub.
 - The [GitHub CLI](https://cli.github.com) (`gh`), signed in.
-- [Claude Code](https://claude.com/claude-code) or [Codex](https://developers.openai.com/codex/cli), signed in.
+- [Claude Code](https://claude.com/claude-code), [Codex](https://developers.openai.com/codex/cli) or [Antigravity](https://antigravity.google), signed in, or [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) with a model set up.
 
 Ted runs on your Mac with the logins already on it, and keeps its data in `~/.ted`.
 

@@ -28,7 +28,7 @@ import {
   mergesHere,
   validates,
 } from '@ted/protocol/stage'
-import { memo, type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { Fragment, memo, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
@@ -37,6 +37,7 @@ import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { Loading } from '../components/Loading.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
+import { PiAutoNote } from '../components/PiAutoNote.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
 import grow from '../components/TextGrow.module.css'
@@ -1047,6 +1048,7 @@ function ChecksSectionView({
                   reviewer={reviewer}
                   last={tries.find((t) => t.instruction === true && t.name === check.name.trim())}
                   controls={controls('instruction', index, key)}
+                  factoryId={view.factoryId}
                   onChange={(change) => setInstruction(index, change)}
                   onRun={() => setPicking(check)}
                 />
@@ -1341,6 +1343,7 @@ function InstructionCheckRow({
   reviewer,
   last,
   controls,
+  factoryId,
   onChange,
   onRun,
 }: {
@@ -1348,6 +1351,7 @@ function InstructionCheckRow({
   reviewer: AgentChoiceInput | undefined
   last: CheckTry | undefined
   controls: RowControls
+  factoryId: string
   onChange: (change: (check: InstructionCheckInput) => InstructionCheckInput) => void
   onRun: () => void
 }) {
@@ -1494,6 +1498,7 @@ function InstructionCheckRow({
               </Select>
             </EditorField>
           </div>
+          <PiAutoNote agent={shownAgent} factoryId={factoryId} />
           <div className={styles.editorFoot}>
             <ActionButton type="button" className={base.dangerLink} onClick={controls.onRemove}>
               Remove
@@ -1687,13 +1692,19 @@ function AgentsSectionView({
       />
       <div className={`${styles.table} ${styles.scrollTable}`}>
         {view.agents.map((row) => (
-          <AgentRow
-            key={row.role}
-            row={row}
-            own={draft.agents[row.role]}
-            edited={agentEdited(draft, loaded, row.role)}
-            onChange={(choice) => set(row.role, choice)}
-          />
+          <Fragment key={row.role}>
+            <AgentRow
+              row={row}
+              own={draft.agents[row.role]}
+              edited={agentEdited(draft, loaded, row.role)}
+              onChange={(choice) => set(row.role, choice)}
+            />
+            <PiAutoNote
+              agent={(draft.agents[row.role] ?? row.inherited).agent}
+              factoryId={view.factoryId}
+              className={styles.agentNote}
+            />
+          </Fragment>
         ))}
       </div>
     </section>

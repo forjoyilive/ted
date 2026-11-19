@@ -446,6 +446,16 @@ export function createAutomations(options: AutomationsOptions): Automations {
     return store.getRun(firing.id)?.agent ?? saved.get(firing.automationId)?.agent
   }
 
+  function firingHold(firing: StoredFiring, agent: AgentKind): string | undefined {
+    const automation = saved.get(firing.automationId)
+    return agentStartHold(store, agent, firing.id, {
+      factoryId: automation?.factoryId,
+      model: automation?.model,
+      agents,
+      alwaysAuto: true,
+    })
+  }
+
   function queuedFirings(): StoredFiring[] {
     const automationIds = new Set(live().map((a) => a.id))
     return saved.firings().filter((f) => automationIds.has(f.automationId) && inQueue(f))
@@ -480,7 +490,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       const hold =
         agent === undefined
           ? 'its Provider is unknown'
-          : (agentStartHold(store, agent, id) ?? store.agentPauses()[agent])
+          : ((firing && firingHold(firing, agent)) ?? store.agentPauses()[agent])
       if (hold !== undefined && firing?.agentPhase === 'queued' && !store.getRun(id)) {
         setImmediate(() => {
           void endCheckAgent(id, { why: `The agent Run couldn’t start: ${hold}` })
@@ -689,7 +699,12 @@ export function createAutomations(options: AutomationsOptions): Automations {
   function checkAgentHold(automation: StoredAutomation): string | undefined {
     return (
       store.newWorkHold() ??
-      agentStartHold(store, automation.agent) ??
+      agentStartHold(store, automation.agent, undefined, {
+        factoryId: automation.factoryId,
+        model: automation.model,
+        agents,
+        alwaysAuto: true,
+      }) ??
       store.agentPauses()[automation.agent]
     )
   }
@@ -1289,9 +1304,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (status === 'queued') {
       const agent = agentOf(firing)
       const reason =
-        agent === undefined
-          ? undefined
-          : (agentStartHold(store, agent, firing.id) ?? store.agentPauses()[agent])
+        agent === undefined ? undefined : (firingHold(firing, agent) ?? store.agentPauses()[agent])
       return reason !== undefined
         ? { kind: 'paused', reason }
         : { kind: 'queued', place: place(firing.id) }
@@ -1680,12 +1693,9 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ?.workflow.settings
     return resolveAgentChoices(
       settings,
-      {
-        claude: agents.installed('claude'),
-        antigravity: agents.installed('antigravity'),
-        codex: agents.installed('codex'),
-      },
+      agents.installedKinds(),
       store.settings().enabledAgents,
+      store.agentPauses(),
     ).lead
   }
 

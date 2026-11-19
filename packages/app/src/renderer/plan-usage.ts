@@ -34,7 +34,13 @@ export function usageTone(percent: number | undefined): 'ok' | 'warn' | 'full' {
   return 'ok'
 }
 
+export function usageNone(agent: AgentKind, billing: Billing | undefined): string {
+  if (agent === 'pi') return 'Not available'
+  return billing === 'api-key' ? 'API key' : 'No usage yet'
+}
+
 export function usageEmpty(agent: AgentKind, billing: Billing): string {
+  if (agent === 'pi') return 'Pi doesn’t report plan usage.'
   if (billing === 'api-key') return 'Subscription usage isn’t available with API key billing.'
   if (agent === 'antigravity')
     return 'Usage figures are unavailable unless reported by Antigravity.'

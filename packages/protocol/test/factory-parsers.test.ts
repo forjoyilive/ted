@@ -194,7 +194,7 @@ rejects(
 rejects(
   P.parseCheckTryRequest,
   { name: 'Docs', instruction: 'Check the docs.', agent: 'gpt', taskId: 'task-1' },
-  'agent must be codex, claude, antigravity, same',
+  'agent must be codex, claude, antigravity, pi, same',
 )
 rejects(
   P.parseInstructionChecks,

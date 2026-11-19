@@ -6,9 +6,11 @@ import {
   agentProblem,
   agentShortNames,
   antigravityPlanNotice,
+  type Billing,
   bannerId,
   type DaemonEvent,
   type FixCommand,
+  isBilledAgent,
   type MachineSettings,
   offlineProblem,
   type PlanUsage,
@@ -48,6 +50,7 @@ export interface AgentHealthMonitor {
   planUsage(kind: AgentKind, windows: readonly PlanWindow[]): void
   setOnline(online: boolean): void
   fix(kind: AgentKind): Promise<AgentHealth>
+  models(kind: AgentKind): Promise<string[]>
   onReady(listener: (kind: AgentKind) => void): void
   onPaused(listener: (kind: AgentKind, state: AgentHealthState) => void): void
   onProbe(listener: (kind: AgentKind) => boolean): void
@@ -115,7 +118,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     })
     emit({ type: 'agent-health-changed', health })
   }
-  const billing = (kind: AgentKind) => store.settings().billing[kind]
+  const billing = (kind: AgentKind): Billing =>
+    isBilledAgent(kind) ? store.settings().billing[kind] : 'subscription'
+  const pausesFor = (kind: AgentKind) => agents.get(kind).health.ignoresOfflineAndLimits !== true
 
   function fixFor(kind: AgentKind, state: AgentHealthState): FixCommand | undefined {
     const spec = agents.get(kind).health
@@ -164,17 +169,37 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     return done('ready', account)
   }
 
+  const listing = new Map<AgentKind, Promise<string[]>>()
+
+  function models(kind: AgentKind): Promise<string[]> {
+    const running = listing.get(kind)
+    if (running) return running
+    const agent = agents.get(kind)
+    const list = agent.health.models
+    if (!list || !enabled(kind) || inspected.get(kind)?.state === 'too-old')
+      return Promise.resolve([])
+    const env = agent.environment(options.runEnv(), billing(kind))
+    const binary = findBinSync(agent.binary, env)
+    if (!binary) return Promise.resolve([])
+    const asked = list({ binary, env, cwd: home })
+      .then((found) => found ?? [])
+      .catch(() => [])
+      .finally(() => listing.delete(kind))
+    listing.set(kind, asked)
+    return asked
+  }
+
   function compose(kind: AgentKind): AgentHealth | undefined {
     const found = inspected.get(kind)
     if (!found) return undefined
-    const limit = limits.get(kind)
+    const limit = pausesFor(kind) ? limits.get(kind) : undefined
     const wrongKey = wrongKeys.has(kind)
     const state: AgentHealthState =
       found.state !== 'ready'
         ? found.state
         : wrongKey
           ? 'wrong-credential'
-          : offline
+          : offline && pausesFor(kind)
             ? 'offline'
             : limit
               ? 'usage-limit'
@@ -435,7 +460,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   }
 
   function limited(kind: AgentKind, reported?: string): void {
-    if (closed) return
+    if (closed || !pausesFor(kind)) return
     const current = limits.get(kind)
     const known = current?.resetsAt
     const resetsAt =
@@ -587,6 +612,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       for (const kind of agentKinds) publish(kind)
     },
     fix,
+    models,
     onReady(listener) {
       readyListeners.add(listener)
     },

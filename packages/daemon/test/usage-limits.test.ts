@@ -352,6 +352,7 @@ describe('Offline', () => {
       ['claude', 'offline', 'offline'],
       ['codex', 'offline', 'offline'],
       ['antigravity', 'not-installed', 'Antigravity isn’t installed'],
+      ['pi', 'not-installed', 'Pi isn’t installed'],
     ])
     expect((await getTask(client, task.id))?.status).toEqual({ kind: 'paused', reason: 'offline' })
 

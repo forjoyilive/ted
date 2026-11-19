@@ -64,16 +64,22 @@ export interface AgentHealth {
   checkedAt: string
 }
 
+export interface AgentModels {
+  models: string[]
+}
+
 export const agentDisplayNames: Record<AgentKind, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   antigravity: 'Antigravity',
+  pi: 'Pi',
 }
 
 export const agentShortNames: Record<AgentKind, string> = {
   claude: 'Claude',
   codex: 'Codex',
   antigravity: 'Antigravity',
+  pi: 'Pi',
 }
 
 export function resetTime(

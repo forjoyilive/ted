@@ -163,15 +163,22 @@ export function machineArea(ctx: StoreContext): MachineArea {
       const after = new Map(value.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
       const waitsBefore = storeState.queueActivity.backlogWaits
       const waitsAfter = value.backlogWaits
+      const holdsBefore = storeState.queueActivity.startHolds
+      const holdsAfter = value.startHolds
       const moved = [
         ...new Set([
           ...before.keys(),
           ...after.keys(),
           ...(waitsBefore?.keys() ?? []),
           ...(waitsAfter?.keys() ?? []),
+          ...(holdsBefore?.keys() ?? []),
+          ...(holdsAfter?.keys() ?? []),
         ]),
       ].filter(
-        (id) => before.get(id) !== after.get(id) || waitsBefore?.get(id) !== waitsAfter?.get(id),
+        (id) =>
+          before.get(id) !== after.get(id) ||
+          waitsBefore?.get(id) !== waitsAfter?.get(id) ||
+          holdsBefore?.get(id) !== holdsAfter?.get(id),
       )
       storeState.queueActivity = value
       if (moved.length > 0) storeState.stateCommits += 1

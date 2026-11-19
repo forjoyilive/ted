@@ -1,10 +1,12 @@
-import type { AgentHealth, AgentKind, Billing } from '@ted/protocol'
+import type { AgentHealth, AgentKind, BilledAgentKind, Billing } from '@ted/protocol'
 import { agentShortNames, runsPaused } from '@ted/protocol/health'
+import { agentBilling } from '@ted/protocol/settings'
 import { type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import {
   fullestWindow,
   usageAgents,
   usageEmpty,
+  usageNone,
   usageReset,
   usageTone,
   usageWindowNames,
@@ -16,7 +18,7 @@ import { AgentMark } from './RunIcon.tsx'
 
 interface UsageProps {
   health: readonly AgentHealth[]
-  billing: Readonly<Record<AgentKind, Billing>>
+  billing: Readonly<Record<BilledAgentKind, Billing>>
   agents: readonly AgentKind[]
 }
 
@@ -68,10 +70,10 @@ export function PlanUsage({
             const window = fullestWindow(
               usageWindows(
                 health.find((h) => h.agent === agent),
-                billing[agent],
+                agentBilling(billing, agent) ?? 'subscription',
               ),
             )
-            return `${agentShortNames[agent]}: ${window ? `${usageWindowNames[window.window]}, ${Math.round(window.percent)}%` : billing[agent] === 'api-key' ? 'API key' : 'No usage yet'}`
+            return `${agentShortNames[agent]}: ${window ? `${usageWindowNames[window.window]}, ${Math.round(window.percent)}%` : usageNone(agent, agentBilling(billing, agent))}`
           })
           .join('; ')}
         aria-haspopup="dialog"
@@ -84,11 +86,13 @@ export function PlanUsage({
         </span>
         {agents.map((agent) => {
           const known = health.find((h) => h.agent === agent)
-          const window = fullestWindow(usageWindows(known, billing[agent]))
+          const window = fullestWindow(
+            usageWindows(known, agentBilling(billing, agent) ?? 'subscription'),
+          )
           const reset = usageReset(window?.resetsAt, now)
           const label = window
             ? `${agentShortNames[agent]} · ${usageWindowNames[window.window]} · ${Math.round(window.percent)}%${reset ? ` · ${reset === 'Awaiting update' ? reset : `resets in ${reset}`}` : ''}`
-            : `${agentShortNames[agent]} · ${billing[agent] === 'api-key' ? 'API key' : 'No usage yet'}`
+            : `${agentShortNames[agent]} · ${usageNone(agent, agentBilling(billing, agent))}`
           return (
             <span
               key={agent}
@@ -200,7 +204,9 @@ function UsagePopover({
       {agents.length === 0 && <p className={styles.empty}>No Providers are set up.</p>}
       {agents.map((agent) => {
         const known = health.find((h) => h.agent === agent)
-        const top = fullestWindow(usageWindows(known, billing[agent]))
+        const top = fullestWindow(
+          usageWindows(known, agentBilling(billing, agent) ?? 'subscription'),
+        )
         const reset = usageReset(top?.resetsAt, now)
         return (
           <section
@@ -218,14 +224,16 @@ function UsagePopover({
                     <span>{reset === 'Awaiting update' ? 'Update due' : reset}</span>{' '}
                     <b data-tone={usageTone(top.percent)}>{Math.round(top.percent)}%</b>
                   </>
-                ) : billing[agent] === 'api-key' ? (
-                  'API key'
                 ) : (
-                  'No usage yet'
+                  usageNone(agent, agentBilling(billing, agent))
                 )}
               </span>
             </div>
-            {!top && <p className={styles.note}>{usageEmpty(agent, billing[agent])}</p>}
+            {!top && (
+              <p className={styles.note}>
+                {usageEmpty(agent, agentBilling(billing, agent) ?? 'subscription')}
+              </p>
+            )}
             <p className={styles.note}>{freshness(known, now)}</p>
           </section>
         )

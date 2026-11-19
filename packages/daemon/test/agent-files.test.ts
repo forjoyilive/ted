@@ -245,7 +245,7 @@ describe('checking Agent files', () => {
       'error .ted/agents.yaml 3 3 unknown key `helper.colour`; an Agent has name, description, agent, model, powers, commands, outside_commands, based_on',
       'error .ted/agents.yaml 4 1 `Bad_Id` isn’t an Agent id; an Agent id is lowercase letters, digits and hyphens, up to 40 characters',
       'error .ted/agents.yaml 6 1 `scout` has no instructions file; add agents/scout.md',
-      'error .ted/agents.yaml 8 10 `scout.agent` must be claude, codex or antigravity',
+      'error .ted/agents.yaml 8 10 `scout.agent` must be claude, codex, antigravity or pi',
     ])
   })
 

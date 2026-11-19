@@ -23,6 +23,7 @@ import {
   rawRequest,
   stubClaudePath,
   stubCodexPath,
+  stubPiPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -53,7 +54,10 @@ const setStub = (
   state: { version?: string; signedIn?: boolean; authMethod?: string; apiKeySource?: string },
 ) => writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
 
-async function start(options: { codex?: boolean; antigravity?: boolean } = {}) {
+async function start(
+  options: { codex?: boolean; antigravity?: boolean; pi?: boolean; online?: () => boolean } = {},
+) {
+  const online = options.online
   daemon = await startDaemon({
     home,
     version: '9.9.9',
@@ -62,6 +66,10 @@ async function start(options: { codex?: boolean; antigravity?: boolean } = {}) {
       ? fileURLToPath(new URL('./fixtures/stub-antigravity.ts', import.meta.url))
       : path.join(scratch, 'no-agy-here'),
     codexBin: options.codex ? stubCodexPath : path.join(scratch, 'no-codex-here'),
+    piBin: options.pi ? stubPiPath : path.join(scratch, 'no-pi-here'),
+    ...(online && {
+      online: { isOnline: async () => online(), onlineEveryMs: 100, offlineEveryMs: 100 },
+    }),
     fixPollMs: 100,
     checkAgentsOnStart: true,
     integrations: {
@@ -125,6 +133,13 @@ describe('Agent health', () => {
       fix: { label: 'Install', command: 'npm install -g @openai/codex' },
     })
     expect(await agentBanner(client, 'codex')).toBeUndefined()
+
+    const pi = await waitUntil(() => healthOf(client, 'pi'), 'Pi’s health')
+    expect(pi).toMatchObject({
+      state: 'not-installed',
+      fix: { label: 'Install', command: 'npm install -g @earendil-works/pi-coding-agent' },
+    })
+    expect(await agentBanner(client, 'pi')).toBeUndefined()
   })
 
   test('a CLI signed in with an API key under Subscription offers a subscription sign-in', async () => {
@@ -365,6 +380,52 @@ test('Antigravity ACP failures offer repair guidance instead of sign-in and reco
     const health = await healthOf(client, 'antigravity')
     return health?.reason?.includes('GEMINI_API_KEY') ? health : undefined
   }, 'API-key billing to need a key, not the plan notice')
+})
+
+test('Pi is Ready once it lists a model, stays Ready offline, says when it is too old or lists no models, and serves its models', async () => {
+  let online = true
+  const client = await start({ pi: true, online: () => online })
+  const pi = await waitUntil(async () => {
+    const health = await healthOf(client, 'pi')
+    return health?.state === 'ready' ? health : undefined
+  }, 'Pi to be Ready')
+  expect(pi).toMatchObject({ version: '1.5.2', minimumVersion: '1.5.2', path: stubPiPath })
+  const models = async () =>
+    (await client.ok<{ models: string[] }>('GET', '/agents/pi/models')).models
+  expect(await models()).toEqual(['stub/model-0', 'stub/model-1'])
+  expect(await client.ok<{ models: string[] }>('GET', '/agents/claude/models')).toEqual({
+    models: [],
+  })
+  expect((await client.call('GET', '/agents/nobody/models')).status).toBe(404)
+
+  online = false
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'offline' || undefined,
+    'Claude Code to be offline',
+  )
+  expect((await healthOf(client, 'pi'))?.state).toBe('ready')
+  expect(await agentBanner(client, 'pi')).toBeUndefined()
+  online = true
+
+  const checked = async () =>
+    (await client.ok<AgentHealth[]>('POST', '/agents/health/check')).find((h) => h.agent === 'pi')
+  const stub = path.join(home, 'stub-pi.json')
+  await writeFile(stub, JSON.stringify({ version: '1.4.0' }))
+  expect(await checked()).toMatchObject({
+    state: 'too-old',
+    version: '1.4.0',
+    fix: { label: 'Update', command: 'npm install -g @earendil-works/pi-coding-agent@latest' },
+  })
+  expect(await models()).toEqual([])
+  await writeFile(stub, JSON.stringify({ models: 0 }))
+  expect(await checked()).toMatchObject({
+    state: 'unavailable',
+    reason: 'Pi lists no models. Add a model to Pi, then choose Check again.',
+  })
+  expect(await models()).toEqual([])
+  await writeFile(stub, JSON.stringify({ models: 3 }))
+  expect((await checked())?.state).toBe('ready')
+  expect(await models()).toEqual(['stub/model-0', 'stub/model-1', 'stub/model-2'])
 })
 
 test('off agents skip routine checks and setup banners until re-enabled', async () => {

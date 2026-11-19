@@ -83,6 +83,7 @@ import {
 import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
 import { type Json, parseJson } from '@ted/protocol/parse'
 import { matchReference, shortReference } from '@ted/protocol/reference'
+import { agentKindList } from '@ted/protocol/run'
 import { isCleanup } from '@ted/protocol/stage'
 import { appWaitLine } from './app-wait.ts'
 import { asanaImportedText, asanaIntakeText, asanaTreeText } from './asana.ts'
@@ -254,7 +255,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       }
       const count = notes === undefined ? undefined : Number(notes)
       if (count !== undefined && !(Number.isInteger(count) && count >= 0)) {
-        throw new UsageError(`--${name}-notes must be a whole number`)
+        throw new UsageError(
+          `--${name}-notes takes the number of notes, such as --${name}-notes 2, not their text`,
+        )
       }
       return { passed: result !== 'fail', ...(count !== undefined && { notes: count }) }
     }
@@ -271,7 +274,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     if (file === undefined)
       throw new UsageError('give the sub-agent’s instructions with --prompt-file <file>')
     if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-      throw new UsageError('--provider must be claude, codex or antigravity')
+      throw new UsageError(`--provider must be ${agentKindList}`)
     }
     if (effort !== undefined && !efforts.includes(effort as Effort)) {
       throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
@@ -1856,7 +1859,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (options['stage-effort'] && effort !== undefined)
         throw new UsageError('choose --stage-effort or --effort')
       if (!agentKinds.includes(agent as AgentKind))
-        throw new UsageError('the Provider must be claude, codex or antigravity')
+        throw new UsageError(`the Provider must be ${agentKindList}`)
       if (effort !== undefined && !efforts.includes(effort as Effort)) {
         throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
       }

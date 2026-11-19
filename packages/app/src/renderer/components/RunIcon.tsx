@@ -1,5 +1,5 @@
 import type { AgentKind } from '@ted/protocol'
-import { ClaudeCodeMark, CodexMark } from './icons.tsx'
+import { ClaudeCodeMark, CodexMark, PiMark } from './icons.tsx'
 import styles from './RunIcon.module.css'
 
 export type RunIconState = 'working' | 'waiting' | 'idle' | 'paused' | 'failed'
@@ -16,6 +16,7 @@ export const agentNames: Record<AgentKind | 'codex', string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   antigravity: 'Antigravity',
+  pi: 'Pi',
 }
 
 export function AgentMark({ agent, size }: { agent: AgentKind | 'codex'; size: number }) {
@@ -25,6 +26,7 @@ export function AgentMark({ agent, size }: { agent: AgentKind | 'codex'; size: n
         <path d="M8 1 15 15h-3L8 6l-4 9H1Z" fill="currentColor" />
       </svg>
     )
+  if (agent === 'pi') return <PiMark size={size} />
   return agent === 'codex' ? <CodexMark size={size} /> : <ClaudeCodeMark size={size} />
 }
 

@@ -143,6 +143,7 @@ export interface CheckWork {
 export interface QueueActivity {
   taskPlaces?: readonly { id: string; place: number; skipsBusy?: true }[]
   backlogWaits?: ReadonlyMap<string, BacklogWait>
+  startHolds?: ReadonlyMap<string, string>
   queuedTasks: readonly string[]
   queuedRuns: readonly string[]
   startingRuns: readonly string[]

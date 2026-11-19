@@ -416,7 +416,7 @@ describe('Factory settings: Agents, Permissions and notes', () => {
     expect(after.agents.find((a) => a.role === 'reviewer')?.from).toBe('ted')
   })
 
-  test('an agent row must name claude, codex or antigravity and a model name', async () => {
+  test('an agent row must name claude, codex, antigravity or pi and a model name', async () => {
     const client = await start()
     const view = await client.settings()
     const refused = async (lead: unknown) =>
@@ -426,7 +426,7 @@ describe('Factory settings: Agents, Permissions and notes', () => {
       })
     expect(await refused({ agent: 'gpt' })).toEqual({
       status: 400,
-      body: { error: 'lead.agent must be claude, codex or antigravity' },
+      body: { error: 'lead.agent must be claude, codex, antigravity or pi' },
     })
     expect(await refused({ agent: 'claude', model: 'opus; rm -rf ~' })).toEqual({
       status: 400,

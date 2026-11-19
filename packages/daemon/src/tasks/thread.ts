@@ -49,6 +49,7 @@ const agentNames: Record<string, string> = {
   claude: 'Claude',
   codex: 'Codex',
   antigravity: 'Antigravity',
+  pi: 'Pi',
 }
 
 const skipReasons: Record<CopySkip['reason'], string> = {

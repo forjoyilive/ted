@@ -122,7 +122,7 @@ test('Antigravity shows the approved tool explanation only in its help bubble, i
   if (!toolHelp) throw new Error('Missing tool warning help')
   await user().click(toolHelp)
   expect(panel.getByRole('tooltip').textContent).toBe(
-    'Its built-in tools may run without asking. Ted uses an isolated workspace and keeps file, command, web and MCP permissions denied. Choose Claude Code or Codex if you need a tool-free chat.',
+    'Its built-in tools may run without asking. Ted uses an isolated workspace and keeps file, command, web and MCP permissions denied. Choose Claude Code, Codex or Pi if you need a tool-free chat.',
   )
   fireEvent.keyDown(toolHelp, { key: 'Escape' })
   expect(panel.queryByRole('tooltip')).toBeNull()
@@ -156,7 +156,7 @@ test.each(['antigravity', 'claude', 'codex'] as const)(
     if (agent === 'antigravity') {
       await user().click(screen.getByRole('button', { name: 'Help' }))
       expect(screen.getByRole('tooltip').textContent).toContain(
-        'Choose Claude Code or Codex if you need a tool-free chat.',
+        'Choose Claude Code, Codex or Pi if you need a tool-free chat.',
       )
     }
   },

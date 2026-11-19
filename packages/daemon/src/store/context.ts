@@ -1195,11 +1195,13 @@ export async function openContext({
           !reads.settings().enabledAgents.includes((leadAgent ?? held?.agent) as AgentKind) &&
           (!leadLive || lead?.agent !== (leadAgent ?? held?.agent))
             ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Providers.` }
-            : place > 0
-              ? storeState.newWorkHeld === undefined
-                ? { place, ...(skipsBusy && { skipsBusy: true as const }) }
-                : { hold: storeState.newWorkHeld }
-              : { hold: 'Waiting for a Provider' },
+            : storeState.queueActivity.startHolds?.has(row.id)
+              ? { hold: storeState.queueActivity.startHolds.get(row.id) ?? '' }
+              : place > 0
+                ? storeState.newWorkHeld === undefined
+                  ? { place, ...(skipsBusy && { skipsBusy: true as const }) }
+                  : { hold: storeState.newWorkHeld }
+                : { hold: 'Waiting for a Provider' },
       }),
       ...(place > 0 && storeState.heldBusy && { busy: storeState.heldBusy }),
       queuedSubAgents: reads.subAgentRequests(row.id).map((r) => ({

@@ -111,28 +111,43 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     await writeFile(path.join(clone, 'HEAD'), 'ref')
     const id = randomUUID()
     const xcodeSave = path.join(saves, `NSIRD_SWBBuildService_${id}`)
+    const assetSave = path.join(saves, `NSIRD_actool_${id}`)
+    const assetHelperSave = path.join(saves, `NSIRD_ibtoold_${id}`)
+    const swiftSave = path.join(saves, `NSIRD_swift-build_${id}`)
     const otherSave = path.join(saves, `NSIRD_TextEdit_${id}`)
+    const interfaceSave = path.join(saves, `NSIRD_ibtool_${id}`)
     const looseSave = path.join(saves, `ted-${id}`)
     await mkdir(otherSave, { recursive: true })
+    await mkdir(interfaceSave, { recursive: true })
     const result = await inSandbox(
       [
         tryWrite(path.join(worktree, 'a.txt')),
         'echo x > "$TMPDIR/b.txt" && echo wrote',
         'mkdir -p "$npm_config_cache" && echo x > "$npm_config_cache/c" && echo wrote',
         'echo x > "$TED_DERIVED_DATA/d" && test -d "$TED_SWIFTPM_CACHE" && test -d "$CLANG_MODULE_CACHE_PATH" && test "$TED_SANDBOX" = 1 && test "$MAC_CHROMIUM_TMPDIR" = "$TMPDIR" && echo wrote',
+        'echo x > "$CP_HOME_DIR/e" && echo wrote',
         `mkdir '${xcodeSave}' && ${tryWrite(path.join(xcodeSave, 'x'))}`,
+        `mkdir '${assetSave}' && ${tryWrite(path.join(assetSave, 'x'))}`,
+        `mkdir '${assetHelperSave}' && ${tryWrite(path.join(assetHelperSave, 'x'))}`,
+        `mkdir '${swiftSave}' && ${tryWrite(path.join(swiftSave, 'x'))}`,
         tryWrite(path.join(otherSave, 'x')),
+        tryWrite(path.join(interfaceSave, 'x')),
         tryWrite(looseSave),
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 8)).toEqual([
+    expect(result.stdout.split('\n').slice(0, 13)).toEqual([
       'wrote',
       'wrote',
       'wrote',
       'wrote',
       'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'refused',
       'refused',
       'refused',
       'read',
@@ -140,31 +155,76 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(await readFile(path.join(worktree, 'a.txt'), 'utf8')).toBe('x\n')
     const cache = await realpath(scope().cache)
     expect(await readFile(path.join(cache, 'xcode', 'DerivedData', 'd'), 'utf8')).toBe('x\n')
+    expect(await readFile(path.join(cache, 'cocoapods', 'e'), 'utf8')).toBe('x\n')
     expect(result.stdout).toContain(path.basename(tmp))
-    for (const dir of [xcodeSave, otherSave, looseSave])
+    for (const dir of [
+      xcodeSave,
+      assetSave,
+      assetHelperSave,
+      swiftSave,
+      otherSave,
+      interfaceSave,
+      looseSave,
+    ])
       await rm(dir, { recursive: true, force: true })
   })
 
-  test('a sandboxed command makes and removes SwiftPM’s TemporaryDirectory folders in the per-user temp folder, and nothing else there', async () => {
+  test('a sandboxed command makes and removes SwiftPM’s and Swift Build’s temp folders in the per-user temp folder, and nothing else there', async () => {
     const id = randomUUID()
     const longer = path.join(userTemp, `TemporaryDirectory.${id.slice(0, 6)}x`)
     const shorter = path.join(userTemp, `TemporaryDirectory.${id.slice(0, 5)}`)
+    const swbuildLonger = path.join(userTemp, `swbuild.tmp.${id.slice(0, 8)}x`)
+    const swbuildShorter = path.join(userTemp, `swbuild.tmp.${id.slice(0, 7)}`)
     const loose = path.join(userTemp, `ted-${id}`)
     const result = await inSandbox(
       [
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && rm -r "$d" && test ! -e "$d" && echo wrote || echo refused`,
+        `d=$(mktemp -d '${userTemp}/swbuild.tmp.XXXXXXXX') && echo x > "$d/build.db" && rm -r "$d" && test ! -e "$d" && echo wrote || echo refused`,
         `mkdir '${longer}' 2>/dev/null && echo wrote || echo refused`,
         `mkdir '${shorter}' 2>/dev/null && echo wrote || echo refused`,
+        `mkdir '${swbuildLonger}' 2>/dev/null && echo wrote || echo refused`,
+        `mkdir '${swbuildShorter}' 2>/dev/null && echo wrote || echo refused`,
         tryWrite(loose),
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 4)).toEqual([
+    expect(result.stdout.split('\n').slice(0, 7)).toEqual([
+      'wrote',
       'wrote',
       'refused',
       'refused',
       'refused',
+      'refused',
+      'refused',
     ])
-    for (const dir of [longer, shorter, loose]) await rm(dir, { recursive: true, force: true })
+    for (const dir of [longer, shorter, swbuildLonger, swbuildShorter, loose])
+      await rm(dir, { recursive: true, force: true })
+  })
+
+  test('a sandboxed command can’t list the per-user temp folder or its TemporaryItems folder, but reaches its own folders there by name', async () => {
+    const tryList = (dir: string) => `ls '${dir}' >/dev/null 2>&1 && echo listed || echo refused`
+    const xcodeSave = path.join(saves, `NSIRD_xcodebuild_${randomUUID()}`)
+    const result = await inSandbox(
+      [
+        tryList(userTemp),
+        tryList(`${userTemp}/`),
+        tryList(saves),
+        `cd '${userTemp}' && ${tryList('.')}`,
+        `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && ls "$d" && cat "$d/Package.swift" && rm -r "$d" && echo reached || echo refused`,
+        `mkdir '${xcodeSave}' && echo x > '${xcodeSave}/x' && ls '${xcodeSave}' && echo reached || echo refused`,
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'Package.swift',
+      'x',
+      'reached',
+      'x',
+      'reached',
+    ])
+    await rm(xcodeSave, { recursive: true, force: true })
   })
 
   test('git reads the worktree through the Task’s clone', async () => {
@@ -262,6 +322,54 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     ])
   })
 
+  test('it writes plain .dia files in SwiftPM’s ManifestLoading folder and nothing else in SwiftPM’s caches', async () => {
+    const home = await realpath(outside)
+    const manifests = path.join(home, 'Library', 'Caches', 'org.swift.swiftpm', 'manifests')
+    const logs = path.join(manifests, 'ManifestLoading')
+    const target = path.join(home, 'target.txt')
+    await writeFile(target, 'keep')
+    const result = await inSandbox(
+      [
+        tryWrite(path.join(logs, 'apple.dia')),
+        `ln -s '${target}' '${path.join(logs, 'linked.dia')}' 2>/dev/null && echo wrote || echo refused`,
+        `ln '${target}' '${path.join(logs, 'hard.dia')}' 2>/dev/null && echo wrote || echo refused`,
+        `echo own > own.txt && ln own.txt '${path.join(logs, 'own.dia')}' 2>/dev/null && echo wrote || echo refused`,
+        `mkdir '${path.join(logs, 'folder.dia')}' 2>/dev/null && echo wrote || echo refused`,
+        tryWrite(path.join(logs, 'apple.txt')),
+        tryWrite(path.join(manifests, 'manifest.db')),
+        `mv '${logs}' '${path.join(manifests, 'moved')}' 2>/dev/null && echo wrote || echo refused`,
+      ].join('; '),
+      [],
+      home,
+    )
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'wrote',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+    ])
+    expect(await readFile(target, 'utf8')).toBe('keep')
+  })
+
+  test('it opens no SwiftPM folder that leads somewhere else through a link', async () => {
+    const home = await realpath(outside)
+    const manifests = path.join(home, 'Library', 'Caches', 'org.swift.swiftpm', 'manifests')
+    const elsewhere = path.join(home, 'elsewhere')
+    await mkdir(manifests, { recursive: true })
+    await mkdir(elsewhere)
+    await symlink(elsewhere, path.join(manifests, 'ManifestLoading'))
+    const result = await inSandbox(
+      tryWrite(path.join(manifests, 'ManifestLoading', 'apple.dia')),
+      [],
+      home,
+    )
+    expect(result.stdout.trim()).toBe('refused')
+  })
+
   test('it can’t hand work to launchd or write preferences through cfprefsd', async () => {
     const label = `ted.sandbox.${randomUUID()}`
     const marker = path.join(outside, 'launched')
@@ -290,10 +398,11 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
   })
 
-  test('it reaches Unix sockets only in its own folders and the ones the Factory lists', async () => {
+  test('it reaches Unix sockets only in its own folders and the ones the Factory lists', async (context) => {
     const own = path.join(tmp, 'o.s')
     const listed = path.join(outside, 'listed.sock')
     const other = path.join(outside, 'other.sock')
+    skipLongSockets(context, [own, listed, other])
     const servers = await Promise.all([own, listed, other].map(listen))
     try {
       const result = await inSandbox(

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import type { AgentHealth } from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AgentsPage } from '../src/renderer/settings/AgentsPage.tsx'
 import { LeadSelects } from '../src/renderer/views/PlanChat.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 import { createdAt } from './support/fixtures.ts'
 
 const signedOut: AgentHealth = {
@@ -20,11 +20,12 @@ const signedOut: AgentHealth = {
 }
 
 test('signed-out agent shows its Fix commands and follows Ready health events', async () => {
+  const checking = deferred<AgentHealth[]>()
   const api = bridge({
     agentHealth: () => [signedOut],
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
     library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
-    checkAgentHealth: vi.fn(),
+    checkAgentHealth: () => checking.promise,
     copyText: vi.fn(),
   })
   render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
@@ -37,6 +38,9 @@ test('signed-out agent shows its Fix commands and follows Ready health events', 
   expect(api.request).toHaveBeenCalledWith('copyText', 'claude auth login')
   await user().click(c.getByRole('button', { name: 'Check again' }))
   expect(api.request).toHaveBeenCalledWith('checkAgentHealth')
+  expect(api.request).not.toHaveBeenCalledWith('agentModels', 'pi')
+  await act(async () => checking.resolve([]))
+  await waitFor(() => expect(api.request).toHaveBeenCalledWith('agentModels', 'pi'))
   await act(async () =>
     api.emit({
       type: 'agent-health-changed',
@@ -240,13 +244,13 @@ test('Antigravity on a Google plan shows Google’s terms and saves the choice t
 })
 
 test('each agent’s panel shows what its Runs of the last 30 days would cost on an API key', async () => {
-  const agent = (kind: 'claude' | 'codex' | 'antigravity') => ({
+  const agent = (kind: 'claude' | 'codex' | 'antigravity' | 'pi') => ({
     ...signedOut,
     agent: kind,
     pausedRuns: 0,
   })
   bridge({
-    agentHealth: () => [agent('claude'), agent('codex'), agent('antigravity')],
+    agentHealth: () => [agent('claude'), agent('codex'), agent('antigravity'), agent('pi')],
     library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     apiCost: () => ({
       days: 30,
@@ -261,6 +265,7 @@ test('each agent’s panel shows what its Runs of the last 30 days would cost on
           input: 2_400_000,
           output: 310_000,
         },
+        { agent: 'pi', runs: 2, pricedRuns: 2, cost: 0.4, input: 12_000, output: 3_000 },
       ],
     }),
   })
@@ -286,4 +291,11 @@ test('each agent’s panel shows what its Runs of the last 30 days would cost on
   const antigravity = within(screen.getByRole('region', { name: 'Antigravity' }))
   expect(antigravity.getByText('Not available')).toBeTruthy()
   expect(antigravity.getByText('Antigravity doesn’t report the tokens it uses.')).toBeTruthy()
+  const pi = within(screen.getByRole('region', { name: 'Pi' }))
+  expect(pi.getByText('Last 30 days')).toBeTruthy()
+  expect(pi.getByText('$0.40 for 2 Runs')).toBeTruthy()
+  expect(pi.getByText('12K input and 3K output tokens.')).toBeTruthy()
+  expect(pi.getByText('The cost Pi reported for each Run.')).toBeTruthy()
+  expect(pi.queryByRole('radiogroup')).toBeNull()
+  expect(pi.getByText('Not available')).toBeTruthy()
 })

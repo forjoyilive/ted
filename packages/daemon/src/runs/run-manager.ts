@@ -22,6 +22,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type {
   AgentKind,
+  Billing,
   PermissionMode,
   PlanWindow,
   Run,
@@ -29,10 +30,10 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import { antigravityPlanNotice, filterTedEnv, runTokenEnv } from '@ted/protocol'
+import { antigravityPlanNotice, filterTedEnv, isBilledAgent, runTokenEnv } from '@ted/protocol'
 import { isInteger, isObject, parseJson } from '@ted/protocol/parse'
 import { chatToolPolicy } from '@ted/protocol/run'
-import { AgentDisabledError } from '../agent-eligibility.ts'
+import { AgentDisabledError, piAutoHold } from '../agent-eligibility.ts'
 import {
   type AutoModeSignal,
   type CredentialReport,
@@ -42,13 +43,19 @@ import {
   type UsageSignal,
 } from '../agents/agent.ts'
 import type { AgentLaunch, Agents } from '../agents/index.ts'
+import { piNeedsBypass } from '../agents/pi.ts'
 import { RequestError } from '../errors.ts'
 import type { MakeDirectory } from '../files.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { type MemoryWatch, type MemoryWatching, runKilledForMemory } from '../memory-kills.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
-import { acquireRunPermissions, runPermissions, withRunPermissions } from '../permissions.ts'
+import {
+  acquireRunPermissions,
+  factoryPermissions,
+  runPermissions,
+  withRunPermissions,
+} from '../permissions.ts'
 import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
@@ -233,18 +240,41 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (shuttingDown) throw new RequestError(503, 'Ted is shutting down')
   }
 
-  const billingOf = (kind: AgentKind) => store.settings().billing[kind]
   // Every launch of an agent passes here, so nothing starts Antigravity on a Google plan
-  // before the human has accepted Google’s terms notice, whatever agent health last said.
-  const launchBilling = (kind: AgentKind) => {
+  // before the human has accepted Google’s terms notice, whatever agent health last said,
+  // and nothing starts Pi, which has no sandbox, outside a Bypass Factory.
+  const launchBilling = (
+    kind: AgentKind,
+    runId: string,
+    taskId: string | undefined,
+  ): Billing | undefined => {
     const settings = store.settings()
+    const piRefused = kind === 'pi' ? piRefusal(runId, taskId) : undefined
+    if (piRefused !== undefined) throw new RequestError(409, piRefused)
+    if (!isBilledAgent(kind)) return undefined
     if (
       kind === 'antigravity' &&
       settings.billing.antigravity === 'subscription' &&
       !settings.antigravityPlanAccepted
     )
       throw new RequestError(409, antigravityPlanNotice)
-    return billingOf(kind)
+    return settings.billing[kind]
+  }
+
+  const piRefusal = (runId: string, taskId: string | undefined): string | undefined => {
+    const firing = store.automations.firing(runId)
+    const owner =
+      taskId !== undefined
+        ? { factoryId: store.getTask(taskId)?.factoryId }
+        : (store.coordinators.forRun(runId) ??
+          store.sideChats.forRun(runId) ??
+          store.plans.get(runId) ??
+          store.automationDrafts.get(runId) ??
+          (firing && { factoryId: store.automations.get(firing.automationId)?.factoryId }))
+    if (owner === undefined) return piNeedsBypass
+    return owner.factoryId !== undefined && factoryPermissions(store, owner.factoryId) === 'bypass'
+      ? undefined
+      : piAutoHold
   }
 
   const environment = (): NodeJS.ProcessEnv => {
@@ -832,7 +862,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
         tools: chatToolPolicy(run.agent),
       }),
-      billing: launchBilling(run.agent),
+      billing: launchBilling(run.agent, run.id, run.taskId),
     })
     const inputSize = await stat(files.input).then(
       (info) => info.size,
@@ -947,6 +977,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       cwd: launch.cwd ?? cwd,
       input: launch.input,
       ...(launch.driver !== undefined && { driver: launch.driver }),
+      ...(launch.lines !== undefined && { lines: launch.lines }),
       ...(inputFrom !== undefined && { inputFrom }),
     }
     const file = runFiles(runDir).launch
@@ -1251,7 +1282,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
               tools: chatToolPolicy(kind),
             }),
-            billing: launchBilling(kind),
+            billing: launchBilling(kind, id, taskId),
           })
           await writeLaunch(
             runDir,
@@ -1331,7 +1362,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
             tools: chatToolPolicy(run.agent),
           }),
-          billing: launchBilling(run.agent),
+          billing: launchBilling(run.agent, runId, run.taskId),
         })
         const inputFrom = await stat(files.input).then(
           (info) => info.size,
@@ -1415,7 +1446,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
               tools: chatToolPolicy(run.agent),
             }),
-            billing: launchBilling(run.agent),
+            billing: launchBilling(run.agent, runId, run.taskId),
           })
           await writeLaunch(runDir, run.cwd, launch, permissions)
           signal.throwIfAborted()

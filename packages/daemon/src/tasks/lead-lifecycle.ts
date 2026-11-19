@@ -58,7 +58,7 @@ export interface LeadLifecycleOptions {
     | 'interrupt'
   >
   health: Pick<AgentHealthMonitor, 'ready' | 'check' | 'limited'>
-  agents: Pick<Agents, 'get'>
+  agents: Pick<Agents, 'get' | 'savedModel'>
   local(taskId: string): Promise<unknown>
   beforeLeadStart(taskId: string): Promise<WorkflowResolution | undefined>
   afterLeadStart(taskId: string): void
@@ -98,6 +98,7 @@ export interface LeadLifecycleOptions {
   stopRequested(taskId: string): boolean
   wake(): void
   background(what: string, work: () => Promise<void>): void
+  recover(taskId: string, what: string, work: () => Promise<void>): void
   hasAnswerText(comment: Comment): boolean
   refreshSteering(runId: string): Promise<void>
   memoryFreed(): Promise<boolean>
@@ -225,7 +226,11 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       ((restartAsked.has(taskId) || run.problem === 'model-unavailable') && !sameChoice(lead, run))
     if (
       restartWanted &&
-      agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)
+      agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined, {
+        factoryId: task.factoryId,
+        model: lead.model,
+        agents,
+      })
     )
       return
     if (options.mayContinue?.(taskId) === false) return
@@ -359,7 +364,11 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       if (live.state === 'working') return `${now.displayId}’s Task Lead is working again`
       if (applying.has(taskId)) return `${now.displayId}’s Task Lead is already restarting`
       return (
-        agentStartHold(store, agent, agent === live.agent ? live.id : undefined) ??
+        agentStartHold(store, agent, agent === live.agent ? live.id : undefined, {
+          factoryId: now.factoryId,
+          model: effectiveLead(now)?.model,
+          agents,
+        }) ??
         (store.newWorkHold() !== undefined ? 'Ted isn’t starting new work right now' : undefined)
       )
     }
@@ -405,7 +414,11 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       throw new RequestError(409, `${task.displayId} has no running Task Lead to restart`)
     if (sameChoice(lead, run) && !task.leadRestartPending)
       throw new RequestError(409, `${task.displayId}’s Task Lead already uses these settings`)
-    const off = agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)
+    const off = agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined, {
+      factoryId: task.factoryId,
+      model: lead.model,
+      agents,
+    })
     if (off !== undefined) throw new RequestError(409, off)
     if (lead.agent !== run.agent && !(await health.ready(lead.agent)))
       throw new RequestError(
@@ -452,7 +465,8 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     if (current.archived || current.stopped || current.waitsForBlockers) return
     const lead = effectiveLead(current, defaultLead(resolution.workflow.settings)) as TaskLead
     const agent = lead.agent
-    if (agentStartHold(store, agent) || !(await health.ready(agent))) {
+    const scope = { factoryId: current.factoryId, model: lead.model, agents }
+    if (agentStartHold(store, agent, undefined, scope) || !(await health.ready(agent))) {
       store.holdTaskRun({ ...held, agent })
       return
     }
@@ -865,7 +879,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       }
       const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
       if (run?.state === 'finished' && run.ended && run.ended.how !== 'stopped') {
-        background(`check why Run ${run.id} stopped`, () => leadStopped(run))
+        options.recover(task.id, `check why Run ${run.id} stopped`, () => leadStopped(run))
       }
     }
     silenceTimer = clock.interval(checkSilence, Math.min(60_000, Math.max(50, stallAfterMs / 4)))

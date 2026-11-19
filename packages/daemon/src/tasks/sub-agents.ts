@@ -14,7 +14,7 @@ import type {
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { validates } from '@ted/protocol/stage'
-import { AgentDisabledError } from '../agent-eligibility.ts'
+import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
@@ -43,6 +43,7 @@ export interface SubAgents {
     task: StoredTask,
     input: { name: string; prompt: string; choice: ReviewerChoice; runNow?: boolean },
   ): string | undefined
+  checkHold(task: StoredTask, choice: ReviewerChoice): string | undefined
   cancelForCheck(runId: string): Promise<void>
   result(runId: string): Promise<SubAgentWait>
   runEnv(run: Run): Promise<Record<string, string> | undefined>
@@ -545,6 +546,14 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         0,
         maxNameLength,
       )
+      if (agent === 'pi') {
+        const held = agentStartHold(store, agent, undefined, {
+          factoryId: task.factoryId,
+          model,
+          agents,
+        })
+        if (held !== undefined) throw new RequestError(409, held)
+      }
       const request = store.requestSubAgent({
         id: crypto.randomUUID(),
         taskId: task.id,
@@ -675,6 +684,14 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       })
       deps.pump()
       return id
+    },
+    checkHold(task, choice) {
+      if (choice.lead.agent !== 'pi') return undefined
+      return agentStartHold(store, choice.lead.agent, undefined, {
+        factoryId: task.factoryId,
+        model: choice.lead.model,
+        agents,
+      })
     },
     async cancelForCheck(runId) {
       if (!forCheck(runId)) return

@@ -15,7 +15,8 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | Inputs | Purpose in development and tests |
 | --- | --- |
 | `TED_REAL_ANTIGRAVITY_BIN` | Optional native CLI for the offline tool-free compatibility test. The test uses a local model fixture, never a Google key. |
-| `TED_CLAUDE_BIN`, `TED_CODEX_BIN`, `TED_ANTIGRAVITY_BIN`, `TED_GH_BIN` | Select agent and GitHub stubs or alternate development binaries. Release discovers the normal commands on the daemon’s login-shell `PATH`. |
+| `TED_REAL_PI_BIN` | Optional real `pi` for the Pi Run test in `packages/daemon/test/runs.test.ts`, which uses the machine’s own Pi setup. Without it the test is skipped. |
+| `TED_CLAUDE_BIN`, `TED_CODEX_BIN`, `TED_ANTIGRAVITY_BIN`, `TED_PI_BIN`, `TED_GH_BIN` | Select agent and GitHub stubs or alternate development binaries. Release discovers the normal commands on the daemon’s login-shell `PATH`. |
 | `TED_XCRUN_BIN`, `TED_IDB_BIN`, `TED_OPEN_BIN`, `TED_SANDBOX_BIN` | Substitute simulator, simulator input, launcher and sandbox programs. Release finds `idb` through the login-shell `PATH`. |
 | `TED_EMULATOR_BIN`, `TED_ADB_BIN`, `TED_AVDMANAGER_BIN` | Substitute the Android SDK’s `emulator`, `adb` and `avdmanager`. Release finds them in the SDK named by `ANDROID_HOME` or `ANDROID_SDK_ROOT`, or the standard SDK folder. |
 | `TED_KEYRING_MODULE` | Import a keyring implementation for tests. |
@@ -43,6 +44,8 @@ Ted sets `TED_CHECK_CPUS` on every Check command (on a Scheduled Check’s only 
 Ted sets `TED_APP_CPUS` on every iOS simulator and Android emulator App’s `run` command in the same way: the **CPU a Check may use** share of the logical cores, divided by the simulator and emulator App builds running at that moment, never less than 1. Ted never reads it; a Factory’s App script passes it to `xcodebuild -jobs` or Gradle `--max-workers`.
 
 Inside Ted’s sandbox, `TED_SANDBOX=1` also changes this repo’s test tooling: `vitest.config.ts` points `TED_SANDBOX_BIN` at `packages/daemon/test/fixtures/pass-through-sandbox.sh`, because a second sandbox can’t start inside the first, and on macOS prints `TED_SANDBOX_SKIPPED: the Electron app tests`, which a Scheduled Check shows in its result; `testCacheDir` in `packages/daemon/test/support/suite-lock.ts` keeps test locks, slots and the failure log in `$XDG_CACHE_HOME/ted`, which the sandbox points at the command’s own cache folder. A test the sandbox stops (one that needs a second sandbox, writes files Ted refuses inside a Ted home, or starts or inspects processes) calls `skipInsideTedSandbox` from `packages/daemon/test/support/ted-sandbox.ts` with the matching entry of `sandboxReasons`; it prints one `TED_SANDBOX_SKIPPED:` line per reason, and a Scheduled Check’s result shows at most five, so add a new reason only for a new kind of refusal.
+
+`vitest.config.ts` also sets `PI_CODING_AGENT_DIR`, Pi’s own variable for its settings folder, to a missing folder, so no test reads the machine’s Pi setup or its default model. Ted never sets it for a Run: Pi uses the user’s own `~/.pi/agent`.
 
 Internal output names such as `TED_COMMAND_SCRIPT` (a generated script marker) and `__TED_LOGIN_ENV__` (a shell-output delimiter) are not environment inputs. Test fixtures can have their own `TED_STUB_*` inputs outside runtime `packages/*/src`.
 

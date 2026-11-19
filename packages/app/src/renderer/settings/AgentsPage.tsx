@@ -4,6 +4,7 @@ import type {
   AgentHealth,
   AgentKind,
   ApiCostReport,
+  BilledAgentKind,
   Billing,
   PlanUsage,
   PlanWindow,
@@ -17,6 +18,8 @@ import {
   resetTime,
   runsPaused,
 } from '@ted/protocol/health'
+import { isBilledAgent } from '@ted/protocol/run'
+import { agentBilling } from '@ted/protocol/settings'
 import { useEffect, useId, useState } from 'react'
 import { AntigravityChatWarning } from '../components/AntigravityChatWarning.tsx'
 import dialogStyles from '../components/ArchiveDialogs.module.css'
@@ -25,6 +28,7 @@ import { Help } from '../components/Help.tsx'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { useAgentHealthState, useApiCost, useEventValue } from '../data.ts'
+import { refreshPiModels } from '../pi-models.ts'
 import { ago, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { timePreferences } from '../time.ts'
@@ -51,7 +55,7 @@ const windowNames: Record<PlanWindow['window'], string> = {
   weekly: 'Weekly',
 }
 
-const keyVariables: Record<AgentKind, string> = {
+const keyVariables: Record<BilledAgentKind, string> = {
   claude: 'ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN',
   codex: 'CODEX_API_KEY and OPENAI_API_KEY',
   antigravity: 'GEMINI_API_KEY and Google Cloud credentials',
@@ -142,7 +146,7 @@ function BillingChoice({
   planAccepted,
   onAcceptPlan,
 }: {
-  agent: AgentKind
+  agent: BilledAgentKind
   billing: Billing
   onChange: (billing: Billing) => void
   planAccepted: boolean
@@ -219,11 +223,13 @@ function PlanUsageSection({ health }: { health: AgentHealth }) {
         </div>
       ) : (
         <p className={styles.line}>
-          {health.agent === 'antigravity'
-            ? 'Usage figures are unavailable unless reported by Antigravity.'
-            : health.agent === 'claude'
-              ? 'Shows once a Run has made a request.'
-              : 'Shows once a Run has started.'}
+          {health.agent === 'pi'
+            ? 'Not available'
+            : health.agent === 'antigravity'
+              ? 'Usage figures are unavailable unless reported by Antigravity.'
+              : health.agent === 'claude'
+                ? 'Shows once a Run has made a request.'
+                : 'Shows once a Run has started.'}
         </p>
       )}
     </div>
@@ -263,7 +269,9 @@ export function apiCostLines(
       `${millions(used.input)} input and ${millions(used.output)} output tokens.`,
       agent === 'claude'
         ? 'The cost Claude Code reported for each Run.'
-        : 'An estimate from OpenAI’s list prices.',
+        : agent === 'pi'
+          ? 'The cost Pi reported for each Run.'
+          : 'An estimate from OpenAI’s list prices.',
       ...(used.pricedRuns < used.runs
         ? [`${used.runs - used.pricedRuns} of them reported no cost and are left out.`]
         : []),
@@ -279,7 +287,7 @@ function ApiCostSection({
 }: {
   agent: AgentKind
   report: ApiCostReport | undefined
-  billing: Billing
+  billing: Billing | undefined
 }) {
   const lines = apiCostLines(agent, report)
   if (!lines) return null
@@ -288,14 +296,18 @@ function ApiCostSection({
     <div className={styles.section}>
       <div className={styles.sectionHead}>
         <h3 className={styles.sectionTitle}>
-          {billing === 'subscription'
-            ? `If it had been on an API key, last ${days} days`
-            : `On an API key, last ${days} days`}
+          {billing === undefined
+            ? `Last ${days} days`
+            : billing === 'subscription'
+              ? `If it had been on an API key, last ${days} days`
+              : `On an API key, last ${days} days`}
         </h3>
         <Help>
-          {billing === 'subscription'
-            ? `What ${agentDisplayNames[agent]}’s finished Runs would have cost on an API key, at API prices.`
-            : `What ${agentDisplayNames[agent]}’s finished Runs cost on your API key.`}
+          {billing === undefined
+            ? `The tokens ${agentDisplayNames[agent]}’s finished Runs used, and the cost it reported for them.`
+            : billing === 'subscription'
+              ? `What ${agentDisplayNames[agent]}’s finished Runs would have cost on an API key, at API prices.`
+              : `What ${agentDisplayNames[agent]}’s finished Runs cost on your API key.`}
         </Help>
       </div>
       <p className={styles.line}>{lines.figure}</p>
@@ -333,7 +345,7 @@ function AgentCard({
   activeRuns: number
   changing: boolean
   onToggle: (enabled: boolean) => void
-  billing: Billing
+  billing: Billing | undefined
   opened: boolean
   onFix: () => void
   onCheck: () => void
@@ -399,7 +411,10 @@ function AgentCard({
         </div>
         {!enabled && (
           <p className={styles.line}>
-            Off for new Runs. Saved choices and billing are kept.
+            Off for new Runs.{' '}
+            {billing === undefined
+              ? 'Saved choices are kept.'
+              : 'Saved choices and billing are kept.'}
             {activeRuns > 0 ? ` ${activeRuns} existing Runs kept going.` : ''}
           </p>
         )}
@@ -455,13 +470,15 @@ function AgentCard({
       {enabled && (
         <>
           <ApiCostSection agent={health.agent} report={apiCost} billing={billing} />
-          <BillingChoice
-            agent={health.agent}
-            billing={billing}
-            onChange={onBilling}
-            planAccepted={planAccepted}
-            onAcceptPlan={onAcceptPlan}
-          />
+          {billing !== undefined && isBilledAgent(health.agent) && (
+            <BillingChoice
+              agent={health.agent}
+              billing={billing}
+              onChange={onBilling}
+              planAccepted={planAccepted}
+              onAcceptPlan={onAcceptPlan}
+            />
+          )}
           <PlanUsageSection health={health} />
         </>
       )}
@@ -524,6 +541,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
     } catch (error) {
       console.error(error)
     } finally {
+      await refreshPiModels()
       setChecking(false)
     }
   }
@@ -651,7 +669,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
             }
             changing={changing}
             onToggle={(enabled) => toggle(h.agent, enabled)}
-            billing={settings.billing[h.agent]}
+            billing={agentBilling(settings.billing, h.agent)}
             opened={opened[h.agent] === true && h.state !== 'ready'}
             onFix={() => fix(h.agent)}
             onCheck={() => check()}

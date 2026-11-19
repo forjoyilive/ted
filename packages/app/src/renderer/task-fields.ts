@@ -27,23 +27,24 @@ export const agentLabels: Record<AgentKind, string> = {
   claude: 'Claude',
   codex: 'Codex',
   antigravity: 'Antigravity',
+  pi: 'Pi',
 }
 
 export const modelChoices: Record<AgentKind, readonly string[]> = {
   claude: ['fable', 'opus', 'sonnet', 'haiku'],
   codex: ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'],
   antigravity: [],
+  pi: [],
 }
 
 export function modelOptions(
   agent: string | undefined,
   value: string | undefined,
   extra: readonly (string | undefined)[] = [],
+  listed: readonly string[] = agent !== undefined && Object.hasOwn(modelChoices, agent)
+    ? modelChoices[agent as AgentKind]
+    : [],
 ): string[] {
-  const listed =
-    agent !== undefined && Object.hasOwn(modelChoices, agent)
-      ? modelChoices[agent as AgentKind]
-      : []
   return [...new Set([...listed, ...extra, value].filter((model): model is string => !!model))]
 }
 

@@ -94,13 +94,26 @@ export const integrationRoutes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/agents\/([^/]+)\/models$/,
+    async handle({ params: [agent = ''] }, { health }) {
+      const kind = agentKinds.find((k) => k === agent)
+      if (!kind) throw new HttpError(404, 'no such Provider')
+      return [200, { models: await health.models(kind) }]
+    },
+  },
+  {
+    method: 'GET',
     path: /^\/agents\/api-cost$/,
     handle: async (_, { store }) => [200, store.apiCost(30)],
   },
   {
     method: 'POST',
     path: /^\/agents\/health\/check$/,
-    handle: async (_, { health }) => [200, await health.check(agentKinds, { reloadEnv: true })],
+    async handle(_, { health, tasks }) {
+      const checked = await health.check(agentKinds, { reloadEnv: true })
+      tasks.wake()
+      return [200, checked]
+    },
   },
   {
     method: 'POST',

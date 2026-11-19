@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
+import { PiAutoNote } from '../components/PiAutoNote.tsx'
 import { Select } from '../components/Select.tsx'
 import { useEventValue } from '../data.ts'
 import { leadSummary } from '../task-fields.ts'
@@ -142,6 +143,7 @@ export function TaskLeadField({ task }: { task: Task }) {
           >
             <AgentOptions current={agent} />
           </Select>
+          <PiAutoNote agent={agent} factoryId={task.factoryId} />
         </label>
         <label className={styles.label} htmlFor={`${id}-model`}>
           Model
