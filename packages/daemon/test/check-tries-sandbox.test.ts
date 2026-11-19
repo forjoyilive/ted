@@ -147,3 +147,33 @@ test.runIf(process.platform === 'darwin')(
     expect(await readFile(path.join(cache, 'npm', 'from-check'), 'utf8')).toBe('cached\n')
   },
 )
+
+test('Run now takes the saved Check’s access only when its command matches, and says so', async () => {
+  process.env.TED_SANDBOX_BIN = path.join(home, 'no-such-sandbox')
+  await commitToOrigin(scratch, {
+    '.ted/workflow.yaml': [
+      'version: 1',
+      'repos:',
+      '  - name: widgets',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: Build',
+      '        run: echo built',
+      '        sandbox_access: [ios-xcode]',
+      '',
+    ].join('\n'),
+  })
+  const { ok, id, tryCheck } = await start()
+  await ok('PUT', `/factories/${id}/permissions`, { mode: 'bypass', confirmBypass: true })
+  const saved = await tryCheck('Build', 'echo built')
+  expect(saved).toMatchObject({ state: 'passed', sandboxAccess: ['ios-xcode'] })
+  expect(saved.withheldAccess).toBeUndefined()
+  expect(saved.output).toContain('ran with the saved Check’s sandbox access: ios-xcode')
+  const trimmed = await tryCheck('Build', 'echo built \n')
+  expect(trimmed).toMatchObject({ state: 'passed', sandboxAccess: ['ios-xcode'] })
+  const edited = await tryCheck('Build', 'echo  built')
+  expect(edited).toMatchObject({ state: 'passed', withheldAccess: ['ios-xcode'] })
+  expect(edited.sandboxAccess).toBeUndefined()
+  expect(edited.output).toContain('ran without the saved Check’s sandbox access (ios-xcode)')
+})
