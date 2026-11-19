@@ -2258,6 +2258,11 @@
       "count": 1
     }
   },
+  "packages/daemon/src/store/checks.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 15
+    }
+  },
   "packages/daemon/src/store/compact.ts": {
     "anti-slop/no-runtime-typeof": {
       "count": 5
@@ -2267,6 +2272,26 @@
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 2
+    }
+  },
+  "packages/daemon/src/store/context.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 6
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 88
     }
   },
   "packages/daemon/src/store/coordinator-change.ts": {
@@ -2359,26 +2384,6 @@
       "count": 10
     }
   },
-  "packages/daemon/src/store/index.ts": {
-    "anti-slop/no-known-value-widening": {
-      "count": 2
-    },
-    "anti-slop/no-runtime-typeof": {
-      "count": 9
-    },
-    "anti-slop/no-unknown-parameters": {
-      "count": 5
-    },
-    "anti-slop/no-unknown-returns": {
-      "count": 2
-    },
-    "anti-slop/no-unsafe-dictionary-type": {
-      "count": 8
-    },
-    "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 145
-    }
-  },
   "packages/daemon/src/store/interval-schema.ts": {
     "anti-slop/no-runtime-typeof": {
       "count": 1
@@ -2391,6 +2396,19 @@
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 2
+    }
+  },
+  "packages/daemon/src/store/machine.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/store/merge.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
     }
   },
   "packages/daemon/src/store/plans.ts": {
@@ -2409,6 +2427,14 @@
       "count": 1
     }
   },
+  "packages/daemon/src/store/requests.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 7
+    }
+  },
   "packages/daemon/src/store/rewrite-eventlog.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 2
@@ -2418,6 +2444,11 @@
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 5
+    }
+  },
+  "packages/daemon/src/store/runs.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 12
     }
   },
   "packages/daemon/src/store/schema/chats.ts": {
@@ -2498,13 +2529,37 @@
       "count": 8
     }
   },
+  "packages/daemon/src/store/tasks.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 14
+    }
+  },
   "packages/daemon/src/store/test-invocations.ts": {
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 3
     }
   },
+  "packages/daemon/src/store/trackers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
   "packages/daemon/src/store/trim-changesets.ts": {
     "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/store/types.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
     }
   },

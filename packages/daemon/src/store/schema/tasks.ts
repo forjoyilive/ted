@@ -38,7 +38,7 @@ import {
   subAgentInstructions,
   subAgentRequests,
 } from './runs.ts'
-import { task, trackerSyncLog } from './task-log.ts'
+import { trackerSyncLog } from './task-log.ts'
 import { archiveUnblocks, taskBlockers, taskTreeArchives } from './task-tree.ts'
 import { taskSources } from './trackers.ts'
 
