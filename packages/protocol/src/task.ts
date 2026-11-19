@@ -6,6 +6,7 @@ import type { DeclaredSendBackCause, FindingSeverity } from './checks.ts'
 import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
+import type { SandboxGroup } from './sandbox-groups.ts'
 import type { SetupAgentProposal } from './setup-agents.ts'
 import type { AgentStageId, StageId } from './stage.ts'
 import { RequestValidationError } from './validation.ts'
@@ -920,8 +921,15 @@ export interface SetupProposal {
   checks: SetupCheckTried[]
   apps: SetupAppTried[]
   agents?: SetupAgentProposal[]
+  worktree?: SetupWorktreeAccess[]
   files: SetupFileLine[]
   defaults?: string
+}
+
+export interface SetupWorktreeAccess {
+  repo?: string
+  step: 'setup' | 'teardown'
+  sandboxAccess: SandboxGroup[]
 }
 
 export interface SetupStageLine {
@@ -936,6 +944,7 @@ export interface SetupCheckTried {
   passed: boolean
   durationMs: number
   reason?: string
+  sandboxAccess?: SandboxGroup[]
 }
 
 export interface SetupAppTried {
@@ -946,6 +955,7 @@ export interface SetupAppTried {
   ready: string
   passed: boolean
   reason?: string
+  sandboxAccess?: SandboxGroup[]
 }
 
 export interface SetupFileLine {

@@ -4,6 +4,7 @@ import type { SandboxGroup } from '@ted/protocol'
 import { markProcessRoot, type ProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import { type Sandbox, type SandboxScope, withSandboxEnv } from '../sandbox.ts'
+import { appendRefusalHints } from '../sandbox-hints.ts'
 import { type CommandResult, runWorktreeCommand } from './worktree.ts'
 
 export interface CommandSandbox {
@@ -24,9 +25,10 @@ export async function runTaskCommand(
     prepareLaunch?: () => Promise<CommandLaunch>
     root?: ProcessRoot
     groups?: readonly SandboxGroup[]
+    owner?: string
   },
 ): Promise<CommandResult> {
-  const { sandbox: givenSandbox, prepareLaunch, label, root, ...base } = input
+  const { sandbox: givenSandbox, prepareLaunch, label, root, owner, ...base } = input
   const groups = input.groups ?? input.command.groups ?? []
   let release = () => {}
   let unmark = () => {}
@@ -53,7 +55,7 @@ export async function runTaskCommand(
       groups,
     })
     closeFds = wrapped.close
-    return await runWorktreeCommand({
+    const result = await runWorktreeCommand({
       ...command,
       shell: wrapped.argv,
       fds: wrapped.fds,
@@ -63,6 +65,10 @@ export async function runTaskCommand(
         void wrapped.close()
       },
     })
+    if (owner !== undefined && result.outcome !== 'interrupted') {
+      await appendRefusalHints(input.log, groups, owner)
+    }
+    return result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const problem = redactSecrets(`Ted didn’t run ${label}: ${message}`)

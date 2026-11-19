@@ -247,6 +247,7 @@ export function createCacheSeeds(options: {
         if (!entry.setup) continue
         const result = await runTaskCommand({
           label: 'seed setup',
+          owner: `the worktree setup of repo ${entry.name}`,
           command: entry.setup,
           cwd: worktree,
           env: worktreeCommandEnv(entry.env, {}, options.env()),
