@@ -72,10 +72,11 @@ async function plainEntry(file: string, kind: 'file' | 'directory'): Promise<boo
 }
 
 async function ownProcessGroup(): Promise<number | undefined> {
-  const { stdout } = await execFileAsync('ps', ['-o', 'pgid=', '-p', String(process.pid)]).catch(
-    () => ({ stdout: '' }),
-  )
-  const group = Number(stdout.trim())
+  let group = Number.NaN
+  try {
+    const { stdout } = await execFileAsync('ps', ['-o', 'pgid=', '-p', String(process.pid)])
+    group = Number(stdout.trim())
+  } catch {}
   return Number.isInteger(group) && group > 0 ? group : undefined
 }
 
