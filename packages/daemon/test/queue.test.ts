@@ -1,6 +1,6 @@
 import { busyMarks, defaultWorkingRuns, type Priority } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { type BusyState, createBusyHold, nextBusy } from '../src/busy.ts'
+import { type BusyState, createBusyHold, createCpuReader, nextBusy } from '../src/busy.ts'
 import {
   continuationFlags,
   queueOrder,
@@ -427,6 +427,69 @@ describe('createBusyHold', () => {
     clock += 500
     expect(await busy.check()).not.toBe(held)
     expect(reads).toBe(3)
+  })
+
+  test('the first check after an idle minute samples the CPU over a second, so a busy CPU holds until the hold confirms', async () => {
+    let clock = 0
+    let rate = 0.1
+    const cpu = { busy: 0, total: 0 }
+    const advance = (ms: number) => {
+      clock += ms
+      cpu.busy += rate * ms
+      cpu.total += ms
+    }
+    const waits: number[] = []
+    const busy = createBusyHold({
+      on: () => true,
+      loadRatio: createCpuReader({
+        now: () => clock,
+        sample: () => ({ ...cpu }),
+        wait: async (ms) => {
+          waits.push(ms)
+          advance(ms)
+        },
+      }),
+      memoryAvailable: () => 1,
+      confirmMs,
+      now: () => clock,
+    })
+    expect(await busy.check()).toBeUndefined()
+    expect(busy.pending()).toBe(false)
+    expect(waits).toEqual([1_000])
+
+    rate = 0.95
+    advance(90_000)
+    expect(await busy.check()).toBeUndefined()
+    expect(busy.pending()).toBe(true)
+    expect(waits).toEqual([1_000, 1_000])
+
+    advance(confirmMs)
+    expect(await busy.check()).toMatchObject({ cpuHeld: true, cpuInUse: 0.95 })
+    expect(waits).toEqual([1_000, 1_000])
+  })
+
+  test('checks made while the CPU sample is settling share its one wait', async () => {
+    let clock = 0
+    let release = () => {}
+    let waits = 0
+    const read = createCpuReader({
+      now: () => clock,
+      sample: () => ({ busy: clock / 2, total: clock }),
+      wait: (ms) => {
+        waits += 1
+        return new Promise<void>((resolve) => {
+          release = () => {
+            clock += ms
+            resolve()
+          }
+        })
+      },
+    })
+    const first = read()
+    const second = read()
+    release()
+    expect(await Promise.all([first, second])).toEqual([0.5, 0.5])
+    expect(waits).toBe(1)
   })
 })
 

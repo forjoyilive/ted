@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import os from 'node:os'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
 import { type BusyHold, busyMarks, tedEnv } from '@ted/protocol'
 
@@ -21,13 +22,16 @@ export interface BusyState {
   lastAt?: number
 }
 
-interface CpuTimes {
+export interface CpuSample {
   busy: number
   total: number
+}
+
+interface CpuTimes extends CpuSample {
   at: number
 }
 
-function cpuTimes(now: number): CpuTimes {
+function cpuTimes(): CpuSample {
   let busy = 0
   let total = 0
   for (const { times } of os.cpus()) {
@@ -35,25 +39,53 @@ function cpuTimes(now: number): CpuTimes {
     total += all
     busy += all - times.idle
   }
-  return { busy, total, at: now }
+  return { busy, total }
 }
 
-export function createCpuReader(now: () => number = Date.now): () => number {
+export interface CpuReaderOptions {
+  now?: () => number
+  sample?: () => CpuSample
+  wait?: (ms: number) => Promise<void>
+}
+
+const cpuSettleMs = 1_000
+const cpuSampleFreshMs = 60_000
+
+function busyShare(since: CpuTimes, current: CpuTimes): number {
+  if (current.total <= since.total) return Number.NaN
+  return (current.busy - since.busy) / (current.total - since.total)
+}
+
+export function createCpuReader(options: CpuReaderOptions = {}): () => Promise<number> {
+  const now = options.now ?? Date.now
+  const sample = options.sample ?? cpuTimes
+  const wait = options.wait ?? ((ms: number) => sleep(ms))
+  const take = (): CpuTimes => ({ ...sample(), at: now() })
   let previous: CpuTimes | undefined
   let last = Number.NaN
-  return () => {
+  let settling: Promise<number> | undefined
+  return async () => {
     const fake = tedEnv('TED_LOAD_FILE')
     if (fake) return Number(readFileSync(fake, 'utf8'))
-    const current = cpuTimes(now())
+    if (settling) return settling
+    const current = take()
     const since = previous
-    if (since && current.at - since.at < 1_000) return last
-    previous = current
-    if (!since || current.at - since.at > 60_000 || current.total <= since.total) {
-      last = Number.NaN
+    if (since && current.at - since.at < cpuSettleMs) return last
+    if (since && current.at - since.at <= cpuSampleFreshMs) {
+      previous = current
+      last = busyShare(since, current)
       return last
     }
-    last = (current.busy - since.busy) / (current.total - since.total)
-    return last
+    settling = (async () => {
+      await wait(cpuSettleMs)
+      const after = take()
+      previous = after
+      last = busyShare(current, after)
+      return last
+    })().finally(() => {
+      settling = undefined
+    })
+    return settling
   }
 }
 
@@ -142,7 +174,7 @@ export function nextBusy(
 
 export interface BusyHoldOptions {
   on(): boolean
-  loadRatio?: () => number
+  loadRatio?: () => number | Promise<number>
   memoryAvailable?: () => number | Promise<number>
   memoryCacheMs?: number
   confirmMs?: number
@@ -158,7 +190,7 @@ export interface Busy {
 
 export function createBusyHold(options: BusyHoldOptions): Busy {
   const now = options.now ?? Date.now
-  const cpuInUse = options.loadRatio ?? createCpuReader(now)
+  const cpuInUse = options.loadRatio ?? createCpuReader({ now })
   const readMemory = options.memoryAvailable ?? memoryAvailableShare
   const cacheMs =
     options.memoryCacheMs ??
@@ -181,16 +213,12 @@ export function createBusyHold(options: BusyHoldOptions): Busy {
         return undefined
       }
       if (state.lastAt !== undefined && now() - state.lastAt < minGapMs) return state.hold
-      const memoryAvailable = await memoryShare()
+      const [cpu, memoryAvailable] = await Promise.all([cpuInUse(), memoryShare()])
       if (!options.on()) {
         state = {}
         return undefined
       }
-      state = nextBusy(
-        state,
-        { cpuInUse: cpuInUse(), memoryAvailable, at: now() },
-        options.confirmMs,
-      )
+      state = nextBusy(state, { cpuInUse: cpu, memoryAvailable, at: now() }, options.confirmMs)
       return state.hold
     },
     current: () => state.hold,
