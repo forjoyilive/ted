@@ -1,7 +1,7 @@
 import type { BacklogStarts, Factory, FactoryLayout, Task } from '@ted/protocol'
 import { backlogStartFactories } from '@ted/protocol/backlog-starts'
 import { parseGitHubIssueUrl } from '@ted/protocol/github-issue'
-import { useState } from 'react'
+import { createContext, type ReactNode, useContext, useMemo, useState } from 'react'
 import { arrange } from '../factory-layout.ts'
 import { Segmented, Switch } from '../settings/controls.tsx'
 import { readableError, ted } from '../ted.ts'
@@ -50,6 +50,29 @@ export function startsAutomatically(
 ): (factoryId: string) => boolean {
   const from = backlogStartFactories(starts, layout)
   return (factoryId) => from === 'all' || (from !== 'none' && from.has(factoryId))
+}
+
+const StartsIn = createContext<(factoryId: string) => boolean>(() => false)
+
+export function StartsAutomaticallyProvider({
+  starts,
+  layout,
+  children,
+}: {
+  starts: BacklogStarts | undefined
+  layout: FactoryLayout
+  children: ReactNode
+}) {
+  const startsIn = useMemo(
+    () => (starts ? startsAutomatically(starts, layout) : () => false),
+    [starts, layout],
+  )
+  return <StartsIn value={startsIn}>{children}</StartsIn>
+}
+
+export function useStartsOnItsOwn(): (task: Task) => boolean {
+  const startsIn = useContext(StartsIn)
+  return useMemo(() => (task: Task) => startsOnItsOwn(task, startsIn), [startsIn])
 }
 
 export interface BacklogStartsSave {

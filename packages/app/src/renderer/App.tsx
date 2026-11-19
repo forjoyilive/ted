@@ -41,7 +41,7 @@ import {
   taskCommands,
 } from './commands.ts'
 import { openMovedTaskEvent } from './components/ArchiveDialogs.tsx'
-import { startsAutomatically } from './components/BacklogStarts.tsx'
+import { StartsAutomaticallyProvider, startsAutomatically } from './components/BacklogStarts.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { buttonPosition } from './components/ContextMenu.tsx'
 import { DevicesPopover } from './components/DevicesPopover.tsx'
@@ -1297,14 +1297,16 @@ export function App({ start }: { start?: AppStart | undefined }) {
       <ProfileProvider settings={settings}>
         <StagesProvider factoryIds={factories.map((f) => f.id)}>
           <FactoryColorsProvider factories={factories}>
-            <OvernightContext value={overnight}>
-              <ArmedContext value={armed}>
-                <SnoozedContext value={snoozed}>
-                  <SidebarLayout className={styles.app}>{content}</SidebarLayout>
-                  <RequestSnoozeHost />
-                </SnoozedContext>
-              </ArmedContext>
-            </OvernightContext>
+            <StartsAutomaticallyProvider starts={settings?.backlogStarts} layout={factoryLayout}>
+              <OvernightContext value={overnight}>
+                <ArmedContext value={armed}>
+                  <SnoozedContext value={snoozed}>
+                    <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+                    <RequestSnoozeHost />
+                  </SnoozedContext>
+                </ArmedContext>
+              </OvernightContext>
+            </StartsAutomaticallyProvider>
           </FactoryColorsProvider>
         </StagesProvider>
       </ProfileProvider>

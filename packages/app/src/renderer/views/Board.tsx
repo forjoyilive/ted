@@ -40,6 +40,7 @@ import {
   withoutGoneStages,
 } from '../board.ts'
 import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
+import { useStartsOnItsOwn } from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
@@ -256,6 +257,7 @@ export function Board({
   onShowAllDone: () => void
 }) {
   const now = useNow()
+  const startsOnItsOwn = useStartsOnItsOwn()
   const allStages = useStages()
   const stages = allStages.of(factoryId)
   const stagesLoaded = allStages.loaded(factoryId)
@@ -480,7 +482,11 @@ export function Board({
               </button>
               {isSelected && <SelectedTick />}
             </span>
-            <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+            <TaskStatusChips
+              task={task}
+              onOpenTask={onOpenTask}
+              startsAutomatically={startsOnItsOwn(task)}
+            />
           </>
         ) : (
           <>
@@ -513,6 +519,7 @@ export function Board({
             <TaskStatusWithSubAgents
               task={shows('blockers') ? task : withoutBlockers(task)}
               subAgents={shows('sub-agents')}
+              startsAutomatically={startsOnItsOwn(task)}
               onOpenTask={onOpenTask}
             />
             {shows('activity') && activity !== undefined && (

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { BacklogStarts, FactoryLayout } from '@ted/protocol'
+import type { BacklogStarts, FactoryLayout, Task } from '@ted/protocol'
 import { noBacklogStarts } from '@ted/protocol/backlog-starts'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
@@ -7,9 +7,12 @@ import { expect, test } from 'vitest'
 import {
   BacklogStartsMenu,
   backlogStartsSummary,
+  StartsAutomaticallyProvider,
   startsAutomatically,
   startsOnItsOwn,
+  useStartsOnItsOwn,
 } from '../src/renderer/components/BacklogStarts.tsx'
+import { TaskStatusWithSubAgents } from '../src/renderer/components/SubAgentCount.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
@@ -77,6 +80,36 @@ test('a Backlog row says it starts automatically only when nothing else holds it
       starts,
     ),
   ).toBe(true)
+})
+
+function Status({ task: shown }: { task: Task }) {
+  const starts = useStartsOnItsOwn()
+  return (
+    <TaskStatusWithSubAgents
+      task={shown}
+      onOpenTask={() => {}}
+      startsAutomatically={starts(shown)}
+    />
+  )
+}
+
+test('a Task that starts on its own shows a Starts automatically pill that explains itself on hover', () => {
+  const backlog = task({ factoryId: 'a', stage: 'backlog' })
+  const { rerender } = render(
+    <StartsAutomaticallyProvider starts={on({ groupIds: ['g1'] })} layout={layout}>
+      <Status task={backlog} />
+    </StartsAutomaticallyProvider>,
+  )
+  const pill = screen.getByText('Starts automatically')
+  expect(pill.getAttribute('title')).toBe(
+    'Backlog starts is on for this Factory, so Ted starts this Task when there’s room.',
+  )
+  rerender(
+    <StartsAutomaticallyProvider starts={on({ groupIds: ['g1'] })} layout={layout}>
+      <Status task={{ ...backlog, factoryId: 'c' }} />
+    </StartsAutomaticallyProvider>,
+  )
+  expect(screen.queryByText('Starts automatically')).toBeNull()
 })
 
 test('the menu saves the switch and each choice at once, a choice made while off stays off, and a ticked group covers its Factories', async () => {

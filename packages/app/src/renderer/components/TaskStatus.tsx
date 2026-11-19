@@ -170,18 +170,23 @@ function detailedLabel(status: TaskStatus, now: number): string {
   return statusLabel(status)
 }
 
+const startsAutomaticallyTitle =
+  'Backlog starts is on for this Factory, so Ted starts this Task when there’s room.'
+
 export function TaskStatusChips({
   task,
   onOpenTask,
   detailed = false,
   tall = false,
   hideWaiting = false,
+  startsAutomatically = false,
 }: {
   task: Pick<Task, 'status' | 'markers'>
   onOpenTask: (ref: string) => void
   detailed?: boolean
   tall?: boolean
   hideWaiting?: boolean
+  startsAutomatically?: boolean
 }) {
   const now = useNow()
   const { markers } = task
@@ -189,6 +194,15 @@ export function TaskStatusChips({
     hideWaiting && task.status?.kind === 'waiting-on-you' && task.status.snoozedUntil === undefined
       ? undefined
       : task.status
+  if (!task.status && markers.length === 0 && startsAutomatically) {
+    return (
+      <span className={styles.chips}>
+        <StatusChip tone="neutral" glyph="starts" tall={tall} title={startsAutomaticallyTitle}>
+          Starts automatically
+        </StatusChip>
+      </span>
+    )
+  }
   if (!status && markers.length === 0) return null
   return (
     <span className={styles.chips}>

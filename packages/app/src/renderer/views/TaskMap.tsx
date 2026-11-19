@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react'
 import { blockerMap, linkRefusal, type MapLink } from '../blocker-map.ts'
+import { useStartsOnItsOwn } from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
@@ -70,6 +71,7 @@ export function TaskMap({
   onNewTask: () => void
 }) {
   const stages = useStages()
+  const startsOnItsOwn = useStartsOnItsOwn()
   const map = useMemo(() => blockerMap(tasks, factoryId), [tasks, factoryId])
   const [sideOpen, setSideOpen] = useState(false)
   const [hot, setHot] = useState<string>()
@@ -209,7 +211,11 @@ export function TaskMap({
         </button>
         {!done && (
           <span className={styles.status}>
-            <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
+            <TaskStatusWithSubAgents
+              task={task}
+              onOpenTask={onOpenTask}
+              startsAutomatically={startsOnItsOwn(task)}
+            />
           </span>
         )}
         {!other && (
