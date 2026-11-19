@@ -1347,7 +1347,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   async function currentSlots(): Promise<RunSlots | undefined> {
-    return options.queue.publishedSlots?.() ?? (await options.queue.slots().catch(() => undefined))
+    return options.queue.slots().catch(() => options.queue.publishedSlots?.())
   }
 
   async function rowOf(firingId: string): Promise<AutomationRunRow> {

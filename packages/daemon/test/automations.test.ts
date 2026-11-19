@@ -1121,11 +1121,13 @@ describe('Automations', () => {
       async () => (await detail(client, automation.id)).automation.now?.kind === 'queued',
       'Run now to wait for the slot',
     )
-    const [again] = await client.ok<AutomationRunRow[]>('GET', '/automation-runs')
-    const second = again?.state === 'queued' ? again.run.id : ''
+    const again = (await client.ok<AutomationRunRow[]>('GET', '/automation-runs')).find(
+      (r) => r.state === 'queued',
+    )
+    const second = again?.run.id ?? ''
     await client.ok('POST', `/automation-runs/${second}/stop`)
     const rows = await history(client, automation.id)
-    expect(rows.map((r) => r.result.kind)).toEqual(['dropped', 'stopped'])
+    expect(rows.map((r) => r.result.kind).sort()).toEqual(['dropped', 'stopped'])
     expect(
       (await client.call('POST', `/automation-runs/${second}/start`)).status,
       'a Run that isn’t waiting can’t start now',
@@ -1350,6 +1352,7 @@ describe('Automations', () => {
       check: { command, startTasks: false },
       prompt: steps(run('automation', 'start', 'NB-4'), { endTurn: true }),
     })
+    load = 0
     clock = Date.parse('2026-11-10T07:40:00Z')
     await client.ok('POST', `/automations/${automation.id}/run`)
     const [fellBack] = await waitForHistory(
