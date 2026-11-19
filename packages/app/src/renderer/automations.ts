@@ -2,6 +2,7 @@ import type {
   Automation,
   AutomationNow,
   AutomationRun,
+  AutomationRunRow,
   AutomationSchedule,
   CreateAutomationRequest,
   Weekday,
@@ -283,5 +284,49 @@ export function duplicateOf(automation: Automation): CreateAutomationRequest {
     priority: automation.priority,
     ...(automation.check && { check: automation.check }),
     on: false,
+  }
+}
+
+export interface RunRowStatus {
+  text: string
+  when?: string
+  tone: 'running' | 'queued' | 'passed' | 'failed' | 'quiet'
+}
+
+export function runRowStatus(row: AutomationRunRow, now: number): RunRowStatus {
+  const { run } = row
+  switch (row.state) {
+    case 'running':
+      return {
+        text: row.checking ? 'Running checks' : run.check?.agent ? 'Agent working' : 'Running',
+        when: ago(run.startedAt ?? run.at, now),
+        tone: 'running',
+      }
+    case 'waiting':
+      return { text: 'Waiting on you', tone: 'running' }
+    case 'paused':
+      return { text: `Paused · ${row.reason ?? 'waiting'}`, tone: 'quiet' }
+    case 'queued':
+      return {
+        text: row.place === undefined ? 'Queued' : `Queued · ${ordinal(row.place)}`,
+        when: `fired ${ago(run.at, now)}`,
+        tone: 'queued',
+      }
+    case 'ended': {
+      const when = ago(run.finishedAt ?? run.at, now)
+      const { kind } = run.result
+      if (kind === 'created') {
+        const count = run.result.tasks.length
+        return { text: `Created ${count} ${count === 1 ? 'Task' : 'Tasks'}`, when, tone: 'passed' }
+      }
+      if (kind === 'stopped' || kind === 'dropped') return { text: 'Stopped', when, tone: 'quiet' }
+      if (kind === 'skipped') return { text: 'Skipped', when, tone: 'quiet' }
+      const result = historyResult(run)
+      return {
+        text: result.text,
+        when,
+        tone: result.failed ? 'failed' : kind === 'passed' ? 'passed' : 'quiet',
+      }
+    }
   }
 }

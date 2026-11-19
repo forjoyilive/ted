@@ -1,0 +1,66 @@
+.table {
+  grid-template-columns: 4px minmax(200px, 2fr) minmax(100px, 1fr) 110px minmax(180px, 1.4fr) 170px;
+  column-gap: 16px;
+}
+
+.headButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.headButton:hover,
+.headActive {
+  color: var(--text-primary);
+}
+
+.priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status {
+  font-size: var(--text-13);
+}
+
+.running {
+  color: var(--text-primary);
+}
+
+.queued {
+  color: var(--accent-text);
+  font-weight: var(--weight-medium);
+}
+
+.passed {
+  color: var(--status-success-fg);
+}
+
+.failed {
+  color: var(--status-failed-fg);
+}
+
+.quiet {
+  color: var(--text-muted);
+}
+
+.when {
+  color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.error {
+  color: var(--status-failed-fg);
+  font-size: var(--text-13);
+}
