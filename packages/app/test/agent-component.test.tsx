@@ -299,3 +299,64 @@ test('each agent’s panel shows what its Runs of the last 30 days would cost on
   expect(pi.queryByRole('radiogroup')).toBeNull()
   expect(pi.getByText('Not available')).toBeTruthy()
 })
+
+test('the Pi card’s Sandbox section says what Pi can write, or shows the reason and the switch that lets Pi run without a sandbox', async () => {
+  const pi: AgentHealth = {
+    agent: 'pi',
+    state: 'ready',
+    minimumVersion: '1.5.2',
+    version: '1.5.4',
+    pausedRuns: 0,
+    checkedAt: createdAt,
+  }
+  let health = [pi]
+  const api = bridge({
+    agentHealth: () => health,
+    apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
+    library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
+    updateSettings: vi.fn(),
+  })
+  const view = render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const card = within(await screen.findByRole('region', { name: 'Pi' }))
+  expect(card.getByText('Sandbox')).toBeTruthy()
+  expect(card.getByText(/In Auto Factories, Pi runs inside Ted’s sandbox/)).toBeTruthy()
+  expect(
+    card.queryByRole('switch', { name: 'Run Pi without a sandbox in Auto Factories' }),
+  ).toBeNull()
+
+  const unsandboxed = { ...pi, sandboxProblem: 'bwrap (bubblewrap) isn’t installed.' }
+  health = [unsandboxed]
+  await act(async () => api.emit({ type: 'agent-health-changed', health: unsandboxed }))
+  const notice = within(card.getByRole('note', { name: 'Pi sandbox' }))
+  expect(
+    notice.getByText('Ted can’t sandbox Pi here: bwrap (bubblewrap) isn’t installed.'),
+  ).toBeTruthy()
+  expect(card.getByText('Pi work in Auto Factories waits until you turn this on.')).toBeTruthy()
+  const toggle = notice.getByRole('switch', { name: 'Run Pi without a sandbox in Auto Factories' })
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+  await user().click(toggle)
+  expect(api.request).toHaveBeenCalledWith('updateSettings', { piUnsandboxedAllowed: true })
+
+  view.rerender(
+    <AgentsPage
+      settings={{ ...defaultMachineSettings, piUnsandboxedAllowed: true }}
+      dispatch={vi.fn()}
+    />,
+  )
+  expect(
+    screen
+      .getByRole('switch', { name: 'Run Pi without a sandbox in Auto Factories' })
+      .getAttribute('aria-checked'),
+  ).toBe('true')
+  expect(screen.getByText(/You allowed Pi to run without a sandbox/)).toBeTruthy()
+
+  health = [pi]
+  await act(async () => api.emit({ type: 'agent-health-changed', health: pi }))
+  expect(card.getByText(/In Auto Factories, Pi runs inside Ted’s sandbox/)).toBeTruthy()
+  const still = within(card.getByRole('note', { name: 'Pi sandbox' }))
+  expect(still.getByText(/if it stops working, Pi runs every command/)).toBeTruthy()
+  const kept = still.getByRole('switch', { name: 'Run Pi without a sandbox in Auto Factories' })
+  expect(kept.getAttribute('aria-checked')).toBe('true')
+  await user().click(kept)
+  expect(api.request).toHaveBeenCalledWith('updateSettings', { piUnsandboxedAllowed: false })
+})

@@ -16,10 +16,12 @@ import {
   type PlanUsage,
   type PlanWindow,
   pausedReason,
+  piSandboxProblem,
   resetTime,
   runsPaused,
   usageLimitProblem,
 } from '@ted/protocol'
+import { piSandboxHold } from '../agent-eligibility.ts'
 import type { CredentialReport } from '../agents/agent.ts'
 import type { Agents } from '../agents/index.ts'
 import { compareVersions } from '../backups.ts'
@@ -27,6 +29,7 @@ import type { Banners } from '../banners.ts'
 import { findBinSync } from '../cli-env.ts'
 import type { Environment } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
+import type { Sandbox } from '../sandbox.ts'
 import type { TedStore } from '../store/index.ts'
 import type { OpenTerminal } from '../terminal.ts'
 import { runCli, versionIn } from './cli.ts'
@@ -70,6 +73,7 @@ export interface AgentHealthOptions {
   intervalMs?: number
   fixPollMs?: number
   probeAfterMs?: number
+  sandbox?: Pick<Sandbox, 'problem'>
 }
 
 interface Limit {
@@ -380,13 +384,40 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     }
   }
 
+  async function withSandboxProblem(health: AgentHealth): Promise<AgentHealth> {
+    if (health.agent !== 'pi' || !options.sandbox) return health
+    const sandboxProblem = await options.sandbox.problem()
+    store.setPiSandboxProblem(sandboxProblem)
+    return { ...health, ...(sandboxProblem !== undefined && { sandboxProblem }) }
+  }
+
+  let piHeld = piSandboxHold(store) !== undefined
+  function showPiSandbox(): void {
+    const ref = { problem: piSandboxProblem }
+    const held = piSandboxHold(store)
+    const wasHeld = piHeld
+    piHeld = held !== undefined
+    if (held === undefined || !enabled('pi')) banners.clear(ref)
+    else
+      banners.raise({
+        ...ref,
+        severity: 'stops-work',
+        text: held,
+        action: { label: 'Open Settings', opens: { kind: 'settings', section: 'agents' } },
+      })
+    if (wasHeld && !piHeld && latest.get('pi')?.state === 'ready')
+      for (const listener of readyListeners) listener('pi')
+  }
+
   function checkOne(kind: AgentKind): Promise<AgentHealth> {
     let running = checking.get(kind)
     if (!running) {
       running = inspect(kind)
+        .then(withSandboxProblem)
         .then(async (health) => {
           if (closed) return health
           apply(health)
+          if (kind === 'pi') showPiSandbox()
           await refreshUsage(kind, health)
           return latest.get(kind) ?? health
         })
@@ -498,6 +529,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   let enabledBefore = [...store.settings().enabledAgents]
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'settings-changed') {
+      showPiSandbox()
       const newlyEnabled = event.settings.enabledAgents.filter(
         (kind) => !enabledBefore.includes(kind),
       )

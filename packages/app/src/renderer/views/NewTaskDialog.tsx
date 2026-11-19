@@ -1133,7 +1133,7 @@ export function LeadFields({
   stageEffort = false,
   label = 'Task Lead',
   help = 'The Provider, model and effort for the Task Lead that carries this Task through its Stages. Filled from the Factory’s lead.',
-  piAlwaysWaits = false,
+  piAlwaysAuto = false,
 }: {
   id: string
   lead: TaskLead
@@ -1143,7 +1143,7 @@ export function LeadFields({
   stageEffort?: boolean
   label?: string
   help?: string
-  piAlwaysWaits?: boolean
+  piAlwaysAuto?: boolean
 }) {
   const set = (agent: AgentKind, model: string, effort: string) =>
     onChange({
@@ -1205,7 +1205,7 @@ export function LeadFields({
           ))}
         </Select>
       </div>
-      <PiAutoNote agent={lead.agent} factoryId={factoryId} alwaysWaits={piAlwaysWaits} />
+      <PiAutoNote agent={lead.agent} factoryId={factoryId} alwaysAuto={piAlwaysAuto} />
     </div>
   )
 }

@@ -44,6 +44,8 @@ export interface MachineArea {
   persisted(): Promise<void>
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
+  setPiSandboxProblem(reason: string | undefined): void
+  piSandboxProblem(): string | undefined
   holdWhenBusy(held: BusyHold | undefined): void
   busyHold(): BusyHold | undefined
   onWriteResult(listener: (error?: unknown) => void): () => void
@@ -276,6 +278,10 @@ export function machineArea(ctx: StoreContext): MachineArea {
       updatedTasks(tasksWaitingForSlots())
     },
     newWorkHold: () => storeState.newWorkHeld,
+    setPiSandboxProblem(reason) {
+      storeState.piSandboxReason = reason
+    },
+    piSandboxProblem: () => storeState.piSandboxReason,
     busyHold: () => storeState.heldBusy,
     holdWhenBusy(held) {
       const changed =

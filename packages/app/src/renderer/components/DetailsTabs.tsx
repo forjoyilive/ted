@@ -1,4 +1,5 @@
 import type { KeyboardEvent, ReactNode } from 'react'
+import type { AppsTabMark } from '../apps.ts'
 import { type DetailsTabId, detailsTabNames, detailsTabs } from '../details.ts'
 import { keysFor } from '../keymap.ts'
 import styles from './DetailsTabs.module.css'
@@ -20,6 +21,12 @@ const icons: Record<DetailsTabId, ReactNode> = {
   apps: <WindowIcon />,
 }
 
+const appMarkDescriptions: Record<AppsTabMark, string> = {
+  running: 'An App is running',
+  waiting: 'An App is waiting to start',
+  failed: 'An App failed',
+}
+
 export function detailsTabElementId(id: DetailsTabId): string {
   return `details-tab-${id}`
 }
@@ -33,11 +40,13 @@ export function DetailsTabs({
   onSelect,
   changeCount,
   runWorking,
+  appMark,
 }: {
   selected: DetailsTabId
   onSelect: (id: DetailsTabId) => void
   changeCount?: number | undefined
   runWorking?: boolean
+  appMark?: AppsTabMark | undefined
 }) {
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     const at = detailsTabs.indexOf(selected)
@@ -61,6 +70,7 @@ export function DetailsTabs({
         const shortcut = keysFor(`details-tab-${id}`)[0]
         const count = id === 'changes' && changeCount !== undefined && changeCount > 0
         const working = id === 'runs' && runWorking === true
+        const mark = id === 'apps' ? appMark : undefined
         return (
           <button
             key={id}
@@ -76,6 +86,7 @@ export function DetailsTabs({
               [
                 count ? `${changeCount === 1 ? '1 file' : `${changeCount} files`} changed` : '',
                 working ? 'A Run is working' : '',
+                mark !== undefined ? appMarkDescriptions[mark] : '',
               ]
                 .filter((part) => part !== '')
                 .join('. ') || undefined
@@ -90,6 +101,7 @@ export function DetailsTabs({
               </span>
             )}
             {working && <span className={styles.working} aria-hidden />}
+            {mark !== undefined && <span className={styles.working} data-mark={mark} aria-hidden />}
             <span className={styles.tip} aria-hidden>
               {name}
               {shortcut !== undefined && <span className={styles.shortcut}>{shortcut}</span>}

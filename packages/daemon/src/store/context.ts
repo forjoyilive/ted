@@ -349,6 +349,7 @@ function deviceLimitFromOldLimits(values: {
 
 interface LiveState {
   newWorkHeld: string | undefined
+  piSandboxReason: string | undefined
   heldBusy: BusyHold | undefined
   checksWaiting: ReadonlyMap<string, number>
   waitingUnchanged: boolean
@@ -395,6 +396,7 @@ export async function openContext({
   let writeFailing = false
   const storeState: LiveState = {
     newWorkHeld: undefined,
+    piSandboxReason: undefined,
     heldBusy: undefined,
     checksWaiting: new Map(),
     waitingUnchanged: false,
