@@ -34,11 +34,20 @@ const resolved = (resolution: FailureResolution['resolution'], reason = '') => [
   },
 ]
 
-test('a fixed or later-passing failure is one line; an accepted one keeps its output', () => {
+test('a fixed, later-passing or replaced failure is one line; an accepted one keeps its output', () => {
   const history = briefFailureHistory([
     failure('aaaaaa111111', 'Affected tests', { resolutions: resolved('fixed') }),
     failure('bbbbbb222222', 'Lint', {
       verifications: [{ at: '2026-11-18T02:00:00.000Z', evidence: 'Passed in Validate' }],
+    }),
+    failure('dddddd444444', 'Typecheck', {
+      verifications: [
+        {
+          at: '2026-11-18T02:00:00.000Z',
+          evidence: 'A new execution failed',
+          replacedBy: 'cccccc333333',
+        },
+      ],
     }),
     failure('cccccc333333', 'Typecheck', { resolutions: resolved('accepted', 'Broken on main') }),
   ])
@@ -47,6 +56,7 @@ test('a fixed or later-passing failure is one line; an accepted one keeps its ou
     [
       '- Failure aaaaaa · the Affected tests check · fixed',
       '- Failure bbbbbb · the Lint check · passed on a later run',
+      '- Failure dddddd · the Typecheck check · failed again, replaced by Failure cccccc',
     ].join('\n'),
   )
   expect(history.match(/line 200/g)).toHaveLength(1)

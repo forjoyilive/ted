@@ -30,7 +30,11 @@ function failureSubject(value: FailureCase): string {
 }
 
 function closedAs(value: FailureCase): string | undefined {
-  if (value.verifications?.length) return 'passed on a later run'
+  const verification = value.verifications?.at(-1)
+  if (verification?.replacedBy !== undefined) {
+    return `failed again, replaced by Failure ${shortReference(verification.replacedBy)}`
+  }
+  if (verification !== undefined) return 'passed on a later run'
   const resolution = value.resolutions.at(-1)?.resolution
   if (resolution === 'fixed') return 'fixed'
   if (resolution === 'no-longer-applicable') return 'no longer applies'
