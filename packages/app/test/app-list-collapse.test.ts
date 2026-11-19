@@ -44,7 +44,7 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     })
     const window = await loadedWindow(app)
     const allTasks = () => window.getByRole('button', { name: 'All Tasks', exact: true })
-    const backlog = () => window.getByRole('main').getByRole('button', { name: /^Backlog/ })
+    const backlog = () => window.getByRole('main').getByRole('button', { name: /^Backlog\s*\d/ })
     await allTasks().click()
     await backlog().click()
     await window.getByRole('button', { name: /^Inbox/ }).click()
