@@ -181,7 +181,7 @@ The first version of a Task’s description, kept as written when the Task was c
 _Avoid_: First draft, initial description
 
 **Priority**:
-How urgent a Task is (Urgent, High, Medium, Low, or None); it orders Queued Tasks after their Stage’s queue priority and Task Lead continuation order, then the Task’s place in its column breaks ties.
+How urgent a Task or Automation is (Urgent, High, Medium, Low, or None); it orders queued Tasks and Automation Runs after Stage queue priority and Task Lead continuation order. An Automation Run goes ahead of a new Task start with the same priority; a Task’s place in its column breaks ties among Tasks.
 _Avoid_: Severity, importance
 
 **Queued**:
@@ -275,7 +275,7 @@ A note the human attaches to one line of a Task’s diff; it stays a draft until
 _Avoid_: Inline comment, review comment, diff comment
 
 **Automation**:
-A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there and drive its web Apps in a headless browser; Ted removes them when the Run ends.
+A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. Each Automation has a priority, High unless the user changes it, which places its Runs among queued Tasks; the **Automation Runs** screen lists every Factory’s Runs that are running, queued or ended in the last day. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there and drive its web Apps in a headless browser; Ted removes them when the Run ends.
 _Avoid_: Cron job, trigger
 
 **Scheduled check**:

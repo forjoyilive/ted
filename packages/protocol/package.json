@@ -32,6 +32,7 @@
     "./list-view": "./src/list-view.ts",
     "./board-view": "./src/board-view.ts",
     "./diagnostics-sort": "./src/diagnostics-sort.ts",
+    "./automation-runs-view": "./src/automation-runs-view.ts",
     "./storage": "./src/storage.ts",
     "./slots": "./src/slots.ts",
     "./slow": "./src/slow.ts",

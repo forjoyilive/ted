@@ -158,6 +158,27 @@ export const automationRoutes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: path('/automation-runs'),
+    handle: async ({ caller }, { automations }) => [200, await automations.runList(caller)],
+  },
+  {
+    method: 'POST',
+    path: path(`/automation-runs/${ref}/start`),
+    handle: async ({ caller, params: [id = ''] }, { automations }) => [
+      200,
+      await automations.startNow(id, caller),
+    ],
+  },
+  {
+    method: 'POST',
+    path: path(`/automation-runs/${ref}/stop`),
+    handle: async ({ caller, params: [id = ''] }, { automations }) => [
+      200,
+      await automations.stopRun(id, caller),
+    ],
+  },
+  {
     method: 'POST',
     path: path(`/automation-runs/${ref}/retry`),
     runToken: true,

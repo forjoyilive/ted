@@ -42,6 +42,7 @@ import type {
   AutomationRequest,
   AutomationRun,
   AutomationRunOutput,
+  AutomationRunRow,
   AutomationTemplate,
   CreateAutomationRequest,
   DraftAutomationPromptRequest,
@@ -440,6 +441,18 @@ export class DaemonClient {
 
   retryAutomationRun(runId: string): Promise<AutomationRun> {
     return this.#request('POST', `/automation-runs/${encodeURIComponent(runId)}/retry`, {})
+  }
+
+  automationRuns(): Promise<AutomationRunRow[]> {
+    return this.#request('GET', '/automation-runs')
+  }
+
+  startAutomationRunNow(runId: string): Promise<AutomationRunRow> {
+    return this.#request('POST', `/automation-runs/${encodeURIComponent(runId)}/start`, {})
+  }
+
+  stopAutomationRun(runId: string): Promise<AutomationRunRow> {
+    return this.#request('POST', `/automation-runs/${encodeURIComponent(runId)}/stop`, {})
   }
 
   deleteAutomation(ref: string, factory?: string): Promise<{ deleted: boolean }> {

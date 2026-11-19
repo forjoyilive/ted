@@ -13,6 +13,8 @@ import {
   type AutomationRequest,
   type AutomationRun,
   type AutomationRunOutput,
+  type AutomationRunRow,
+  type AutomationRunState,
   type AutomationSchedule,
   type AutomationTaskLink,
   type AutomationTemplate,
@@ -27,6 +29,7 @@ import {
   isCommitId,
   nextFirings,
   type RunSlots,
+  recentAutomationRunsMs,
   type SchedulePreview,
   systemTimeZone,
 } from '@ted/protocol'
@@ -133,6 +136,9 @@ export interface Automations {
   setOn(ref: string, on: boolean, caller: Caller, factory?: string): Promise<Automation>
   runNow(ref: string, caller: Caller, factory?: string): Promise<AutomationRun>
   retry(firingId: string, caller: Caller): Promise<AutomationRun>
+  runList(caller: Caller): Promise<AutomationRunRow[]>
+  startNow(firingId: string, caller: Caller): Promise<AutomationRunRow>
+  stopRun(firingId: string, caller: Caller): Promise<AutomationRunRow>
   output(firingId: string, caller?: Caller): Promise<AutomationRunOutput>
   report(caller: Caller, summary: string): { reported: true }
   delete(ref: string, caller: Caller, factory?: string): Promise<void>
@@ -446,6 +452,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   const starting = startGuard('Automation Run')
+  const startNow = new Set<string>()
   const { pump } = queuedRuns(options.queue, {
     kind: 'automation',
     starting,
@@ -454,7 +461,16 @@ export function createAutomations(options: AutomationsOptions): Automations {
       return queuedFirings().flatMap((f) => {
         const automation = saved.get(f.automationId)
         return automation
-          ? [{ id: f.id, rank: Date.parse(f.at), factoryId: automation.factoryId }]
+          ? [
+              {
+                id: f.id,
+                rank: Date.parse(f.at),
+                factoryId: automation.factoryId,
+                priority: automation.priority,
+                ...(f.resume === 'queued' && { skipsBusy: true as const }),
+                ...(startNow.has(f.id) && { pastLimits: true as const }),
+              },
+            ]
           : []
       })
     },
@@ -472,7 +488,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
       }
       return hold === undefined
     },
-    launch: (id) => launch(id),
+    launch(id) {
+      startNow.delete(id)
+      return launch(id)
+    },
     candidates() {
       const shown = new Set(live().map((a) => a.id))
       return saved
@@ -1304,6 +1323,105 @@ export function createAutomations(options: AutomationsOptions): Automations {
     }))
   }
 
+  function shownFiring(firingId: string): StoredFiring {
+    const firing = saved.firing(firingId)
+    const automation = firing && saved.get(firing.automationId)
+    if (!firing || !automation || !factoryOf(automation)) {
+      throw new RequestError(404, `no Automation Run ${firingId}`)
+    }
+    return firing
+  }
+
+  async function stopStarted(firingId: string): Promise<void> {
+    const run = store.getRun(firingId)
+    if (run && run.state !== 'finished') {
+      await runs.stop(firingId)
+      return
+    }
+    if (checkOf(saved.firing(firingId)?.automationId ?? '')) {
+      await endCheckAgent(firingId, { stopped: true, why: 'The user stopped the agent Run' })
+      return
+    }
+    saved.ended(firingId, { outcome: 'stopped' })
+    release(firingId)
+  }
+
+  async function currentSlots(): Promise<RunSlots | undefined> {
+    return options.queue.slots().catch(() => options.queue.publishedSlots?.())
+  }
+
+  async function rowOf(firingId: string): Promise<AutomationRunRow> {
+    const [row] = runRows(await currentSlots(), (f) => f.id === firingId, true)
+    if (!row) throw new RequestError(404, `no Automation Run ${firingId}`)
+    return row
+  }
+
+  function runRows(
+    slots: RunSlots | undefined,
+    wanted: (firing: StoredFiring) => boolean,
+    anyAge = false,
+  ): AutomationRunRow[] {
+    const since = now() - recentAutomationRunsMs
+    const automations = live()
+    const records = recordsOf(automations)
+    return automations.flatMap((automation, i) => {
+      const record = records[i]
+      if (!record) return []
+      const firings = record.firings.filter(
+        (f) =>
+          wanted(f) &&
+          (anyAge ||
+            f.state === 'queued' ||
+            f.state === 'started' ||
+            Date.parse(f.finishedAt ?? f.at) >= since),
+      )
+      const rows = historyRows(firings, record.links)
+      return firings.flatMap((firing, at) => {
+        const run = rows[at]
+        return run ? [runRow(automation, firing, run, slots)] : []
+      })
+    })
+  }
+
+  function runRow(
+    automation: StoredAutomation,
+    firing: StoredFiring,
+    run: AutomationRun,
+    slots: RunSlots | undefined,
+  ): AutomationRunRow {
+    const status = statusOf(firing)
+    const check = checkRuns.get(firing.id)
+    const scheduledCheck = automation.check !== undefined
+    const current = nowOf(
+      firing,
+      (id) => slots?.queue.find((q) => q.kind === 'automation' && q.runId === id)?.place ?? 0,
+    )
+    const state: AutomationRunState =
+      check !== undefined && check.phase !== 'running'
+        ? 'queued'
+        : status === 'queued'
+          ? 'queued'
+          : status === 'waiting'
+            ? 'waiting'
+            : status === 'paused'
+              ? 'paused'
+              : firing.state === 'started'
+                ? 'running'
+                : 'ended'
+    return {
+      run,
+      automationName: automation.name,
+      factoryId: automation.factoryId,
+      priority: automation.priority,
+      state,
+      ...(scheduledCheck && { scheduledCheck: true as const }),
+      ...(check?.phase === 'running' && { checking: true as const }),
+      ...(current?.kind === 'queued' && current.place > 0 && { place: current.place }),
+      ...(current?.kind === 'paused' && { reason: current.reason }),
+      ...(inQueue(firing) && { canStartNow: true as const }),
+    }
+  }
+
   function historyRows(
     firings: readonly StoredFiring[],
     links: readonly AutomationTaskRecord[],
@@ -1455,6 +1573,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ...(automation.effort !== undefined && { effort: automation.effort }),
       on: automation.on,
       ...(automation.checkout && { checkout: true as const }),
+      priority: automation.priority,
       ...(automation.template !== undefined && { template: automation.template }),
       ...(check !== undefined && { check }),
       createdAt: automation.createdAt,
@@ -1676,6 +1795,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           ...(effort !== undefined && { effort }),
           on: input.on !== false,
           checkout: input.checkout === true && !check,
+          ...(input.priority !== undefined && { priority: input.priority }),
           ...(input.template !== undefined && !check && { template: input.template }),
         },
         iso(now()),
@@ -1718,6 +1838,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           timeZone,
           agent,
           checkout: input.checkout ?? automation.checkout,
+          ...(input.priority !== undefined && { priority: input.priority }),
           ...(model !== undefined && { model }),
           ...(effort !== undefined && { effort }),
         },
@@ -1741,6 +1862,44 @@ export function createAutomations(options: AutomationsOptions): Automations {
       refuseRun(caller)
       const automation = find(ref, factory)
       return historyRowOf(fireByHand(automation, 'run-now'))
+    },
+    async runList(caller) {
+      refuseRun(caller)
+      return runRows(await currentSlots(), () => true)
+    },
+    async startNow(firingId, caller) {
+      refuseRun(caller)
+      const firing = shownFiring(firingId)
+      if (!inQueue(firing)) throw new RequestError(409, 'this Run isn’t waiting for a slot')
+      startNow.add(firing.id)
+      pump()
+      return rowOf(firing.id)
+    },
+    async stopRun(firingId, caller) {
+      refuseRun(caller)
+      const firing = shownFiring(firingId)
+      const check = checkRuns.get(firing.id)
+      const run = store.getRun(firing.id)
+      if (check) {
+        check.abort.abort()
+        await check.done
+        if (saved.firing(firing.id)?.state === 'queued') saved.dropFiring(firing.id)
+      } else if (firing.state === 'queued') {
+        startNow.delete(firing.id)
+        if (!starting.has(firing.id)) saved.dropFiring(firing.id)
+        else await starting.wait(firing.id)
+        if (saved.firing(firing.id)?.state === 'started') await stopStarted(firing.id)
+      } else if (firing.state === 'started') {
+        startNow.delete(firing.id)
+        if (firing.agentPhase === 'queued' && !run) {
+          await endCheckAgent(firing.id, {
+            stopped: true,
+            why: 'The user stopped the agent Run before it started',
+          })
+        } else await stopStarted(firing.id)
+      } else throw new RequestError(409, 'this Run has already ended')
+      pump()
+      return rowOf(firing.id)
     },
     async retry(firingId, caller) {
       refuseRun(caller)

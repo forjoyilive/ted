@@ -31,6 +31,7 @@ export interface QueueEntry {
   skipsBusy?: true
   recent?: true
   stageRank?: number
+  pastLimits?: true
 }
 
 export interface StageQueue {
@@ -72,22 +73,33 @@ function sortKind(e: QueueEntry): QueueKind {
   return e.kind
 }
 
+const takesTurnWithTasks = (e: QueueEntry) =>
+  e.kind === 'task' || e.kind === 'continuation' || e.kind === 'automation'
+
 function sortGroup(e: QueueEntry): number {
-  const kind = sortKind(e)
-  return queueKinds.indexOf(kind === 'task' ? 'continuation' : kind)
+  return queueKinds.indexOf(takesTurnWithTasks(e) ? 'continuation' : sortKind(e))
+}
+
+function turnKind(e: QueueEntry): number {
+  if (e.kind === 'continuation') return 0
+  if (takesTurnWithTasks(e)) return 1
+  return queueKinds.indexOf(sortKind(e))
 }
 
 export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
-  const ofTask = (e: QueueEntry) => e.kind === 'task' || e.kind === 'continuation'
-  const priorityRank = (e: QueueEntry) => (ofTask(e) ? priorities.indexOf(e.priority ?? 'none') : 0)
-  const stageRank = (e: QueueEntry) => (ofTask(e) ? (e.stageRank ?? 0) : 0)
+  const priorityRank = (e: QueueEntry) =>
+    takesTurnWithTasks(e) ? priorities.indexOf(e.priority ?? 'none') : 0
+  const stageRank = (e: QueueEntry) =>
+    e.kind === 'task' || e.kind === 'continuation' ? (e.stageRank ?? 0) : 0
+  const taskAfterAutomation = (e: QueueEntry) => Number(e.kind === 'task')
   return [...entries].sort(
     (a, b) =>
       sortGroup(a) - sortGroup(b) ||
       stageRank(b) - stageRank(a) ||
-      queueKinds.indexOf(sortKind(a)) - queueKinds.indexOf(sortKind(b)) ||
+      turnKind(a) - turnKind(b) ||
       Number(b.recent === true) - Number(a.recent === true) ||
       priorityRank(a) - priorityRank(b) ||
+      taskAfterAutomation(a) - taskAfterAutomation(b) ||
       a.rank - b.rank ||
       a.id.localeCompare(b.id),
   )
@@ -104,8 +116,8 @@ export function startsNow<T extends QueueEntry>(ordered: readonly T[], use: Slot
     }
     const factory = entry.factoryId
     if (
-      entry.kind !== 'automation' &&
       entry.kind !== 'automation-draft' &&
+      entry.pastLimits !== true &&
       !use.handoffs?.has(entry.id)
     ) {
       if (working >= use.limit) continue

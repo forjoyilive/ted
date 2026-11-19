@@ -995,6 +995,7 @@ export const automations = State.SQLite.table({
     effort: State.SQLite.text({ nullable: true }),
     on: State.SQLite.boolean(),
     checkout: State.SQLite.boolean({ default: false }),
+    priority: State.SQLite.text({ nullable: true }),
     checkCommand: State.SQLite.text({ nullable: true }),
     checkTimeout: State.SQLite.text({ nullable: true }),
     checkRunBy: State.SQLite.text({ nullable: true }),
@@ -3960,6 +3961,10 @@ export const events = {
     name: 'v1.AutomationCheckoutSet',
     schema: Schema.Struct({ id: Schema.String, checkout: Schema.Boolean, at: Schema.String }),
   }),
+  automationPrioritySet: Events.synced({
+    name: 'v1.AutomationPrioritySet',
+    schema: Schema.Struct({ id: Schema.String, priority: Schema.String, at: Schema.String }),
+  }),
   automationSwitched: Events.synced({
     name: 'v1.AutomationSwitched',
     schema: Schema.Struct({ id: Schema.String, on: Schema.Boolean, at: Schema.String }),
@@ -6132,6 +6137,8 @@ const materializers = counted(
         automations.update({ ...fields, ...(rescheduled && { handledUntil: at }) }).where({ id }),
       'v1.AutomationCheckoutSet': ({ id, checkout }) =>
         automations.update({ checkout }).where({ id }),
+      'v1.AutomationPrioritySet': ({ id, priority }) =>
+        automations.update({ priority }).where({ id }),
       'v1.AutomationSwitched': ({ id, on, at }) =>
         automations.update({ on, ...(on && { handledUntil: at }) }).where({ id }),
       'v1.AutomationDeleted': ({ id }) => [

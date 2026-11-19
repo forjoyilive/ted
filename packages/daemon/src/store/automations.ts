@@ -12,8 +12,11 @@ import type {
   CheckAgentStep,
   DaemonEvent,
   Effort,
+  Priority,
   StageId,
 } from '@ted/protocol'
+import { isOneOf } from '@ted/protocol/parse'
+import { priorities } from '@ted/protocol/task'
 import {
   automationCheckResults,
   automationCheckTasks,
@@ -42,17 +45,21 @@ export interface StoredAutomation {
   effort?: Effort
   on: boolean
   checkout: boolean
+  priority: Priority
   check?: AutomationCheck
   template?: AutomationTemplateId
   handledUntil: string
   createdAt: string
 }
 
+export const defaultAutomationPriority: Priority = 'high'
+
 export type NewAutomation = Omit<
   StoredAutomation,
-  'id' | 'handledUntil' | 'createdAt' | 'checkout' | 'check'
+  'id' | 'handledUntil' | 'createdAt' | 'checkout' | 'check' | 'priority'
 > & {
   checkout?: boolean
+  priority?: Priority
 }
 
 export type AutomationFields = Omit<NewAutomation, 'factoryId' | 'on' | 'template'>
@@ -208,9 +215,11 @@ export function createAutomationStore({
     checkRunBy,
     checkAgent,
     checkStartTasks,
+    priority,
     ...row
   }: typeof automations.Type): StoredAutomation => ({
     ...row,
+    priority: isOneOf(priority, priorities) ? priority : defaultAutomationPriority,
     ...(checkCommand !== null && {
       check: {
         command: checkCommand,
@@ -325,7 +334,7 @@ export function createAutomationStore({
     list: () =>
       store.query(queryDb(automations.orderBy('createdAt', 'asc'))).map((row) => toAutomation(row)),
     get,
-    create({ schedule, model, effort, template, checkout, ...input }, at, check) {
+    create({ schedule, model, effort, template, checkout, priority, ...input }, at, check) {
       const id = randomUUID()
       commit(
         events.automationCreated({
@@ -338,17 +347,23 @@ export function createAutomationStore({
           at,
         }),
         ...(checkout ? [events.automationCheckoutSet({ id, checkout, at })] : []),
+        ...(priority !== undefined && priority !== defaultAutomationPriority
+          ? [events.automationPrioritySet({ id, priority, at })]
+          : []),
         ...(check ? checkEvents(id, check, at) : []),
       )
       updated(id)
       return require(id)
     },
-    edit(id, { schedule, model, effort, checkout, ...fields }, at, check) {
+    edit(id, { schedule, model, effort, checkout, priority, ...fields }, at, check) {
       const before = require(id)
       const scheduleText = JSON.stringify(schedule)
       commit(
         ...(checkout !== undefined && checkout !== before.checkout
           ? [events.automationCheckoutSet({ id, checkout, at })]
+          : []),
+        ...(priority !== undefined && priority !== before.priority
+          ? [events.automationPrioritySet({ id, priority, at })]
           : []),
         events.automationEdited({
           ...fields,

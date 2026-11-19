@@ -283,6 +283,7 @@ test('Automation Run now shows pending and prevents duplicate firings before its
       on: false,
       createdAt: '2026-11-11T12:00:00Z',
       nextFirings: [],
+      priority: 'high',
       failuresInARow: 0,
       totals: { runs: 0, tasksCreated: 0 },
     },
@@ -503,6 +504,7 @@ test('pending Automation menus follow their resource and completion does not clo
     on: false,
     createdAt: '2026-11-11T12:00:00Z',
     nextFirings: [],
+    priority: 'high',
     failuresInARow: 0,
     totals: { runs: 0, tasksCreated: 0 },
   }))

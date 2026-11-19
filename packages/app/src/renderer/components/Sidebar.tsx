@@ -1,7 +1,15 @@
 import type { BusyHold, Coordinator, Factory, FactoryGroup, FactoryLayout } from '@ted/protocol'
 import { factoryGroupNameMax } from '@ted/protocol/factory'
 import type { LucideIcon } from 'lucide-react'
-import { ChevronRight, Gauge, Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
+import {
+  ChevronRight,
+  Gauge,
+  Inbox,
+  LayoutDashboard,
+  ListTodo,
+  Settings,
+  Timer,
+} from 'lucide-react'
 import type { DragEvent, ReactNode, RefObject } from 'react'
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
@@ -60,6 +68,7 @@ interface SidebarProps {
   currentFactoryId: string | undefined
   developerMode?: boolean
   inboxCount: number
+  automationRunCount?: number
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
   footer?: SidebarFooter
@@ -287,6 +296,7 @@ export function Sidebar({
   factoryLayout,
   currentFactoryId,
   inboxCount,
+  automationRunCount = 0,
   developerMode = false,
   badges = {},
   settingsProblem = false,
@@ -737,6 +747,16 @@ export function Sidebar({
         >
           <NavIcon shape={ListTodo} />
           <span className={styles.label}>All Tasks</span>
+        </ActionButton>
+        <ActionButton
+          type="button"
+          className={styles.row}
+          onClick={() => open({ kind: 'automation-runs' })}
+          {...current({ kind: 'automation-runs' })}
+        >
+          <NavIcon shape={Timer} />
+          <span className={styles.label}>Automation Runs</span>
+          {automationRunCount > 0 && <span className={styles.count}>{automationRunCount}</span>}
         </ActionButton>
         <ActionButton
           type="button"
