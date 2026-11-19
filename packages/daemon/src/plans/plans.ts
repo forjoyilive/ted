@@ -27,6 +27,13 @@ import { builtInAgent, chatAgentView, pickAgent, storedAgent } from '../chats/ag
 import { checkOut as checkOutRepos, discard } from '../chats/checkout.ts'
 import { type ChatCommands, findCommand } from '../chats/commands.ts'
 import { hasPower, requirePower } from '../chats/powers.ts'
+import {
+  answerable,
+  chatTitle,
+  planPost,
+  proposalRows,
+  roundAnswerMessage,
+} from '../chats/requests.ts'
 import { RequestError } from '../errors.ts'
 import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
@@ -57,7 +64,7 @@ import {
   planCreatedNote,
   plannerInstructions,
   planResumePrompt,
-  planRoundAnswerMessage,
+  planRoundNext,
   planToldLeadNote,
   taskDetachedMessage,
   taskDetachedNote,
@@ -836,12 +843,7 @@ export function createPlans(options: PlansOptions): Plans {
     async rename(id, title, caller) {
       refuseRun(caller)
       const plan = find(id)
-      const name = title.trim().replace(/\s+/g, ' ')
-      if (name === '') throw new RequestError(400, 'a planning chat needs a title')
-      if ([...name].length > maxTitleLength) {
-        throw new RequestError(400, `titles are at most ${maxTitleLength} characters`)
-      }
-      saved.rename(plan.id, name)
+      saved.rename(plan.id, chatTitle(title))
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
     async stop(id, caller) {
@@ -915,25 +917,7 @@ export function createPlans(options: PlansOptions): Plans {
       const kind = round ? 'round' : 'proposal'
       const task = linkedTask(plan)
       const requests = saved.requests(plan.id)
-      if (supersedes !== undefined) {
-        const old = requests.find((r) => r.id === supersedes)
-        if (!old) throw new RequestError(404, `no request ${supersedes} in this planning chat`)
-        if (old.kind !== kind) throw new RequestError(400, `a ${kind} can replace only a ${kind}`)
-        if (old.answer) throw new RequestError(409, 'that request has already been answered')
-      }
-      const open = requests.findLast((r) => r.kind !== 'note' && r.answer === undefined)
-      if (open && open.id !== supersedes && open.kind !== kind) {
-        throw new RequestError(
-          409,
-          `your ${open.kind} is still waiting on the human; wait for their answer first`,
-        )
-      }
-      if (open && open.id !== supersedes && kind === 'round') {
-        throw new RequestError(
-          409,
-          `Round ${open.round?.number ?? ''} is still waiting on the human; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
-        )
-      }
+      const decided = planPost(requests, { kind, ...(supersedes !== undefined && { supersedes }) })
       const posted = round
         ? saved.postRequest({
             planId: plan.id,
@@ -943,9 +927,7 @@ export function createPlans(options: PlansOptions): Plans {
             title: round.title,
             body: round.summary ?? '',
             round: {
-              number:
-                requests.filter((r) => r.kind === 'round' && r.answer?.kind !== 'superseded')
-                  .length + (supersedes === undefined ? 1 : 0),
+              number: decided.roundNumber,
               questions: round.questions,
             },
           })
@@ -958,18 +940,11 @@ export function createPlans(options: PlansOptions): Plans {
             body: proposal?.summary ?? '',
             proposal: {
               ...(task && { firstPiece: { id: task.id, displayId: task.displayId } }),
-              rows: (proposal?.tasks ?? []).map((row) => ({
-                title: row.title,
-                scope: row.scope,
-                ...(row.description !== undefined && { description: row.description }),
-                priority: row.priority ?? 'none',
-                blockedBy: row.blockedBy ?? [],
-              })),
+              rows: proposalRows(proposal?.tasks ?? []),
             },
           })
-      const replaced = supersedes ?? (open && open.kind === 'proposal' ? open.id : undefined)
-      if (replaced !== undefined) {
-        saved.answerRequest(replaced, {
+      if (decided.supersedes !== undefined) {
+        saved.answerRequest(decided.supersedes, {
           kind: 'superseded',
           at: posted.createdAt,
           by: posted.id,
@@ -983,10 +958,7 @@ export function createPlans(options: PlansOptions): Plans {
       const plan = found && saved.get(found.planId)
       if (!found || !plan || !factoryOf(plan)) throw new RequestError(404, `no request ${id}`)
       if (found.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
-      if (found.answer?.kind === 'superseded') {
-        throw new RequestError(409, 'this request was replaced by a newer one')
-      }
-      if (found.answer) throw new RequestError(409, 'this request has already been answered')
+      answerable(found)
       if (plan.archivedAt !== undefined) {
         throw new RequestError(409, 'this planning chat is archived')
       }
@@ -997,7 +969,7 @@ export function createPlans(options: PlansOptions): Plans {
         const round = found.round
         if (!round) throw new RequestError(409, 'this round has no questions')
         const answers = roundAnswers(round, request)
-        await deliver(plan, planRoundAnswerMessage(found, answers))
+        await deliver(plan, roundAnswerMessage(found, answers, planRoundNext))
         const answered = saved.answerRequest(id, {
           kind: 'answered',
           at: new Date().toISOString(),

@@ -39,7 +39,6 @@ import type {
   OutsideCommandAnswer,
   PostChatRequest,
   ProposalCreated,
-  RoundAnswer,
   Run,
   RunMessage,
   RunOutsideCommandRequest,
@@ -53,7 +52,6 @@ import {
   maxOpenAutomationCards,
   movePlanKey,
   planTitle,
-  planTitleLength,
   priorities,
 } from '@ted/protocol'
 import type { AgentCommand, AgentPower, ResolvedAgent } from '@ted/protocol/agent-files'
@@ -96,6 +94,14 @@ import {
   hasPower,
   requirePower,
 } from '../chats/powers.ts'
+import {
+  answerable,
+  chatTitle,
+  planPost,
+  proposalRows,
+  refuseWhileWaiting,
+  roundAnswerMessage,
+} from '../chats/requests.ts'
 import { RequestError } from '../errors.ts'
 import { ensureClone } from '../factories.ts'
 import type { MakeDirectory } from '../files.ts'
@@ -233,28 +239,6 @@ function carried(
 ): { prompt: string; parts?: PromptPart[] } {
   if (before && !before.parts) return { prompt: next.prompt }
   return { prompt: next.prompt, parts: [...(before?.parts ?? []), ...next.parts] }
-}
-
-export function chatRoundAnswerMessage(
-  request: Pick<ChatRequest, 'id' | 'title' | 'round'>,
-  answers: readonly RoundAnswer[],
-): string {
-  const lines = (request.round?.questions ?? []).map((question, i) => {
-    const answer = answers[i]
-    if (!answer) return ''
-    const tag = answer.changed
-      ? `changed from your recommendation “${question.recommended}”`
-      : 'recommended'
-    return [
-      `${i + 1}. ${question.question}`,
-      `   ${answer.answer} (${tag})`,
-      ...(answer.note !== undefined ? [`   Note: ${answer.note}`] : []),
-    ].join('\n')
-  })
-  return [
-    `The human answered Round ${request.round?.number ?? ''} “${request.title ?? ''}” (request ${request.id}):`,
-    lines.join('\n'),
-  ].join('\n\n')
 }
 
 export function coordinatorTurn(messages: readonly RunMessage[]): string {
@@ -2642,12 +2626,7 @@ export function createCoordinators(options: {
           plan.updateFailed !== undefined
             ? heldAfterFailedUpdate(plan.updateFailed, plan.folder)
             : action
-        const waiting = openAsked(c)[0]
-        if (waiting)
-          throw new RequestError(
-            409,
-            `your ${waiting.kind} (request ${waiting.id}) is still waiting on the human; wait for their answer first`,
-          )
+        refuseWhileWaiting(openAsked(c), 'outside-command')
         const posted = store.chats.post({
           chatId: c.id,
           factoryId: c.factoryId,
@@ -2676,7 +2655,7 @@ export function createCoordinators(options: {
         const asked = store.chats.request(requestId)
         if (!asked || asked.chatId !== c.id)
           throw new RequestError(404, 'no such request in this chat')
-        if (asked.answer) throw new RequestError(409, 'This request is already closed')
+        answerable(asked)
         const ask = asked.outsideCommand
         if (asked.kind !== 'outside-command' || !ask)
           throw new RequestError(400, 'This request isn’t an outside command')
@@ -2861,19 +2840,10 @@ export function createCoordinators(options: {
           kind === 'proposal' ? 'propose_tasks' : kind === 'agent' ? 'manage_agents' : 'ask',
         )
         const draft = input.agent && planDraft(input.agent, await agentFilesOf(c))
-        const asked = store.chats.requests(c.id)
-        const open = asked.filter((r) => r.answer === undefined)
-        if (input.supersedes !== undefined) {
-          const old = open.find((r) => r.id === input.supersedes)
-          if (!old) throw new RequestError(409, `no open request ${input.supersedes} in this chat`)
-          if (old.kind !== kind) throw new RequestError(400, `a ${kind} can replace only a ${kind}`)
-        }
-        const waiting = open.find((r) => r.id !== input.supersedes)
-        if (waiting)
-          throw new RequestError(
-            409,
-            `your ${waiting.kind} (request ${waiting.id}) is still waiting on the human; wait for their answer, or replace it with --supersedes ${waiting.id}`,
-          )
+        const decided = planPost(store.chats.requests(c.id), {
+          kind,
+          ...(input.supersedes !== undefined && { supersedes: input.supersedes }),
+        })
         const posted = store.chats.post({
           chatId: c.id,
           factoryId: c.factoryId,
@@ -2886,22 +2856,14 @@ export function createCoordinators(options: {
           ...(input.round && {
             title: input.round.title,
             round: {
-              number:
-                asked.filter((r) => r.kind === 'round' && r.answer?.kind !== 'superseded').length +
-                (input.supersedes === undefined ? 1 : 0),
+              number: decided.roundNumber,
               questions: input.round.questions,
             },
           }),
           ...(input.proposal && {
             title: input.proposal.title,
             proposal: {
-              rows: input.proposal.tasks.map((row) => ({
-                title: row.title,
-                scope: row.scope,
-                ...(row.description !== undefined && { description: row.description }),
-                priority: row.priority ?? 'none',
-                blockedBy: row.blockedBy ?? [],
-              })),
+              rows: proposalRows(input.proposal.tasks),
             },
           }),
           ...(draft && {
@@ -2914,8 +2876,8 @@ export function createCoordinators(options: {
               ? redactSecrets(input.agent.summary ?? '')
               : ((input.round ?? input.proposal)?.summary ?? ''),
         })
-        if (input.supersedes !== undefined)
-          store.chats.answer(input.supersedes, {
+        if (decided.supersedes !== undefined)
+          store.chats.answer(decided.supersedes, {
             kind: 'superseded',
             at: posted.createdAt,
             by: posted.id,
@@ -2931,13 +2893,13 @@ export function createCoordinators(options: {
         const asked = store.chats.request(requestId)
         if (!asked || asked.chatId !== c.id)
           throw new RequestError(404, 'no such request in this chat')
-        if (asked.answer) throw new RequestError(409, 'This request is already closed')
+        answerable(asked)
         const factory = requireFactory(c.factoryId)
         const agent = agentOf(c)
         if (chatAgentView(agent, await agentsNow(factory)).removed)
           throw new RequestError(409, removedRefusal(agent))
-        if (store.chats.request(requestId)?.answer)
-          throw new RequestError(409, 'This request is already closed')
+        const current = store.chats.request(requestId)
+        if (current) answerable(current)
         const at = new Date().toISOString()
         const deliver = (text: string) => {
           const latest = requireChat(chatId)
@@ -2981,7 +2943,7 @@ export function createCoordinators(options: {
         } else if (asked.kind === 'round') {
           if (!asked.round) throw new RequestError(409, 'this round has no questions')
           const answers = roundAnswers(asked.round, answer)
-          deliver(chatRoundAnswerMessage(asked, answers))
+          deliver(roundAnswerMessage(asked, answers))
           store.chats.answer(asked.id, { kind: 'answered', at, answers })
         } else if (answer.action === 'request-changes') {
           const text = answer.text.trim()
@@ -3007,7 +2969,7 @@ export function createCoordinators(options: {
         const asked = store.chats.request(requestId)
         if (!asked || asked.chatId !== c.id)
           throw new RequestError(404, 'no such request in this chat')
-        if (asked.answer) throw new RequestError(409, 'This request is already closed')
+        answerable(asked)
         const draft = asked.agentDraft
         if (asked.kind !== 'agent' || !draft)
           throw new RequestError(400, 'This request isn’t an Agent draft')
@@ -3127,11 +3089,7 @@ export function createCoordinators(options: {
       return publicChat(requireChat(id))
     },
     async renameChat(id, title) {
-      const name = title.trim().replace(/\s+/g, ' ')
-      if (name === '') throw new RequestError(400, 'a chat needs a title')
-      if ([...name].length > planTitleLength) {
-        throw new RequestError(400, `titles are at most ${planTitleLength} characters`)
-      }
+      const name = chatTitle(title)
       requireAnyChat(id)
       saved.rename(id, name)
       await store.persisted()
