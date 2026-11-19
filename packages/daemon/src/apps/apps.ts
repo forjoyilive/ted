@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
@@ -15,11 +16,13 @@ import {
   type AppRef,
   type AppStarter,
   appEnvName,
+  approvedOutsideSandbox,
   type DaemonEvent,
   type DeviceRequest,
   isDeviceApp,
   isEmulatorApp,
   isSimulatorApp,
+  type OutsideSandboxApproval,
   type SandboxAccess,
   type SimulatorSlots,
   type TaskApp,
@@ -84,8 +87,58 @@ export interface AppTask {
   factoryId: string
   repos: AppRepo[]
   sandbox?: Omit<SandboxScope, 'tmp'>
-  outsideSandbox?: readonly string[]
+  outsideSandbox?: readonly OutsideSandboxApproval[]
   cache?: string
+}
+
+export function outsideSandboxApproval(
+  repo: Pick<AppRepo, 'name' | 'env'>,
+  app: AppDeclaration,
+): OutsideSandboxApproval {
+  const sorted = (env: Record<string, string>) =>
+    Object.entries(env).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  const declaration = createHash('sha256')
+    .update(
+      JSON.stringify([
+        repo.name,
+        app.name,
+        app.kind,
+        app.run,
+        sorted(app.env),
+        sorted(repo.env),
+        app.electron === true,
+      ]),
+    )
+    .digest('hex')
+  return { repo: repo.name, app: app.name, declaration }
+}
+
+export function relaunchOptions(
+  instance: Pick<Instance, 'runId' | 'declaration'> | undefined,
+): StartOptions {
+  return {
+    ...(instance?.runId !== undefined && { runId: instance.runId }),
+    confirmed: {
+      ...(instance?.declaration !== undefined && { declaration: instance.declaration }),
+    },
+  }
+}
+
+export function refuseUnconfirmed(
+  task: AppTask,
+  repo: AppRepo,
+  app: AppDeclaration,
+  by: AppStarter,
+  confirmed: { declaration?: string },
+): void {
+  if (by !== 'human' || task.sandbox === undefined) return
+  const current = outsideSandboxApproval(repo, app)
+  if (confirmed.declaration === current.declaration) return
+  if (approvedOutsideSandbox(task.outsideSandbox, current)) return
+  throw new RequestError(
+    409,
+    `Ted didn’t start ${app.name}: running it outside the sandbox needs your confirmation for its current command. Start it again and confirm.`,
+  )
 }
 
 export interface SimulatorOptions {
@@ -117,6 +170,7 @@ export interface StartOptions {
   runId?: string
   shutDown?: string
   reason?: string
+  confirmed?: { declaration?: string }
 }
 
 export interface AppsOptions {
@@ -143,7 +197,7 @@ export interface Apps {
   list(taskId: string): Promise<TaskApp[]>
   start(taskId: string, ref: AppRef, by: AppStarter, options?: StartOptions): Promise<TaskApp>
   stop(taskId: string, ref: AppRef): Promise<TaskApp>
-  restart(taskId: string, ref: AppRef, by: AppStarter, runId?: string): Promise<TaskApp>
+  restart(taskId: string, ref: AppRef, by: AppStarter, declaration?: string): Promise<TaskApp>
   log(taskId: string, ref: AppRef): Promise<AppLog>
   envFor(taskId: string): Promise<Record<string, string>>
   stopRepo(taskId: string, repo: string): Promise<void>
@@ -175,6 +229,7 @@ interface Instance {
   runId?: string
   restart?: boolean
   sandboxed?: boolean
+  declaration?: string
   groups?: SandboxAccess[]
   missingSockets?: readonly string[]
   waitingFor?: string
@@ -641,6 +696,7 @@ export function createApps(options: AppsOptions): Apps {
     restarting: boolean,
   ): Promise<TaskApp> {
     const { task, repo, app } = await find(taskId, ref)
+    refuseUnconfirmed(task, repo, app, by, start.confirmed ?? {})
     const { runId } = start
     let restart = restarting
     const dir = dirOf(taskId, repo.name, app.name)
@@ -694,6 +750,10 @@ export function createApps(options: AppsOptions): Apps {
           startedBy: by,
           ...(runId !== undefined && { runId }),
           ...(restart && { restart }),
+          ...(by === 'human' &&
+            task.sandbox !== undefined && {
+              declaration: outsideSandboxApproval(repo, app).declaration,
+            }),
           waitingFor: got.waiting,
         }
         await writeInstance(dir, instance)
@@ -791,6 +851,8 @@ export function createApps(options: AppsOptions): Apps {
         startedAt: new Date().toISOString(),
         startedBy: by,
         ...(sandboxed.shell !== undefined && { sandboxed: true }),
+        ...(sandboxed.shell === undefined &&
+          by === 'human' && { declaration: outsideSandboxApproval(repo, app).declaration }),
         ...(sandboxed.shell !== undefined && { groups: appAccess(app) }),
         ...(sandboxed.missingSockets !== undefined &&
           sandboxed.missingSockets.length > 0 && { missingSockets: sandboxed.missingSockets }),
@@ -1034,12 +1096,19 @@ export function createApps(options: AppsOptions): Apps {
       )
     }
     if (got.state === 'gone') return end('stopped')
+    const by = instance.startedBy ?? 'human'
+    try {
+      refuseUnconfirmed(task, repo, app, by, relaunchOptions(current).confirmed ?? {})
+    } catch (error) {
+      if (error instanceof RequestError) return end('failed', error.message)
+      throw error
+    }
     await launch(
       taskId,
       task,
       repo,
       app,
-      instance.startedBy ?? 'human',
+      by,
       instance.runId,
       instance.restart === true,
       undefined,
@@ -1153,10 +1222,12 @@ export function createApps(options: AppsOptions): Apps {
     for (const repo of task.repos) {
       for (const app of repo.apps) {
         if (!supportedApp(app)) continue
-        const ask = task.sandbox !== undefined && !task.outsideSandbox?.includes(app.name)
+        const approval = outsideSandboxApproval(repo, app)
+        const ask =
+          task.sandbox !== undefined && !approvedOutsideSandbox(task.outsideSandbox, approval)
         apps.push({
           ...toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name))),
-          ...(ask && { confirmOutsideSandbox: true }),
+          ...(ask && { confirmOutsideSandbox: true, outsideSandboxApproval: approval }),
         })
       }
     }
@@ -1341,17 +1412,13 @@ export function createApps(options: AppsOptions): Apps {
         return toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))
       })
     },
-    async restart(taskId, ref, by, runId) {
-      const { repo, app } = await find(taskId, ref)
+    async restart(taskId, ref, by, declaration) {
+      const { task, repo, app } = await find(taskId, ref)
+      const confirmed = { ...(declaration !== undefined && { declaration }) }
+      refuseUnconfirmed(task, repo, app, by, confirmed)
       return serial(keyOf(taskId, repo.name, app.name), async () => {
         const wasLive = await stopNow(taskId, repo.name, app.name)
-        return startNow(
-          taskId,
-          { repo: repo.name, name: app.name },
-          by,
-          runId === undefined ? {} : { runId },
-          wasLive,
-        )
+        return startNow(taskId, { repo: repo.name, name: app.name }, by, { confirmed }, wasLive)
       })
     },
     simulators: () => sims.slots(),
@@ -1371,7 +1438,7 @@ export function createApps(options: AppsOptions): Apps {
               taskId,
               { repo: repo.name, name: app.name },
               instance?.startedBy ?? 'human',
-              instance?.runId === undefined ? {} : { runId: instance.runId },
+              relaunchOptions(instance),
               true,
             )
           })
@@ -1409,7 +1476,7 @@ export function createApps(options: AppsOptions): Apps {
             taskId,
             { repo: repo.name, name: app.name },
             instance?.startedBy ?? 'automation',
-            instance?.runId === undefined ? {} : { runId: instance.runId },
+            relaunchOptions(instance),
             wasLive,
           )
         })

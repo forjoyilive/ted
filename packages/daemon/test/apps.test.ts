@@ -29,6 +29,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { approveAppsOutsideSandboxBy } from './support/outside-sandbox-approvals.ts'
 import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const execFileAsync = promisify(execFile)
@@ -132,6 +133,15 @@ const appsYaml = (extra = '') =>
   ].join('\n')
 
 async function taskWithWorktree(client: Client, title = '{"steps": [{"endTurn": true}]}') {
+  const task = await unapprovedTaskWithWorktree(client, title)
+  await approveAppsOutsideSandboxBy(client, task)
+  return task
+}
+
+async function unapprovedTaskWithWorktree(
+  client: Client,
+  title = '{"steps": [{"endTurn": true}]}',
+) {
   await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
   const task = await client.ok<Task>('POST', '/tasks', { title, factory: 'NB' })
   await client.ok('POST', `/tasks/${task.id}/start`)
@@ -341,7 +351,7 @@ describe('Apps', () => {
   test('a Run starts only its own Task’s Apps, only the human stops or restarts them, and the human’s ▶ asks first until they choose Always for that App in this Factory, which a Run can’t choose', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
     const client = await start()
-    const task = await taskWithWorktree(client)
+    const task = await unapprovedTaskWithWorktree(client)
     const asRun = api(
       daemon?.port ?? 0,
       (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1'),
@@ -368,14 +378,75 @@ describe('Apps', () => {
         (await asLead.call('POST', `/tasks/${task.id}/apps/${action}`, { name: 'Web' })).status,
         `the Task’s own Run asks to ${action}`,
       ).toBe(403)
+    const approval = (await appNamed(client, task, 'API'))?.outsideSandboxApproval
+    expect(approval).toEqual({
+      repo: 'widgets',
+      app: 'API',
+      declaration: expect.stringMatching(/^[0-9a-f]{64}$/),
+    })
     const refused = await asLead.call('PATCH', '/settings', {
-      appsOutsideSandbox: { [task.factoryId]: ['API'] },
+      appsOutsideSandbox: { [task.factoryId]: [approval] },
     })
     expect(refused.status).toBe(403)
     expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
-    await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: ['API'] } })
+    await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: [approval] } })
     expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBeUndefined()
     expect((await appNamed(client, task, 'Web'))?.confirmOutsideSandbox).toBe(true)
+  })
+
+  test('an Always approval for an older declaration of the App, or a name-only one, asks again, and ▶ runs it only with the declaration the human confirmed', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
+    const client = await start()
+    const task = await unapprovedTaskWithWorktree(client)
+    const approval = (await appNamed(client, task, 'API'))?.outsideSandboxApproval
+    if (approval === undefined) throw new Error('API carries no approval to save')
+
+    const older = { ...approval, declaration: '0'.repeat(64) }
+    await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: [older] } })
+    expect(await appNamed(client, task, 'API')).toMatchObject({
+      confirmOutsideSandbox: true,
+      outsideSandboxApproval: approval,
+    })
+
+    const nameOnly = await client.call('PATCH', '/settings', {
+      appsOutsideSandbox: { [task.factoryId]: ['API'] },
+    })
+    expect(nameOnly.status).toBe(400)
+    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
+
+    const unconfirmed =
+      'Ted didn’t start API: running it outside the sandbox needs your confirmation for its current command. Start it again and confirm.'
+    for (const [action, body] of [
+      ['start', { name: 'API' }],
+      ['start', { name: 'API', declaration: older.declaration }],
+      ['restart', { name: 'API' }],
+      ['restart', { name: 'API', declaration: older.declaration }],
+    ] as const) {
+      const res = await client.call('POST', `/tasks/${task.id}/apps/${action}`, body)
+      expect(res.status, `${action} ${JSON.stringify(body)}`).toBe(409)
+      expect(res.body).toMatchObject({ error: unconfirmed })
+    }
+    expect((await appNamed(client, task, 'API'))?.state).toBe('stopped')
+
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, {
+      name: 'API',
+      declaration: approval.declaration,
+    })
+    await waitForState(client, task, 'API', 'running')
+    await client.ok('POST', `/tasks/${task.id}/apps/restart`, {
+      name: 'API',
+      declaration: approval.declaration,
+    })
+    await waitForState(client, task, 'API', 'running')
+  })
+
+  test('▶ runs an App whose saved Always approval matches its declaration without a confirmation', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
+    const client = await start()
+    const task = await taskWithWorktree(client)
+    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBeUndefined()
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'API' })
+    await waitForState(client, task, 'API', 'running')
   })
 
   test('a running App removed from the settings stays listed and stoppable, and ted run-app stops waiting for it', async () => {

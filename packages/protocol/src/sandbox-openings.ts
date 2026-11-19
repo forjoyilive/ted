@@ -1,3 +1,4 @@
+import type { OutsideSandboxApproval } from './outside-sandbox.ts'
 import type { PermissionMode } from './run.ts'
 import type { AccessHolder, AccessHolderKind } from './sandbox-access.ts'
 import type { NamedSocket, SandboxAccess } from './sandbox-groups.ts'
@@ -10,7 +11,7 @@ export interface ElectronApp {
 
 export interface SandboxOpeningsInput {
   permissions: PermissionMode
-  appsOutsideSandbox: readonly string[]
+  appsOutsideSandbox: readonly OutsideSandboxApproval[]
   piUnsandboxedAllowed: boolean
   sockets: readonly NamedSocket[]
   socketsFrom?: LayerKind
@@ -20,7 +21,7 @@ export interface SandboxOpeningsInput {
 
 export type SandboxOpening =
   | { kind: 'bypass'; unsandboxed: true }
-  | { kind: 'app-outside'; unsandboxed: true; app: string }
+  | { kind: 'app-outside'; unsandboxed: true; repo: string; app: string }
   | { kind: 'pi-unsandboxed'; unsandboxed: true }
   | { kind: 'socket'; unsandboxed: false; socket: string; path: string; from: LayerKind }
   | { kind: 'electron-app'; unsandboxed: false; repo: string; app: string }
@@ -42,8 +43,8 @@ export function sandboxOpenings(input: SandboxOpeningsInput): SandboxOpening[] {
   const bypass = input.permissions === 'bypass'
   const openings: SandboxOpening[] = []
   if (bypass) openings.push({ kind: 'bypass', unsandboxed: true })
-  for (const app of new Set(input.appsOutsideSandbox)) {
-    openings.push({ kind: 'app-outside', unsandboxed: true, app })
+  for (const { repo, app } of input.appsOutsideSandbox) {
+    openings.push({ kind: 'app-outside', unsandboxed: true, repo, app })
   }
   if (input.piUnsandboxedAllowed && !bypass) {
     openings.push({ kind: 'pi-unsandboxed', unsandboxed: true })

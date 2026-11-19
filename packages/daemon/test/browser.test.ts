@@ -19,6 +19,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { approveAppsOutsideSandbox } from './support/outside-sandbox-approvals.ts'
 
 expectTypeOf<TedStore>().toExtend<AppsArea>()
 
@@ -105,6 +106,7 @@ test('only its Task can command the browser; the app bridge completes commands o
     (await run.call('POST', `/tasks/${other.id}/browser`, { action: 'open', app: { name: 'Web' } }))
       .status,
   ).toBe(403)
+  await approveAppsOutsideSandbox(app, task)
   await app.startApp(task.id, { name: 'Web' })
   await waitUntil(
     async () => (await app.listApps(task.id)).find((a) => a.state === 'running'),

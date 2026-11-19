@@ -28,6 +28,7 @@ export {
   isLoopbackUrl,
   isSimulatorApp,
   type RecordAppRequest,
+  type RestartAppRequest,
   type SimulatorAsk,
   type SimulatorSlots,
   type StartAppRequest,
@@ -48,7 +49,12 @@ export {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
-export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
+export {
+  parseAppRef,
+  parseRecordAppRequest,
+  parseRestartAppRequest,
+  parseStartAppRequest,
+} from './app-parsers.ts'
 export {
   type AsanaConfiguration,
   type AsanaStatus,
@@ -819,6 +825,14 @@ export {
   parseOutsideCommandAnswer,
   parseRunOutsideCommandRequest,
 } from './outside-command.ts'
+export {
+  approvedOutsideSandbox,
+  type OutsideSandboxApproval,
+  type OutsideSandboxApprovals,
+  parseOutsideSandboxApprovalsRequest,
+  readOutsideSandboxApprovals,
+  withOutsideSandboxApproval,
+} from './outside-sandbox.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
