@@ -2,6 +2,7 @@ import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { tedPaths } from '@ted/protocol'
 import { piSessionFolder } from '../agents/pi.ts'
+import { clonePath } from '../factories.ts'
 import type { SandboxScope } from '../sandbox.ts'
 import type { TedStore } from '../store/index.ts'
 import { runFiles } from './host-files.ts'
@@ -31,7 +32,7 @@ export async function piSandboxScope(input: PiScopeInput): Promise<SandboxScope>
 
   if (task === undefined) {
     if (ownsCwd) {
-      const git = await worktreeGit(cwd)
+      const git = await worktreeGit(cwd, (clone) => insideReal(paths.repos, clone))
       if (git) {
         writable.add(cwd)
         readable.add(git.clone)
@@ -46,27 +47,31 @@ export async function piSandboxScope(input: PiScopeInput): Promise<SandboxScope>
   }
 
   const taskDir = path.join(paths.worktrees, task.displayId)
-  const worktrees = task.repos.filter((repo) => !repo.removed).map((repo) => repo.worktree)
+  const live = task.repos.filter((repo) => !repo.removed)
+  const clones = await Promise.all(live.map((repo) => real(clonePath(paths.repos, repo))))
+  const taskClone = async (clone: string) => clones.includes(await real(clone))
+  const worktrees = live.map((repo) => repo.worktree)
   if (
     ownsCwd &&
     inside(taskDir, cwd) &&
     !worktrees.some((dir) => inside(dir, cwd)) &&
-    (await worktreeGit(cwd))
+    (await worktreeGit(cwd, taskClone))
   )
     worktrees.push(cwd)
   if (await isFolder(taskDir)) readable.add(taskDir)
   for (const worktree of worktrees) {
     writable.add(worktree)
-    const git = await worktreeGit(worktree)
+    const git = await worktreeGit(worktree, taskClone)
     if (!git) continue
     readable.add(git.clone)
     writable.add(git.own)
     writable.add(path.join(git.common, 'objects'))
-    if (git.refFolder !== undefined) {
-      for (const dir of [git.refFolder, path.join('logs', git.refFolder)]) {
-        const full = path.join(git.common, dir)
-        await mkdir(full, { recursive: true, mode: 0o755 })
-        writable.add(full)
+    const clone = await real(git.clone)
+    const branch = live.find((_, i) => clones[i] === clone)?.branch
+    const refs = branch === undefined ? undefined : refFolder(branch)
+    if (refs !== undefined) {
+      for (const dir of [refs, path.join('logs', refs)]) {
+        writable.add(await plainFolders(git.common, dir))
       }
     }
   }
@@ -82,10 +87,14 @@ interface WorktreeGit {
   own: string
   common: string
   clone: string
-  refFolder: string | undefined
 }
 
-async function worktreeGit(worktree: string): Promise<WorktreeGit | undefined> {
+// A Run can rewrite its worktree’s .git file, so the git folders it points to are granted
+// only when they sit in a clone Ted made for this Run and are plain folders.
+async function worktreeGit(
+  worktree: string,
+  trusted: (clone: string) => Promise<boolean>,
+): Promise<WorktreeGit | undefined> {
   const marker = path.join(worktree, '.git')
   if (!(await lstat(marker).catch(() => undefined))?.isFile()) return undefined
   const pointer = /^gitdir: (.+)$/m.exec(await readFile(marker, 'utf8'))?.[1]?.trim()
@@ -94,18 +103,36 @@ async function worktreeGit(worktree: string): Promise<WorktreeGit | undefined> {
   const common = path.dirname(path.dirname(own))
   if (path.basename(path.dirname(own)) !== 'worktrees' || path.basename(common) !== '.git')
     return undefined
-  const head = await readFile(path.join(own, 'HEAD'), 'utf8').catch(() => '')
-  const branch = /^ref: refs\/heads\/(.+)$/m.exec(head)?.[1]?.trim()
-  const folder = branch === undefined ? '.' : path.posix.dirname(branch)
-  return {
-    own,
-    common,
-    clone: path.dirname(common),
-    refFolder:
-      folder === '.' || folder.split('/').includes('..')
-        ? undefined
-        : path.join('refs', 'heads', ...folder.split('/')),
+  if (!(await trusted(path.dirname(common)))) return undefined
+  for (const dir of [common, path.dirname(own), own, path.join(common, 'objects')]) {
+    if ((await real(dir)) !== path.join(await real(path.dirname(dir)), path.basename(dir)))
+      return undefined
+    if (!(await isFolder(dir))) return undefined
   }
+  return { own, common, clone: path.dirname(common) }
+}
+
+function refFolder(branch: string): string | undefined {
+  const folder = path.posix.dirname(branch)
+  return folder === '.' || folder.split('/').some((part) => part === '..' || part === '')
+    ? undefined
+    : path.join('refs', 'heads', ...folder.split('/'))
+}
+
+async function plainFolders(root: string, relative: string): Promise<string> {
+  let current = root
+  for (const part of relative.split(path.sep)) {
+    current = path.join(current, part)
+    const found = await lstat(current).catch(() => undefined)
+    if (found === undefined) await makeFolder(current)
+    else if (!found.isDirectory() || found.isSymbolicLink())
+      throw new Error(`${current} isn’t a plain folder, so Ted won’t let Pi write it`)
+  }
+  return current
+}
+
+async function real(file: string): Promise<string> {
+  return realpath(file).catch(() => path.resolve(file))
 }
 
 async function makeFolder(dir: string): Promise<void> {
@@ -119,10 +146,7 @@ async function isFolder(dir: string): Promise<boolean> {
 }
 
 async function insideReal(folder: string, file: string): Promise<boolean> {
-  const [outer, inner] = await Promise.all([
-    realpath(folder).catch(() => path.resolve(folder)),
-    realpath(file).catch(() => path.resolve(file)),
-  ])
+  const [outer, inner] = await Promise.all([real(folder), real(file)])
   return inside(outer, inner)
 }
 
