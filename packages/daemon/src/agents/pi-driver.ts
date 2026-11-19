@@ -19,7 +19,7 @@ function objectFrom(line: string): JsonObject | undefined {
   return isObject(value) ? value : undefined
 }
 
-export const drive: DriveAgent = ({ input, send, emit }) => {
+export const drive: DriveAgent = ({ input, send, emit, stop, fail }) => {
   const plan = parsePlan(input)
   const output = (event: string, data: JsonObject = {}) =>
     emit?.(JSON.stringify({ ted_pi: event, ...data }))
@@ -29,6 +29,7 @@ export const drive: DriveAgent = ({ input, send, emit }) => {
   let interrupted = false
   let requests = 0
   let starting: string | undefined
+  let lastError: string | undefined
   const queued: string[] = []
 
   function prompt(text: string) {
@@ -109,7 +110,26 @@ export const drive: DriveAgent = ({ input, send, emit }) => {
         }
         return
       }
-      if (event.type === 'agent_settled' && (busy || interrupted)) settle()
+      if (event.type === 'message_end' && isObject(event.message)) {
+        const message = event.message
+        if (message.role === 'assistant')
+          lastError =
+            message.stopReason === 'error'
+              ? `Pi: ${isString(message.errorMessage) && message.errorMessage !== '' ? message.errorMessage : 'the model returned an error'}`
+              : undefined
+        return
+      }
+      if (event.type === 'agent_settled') {
+        if (lastError !== undefined && event.aborted !== true) {
+          const message = lastError
+          lastError = undefined
+          if (fail) fail(message)
+          else stop()
+          return
+        }
+        lastError = undefined
+        if (busy || interrupted) settle()
+      }
     },
   }
 }

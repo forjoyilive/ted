@@ -1406,7 +1406,7 @@ describe('Pi', () => {
     expect(env).toEqual({ PATH: '/bin', PI_CODING_AGENT_DIR: '/pi' })
   })
 
-  test('resumes by the session file Pi saved in the Run folder', () => {
+  test('resumes by the session file Pi saved in the Run folder, and refuses when it is missing', () => {
     const runDir = mkdtempSync(path.join(tmpdir(), 'ted-pi-run-'))
     try {
       mkdirSync(path.join(runDir, 'pi-sessions'))
@@ -1415,8 +1415,8 @@ describe('Pi', () => {
       const resumed = agent.launch({ ...bypass, runDir, prompt: '', resume: 'abc-123' })
       expect(after(resumed.args, '--session')).toBe(file)
       expect(resumed.sessionId).toBe('abc-123')
-      expect(after(agent.launch({ ...bypass, runDir, resume: 'gone' }).args, '--session')).toBe(
-        'gone',
+      expect(() => agent.launch({ ...bypass, runDir, resume: 'gone' })).toThrow(
+        'Pi’s saved session gone is missing from this Run’s folder',
       )
       expect(() => agent.launch({ ...bypass, runDir, resume: '../elsewhere' })).toThrow('session')
     } finally {
@@ -1427,10 +1427,12 @@ describe('Pi', () => {
   function piHarness(prompt = 'Start') {
     const sent: { id?: string; type?: string; message?: string; streamingBehavior?: string }[] = []
     const events: string[] = []
+    const failures: string[] = []
     const driver = piDrive({
       input: JSON.stringify({ prompt }),
       cwd: '/w',
       stop: () => {},
+      fail: (message) => failures.push(message),
       emit: (line) => events.push(line),
       send: (line) => sent.push(JSON.parse(line)),
     })
@@ -1446,7 +1448,7 @@ describe('Pi', () => {
         }),
       )
     const kinds = () => events.map((line) => JSON.parse(line).ted_pi)
-    return { driver, sent, events, pi, ready, kinds }
+    return { driver, sent, events, failures, pi, ready, kinds }
   }
 
   test('the driver records the session, steers while Pi works, and starts a new turn once Pi settles', () => {
@@ -1507,6 +1509,37 @@ describe('Pi', () => {
     h.pi(JSON.stringify({ type: 'agent_settled', aborted: true }))
     expect(h.sent.at(-1)).toMatchObject({ type: 'prompt', message: 'After the stop' })
     expect(h.sent.at(-1)?.streamingBehavior).toBeUndefined()
+  })
+
+  test('a turn that ends in a Pi error fails the Run with Pi’s message; one Pi retried past does not', () => {
+    const errorMessage = (text: string) =>
+      JSON.stringify({
+        type: 'message_end',
+        message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: text },
+      })
+    const recovered = piHarness()
+    recovered.ready()
+    recovered.pi(errorMessage('529 overloaded'))
+    recovered.pi(
+      JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Fine' }],
+          stopReason: 'stop',
+        },
+      }),
+    )
+    recovered.pi(JSON.stringify({ type: 'agent_settled', aborted: false }))
+    expect(recovered.failures).toEqual([])
+    expect(recovered.kinds().at(-1)).toBe('idle')
+
+    const failed = piHarness()
+    failed.ready()
+    failed.pi(errorMessage('429 rate limit exceeded'))
+    failed.pi(JSON.stringify({ type: 'agent_settled', aborted: false }))
+    expect(failed.failures).toEqual(['Pi: 429 rate limit exceeded'])
+    expect(failed.kinds().at(-1)).not.toBe('idle')
   })
 
   test('a resumed Run waits idle, and a refused prompt is shown and ends the turn', () => {

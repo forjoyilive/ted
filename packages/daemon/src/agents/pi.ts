@@ -57,7 +57,9 @@ export function piAgent(binary: string): Agent {
       if (resume !== undefined && !/^[\w-]+$/.test(resume))
         throw new Error('Pi’s session ID isn’t one Ted recorded')
       const sessions = path.join(runDir, piSessionFolder)
-      const session = resume === undefined ? undefined : (piSessionFile(sessions, resume) ?? resume)
+      const session = resume === undefined ? undefined : piSessionFile(sessions, resume)
+      if (resume !== undefined && session === undefined)
+        throw new Error(`Pi’s saved session ${resume} is missing from this Run’s folder`)
       const plan: PiPlan = { prompt }
       return {
         command: binary,

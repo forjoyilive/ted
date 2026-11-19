@@ -8,7 +8,7 @@ Install it with `npm install -g @earendil-works/pi-coding-agent`, then open Sett
 
 ## How Ted runs it
 
-Ted starts `pi --mode rpc --approve --session-dir <run folder>/pi-sessions` with `--model` and `--thinking` when they are set, and drives it over Pi’s RPC protocol on stdin and stdout. A message sent while Pi is working steers the current turn; Stop sends `abort`. Pi keeps its sessions in the Run folder, and a Run resumes from its saved session file after a restart or sleep. Ted splits Pi’s output on LF only, because Pi’s JSON can hold U+2028 and U+2029, which Node’s `readline` treats as line breaks. Pi’s extension dialogs (select, confirm, input, editor) are answered as cancelled so a user extension can’t hold a Run.
+Ted starts `pi --mode rpc --approve --session-dir <run folder>/pi-sessions` with `--model` and `--thinking` when they are set, and drives it over Pi’s RPC protocol on stdin and stdout. A message sent while Pi is working steers the current turn; Stop sends `abort`. Pi keeps its sessions in the Run folder, and a Run resumes from its saved session file after a restart or sleep; if that file is missing, Ted refuses the resume rather than pass Pi a bare session ID, which can make Pi stop and ask on stdin. Ted splits Pi’s output on LF only, because Pi’s JSON can hold U+2028 and U+2029, which Node’s `readline` treats as line breaks. Pi’s extension dialogs (select, confirm, input, editor) are answered as cancelled so a user extension can’t hold a Run.
 
 Effort maps by name to `--thinking`: low, medium, high, xhigh and max; ultra becomes max. There is no Off.
 
@@ -30,7 +30,7 @@ Planning chats, Automations and Coordinator chats always run in Auto, so with Pi
 
 ## Offline, limits and billing
 
-Pi is never paused for being offline or for usage limits, since its models may be local. It has no billing setting: Pi uses whatever keys its own settings hold. Settings → Providers shows its tokens per Run and the cost Pi reports, and plan usage reads “Not available”.
+Pi is never paused for being offline or for usage limits, since its models may be local. A turn that ends in a model error, such as a rate limit after Pi’s own retries or a stopped Ollama, ends the Run with Pi’s message, and the Run can be retried. It has no billing setting: Pi uses whatever keys its own settings hold. Settings → Providers shows its tokens per Run and the cost Pi reports, and plan usage reads “Not available”.
 
 ## Development
 

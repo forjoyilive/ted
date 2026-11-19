@@ -104,6 +104,10 @@ async function startAgent(): Promise<Started> {
     send,
     emit: (line) => write({ t: 'out', line, at: new Date().toISOString() }),
     stop: () => agent.kill('SIGTERM'),
+    fail: (message) => {
+      write({ t: 'err', line: message })
+      agent.kill('SIGTERM')
+    },
   })
   if (!driver && launch.input !== '') send(launch.input)
 

@@ -26,6 +26,7 @@ export type DriveAgent = (io: {
   send: (line: string) => void
   emit?: (line: string) => void
   stop: () => void
+  fail?: (message: string) => void
 }) => HostDriver
 
 export const hostProtocol = 9

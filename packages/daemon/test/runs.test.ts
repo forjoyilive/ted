@@ -615,6 +615,17 @@ test('a Pi side chat starts Pi without tools and shows its thinking without stop
   expect(launches[0].argv).toEqual(
     expect.arrayContaining(['--no-tools', '--no-mcp', '--no-extensions', '--no-skills']),
   )
+
+  await client.sendSideChat(leadId, 'STUB_ERROR')
+  await waitUntil(
+    async () => (await client.getSideChat(leadId))?.state === 'failed' || undefined,
+    'the side chat to fail on Pi’s error',
+  )
+  const ended = await waitUntil(
+    async () => (await client.getRun(opened.id)).run.ended,
+    'the side chat’s Pi Run to end',
+  )
+  expect(ended.errorLines).toContain('Pi: The stub provider failed')
 }, 90_000)
 
 const realPi = process.env.TED_REAL_PI_BIN
