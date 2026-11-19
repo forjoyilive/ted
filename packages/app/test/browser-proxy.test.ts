@@ -5,8 +5,9 @@ import {
   fixedHosts,
   type GuestLogin,
   heldLookups,
-  isOutsideMedia,
+  isOutsideRequest,
   isPublicAddress,
+  isYouTube,
   startGuestProxy,
 } from '../src/browser-proxy.ts'
 
@@ -67,10 +68,10 @@ test('only public addresses count as outside hosts', () => {
 
 test('images, fonts and media from public hosts load; other kinds and local hosts don’t', () => {
   for (const type of ['image', 'font', 'media'])
-    expect(isOutsideMedia('https://cdn.example/art.jpg', type)).toBe(true)
-  expect(isOutsideMedia('http://93.184.216.34/art.jpg', 'image')).toBe(true)
-  for (const type of ['script', 'stylesheet', 'xhr', 'subFrame', 'mainFrame', 'webSocket', 'ping'])
-    expect(isOutsideMedia('https://cdn.example/x', type), type).toBe(false)
+    expect(isOutsideRequest('https://cdn.example/art.jpg', type, 'GET')).toBe(true)
+  expect(isOutsideRequest('http://93.184.216.34/art.jpg', 'image', 'GET')).toBe(true)
+  for (const type of ['script', 'stylesheet', 'subFrame', 'mainFrame', 'webSocket', 'ping'])
+    expect(isOutsideRequest('https://cdn.example/x', type, 'GET'), type).toBe(false)
   for (const url of [
     'http://localhost:9/art.jpg',
     'http://app.localhost/art.jpg',
@@ -81,7 +82,48 @@ test('images, fonts and media from public hosts load; other kinds and local host
     'file:///etc/passwd',
     'data:image/png;base64,AA==',
   ])
-    expect(isOutsideMedia(url, 'image'), url).toBe(false)
+    expect(isOutsideRequest(url, 'image', 'GET'), url).toBe(false)
+})
+
+test('script data requests to public hosts load only when they read', () => {
+  for (const method of ['GET', 'HEAD'])
+    expect(isOutsideRequest('https://public.radio.co/status', 'xhr', method), method).toBe(true)
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
+    expect(isOutsideRequest('https://public.radio.co/status', 'xhr', method), method).toBe(false)
+  expect(isOutsideRequest('http://10.0.0.1/status', 'xhr', 'GET')).toBe(false)
+  expect(isOutsideRequest('http://localhost:9/status', 'xhr', 'GET')).toBe(false)
+})
+
+test('YouTube’s hosts load anything but a top-level page or a socket, over HTTPS only', () => {
+  for (const url of [
+    'https://www.youtube.com/iframe_api',
+    'https://youtube.com/embed/x',
+    'https://www.youtube-nocookie.com/embed/x',
+    'https://rr1---sn-abc.googlevideo.com/videoplayback',
+    'https://i.ytimg.com/vi/x/hq.jpg',
+    'https://yt3.ggpht.com/a.jpg',
+    'https://WWW.YOUTUBE.COM./embed/x',
+  ])
+    expect(isYouTube(url), url).toBe(true)
+  for (const url of [
+    'http://www.youtube.com/embed/x',
+    'https://notyoutube.com/embed/x',
+    'https://youtube.com.example/embed/x',
+    'https://user:pass@www.youtube.com/embed/x',
+  ])
+    expect(isYouTube(url), url).toBe(false)
+  for (const type of ['subFrame', 'script', 'stylesheet', 'xhr', 'media'])
+    expect(isOutsideRequest('https://www.youtube.com/x', type, 'POST'), type).toBe(true)
+  for (const type of ['mainFrame', 'webSocket'])
+    expect(isOutsideRequest('https://www.youtube.com/x', type, 'GET'), type).toBe(false)
+  expect(isOutsideRequest('https://www.google.com/js/th/abc.js', 'script', 'GET')).toBe(true)
+  expect(isOutsideRequest('https://www.google.com/js/other.js', 'script', 'GET')).toBe(false)
+  expect(isOutsideRequest('https://www.google.com/js/th/abc.js', 'subFrame', 'GET')).toBe(false)
+  const check = 'https://jnn-pa.googleapis.com/$rpc/google.internal.waa.v1.Waa/GenerateIT'
+  expect(isOutsideRequest(check, 'xhr', 'POST')).toBe(true)
+  expect(isOutsideRequest(check, 'subFrame', 'GET')).toBe(false)
+  expect(isOutsideRequest('https://other.googleapis.com/x', 'xhr', 'POST')).toBe(false)
+  expect(isOutsideRequest('http://jnn-pa.googleapis.com/x', 'xhr', 'POST')).toBe(false)
 })
 
 interface Seen {

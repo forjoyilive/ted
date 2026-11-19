@@ -292,7 +292,38 @@ export async function checkOutsideRequests(
     await expect
       .poll(() => panel.textContent())
       .toMatch(/Blocked [1-9]\d* requests to other sites · Open ↗/)
+    const guestScript = (script: string) =>
+      app.evaluate(
+        async ({ webContents }, { url, script }) => {
+          const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+          if (!guest) throw new Error('No guest')
+          return guest.executeJavaScript(script)
+        },
+        { url, script },
+      )
+    expect(
+      await guestScript(`(async () => {
+        fetch(${scriptLiteral('https://data.example/now.json')});
+        const frame = document.createElement('iframe'); frame.id = 'youtube-probe';
+        frame.src = ${scriptLiteral('https://www.youtube.com/embed/fixture')}; document.body.append(frame);
+        return fetch(${scriptLiteral('https://post.example/log')}, { method: 'POST', body: 'x' }).then(() => 'sent', () => 'refused');
+      })()`),
+    ).toBe('refused')
+    await expect
+      .poll(() => app.evaluate(() => [...new Set(globalThis.tedHeldLookups?.waiting)].sort()))
+      .toEqual(['data.example', 'www.youtube.com'])
   } finally {
+    await app.evaluate(() => globalThis.tedHeldLookups?.release())
+    await app
+      .evaluate(
+        async ({ webContents }, url) =>
+          webContents
+            .getAllWebContents()
+            .find((c) => c.getURL() === url)
+            ?.executeJavaScript("document.getElementById('youtube-probe')?.remove()"),
+        url,
+      )
+      .catch(() => undefined)
     await new Promise<void>((resolve, reject) =>
       tcp.close((error) => (error ? reject(error) : resolve())),
     )

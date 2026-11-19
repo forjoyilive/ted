@@ -64,7 +64,8 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     TED_CLAUDE_BIN: stubClaude,
     TED_HIDDEN_WINDOW: '1',
     TED_IDLE_EXIT_MS: '30000',
-    TED_BROWSER_HOSTS: 'private.example=10.0.0.1,held.example=held',
+    TED_BROWSER_HOSTS:
+      'private.example=10.0.0.1,held.example=held,data.example=held,post.example=held,www.youtube.com=held',
   }
   const originDir = path.join(home, 'origin')
   const origin = await makeOriginRepo(originDir)
