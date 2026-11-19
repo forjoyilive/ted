@@ -145,26 +145,35 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       await rm(dir, { recursive: true, force: true })
   })
 
-  test('a sandboxed command makes and removes SwiftPM’s TemporaryDirectory folders in the per-user temp folder, and nothing else there', async () => {
+  test('a sandboxed command makes and removes SwiftPM’s and Swift Build’s temp folders in the per-user temp folder, and nothing else there', async () => {
     const id = randomUUID()
     const longer = path.join(userTemp, `TemporaryDirectory.${id.slice(0, 6)}x`)
     const shorter = path.join(userTemp, `TemporaryDirectory.${id.slice(0, 5)}`)
+    const swbuildLonger = path.join(userTemp, `swbuild.tmp.${id.slice(0, 8)}x`)
+    const swbuildShorter = path.join(userTemp, `swbuild.tmp.${id.slice(0, 7)}`)
     const loose = path.join(userTemp, `ted-${id}`)
     const result = await inSandbox(
       [
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && rm -r "$d" && test ! -e "$d" && echo wrote || echo refused`,
+        `d=$(mktemp -d '${userTemp}/swbuild.tmp.XXXXXXXX') && echo x > "$d/build.db" && rm -r "$d" && test ! -e "$d" && echo wrote || echo refused`,
         `mkdir '${longer}' 2>/dev/null && echo wrote || echo refused`,
         `mkdir '${shorter}' 2>/dev/null && echo wrote || echo refused`,
+        `mkdir '${swbuildLonger}' 2>/dev/null && echo wrote || echo refused`,
+        `mkdir '${swbuildShorter}' 2>/dev/null && echo wrote || echo refused`,
         tryWrite(loose),
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 4)).toEqual([
+    expect(result.stdout.split('\n').slice(0, 7)).toEqual([
+      'wrote',
       'wrote',
       'refused',
       'refused',
       'refused',
+      'refused',
+      'refused',
     ])
-    for (const dir of [longer, shorter, loose]) await rm(dir, { recursive: true, force: true })
+    for (const dir of [longer, shorter, swbuildLonger, swbuildShorter, loose])
+      await rm(dir, { recursive: true, force: true })
   })
 
   test('git reads the worktree through the Task’s clone', async () => {

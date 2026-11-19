@@ -440,6 +440,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         limit: () => store.settings().maxChecksAtOnce,
         cpuPercent: () => store.settings().checkCpuPercent,
       })
+      const sandbox = createSandbox({
+        tedHome: paths.home,
+        env: environment.current,
+        ...(sandboxProgram && { program: sandboxProgram }),
+      })
       const checkTries = createCheckTries({
         store,
         checkSlots,
@@ -448,6 +453,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         scratchDir: paths.scratch,
         emit,
+        sandbox,
         env: environment.current,
         ...(options.scratchMaxAgeMs !== undefined && { maxAgeMs: options.scratchMaxAgeMs }),
         instructions: () => started?.instructionTries,
@@ -508,11 +514,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             coordinators?.deliveryAllowed(runId, admitted) === true),
       })
       let plans: Plans | undefined
-      const sandbox = createSandbox({
-        tedHome: paths.home,
-        env: environment.current,
-        ...(sandboxProgram && { program: sandboxProgram }),
-      })
       const tasks = createTasks({
         testReportingEnv: async (task, checkRunId, position, supported) => {
           const registration = await new DaemonClient(info, token, {

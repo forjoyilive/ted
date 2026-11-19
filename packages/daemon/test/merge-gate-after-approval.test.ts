@@ -68,7 +68,7 @@ function resignoffSteps(client: Client, summary: string) {
   const outcome = `out=$(ted outcome advance --changes '${summary}' 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [
     quietGuard(client),
-    commitStep.run[2],
+    `if ted task list | grep -q "^$TED_TASK  Work  "; then ${commitStep.run[2]}; fi`,
     `ted brief write --file '${client.briefFile}'`,
     outcome,
   ].join('\n')

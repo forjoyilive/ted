@@ -341,8 +341,10 @@ test(
         cause: 'check',
         checkRunId: run.id,
       })
-      expect((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe(
-        'work',
+      await waitUntil(
+        async () =>
+          (await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage === 'work',
+        'the recovered send-back to move the Task to Work',
       )
       const obligations = await client.read<ValidationObligations>(
         `${s.root}/validation-obligations`,
