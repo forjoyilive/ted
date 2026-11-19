@@ -661,6 +661,49 @@ describe('checking a layer', () => {
     ])
   })
 
+  test('sandbox_access names only Ted’s access groups, on an App, a command check or worktree setup and teardown', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: app',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown:',
+      '        run: clean',
+      '        sandbox_access: ios-xcode',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode, android-gradle]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: Build',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      '      - name: Review',
+      '        instruction: Look it over',
+      '        sandbox_access: [ios-xcode]',
+      '',
+    ].join('\n')
+    const checked = checkLayer({ kind: 'factory', files: { 'workflow.yaml': yaml } })
+    expect(problems({ 'workflow.yaml': yaml })).toEqual([
+      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode',
+      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode',
+      'error .ted/workflow.yaml 22 9 an instruction check runs no command in the sandbox, so it takes no `sandbox_access`',
+    ])
+    expect(checked.settings.repos?.[0]?.worktree?.setup).toEqual({
+      run: 'make',
+      sandbox_access: ['ios-xcode'],
+    })
+    expect(checked.settings.stages.validate?.checks?.[0]).toEqual({
+      name: 'Build',
+      run: 'xcodebuild',
+      sandbox_access: ['ios-xcode'],
+    })
+  })
+
   test('a bad Stage id in order or stages is an error at its line', () => {
     expect(
       problems({
@@ -1367,5 +1410,63 @@ describe('App preview size edits', () => {
       repoSettingsFrom(layer.settings, stored),
     )
     expect(cleared).not.toContain('preview')
+  })
+})
+
+describe('sandbox access through Settings edits', () => {
+  test('saving Settings keeps sandbox_access on setup, teardown, Apps and command checks', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: web',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown: { run: clean, timeout: 5m, sandbox_access: [ios-xcode] }',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: Build',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      '',
+    ].join('\n')
+    const stored = [
+      { repo: 'owner/web', name: 'web', cloneUrl: 'https://github.com/owner/web.git' },
+    ]
+    const edited = applyChanges(
+      yaml,
+      {
+        repos: [
+          {
+            was: 'web',
+            repo: 'owner/web',
+            name: 'web',
+            setup: { run: 'make all' },
+            teardown: { run: 'clean' },
+            env: [],
+            copy: [],
+            apps: [{ was: 0, name: 'Sim', kind: 'command', run: 'xcodebuild build' }],
+          },
+        ],
+        checks: [{ was: 0, name: 'Build', run: 'xcodebuild test' }],
+      },
+      repoSettingsFrom(factory({ 'workflow.yaml': yaml }).settings, stored),
+    )
+    const layer = factory({ 'workflow.yaml': edited })
+    expect(layer.problems).toEqual([])
+    const repo = layer.settings.repos?.[0]
+    expect(repo?.worktree?.setup).toEqual({ run: 'make all', sandbox_access: ['ios-xcode'] })
+    expect(repo?.worktree?.teardown).toEqual({ run: 'clean', sandbox_access: ['ios-xcode'] })
+    expect(appDeclarations(repo?.apps)).toMatchObject([
+      { name: 'Sim', run: 'xcodebuild build', sandboxAccess: ['ios-xcode'] },
+    ])
+    expect(layer.settings.stages.validate?.checks).toEqual([
+      { name: 'Build', run: 'xcodebuild test', sandbox_access: ['ios-xcode'] },
+    ])
   })
 })

@@ -228,6 +228,10 @@ _Avoid_: Tool, script, task
 A command with a name that an Agent’s settings list under `outside_commands` in `agents.yaml`, written as plain words with at most one argument slot such as `<version>`. A chat whose Agent has Run outside commands asks for one with `ted agent run-outside <name> [argument]`; Ted runs it on this Mac, outside the sandbox, in the repo’s local folder, only after the user clicks Run on its card, or at once when the user ticked Always allow for that exact command and folder.
 _Avoid_: Escape hatch, unsandboxed command
 
+**Sandbox access group**:
+A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` is the first: it opens what Xcode writes outside its temp folder, which is shared access on the user’s Mac.
+_Avoid_: Sandbox permission, allowance, entitlement
+
 **Chat**:
 One conversation with an Agent, from its first message until it is deleted: a Coordinator chat or a planning chat. A Factory can have several at once, each with its own title, status, Run and requests. A chat stays open until the user archives it; an archived chat is read only, listed under Archived, and can be unarchived or deleted.
 _Avoid_: Session, thread, conversation (a Run’s exchange with its Provider)
