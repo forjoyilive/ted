@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, lstat, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   bannerId,
@@ -29,6 +29,7 @@ import { type CommandLaunch, runTaskCommand } from './tasks/command.ts'
 import { removeInside } from './tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos, findRepo, isSafeRepo } from './tasks/repos.ts'
 import { durationMs } from './tasks/worktree.ts'
+import type { CheckSettings } from './workflow/check.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface InstructionTries {
@@ -62,6 +63,30 @@ interface ScratchWorktree {
 interface ScratchState {
   worktrees: ScratchWorktree[]
   tries: CheckTry[]
+}
+
+export function savedCheckAccess(
+  checks: readonly CheckSettings[],
+  entries: readonly FactoryRepoEntry[],
+  request: CommandCheckTryRequest,
+  entry: FactoryRepoEntry,
+): Pick<CheckTry, 'sandboxAccess' | 'withheldAccess'> {
+  const saved = checks.find((c) => c.name === request.name && c.run !== undefined)
+  const access = saved?.sandbox_access ?? []
+  if (!saved || access.length === 0) return {}
+  const savedEntry = saved.repo === undefined ? entries[0] : findRepo(entries, saved.repo)
+  const matches = saved.run === request.run && savedEntry?.name === entry.name
+  return matches ? { sandboxAccess: [...access] } : { withheldAccess: [...access] }
+}
+
+function accessNote(checkTry: CheckTry): string | undefined {
+  if (checkTry.sandboxAccess !== undefined) {
+    return `Ted: ran with the saved Check’s sandbox access: ${checkTry.sandboxAccess.join(', ')}.`
+  }
+  if (checkTry.withheldAccess !== undefined) {
+    return `Ted: ran without the saved Check’s sandbox access (${checkTry.withheldAccess.join(', ')}), because its command or repo differs from the saved Check. Save the Check to try it with that access.`
+  }
+  return undefined
 }
 
 export const scratchMaxAgeMs = 24 * 60 * 60 * 1000
@@ -347,7 +372,10 @@ export function createCheckTries(options: {
           signal: abort.signal,
           lowPriority: store.settings().lowPriorityWork,
           prepareLaunch,
+          groups: started.sandboxAccess ?? [],
         })
+        const note = accessNote(started)
+        if (note !== undefined) await appendFile(log, `${note}\n`, { mode: 0o600 })
         finished = {
           ...started,
           state: result.outcome === 'interrupted' ? 'stopped' : result.outcome,
@@ -494,6 +522,12 @@ export function createCheckTries(options: {
           repo: entry.name,
           state: 'running',
           startedAt: new Date().toISOString(),
+          ...savedCheckAccess(
+            workflow.settings.stages.validate?.checks ?? [],
+            entries,
+            request,
+            entry,
+          ),
         }
         const waits = options.checkSlots.full()
         const shown = waits ? { ...started, waiting: true } : started
