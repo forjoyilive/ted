@@ -62,6 +62,19 @@ async function makeBuildCaches(
 
 export class SandboxUnavailable extends Error {}
 
+export function withSandboxEnv(
+  base: NodeJS.ProcessEnv,
+  sandboxed: Record<string, string>,
+): NodeJS.ProcessEnv {
+  const given = base.JAVA_TOOL_OPTIONS?.trim()
+  const own = sandboxed.JAVA_TOOL_OPTIONS
+  return {
+    ...base,
+    ...sandboxed,
+    ...(given && own !== undefined && { JAVA_TOOL_OPTIONS: `${given} ${own}` }),
+  }
+}
+
 const probeTimeoutMs = 10_000
 
 export function createSandbox(options: {
@@ -177,6 +190,8 @@ export function createSandbox(options: {
         TED_SANDBOX: '1',
         // Chromium on macOS ignores TMPDIR and makes its single-instance socket in the user temp folder.
         ...(platform === 'darwin' && { MAC_CHROMIUM_TMPDIR: paths.tmp }),
+        // The JVM on macOS ignores TMPDIR and uses the per-user temp folder.
+        JAVA_TOOL_OPTIONS: `-Djava.io.tmpdir="${paths.tmp}"`,
         ...(scope.electron === true && { TED_SANDBOX_ELECTRON: '1' }),
         ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }

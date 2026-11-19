@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { SandboxGroup } from '@ted/protocol'
 import { markProcessRoot, type ProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
-import type { Sandbox, SandboxScope } from '../sandbox.ts'
+import { type Sandbox, type SandboxScope, withSandboxEnv } from '../sandbox.ts'
 import { type CommandResult, runWorktreeCommand } from './worktree.ts'
 
 export interface CommandSandbox {
@@ -57,7 +57,7 @@ export async function runTaskCommand(
       ...command,
       shell: wrapped.argv,
       fds: wrapped.fds,
-      env: { ...command.env, ...wrapped.env },
+      env: withSandboxEnv(command.env, wrapped.env),
       onSpawn: (pid) => {
         command.onSpawn(pid)
         void wrapped.close()
