@@ -52,7 +52,7 @@ import {
   stageFileId,
   validates,
 } from '@ted/protocol/stage'
-import { appDeclarations } from './apps/declared.ts'
+import { appDeclarations, sandboxAccessOf } from './apps/declared.ts'
 import type { CheckTries } from './check-tries.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
@@ -668,6 +668,9 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
                 run: c.run,
                 ...(c.repo !== undefined && { repo: c.repo }),
                 ...(c.timeout !== undefined && { timeout: c.timeout }),
+                ...(sandboxAccessOf(c.sandbox_access).length > 0 && {
+                  sandboxAccess: sandboxAccessOf(c.sandbox_access),
+                }),
               },
             ],
       )

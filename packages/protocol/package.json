@@ -22,6 +22,8 @@
     "./integrations": "./src/integrations.ts",
     "./linear": "./src/linear.ts",
     "./settings": "./src/settings.ts",
+    "./sandbox-access": "./src/sandbox-access.ts",
+    "./sandbox-groups": "./src/sandbox-groups.ts",
     "./sandbox-openings": "./src/sandbox-openings.ts",
     "./backlog-starts": "./src/backlog-starts.ts",
     "./github-issue": "./src/github-issue.ts",
