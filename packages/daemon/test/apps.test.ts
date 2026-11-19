@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -17,6 +17,7 @@ import {
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { appAccess, electronEnv } from '../src/apps/apps.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { tryLock } from '../src/lock.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
@@ -60,7 +61,7 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function start(logBytes?: number) {
+async function start(logBytes?: number, hostStartMs?: number) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
@@ -70,6 +71,7 @@ async function start(logBytes?: number) {
       readyTimeoutMs: 20_000,
       stopGraceMs: 3_000,
       ...(logBytes !== undefined && { logBytes }),
+      ...(hostStartMs !== undefined && { hostStartMs }),
     },
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
@@ -346,6 +348,33 @@ describe('Apps', () => {
       problem: untrusted,
     })
     await eventText(client, task, `Secure couldn’t start: ${untrusted}`)
+  })
+
+  test('an App whose host doesn’t start shows as failed, and starting it again starts it', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
+    const client = await start(undefined, 3_000)
+    const task = await taskWithWorktree(client)
+    const dir = path.join(home, 'apps', task.id, 'widgets', 'api')
+    await mkdir(dir, { recursive: true })
+    const held = tryLock(path.join(dir, 'host.lock'))
+    if (!held) throw new Error('could not hold the App’s host lock')
+
+    const res = await client.call('POST', `/tasks/${task.id}/apps/start`, { name: 'API' })
+    held.release()
+    const problem = 'Ted’s App host didn’t start within 3 seconds'
+    expect(res.status).toBe(409)
+    expect((res.body as { error: string }).error).toBe(`Ted couldn’t start API: ${problem}`)
+    expect(await appNamed(client, task, 'API')).toMatchObject({ state: 'failed', problem })
+    await eventText(client, task, `API couldn’t start: ${problem}`)
+
+    const again = await client.ok<TaskApp>('POST', `/tasks/${task.id}/apps/start`, {
+      name: 'API',
+    })
+    expect(again.state).toBe('running')
+    await waitUntil(
+      async () => (await events(client, task)).find((e) => e.text.startsWith('You started API')),
+      'the thread event for the second start',
+    )
   })
 
   test('a Run starts only its own Task’s Apps, only the human stops or restarts them, and the human’s ▶ asks first until they choose Always for that App in this Factory, which a Run can’t choose', async () => {
