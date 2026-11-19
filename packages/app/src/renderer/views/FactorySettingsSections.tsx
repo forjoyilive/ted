@@ -56,6 +56,7 @@ import {
   type SettingsDraft,
   type StageDraft,
   stageEdited,
+  tryAccessText,
 } from '../factory-settings.ts'
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
 import { OvernightNotice } from '../overnight.tsx'
@@ -1236,6 +1237,7 @@ function CommandCheckRow({
   const multiRepo = repos.length > 1
   const name = check.name.trim()
   const timeout = check.timeout?.trim() ?? ''
+  const access = last && tryAccessText(last)
   return (
     <CheckItem name={name || 'New command Check'} controls={controls}>
       <div className={multiRepo ? styles.commandRowRepo : styles.commandRow}>
@@ -1250,8 +1252,9 @@ function CommandCheckRow({
         <span className={timeout === '' ? styles.dash : undefined}>
           {timeout || defaultCommandTimeout}
         </span>
-        <span className={lastRunClass(last)}>
+        <span className={lastRunClass(last)} title={access?.title}>
           {last ? lastRunText(last, controls.now) : <span className={styles.dash}>Never</span>}
+          {access && ` · ${access.text}`}
           {last && last.state !== 'running' && (
             <>
               {' · '}

@@ -235,6 +235,8 @@ export interface CheckTry {
   taskId?: string
   taskDisplayId?: string
   noReport?: string
+  sandboxAccess?: SandboxAccess[]
+  withheldAccess?: SandboxAccess[]
 }
 
 export interface CommandCheckTryRequest {
