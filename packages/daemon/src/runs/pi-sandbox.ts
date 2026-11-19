@@ -89,8 +89,9 @@ interface WorktreeGit {
   clone: string
 }
 
-// A Run can rewrite its worktree’s .git file, so the git folders it points to are granted
-// only when they sit in a clone Ted made for this Run and are plain folders.
+// A Run can rewrite its worktree’s .git file, so the git folders it points to are granted only
+// when they sit in a clone Ted made for this Run, are plain folders, and the clone's own
+// gitdir record points back at this worktree.
 async function worktreeGit(
   worktree: string,
   trusted: (clone: string) => Promise<boolean>,
@@ -109,6 +110,9 @@ async function worktreeGit(
       return undefined
     if (!(await isFolder(dir))) return undefined
   }
+  const back = (await readFile(path.join(own, 'gitdir'), 'utf8').catch(() => '')).trim()
+  if (back === '' || (await real(path.resolve(own, back))) !== (await real(marker)))
+    return undefined
   return { own, common, clone: path.dirname(common) }
 }
 
