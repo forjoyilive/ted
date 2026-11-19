@@ -154,24 +154,35 @@ const counter =
   'f="stub-n-$TED_RUN"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$f";'
 
 describe('Checks at Validate entry', () => {
-  test('a failed Check at Validate entry returns the Task to Work counted, with its output and no Validate instructions; the passing run is the one Validate uses', async () => {
-    const flag = 'stub-failed-once'
+  test('a failed Check at Validate entry returns the Task to Work counted, with its output and no Validate instructions, and Ted merges the latest main into the branch on the way, so a fix already on main passes; the passing run is the one Validate uses', async () => {
     await workflow(
       [
         '      - { name: Typecheck, run: "echo typed" }',
-        `      - { name: Tests, run: "if [ -e '${flag}' ]; then echo ok; else touch '${flag}'; seq 1 300; echo token ghp_abcdefghijklmnopqrstuvwxyz0123; exit 1; fi" }`,
+        '      - { name: Tests, run: "if [ -e fix.txt ]; then echo ok; else while [ ! -e stub-moved ]; do sleep 0.1; done; seq 1 300; echo token ghp_abcdefghijklmnopqrstuvwxyz0123; exit 1; fi" }',
         '      - { name: Lint, run: "echo linted" }',
       ].join('\n'),
     )
     const client = await startTed()
+    const work =
+      'echo x > work.txt; git add work.txt; git -c user.name=T -c user.email=t@example.com commit -qm work || true'
     const task = await startTask(
       client,
-      steps({ everyMessage: [{ run: ['sh', '-c', 'echo x > work.txt'] }, advance] }, advance),
+      steps({ everyMessage: [{ run: ['sh', '-c', work] }, advance] }, advance),
     )
+    await waitUntil(
+      async () => ((await checkRuns(client, task)).length > 0 ? true : undefined),
+      'the first Check run to start',
+      60_000,
+    )
+    await commitToOrigin(scratch, { 'fix.txt': 'fixed\n' })
+    await writeFile(await worktreeFile(client, task, 'stub-moved'), '')
 
     await waitUntil(
-      async () => (await getTask(client, task.id))?.stage === 'done' || undefined,
-      'the Task to finish',
+      async () => {
+        const stage = (await getTask(client, task.id))?.stage
+        return stage === 'merge' || stage === 'done' || undefined
+      },
+      'the Task to pass Validate',
       60_000,
     )
     const [first, second, ...more] = await checkRuns(client, task)
@@ -212,6 +223,9 @@ describe('Checks at Validate entry', () => {
     expect(failed).toContain('[redacted]')
     expect(failed).not.toContain('ghp_abcdefghij')
     expect(failed).toMatch(/Full output: .*checks.*2\.log/)
+    expect(failed).toContain(
+      'Ted merged the latest main into this Task’s branch on the way back to Work.',
+    )
     expect(messages.some((m) => m.startsWith('# A check failed'))).toBe(false)
     const validate = messages.flatMap((m, i) => (m.includes('None failed') ? [i] : []))
     expect(validate).toHaveLength(1)
@@ -225,6 +239,9 @@ describe('Checks at Validate entry', () => {
     expect(events.map((e) => e.text)).toContain(
       'Validate sent this back to Work (round 1 of 5) · a check failed',
     )
+    expect(
+      events.filter((e) => e.text.startsWith('Ted merged the latest main into ')),
+    ).toHaveLength(1)
 
     const output = await client.ok<{ text: string }>(
       'GET',
