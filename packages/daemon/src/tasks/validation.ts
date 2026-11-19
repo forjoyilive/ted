@@ -102,6 +102,7 @@ interface ValidationOptions {
   checkFix(resolution: WorkflowResolution, task: StoredTask): void
   holding<T>(task: Task, work: () => Promise<T>): Promise<T>
   background(what: string, work: () => Promise<void>): void
+  recover(taskId: string, what: string, work: () => Promise<void>): void
 }
 
 export class StaleCoverageError extends RequestError {
@@ -1406,8 +1407,10 @@ export function createValidation(options: ValidationOptions) {
       if (task && awaited?.run.id === checkRun.id) {
         const asked = options.reportAsked(task.id)
         options.setChecking(task.id, true)
-        options.background(`wait for the answer about ${task.displayId}’s instruction check`, () =>
-          answerAfterRestart(task.id, awaited.run, awaited.missing, asked),
+        options.recover(
+          task.id,
+          `wait for the answer about ${task.displayId}’s instruction check`,
+          () => answerAfterRestart(task.id, awaited.run, awaited.missing, asked),
         )
         continue
       }
@@ -1421,7 +1424,9 @@ export function createValidation(options: ValidationOptions) {
       store.checkSlotBoundary(checkRun.id, 'recovered', new Date().toISOString())
       store.finishChecks(checkRun.id, 'interrupted')
       if (restart) {
-        options.background(`run ${task.displayId}’s checks again`, () => resumeValidation(task.id))
+        options.recover(task.id, `run ${task.displayId}’s checks again`, () =>
+          resumeValidation(task.id),
+        )
       }
     }
 
@@ -1457,7 +1462,7 @@ export function createValidation(options: ValidationOptions) {
         !options.isChecking(task.id)
       ) {
         options.setChecking(task.id, true)
-        options.background(`continue ${task.displayId}’s Validate checks`, () =>
+        options.recover(task.id, `continue ${task.displayId}’s Validate checks`, () =>
           resumeValidation(task.id),
         )
       }

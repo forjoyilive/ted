@@ -26,7 +26,7 @@ Use `ted failure list`, `ted failure show <id>` and `ted failure obligations` to
 
 ## Done when
 
-Every required check ran or has an explicit legitimate no-change skip, every failure case is resolved in its tested context, reviewer and applicable visual validation are complete, and there are no unresolved blocking findings. Check `ted failure obligations` before advancing. Post the note and write the Task brief. Then use `ted outcome advance --review pass|fail --review-notes <n>`, adding `--visual pass|fail --visual-notes <n>` when you judged screenshots. Keep failing observations factual even when accepted. An accepted reviewer finding retains a failed Review judgment; use `--review fail`, never `--review pass`, while that accepted failure remains. An accepted visual finding likewise retains a failed Visual judgment; use `--visual fail`. All existing sign-offs still apply.
+Every required check ran or has an explicit legitimate no-change skip, every failure case is resolved in its tested context, reviewer and applicable visual validation are complete, and there are no unresolved blocking findings. Check `ted failure obligations` before advancing. Post the note and write the Task brief. Then use `ted outcome advance --review pass|fail --review-notes <n>`, adding `--visual pass|fail --visual-notes <n>` when you judged screenshots. `<n>` is how many notes you posted, such as `--review-notes 2`, not their text. Keep failing observations factual even when accepted. An accepted reviewer finding retains a failed Review judgment; use `--review fail`, never `--review pass`, while that accepted failure remains. An accepted visual finding likewise retains a failed Visual judgment; use `--visual fail`. All existing sign-offs still apply.
 
 ## Send back when
 

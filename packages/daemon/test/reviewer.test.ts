@@ -170,6 +170,9 @@ describe('the reviewer', () => {
         { run: ['ted', 'outcome', 'advance'] },
         { run: ['sh', '-c', startAndWait(`--reviewer --prompt-file ${prompt}`)] },
         {
+          run: ['ted', 'outcome', 'advance', '--review', 'pass', '--review-notes', 'Two notes'],
+        },
+        {
           run: [
             'ted',
             'outcome',
@@ -189,6 +192,10 @@ describe('the reviewer', () => {
       expect(results[2]?.code).toBe(0)
       expect(results[2]?.stdout).toMatch(/^Started sub-agent “Reviewer · Validate”/)
       expect(results[2]?.stdout).toContain('Two notes, nothing blocking')
+      expect(results[3]?.code).not.toBe(0)
+      expect(results[3]?.stderr).toContain(
+        '--review-notes takes the number of notes, such as --review-notes 2, not their text',
+      )
 
       const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
       expect(runs.find((r) => r.name === 'Reviewer · Validate')).toMatchObject({
