@@ -3788,6 +3788,18 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  baseBranchMerged: Events.synced({
+    name: 'v1.BaseBranchMerged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      base: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      commit: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   p1OnlyReviewRecorded: Events.synced({
     name: 'v1.SeverityRuleReviewRecorded',
     schema: Schema.Struct({
@@ -4545,6 +4557,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       sendBackId: args.sendBackId,
     }),
   'v1.BaseBranchAdopted': (args) => task(args, { repo: args.repo, base: args.base }),
+  'v1.BaseBranchMerged': (args) => task(args, { repo: args.repo, base: args.base }),
   'v1.SendBackSeverityDeclared': (args) =>
     task(args, { runId: args.runId, round: args.round, severity: args.severity }),
   'v1.SeverityRuleReviewRecorded': (args) =>
@@ -4983,6 +4996,8 @@ const materializers = counted(
       'v1.MergeCommitChosen': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.BaseBranchAdopted': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.BaseBranchMerged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateKeptOvernight': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),

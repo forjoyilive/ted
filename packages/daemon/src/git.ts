@@ -1006,6 +1006,7 @@ export class IncorporationConflictError extends GitError {
 export async function prepareIncorporation(
   worktree: string,
   onto: string,
+  message = 'Incorporate merged repair',
 ): Promise<{ head: string; commit: string }> {
   const changes = await workingChanges(worktree, 'HEAD')
   const uncommitted = changes.files.filter((file) => file.uncommitted).map((file) => file.path)
@@ -1036,7 +1037,7 @@ export async function prepareIncorporation(
     '-p',
     onto,
     '-m',
-    'Incorporate merged repair',
+    message,
   )
   return { head, commit }
 }
