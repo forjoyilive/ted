@@ -518,7 +518,7 @@ describe('what the command prints', () => {
   test('test files that reach changed code only through other files are counted, and --list names them', () => {
     expect(text(['packages/daemon/src/redact.ts'])).toBe(
       `Affected tests since origin/main: 2 files. This run takes 1 file: the changed test files, the test files that import a changed file, and the Electron app tests for the changed app source.
-  node  packages/daemon/test/redact.test.ts  imports packages/daemon/src/redact.ts
+  node      packages/daemon/test/redact.test.ts  imports packages/daemon/src/redact.ts
 The scheduled full check runs the rest:
   1 file that reaches a changed file only through other files
 pnpm check --affected --list names each file.`,
