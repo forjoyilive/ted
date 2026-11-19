@@ -2,7 +2,7 @@ import type { RunSlots, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
 import { devicesLine } from '@ted/protocol'
 import { noChecks } from '@ted/protocol/slots'
 import { describe, expect, test } from 'vitest'
-import { appStatusLine, needsSlot, previewChoice } from '../src/renderer/apps.ts'
+import { appStatusLine, appsTabMark, needsSlot, previewChoice } from '../src/renderer/apps.ts'
 import {
   busyDetail,
   busyMeters,
@@ -348,4 +348,25 @@ test('the busy card colours each figure by the marks it has passed and says what
   expect(waitedFor(hold.since, at('2026-01-01T11:05:00Z'))).toBe('1 h 5 min')
   expect(checkedAgo(hold.checkedAt, at('2026-01-01T10:04:36Z'))).toBe('6 s ago')
   expect(checkedAgo(hold.checkedAt, at('2026-01-01T10:06:40Z'))).toBe('2 min ago')
+})
+
+describe('the Apps tab mark', () => {
+  test('starting and running show the dot, waiting the empty circle, failed the red dot', () => {
+    expect(appsTabMark([app({ state: 'running' })])).toBe('running')
+    expect(appsTabMark([app({ state: 'starting' })])).toBe('running')
+    expect(appsTabMark([app({ state: 'waiting' })])).toBe('waiting')
+    expect(appsTabMark([app({ state: 'failed' })])).toBe('failed')
+  })
+
+  test('stopped and exited Apps show nothing', () => {
+    expect(appsTabMark([])).toBeUndefined()
+    expect(appsTabMark([app({}), app({ state: 'exited', exitCode: 1 })])).toBeUndefined()
+  })
+
+  test('failed outranks running, and running outranks waiting', () => {
+    const running = app({ state: 'running' })
+    const waiting = app({ name: 'iOS', state: 'waiting' })
+    expect(appsTabMark([waiting, running, app({ name: 'API', state: 'failed' })])).toBe('failed')
+    expect(appsTabMark([waiting, running])).toBe('running')
+  })
 })

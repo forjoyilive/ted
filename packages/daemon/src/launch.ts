@@ -13,6 +13,7 @@ import {
   DaemonUnreachableError,
   filterTedEnv,
   readDaemonInfo,
+  readDaemonInfoFor,
   runTokenFrom,
   type Subscription,
   tedEnv,
@@ -133,11 +134,12 @@ export async function withDaemon<T>(
   const { appToken } = options
   let child: ChildProcess | undefined
   for (;;) {
-    const info = await readDaemonInfo(home)
+    const runToken = appToken === undefined ? runTokenFrom(process.env) : undefined
+    const info = await readDaemonInfoFor(home, runToken)
     if (info) {
       try {
         if (appToken === undefined) {
-          return await call(new DaemonClient(info, runTokenFrom(process.env) ?? info.token))
+          return await call(new DaemonClient(info, runToken ?? info.token))
         }
         const client = new DaemonClient(info, '', { appKey: appToken })
         if (await provesApp(client)) return await call(client)
@@ -247,6 +249,7 @@ async function removeIfUnchanged(home: string, info: DaemonInfo): Promise<void> 
   const now = await readDaemonInfo(home).catch(() => undefined)
   if (now?.port === info.port && now.pid === info.pid && now.token === info.token) {
     await rm(tedPaths(home).daemonInfo, { force: true })
+    await rm(tedPaths(home).publicDaemonInfo, { force: true })
   }
 }
 

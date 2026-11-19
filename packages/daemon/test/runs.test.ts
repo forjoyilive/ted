@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -25,6 +25,7 @@ import {
   testAppToken,
   waitUntil,
 } from './helpers.ts'
+import { insideTedSandbox } from './support/ted-sandbox.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -477,13 +478,13 @@ test('the host passes the Task workspace to new and resumed Antigravity sessions
   ])
 })
 
-async function startPiFactory(piBin: string) {
+async function startPiFactory(piBin: string, { bypass = true } = {}) {
   daemon = await startDaemon({ home, version: '9.9.9', piBin, nudgeAfterMs: 600_000 })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('Missing daemon info')
   const client = appClient(info, daemon.appToken)
   const factory = await client.addFactory({ repo: await makeOriginRepo(cwd), key: 'NB' })
-  await client.setFactoryPermissions(factory.id, 'bypass', true)
+  if (bypass) await client.setFactoryPermissions(factory.id, 'bypass', true)
   return { client, raw: api(daemon.port, { appKey: daemon.appToken }) }
 }
 
@@ -496,7 +497,6 @@ const piLeadOf = (client: DaemonClient, taskId: string, timeoutMs?: number) =>
 
 test('a Pi Task Lead in a Bypass Factory streams its chat, takes a follow-up, stops a turn, resumes its session and counts tokens', async () => {
   const { client, raw } = await startPiFactory(stubPiPath)
-  await expect(raw.startRun([], cwd, 'pi')).rejects.toThrow('only in a Bypass Factory')
   const task = await client.createTask({
     factory: 'NB',
     title: 'Talk with Pi',
@@ -626,6 +626,96 @@ test('a Pi side chat starts Pi without tools and shows its thinking without stop
     'the side chat’s Pi Run to end',
   )
   expect(ended.errorLines).toContain('Pi: The stub provider failed')
+}, 90_000)
+
+const realSandbox = process.platform === 'darwin' && !insideTedSandbox
+
+test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s scope${realSandbox ? ', writes only its own folders and still reaches Ted' : ''}`, async () => {
+  const before = {
+    sandbox: process.env.TED_SANDBOX_BIN,
+    agentDir: process.env.PI_CODING_AGENT_DIR,
+  }
+  const agentDir = path.join(cwd, 'pi-agent')
+  await mkdir(agentDir, { recursive: true })
+  await writeFile(path.join(agentDir, 'settings.json'), JSON.stringify({ tedOriginal: agentDir }))
+  process.env.PI_CODING_AGENT_DIR = agentDir
+  if (realSandbox) process.env.TED_SANDBOX_BIN = '/usr/bin/sandbox-exec'
+  try {
+    const { client } = await startPiFactory(stubPiPath, { bypass: false })
+    const task = await client.createTask({
+      factory: 'NB',
+      title: 'STUB_PROBE the sandbox',
+      lead: { agent: 'pi', model: 'stub/model-1' },
+      start: true,
+    })
+    const runId = await piLeadOf(client, task.id)
+    await waitUntil(
+      async () =>
+        (await client.getRun(runId)).run.state === 'idle' ||
+        ((await client.getRun(runId)).run.ended && 'ended') ||
+        undefined,
+      'the sandboxed Pi Task Lead to finish its turn',
+    )
+    expect((await client.getRun(runId)).run.ended).toBeUndefined()
+    const runDir = path.join(home, 'runs', runId)
+    const launch = JSON.parse(await readFile(path.join(runDir, 'launch.json'), 'utf8'))
+    const [repo] = (await client.listTasks()).find((t) => t.id === task.id)?.repos ?? []
+    if (!repo) throw new Error('Missing Task repo')
+    const clone = path.join(home, 'repos', ...repo.repo.split('/'))
+    const real = (dirs: string[]) => Promise.all(dirs.map((dir) => realpath(dir)))
+    const refFolder = path.posix.dirname(repo.branch)
+    expect(launch.sandbox.tedHome).toBe(home)
+    expect(await real(launch.sandbox.scope.writable)).toEqual(
+      expect.arrayContaining(
+        await real([
+          repo.worktree,
+          path.join(clone, '.git', 'objects'),
+          path.join(clone, '.git', 'refs', 'heads', refFolder),
+          path.join(clone, '.git', 'logs', 'refs', 'heads', refFolder),
+          path.join(runDir, 'pi-sessions'),
+          path.join(runDir, 'pi-agent'),
+        ]),
+      ),
+    )
+    expect(launch.sandbox.scope.writable).toEqual(
+      expect.arrayContaining([expect.stringMatching(/\.git\/worktrees\/[^/]+$/)]),
+    )
+    expect(launch.sandbox.scope.writable).not.toContain(path.join(clone, '.git'))
+    expect(await real(launch.sandbox.scope.readable)).toEqual(
+      expect.arrayContaining(
+        await real([
+          path.join(home, 'worktrees', task.displayId),
+          clone,
+          path.join(home, 'bin'),
+          path.join(home, 'public'),
+        ]),
+      ),
+    )
+    expect(launch.sandbox.scope.tmp).toBe(path.join(runDir, 'tmp'))
+    expect(launch.sandbox.scope).toMatchObject({ ownTempOnly: true, hideProtected: true })
+    expect(launch.sandbox.scope.cache).toBe(path.join(home, 'sandbox', task.displayId, 'cache'))
+
+    const probe = JSON.parse(
+      await readFile(path.join(runDir, 'pi-sessions', 'stub-pi-probe.json'), 'utf8'),
+    )
+    expect(probe.insideWrite.ok).toBe(true)
+    expect(probe.piAgentRead.ok).toBe(true)
+    expect(probe.piAgentCopyWrite.ok).toBe(true)
+    expect(launch.sandbox.env).toEqual({ PI_CODING_AGENT_DIR: path.join(runDir, 'pi-agent') })
+    expect(probe.ted).toMatchObject({ ok: true, output: expect.stringContaining(task.displayId) })
+    if (realSandbox) {
+      expect(probe.outsideWrite.ok).toBe(false)
+      expect(probe.sharedTmpWrite.ok).toBe(false)
+      expect(probe.daemonInfo.ok).toBe(false)
+      expect(probe.piAgentWrite.ok).toBe(false)
+      await expect(readFile(path.join(agentDir, 'stub-pi-wrote'))).rejects.toThrow()
+    }
+  } finally {
+    if (before.sandbox === undefined) delete process.env.TED_SANDBOX_BIN
+    else process.env.TED_SANDBOX_BIN = before.sandbox
+    if (before.agentDir === undefined) delete process.env.PI_CODING_AGENT_DIR
+    else process.env.PI_CODING_AGENT_DIR = before.agentDir
+  }
 }, 90_000)
 
 const realPi = process.env.TED_REAL_PI_BIN

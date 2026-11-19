@@ -221,7 +221,7 @@ A command with a name that an Agent’s settings list in `agents.yaml`. A chat w
 _Avoid_: Tool, script, task
 
 **Outside command**:
-A command with a name that an Agent’s settings list under `outside_commands` in `agents.yaml`, written as plain words with at most one argument slot such as `<version>`. A chat whose Agent has Run outside commands asks for one with `ted agent run-outside <name> [argument]`; Ted runs it on this Mac, outside the sandbox, in the repo’s local folder, only after the user clicks Run on its card, or at once when the user ticked Always allow for that exact command and folder. It is the only way anything an agent starts can push, publish or use the keychain.
+A command with a name that an Agent’s settings list under `outside_commands` in `agents.yaml`, written as plain words with at most one argument slot such as `<version>`. A chat whose Agent has Run outside commands asks for one with `ted agent run-outside <name> [argument]`; Ted runs it on this Mac, outside the sandbox, in the repo’s local folder, only after the user clicks Run on its card, or at once when the user ticked Always allow for that exact command and folder.
 _Avoid_: Escape hatch, unsandboxed command
 
 **Chat**:

@@ -241,3 +241,10 @@
   align-items: flex-start;
   gap: 8px;
 }
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-12-5);
+}
