@@ -86,6 +86,7 @@ import {
   type FailureCase,
   type FindingSeverity,
   factoryNotifications,
+  failureChoiceLabels,
   failureChoices,
   firstFactoryNotifications,
   type GitHubWait,
@@ -133,7 +134,6 @@ import {
   type TaskSource,
   type TedStoppedTask,
   type TrackStage,
-  validateFailureChoices,
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
@@ -141,7 +141,6 @@ import { isInteger, isOneOf, type Untyped } from '@ted/protocol/parse'
 import { planTitle as titleFromMessage } from '@ted/protocol/plan'
 import {
   compareStages,
-  handsOff,
   hasClarifyRounds,
   isCleanup,
   mergesHere,
@@ -152,6 +151,7 @@ import { Effect } from 'effect'
 import { totalMemory } from '../busy.ts'
 import { isDiskFullError } from '../disk.ts'
 import { redactSecrets } from '../redact.ts'
+import { offeredFailureChoices } from '../tasks/failure-choices.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
   commentBox,
@@ -4256,23 +4256,11 @@ export async function openStore({
           ...(value.validation && {
             title: `How should we handle the ${value.originalCheck?.name ?? (value.source.kind === 'github-ci' ? 'CI' : 'validation')} failure?`,
           }),
-          choices: [
-            ...Object.values(value.validation ? validateFailureChoices : failureChoices),
-            ...(value.validation && closable
-              ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
-              : []),
-          ]
-            .filter(
-              (choice) =>
-                (canAccept || choice !== failureChoices.accepted) &&
-                (!value.validation || !handsOff(stage) || choice === failureChoices.accepted) &&
-                (choice !== failureChoices.repair || repairOffered),
-            )
-            .flatMap((choice) =>
-              choice === failureChoices.repair && repairTask
-                ? [namedRepairChoice(repairTask.displayId), choice]
-                : [choice],
-            ),
+          choices: offeredFailureChoices(value, stage, canAccept, closable).flatMap((choice) =>
+            choice === 'repair' && repairTask
+              ? [namedRepairChoice(repairTask.displayId), failureChoiceLabels[choice]]
+              : [failureChoiceLabels[choice]],
+          ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },

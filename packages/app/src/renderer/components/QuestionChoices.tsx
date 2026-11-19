@@ -21,6 +21,7 @@ export function QuestionChoices({
   multiple = false,
   legend = 'Your answer',
   otherLabel = 'Other answer',
+  recommended,
   disabled,
   tagOf,
 }: {
@@ -31,6 +32,7 @@ export function QuestionChoices({
   multiple?: boolean
   legend?: string
   otherLabel?: string
+  recommended?: string | undefined
   disabled: boolean
   tagOf?: ((choice: string) => ReactNode) | undefined
 }) {
@@ -52,6 +54,16 @@ export function QuestionChoices({
           }
         : { choice },
     )
+  const tagFor = (choice: string) => {
+    const extra = tagOf?.(choice)
+    if (choice !== recommended) return extra
+    return (
+      <>
+        <span className={styles.tag}>Recommended</span>
+        {extra && <> {extra}</>}
+      </>
+    )
+  }
   return (
     <fieldset className={styles.choices} disabled={disabled}>
       <legend className={styles.choiceLegend}>{several ? 'Pick any that apply' : legend}</legend>
@@ -67,7 +79,7 @@ export function QuestionChoices({
             checked={isSelected(choice)}
             onChange={() => pick(choice)}
           />
-          <ChoiceText choice={choice} className={styles.text} tag={tagOf?.(choice)} />
+          <ChoiceText choice={choice} className={styles.text} tag={tagFor(choice)} />
         </label>
       ))}
       {allowOther && (

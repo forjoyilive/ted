@@ -3,6 +3,7 @@ import type {
   AssessFailureRequest,
   Comment,
   FailureCase,
+  FailureChoice,
   FailureContext,
   FailureSource,
   RecordFailureRequest,
@@ -10,7 +11,12 @@ import type {
   Task,
   ValidationObligations,
 } from '@ted/protocol'
-import { ciFailureLabel, failureChoices, validateFailureChoices } from '@ted/protocol'
+import {
+  ciFailureLabel,
+  failureChoiceLabels,
+  failureChoices,
+  validateFailureChoices,
+} from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { handsOff, mergesHere, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
@@ -18,6 +24,7 @@ import { redactSecrets } from '../redact.ts'
 import { resolveReference } from '../references.ts'
 import type { TedStore } from '../store/index.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
+import { offeredFailureChoices } from './failure-choices.ts'
 
 export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' }>): string {
   return createHash('sha256')
@@ -107,6 +114,37 @@ function whatFailed(value: FailureCase): string {
     return `Failed: ${label.startsWith('A ') ? `a ${label.slice(2)}` : label}`
   }
   return `Failed: the ${value.originalCheck?.name ?? 'Factory'} check`
+}
+
+function unofferedChoice(
+  value: FailureCase,
+  choice: FailureChoice,
+  offered: readonly FailureChoice[],
+  fromWork: boolean,
+  why: string | undefined,
+): string {
+  const label = failureChoiceLabels[choice]
+  const reason =
+    choice === 'accepted'
+      ? (why ?? '')
+      : fromWork
+        ? 'In Work, the card offers only Accept this failure.'
+        : choice === 'repair'
+          ? 'Wait for a repair Task is offered only at Validate and Merge.'
+          : choice === 'retry' || choice === 'fix'
+            ? `${label} is offered only for a failure Ted recorded from a check or CI.`
+            : value.validation
+              ? `${label} is offered for a check or CI failure only when Ted can’t tie it to the Task’s code as it is now.`
+              : ''
+  const choices = offered.map((c) => failureChoiceLabels[c]).join(', ')
+  return [
+    `You recommended ${label}, but the card can’t offer it.`,
+    reason,
+    `The card would offer: ${choices}.`,
+    `Assess again with one of them as "choice" (\`ted failure assess ${shortReference(value.id)} --file <json>\`), then run \`ted failure ask ${shortReference(value.id)}\`.`,
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 const freshContextSteps = (id: string) =>
@@ -801,6 +839,7 @@ export function createFailureCases(options: {
               id: randomUUID(),
               assessment: request.assessment,
               recommendation,
+              choice: request.choice,
               ...(repair && { repairTask: repair.id }),
               runId,
               evidenceCount: value.additions.length,
@@ -909,6 +948,12 @@ export function createFailureCases(options: {
           `${why} Report \`ted outcome advance\` again: Ted runs the checks on the current code when the Task enters Validate.`,
         )
       const closable = untied && value.validation === true
+      const offered = offeredFailureChoices(value, task.stage, !why, closable)
+      if (assessment.choice && !offered.includes(assessment.choice))
+        throw new RequestError(
+          409,
+          unofferedChoice(value, assessment.choice, offered, fromWork, why),
+        )
       return store.postFailureDecision(
         value,
         [

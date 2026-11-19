@@ -24,6 +24,7 @@ import {
   waitForPullRequest,
 } from './merge-harness.ts'
 import { eventWait } from './support/event-wait.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 import { leadFor } from './support/failure-merge.ts'
 import { ManualClock } from './support/manual-clock.ts'
 
@@ -49,6 +50,7 @@ test('acceptance, obligations and Gate approval each verify worktree edits made 
     })
     await post(`/failures/${value.id}/assessments`, {
       assessment: 'unrelated',
+      choice: offeredChoice(value),
       recommendation: 'Accept in the tested context',
     })
     const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
@@ -113,6 +115,7 @@ test('acceptance, obligations and Gate approval each verify worktree edits made 
     await rm(path.join(current.repos[0]?.worktree ?? '', 'changed.txt'))
     await post(`/failures/${value.id}/assessments`, {
       assessment: 'unrelated',
+      choice: offeredChoice(value),
       recommendation: 'Close this completed test scenario',
     })
     const closing = await post<FailureCase>(`/failures/${value.id}/decision`)
@@ -176,6 +179,7 @@ test('completed acceptance survives background reads, explicit queries and daemo
   await phase('assess Finding', () =>
     post(`/failures/${value.id}/assessments`, {
       assessment: 'unrelated',
+      choice: offeredChoice(value),
       recommendation: 'Accept',
     }),
   )

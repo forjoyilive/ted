@@ -8,6 +8,7 @@ import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
 import { api, commitToOrigin, waitUntil } from './helpers.ts'
 import { ctx, getTask, run, useMergeHarness } from './merge-harness.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 import { backInValidate, long, restart, setup } from './support/validate-diagnosis.ts'
 
 useMergeHarness()
@@ -228,6 +229,7 @@ test.each(
         (
           await lead.call('POST', `${s.root}/failures/${fresh.id}/assessments`, {
             assessment: 'unrelated',
+            choice: offeredChoice(fresh),
             recommendation: 'Retry or accept this separate verification failure.',
           })
         ).status,

@@ -2655,7 +2655,7 @@
       "count": 3
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 7
+      "count": 6
     }
   },
   "packages/daemon/src/tasks/status.ts": {

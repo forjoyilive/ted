@@ -339,6 +339,7 @@ roundTrip(P.parseAddFailureEvidenceRequest, { evidence: 'More evidence', context
 roundTrip(P.parseAssessFailureRequest, {
   assessment: 'unrelated',
   recommendation: 'Wait for TED-639',
+  choice: 'repair',
   repairTask: 'TED-639',
 })
 roundTrip(P.parseResolveFailureRequest, {
@@ -444,7 +445,12 @@ rejects(P.parseAddFailureEvidenceRequest, { evidence: '' }, 'nonempty text')
 rejects(P.parseAssessFailureRequest, { assessment: 'other' }, 'unknown failure assessment')
 rejects(
   P.parseAssessFailureRequest,
-  { assessment: 'unrelated', recommendation: 'Wait', repairTask: '' },
+  { assessment: 'unrelated', recommendation: 'Accept it' },
+  'choice must be the recommended decision',
+)
+rejects(
+  P.parseAssessFailureRequest,
+  { assessment: 'unrelated', recommendation: 'Wait', choice: 'repair', repairTask: '' },
   'repairTask must be nonempty text',
 )
 rejects(P.parseResolveFailureRequest, { resolution: 'other' }, 'unknown failure resolution')

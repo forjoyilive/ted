@@ -16,6 +16,7 @@ import {
   useMergeHarness,
   waitForPullRequest,
 } from './merge-harness.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 import { leadFor } from './support/failure-merge.ts'
 
 useMergeHarness()
@@ -44,6 +45,7 @@ test('a same-SHA CI attempt replacement invalidates acceptance and holds Merge s
   })
   await post(`/failures/${value.id}/assessments`, {
     assessment: 'unrelated',
+    choice: offeredChoice(value),
     recommendation: 'Accept this case',
   })
   const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
@@ -82,6 +84,7 @@ test('a known empty CI rollup permits acceptance while missing and truncated rea
   })
   await post(`/failures/${value.id}/assessments`, {
     assessment: 'unrelated',
+    choice: offeredChoice(value),
     recommendation: 'Accept',
   })
   const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
@@ -156,6 +159,7 @@ test('CI acceptance binds the observed failed attempt and head; historical failu
   expect(old.contextId).toBeUndefined()
   await post(`/failures/${old.id}/assessments`, {
     assessment: 'uncertain',
+    choice: offeredChoice(old),
     recommendation: 'Investigate',
   })
   const oldRequest = await post<FailureCase>(`/failures/${old.id}/decision`)
@@ -172,6 +176,7 @@ test('CI acceptance binds the observed failed attempt and head; historical failu
   const value = recorded.body as FailureCase
   await post(`/failures/${value.id}/assessments`, {
     assessment: 'unrelated',
+    choice: offeredChoice(value),
     recommendation: 'Accept this attempt',
   })
   const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
@@ -203,6 +208,7 @@ test('CI acceptance binds the observed failed attempt and head; historical failu
   })
   await post(`/failures/${value.id}/assessments`, {
     assessment: 'uncertain',
+    choice: offeredChoice(value),
     recommendation: 'Review the replacement',
   })
   const next = await post<FailureCase>(`/failures/${value.id}/decision`)
@@ -232,6 +238,7 @@ test('final changed and unavailable acceptance observations each invalidate othe
     await post(`/failures/${id}/assessments`, {
       assessment: 'unrelated',
       recommendation: 'Accept context',
+      choice: 'fixed',
     })
     return post<FailureCase>(`/failures/${id}/decision`)
   }

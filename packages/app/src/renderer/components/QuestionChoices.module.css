@@ -56,3 +56,20 @@
   outline-offset: 1px;
 }
 
+
+.tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-neutral);
+  color: var(--text-caption);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.choice.selected .tag {
+  background: var(--surface-card);
+}

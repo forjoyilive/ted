@@ -60,6 +60,7 @@ test.each(['new', 'existing'] as const)(
         await lead.call('POST', `${root}/assessments`, {
           assessment: 'unrelated',
           recommendation: 'Repair the separate test environment.',
+          choice: 'repair',
         })
       ).status,
     ).toBe(200)
@@ -82,7 +83,9 @@ test.each(['new', 'existing'] as const)(
       .filter({ hasText: 'How should we handle the Tests failure?' })
     await question.waitFor()
     const answer = thread.getByRole('region', { name: 'Answer', exact: true })
-    await answer.getByRole('radio', { name: 'Wait for a repair Task', exact: true }).click()
+    await answer
+      .getByRole('radio', { name: 'Wait for a repair Task Recommended', exact: true })
+      .click()
     const form = answer.getByRole('region', { name: 'Wait for a repair Task', exact: true })
     await form.waitFor()
     expect((await client.listInbox()).some((i) => i.request.id === requestId)).toBe(true)
@@ -98,7 +101,9 @@ test.each(['new', 'existing'] as const)(
       await form.getByRole('button', { name: 'Cancel', exact: true }).click()
       expect(await client.listTasks()).toHaveLength(before)
       expect((await client.listInbox()).some((i) => i.request.id === requestId)).toBe(true)
-      await answer.getByRole('radio', { name: 'Wait for a repair Task', exact: true }).click()
+      await answer
+        .getByRole('radio', { name: 'Wait for a repair Task Recommended', exact: true })
+        .click()
       await form.getByRole('radio', { name: 'Create a repair Task' }).check()
       await form.getByLabel('Repair title', { exact: true }).fill('Repair environment')
       await form

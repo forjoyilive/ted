@@ -24,6 +24,7 @@ import {
   toSignoff,
   useMergeHarness,
 } from './merge-harness.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 import { required, setup } from './support/failure-repairs.ts'
 
 useMergeHarness()
@@ -153,6 +154,7 @@ test('a repair Task named in the assessment is its own decision choice', async (
     s.lead.call('POST', `${s.root}/failures/${s.failure.id}/assessments`, {
       assessment: 'unrelated',
       recommendation: `Wait for ${repairTask}`,
+      choice: 'repair',
       repairTask,
     })
   expect((await assess(s.current.displayId)).status).toBe(409)
@@ -325,6 +327,7 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
     (
       await lead.call('POST', `${root}/failures/${failure.id}/assessments`, {
         assessment: 'unrelated',
+        choice: offeredChoice(failure),
         recommendation: 'Wait for a separate repair',
       })
     ).status,

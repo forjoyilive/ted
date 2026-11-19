@@ -21,6 +21,7 @@ import {
   toSignoff,
   useMergeHarness,
 } from './merge-harness.ts'
+import { offeredChoice } from './support/failure-choice.ts'
 
 useMergeHarness()
 test.each(['acceptance', 'obligations', 'gate', 'merge'])(
@@ -107,6 +108,7 @@ test.each(['acceptance', 'obligations', 'gate', 'merge'])(
       })
       await post(`/failures/${value.id}/assessments`, {
         assessment: 'unrelated',
+        choice: offeredChoice(value),
         recommendation: 'Accept exact tested context',
       })
       const asked = await post<FailureCase>(`/failures/${value.id}/decision`)

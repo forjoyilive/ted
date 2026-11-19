@@ -15,6 +15,7 @@ import {
   start,
   toSignoff,
 } from '../merge-harness.ts'
+import { offeredChoice } from './failure-choice.ts'
 
 export const long = 120_000
 export const checks = [
@@ -85,6 +86,7 @@ export async function assess(
   const root = `/tasks/${task.id}/failures/${failure.id}`
   const result = await agent.call('POST', `${root}/assessments`, {
     assessment,
+    choice: offeredChoice(failure, (await getTask(client, task.id)).stage),
     recommendation:
       assessment === 'regression'
         ? 'Fix this Task and revalidate.'

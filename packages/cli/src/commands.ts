@@ -245,7 +245,7 @@ export const commands = [
     handler: 'failureAssess',
     min: 1,
     max: 1,
-    help: '  ted failure assess <id> --file <json>    Record regression, unrelated or uncertain with recommendation and an optional repairTask',
+    help: '  ted failure assess <id> --file <json>    Record regression, unrelated or uncertain, the recommended choice, why, and an optional repairTask',
     callers: 'Task Lead',
     options: options('task', 'file'),
     requires: ['file'],

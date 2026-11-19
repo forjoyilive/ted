@@ -925,7 +925,8 @@ test('failure commands capture context and record, inspect, assess and request a
     input,
     JSON.stringify({
       assessment: 'uncertain',
-      recommendation: 'Retry; the cause is not established.',
+      recommendation: 'Close it as fixed once a targeted reproduction passes.',
+      choice: 'fixed',
     }),
   )
   await invoke(['assess', failure.reference, '--file', input])
