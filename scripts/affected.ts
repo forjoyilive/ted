@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { globSync, readFileSync } from 'node:fs'
+import { stripTypeScriptTypes } from 'node:module'
 import path from 'node:path'
 import { isObject, isString, parseJson } from '../packages/protocol/src/parse.ts'
 import { electronFiles, testFilePatterns } from './test-files.ts'
@@ -148,13 +149,17 @@ const kindOrder: Pick['kind'][] = ['changed', 'app', 'imports', 'through']
 export interface Selection {
   all?: string
   picks: Pick[]
+  typecheckOnly?: TypecheckOnly
 }
+
+export type TypecheckOnly = ReadonlyMap<string, string>
 
 export function affectedTests(input: {
   changed: readonly string[]
   graph: Graph
   tests: readonly string[]
   electron: ReadonlySet<string>
+  typecheckOnly?: TypecheckOnly
 }): Selection {
   const tests = new Set(input.tests)
   const changed = [...new Set(input.changed)].sort()
@@ -177,6 +182,7 @@ export function affectedTests(input: {
     }
   }
   for (const source of changed) {
+    if (input.typecheckOnly?.has(source)) continue
     const seen = new Set([source])
     const queue = [source]
     for (const file of queue) {
@@ -211,10 +217,65 @@ export function affectedTests(input: {
   }
 
   const all = runsEverything(changed, input.graph)
+  const typecheckOnly = new Map<string, string>()
+  for (const file of changed) {
+    const why = input.typecheckOnly?.get(file)
+    if (why !== undefined) typecheckOnly.set(file, why)
+  }
   return {
     ...(all !== undefined && { all }),
     picks: [...picks.values()].sort((a, b) => (a.file < b.file ? -1 : 1)),
+    ...(typecheckOnly.size > 0 && { typecheckOnly }),
   }
+}
+
+const reExport = /export\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*from\s*(['"])[^'"\n]+\1\s*;?/g
+
+function stripTypes(source: string): string | undefined {
+  try {
+    return stripTypeScriptTypes(source)
+      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  } catch {
+    return undefined
+  }
+}
+
+export function typecheckOnlyReason(
+  file: string,
+  before: string | undefined,
+  after: string | undefined,
+): string | undefined {
+  if (!file.endsWith('.ts') || after === undefined) return undefined
+  const code = stripTypes(after)
+  if (code === undefined) return undefined
+  if (code === '') return 'declares only types'
+  if (code.replace(reExport, '').trim() === '') return 'only re-exports other files'
+  if (before !== undefined && stripTypes(before) === code) return 'changes only types'
+  return undefined
+}
+
+export function readTypecheckOnly(
+  root: string,
+  from: string,
+  changed: readonly string[],
+): TypecheckOnly {
+  const found = new Map<string, string>()
+  for (const file of changed) {
+    if (!file.endsWith('.ts')) continue
+    let after: string | undefined
+    let before: string | undefined
+    try {
+      after = readFileSync(path.join(root, file), 'utf8')
+    } catch {}
+    try {
+      before = git(root, 'show', `${from}:${file}`)
+    } catch {}
+    const why = typecheckOnlyReason(file, before, after)
+    if (why !== undefined) found.set(file, why)
+  }
+  return found
 }
 
 function git(root: string, ...args: string[]): string {
@@ -231,8 +292,12 @@ export function defaultBranch(root: string): string {
   }
 }
 
+export function mergeBase(root: string, base: string): string {
+  return git(root, 'merge-base', 'HEAD', base).trim()
+}
+
 export function changedSince(root: string, base: string): string[] {
-  const from = git(root, 'merge-base', 'HEAD', base).trim()
+  const from = mergeBase(root, base)
   return [
     ...new Set([
       ...lines(git(root, 'diff', '--name-only', '--no-renames', '--no-ext-diff', from, 'HEAD')),
@@ -292,39 +357,81 @@ export function readRepo(
 
 export interface Chosen {
   run: Pick[]
+  left: Pick[]
   full: number
-  left: number
 }
 
-export function chooseTests(selection: Selection, testCount: number): Chosen {
+export function chooseTests(
+  selection: Selection,
+  testCount: number,
+  electron: ReadonlySet<string>,
+): Chosen {
   const full = selection.all !== undefined ? testCount : selection.picks.length
-  const run = selection.picks.filter((pick) => pick.kind === 'changed' || pick.kind === 'app')
-  return { run, full, left: full - run.length }
+  const runs = (pick: Pick) =>
+    pick.kind === 'changed' ||
+    pick.kind === 'app' ||
+    (pick.kind === 'imports' && !electron.has(pick.file))
+  return {
+    run: selection.picks.filter(runs),
+    left: selection.picks.filter((pick) => !runs(pick)),
+    full,
+  }
 }
 
 const files = (count: number) => `${count} file${count === 1 ? '' : 's'}`
+
+const leftReasons: Record<'through' | 'electron', (count: number) => string> = {
+  through: (count) =>
+    `${files(count)} that reach${count === 1 ? 'es' : ''} a changed file only through other files`,
+  electron: (count) =>
+    `${count} Electron app test${count === 1 ? '' : 's'} that import${count === 1 ? 's' : ''} a changed file: an Electron test runs only when it changed or is named after changed app source`,
+}
+
+const leftReason = (pick: Pick) => (pick.kind === 'through' ? 'through' : 'electron')
 
 export function selectionText(
   selection: Selection,
   chosen: Chosen,
   base: string,
   electron: ReadonlySet<string>,
+  list = false,
 ): string {
   const width = Math.max(0, ...chosen.run.map((pick) => pick.file.length))
   const rows = chosen.run.map(
     (pick) =>
       `  ${electron.has(pick.file) ? 'electron' : 'node    '}  ${pick.file.padEnd(width)}  ${pick.why}`,
   )
-  if (chosen.full === 0) return `Affected tests since ${base}: none.`
-  if (chosen.left === 0)
-    return [`Affected tests since ${base}: ${files(chosen.full)}`, ...rows].join('\n')
+  const typecheckOnly = [...(selection.typecheckOnly ?? [])].map(
+    ([file, why]) => `  ${file}  ${why}`,
+  )
+  const typecheckText =
+    typecheckOnly.length > 0
+      ? ['Picks no tests by itself, because Typecheck covers it:', ...typecheckOnly]
+      : []
+  const unpicked = chosen.full - chosen.run.length - chosen.left.length
+  if (chosen.full === 0) return [`Affected tests since ${base}: none.`, ...typecheckText].join('\n')
+  if (chosen.left.length === 0 && unpicked === 0)
+    return [`Affected tests since ${base}: ${files(chosen.full)}`, ...rows, ...typecheckText].join(
+      '\n',
+    )
   const what =
     selection.all !== undefined
       ? `every test (${files(chosen.full)}), because ${selection.all}`
       : files(chosen.full)
+  const groups = (['through', 'electron'] as const).flatMap((reason) => {
+    const picks = chosen.left.filter((pick) => leftReason(pick) === reason)
+    if (picks.length === 0) return []
+    const detail = list ? picks.map((pick) => `    ${pick.file}  ${pick.why}`) : []
+    return [`  ${leftReasons[reason](picks.length)}`, ...detail]
+  })
+  if (unpicked > 0) groups.push(`  every other test file (${unpicked}), because ${selection.all}`)
   return [
-    `Affected tests since ${base}: ${what}. This run takes ${files(chosen.run.length)}: the changed test files and the Electron app tests for the changed app source. The scheduled full check covers the other ${chosen.left}.`,
+    `Affected tests since ${base}: ${what}. This run takes ${files(chosen.run.length)}: the changed test files, the test files that import a changed file, and the Electron app tests for the changed app source.`,
     ...rows,
+    'The scheduled full check runs the rest:',
+    ...groups,
+    ...(list || chosen.left.length === 0 ? [] : ['pnpm check --affected --list names each file.']),
+    ...typecheckText,
   ].join('\n')
 }
 

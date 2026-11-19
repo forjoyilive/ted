@@ -650,9 +650,10 @@ export async function checkAffected({
     commit = affected.cleanCommit(root)
     const changed = affected.changedSince(root, base)
     const repo = affected.readRepo(root, changed)
-    const selection = affected.affectedTests({ changed, ...repo })
-    const chosen = affected.chooseTests(selection, repo.tests.length)
-    console.log(`\n${affected.selectionText(selection, chosen, base, repo.electron)}`)
+    const typecheckOnly = affected.readTypecheckOnly(root, affected.mergeBase(root, base), changed)
+    const selection = affected.affectedTests({ changed, ...repo, typecheckOnly })
+    const chosen = affected.chooseTests(selection, repo.tests.length, repo.electron)
+    console.log(`\n${affected.selectionText(selection, chosen, base, repo.electron, list)}`)
     const sandbox = affected.electronSandbox()
     const leftOut = sandbox && affected.leftOutText(chosen.run, repo.electron, sandbox)
     if (leftOut) console.log(`\n${leftOut}`)
@@ -664,11 +665,14 @@ export async function checkAffected({
     const passes = noSkip ? new Map() : readPasses(affected)
     const rerunFor = (passedOn: string) => {
       if (!affected.commitExists(root, passedOn)) return undefined
+      const changedSincePass = affected.changedFrom(root, passedOn)
       const since = affected.affectedTests({
-        changed: affected.changedFrom(root, passedOn),
+        changed: changedSincePass,
         ...repo,
+        typecheckOnly: affected.readTypecheckOnly(root, passedOn, changedSincePass),
       })
-      return new Set(affected.chooseTests(since, repo.tests.length).run.map((pick) => pick.file))
+      const rerun = affected.chooseTests(since, repo.tests.length, repo.electron).run
+      return new Set(rerun.map((pick) => pick.file))
     }
     const kept = affected.skipPassed(chosen.run, passes, rerunFor)
     const skipped = affected.skippedText(kept.skipped, path.relative(root, passesFile))
