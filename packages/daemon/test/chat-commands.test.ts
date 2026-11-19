@@ -42,14 +42,18 @@ test('the sandbox may write only the chat’s worktrees and its own tmp and cach
         { clone: '/ted/repos/acme/web', worktree: '/ted/chat-code/c1/web' },
         { clone: '/ted/repos/acme/api', worktree: '/ted/chat-code/c1/api' },
       ],
-      sockets: ['/ted/sockets/db.sock'],
+      grants: {
+        sockets: [{ name: 'db', path: '/ted/sockets/db.sock' }],
+        reads: ['/ted/shared/registry'],
+      },
     }),
   ).toEqual({
     scope: {
       writable: ['/ted/chat-code/c1/web', '/ted/chat-code/c1/api'],
       readable: ['/ted/repos/acme/web', '/ted/repos/acme/api'],
       cache: '/ted/sandbox/chat-c1/cache',
-      sockets: ['/ted/sockets/db.sock'],
+      sockets: [{ name: 'db', path: '/ted/sockets/db.sock' }],
+      reads: ['/ted/shared/registry'],
     },
     tmpRoot: '/ted/sandbox/chat-c1/tmp',
   })

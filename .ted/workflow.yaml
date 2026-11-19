@@ -19,10 +19,12 @@ repos:
         kind: ios-simulator
         run: pnpm ios release
         device: iPhone 17
+        sandbox_access: [ios-xcode]
       - name: Ted Dev iPhone
         kind: ios-simulator
         run: pnpm ios dev
         device: iPhone 17
+        sandbox_access: [ios-xcode]
 order: [intake, clarify, design, work, validate, review, merge]
 stages:
   design: { gate: true, based_on: f7500a6 }

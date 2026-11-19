@@ -5,6 +5,7 @@ export {
   type CheckSettings,
   checkLayer,
   displayPath,
+  inheritedFrom,
   type LayerFiles,
   type RepoSettings,
   type StageSettings,

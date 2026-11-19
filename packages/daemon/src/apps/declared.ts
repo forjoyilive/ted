@@ -2,9 +2,12 @@ import {
   type AppKind,
   appKinds,
   isLoopbackUrl,
+  isSandboxAccess,
   type PreviewPreset,
   previewPresets,
+  type SandboxAccess,
 } from '@ted/protocol'
+import { isArray, isString, type Untyped } from '@ted/protocol/parse'
 
 export interface AppDeclaration {
   name: string
@@ -17,6 +20,7 @@ export interface AppDeclaration {
   device?: string
   electron?: true
   preview?: PreviewPreset
+  sandboxAccess?: SandboxAccess[]
 }
 
 export const defaultAppUrl = `http://localhost:\${PORT}`
@@ -54,6 +58,7 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
             ),
           )
         : {}
+    const access = sandboxAccessOf(fields.sandbox_access)
     const ready =
       fields.ready === 'url' || fields.ready === 'start'
         ? fields.ready
@@ -72,7 +77,13 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
         ...(typeof fields.device === 'string' && { device: fields.device }),
         ...(electron && { electron: true as const }),
         ...(preview !== undefined && { preview }),
+        ...(access.length > 0 && { sandboxAccess: access }),
       },
     ]
   })
+}
+
+export function sandboxAccessOf(value: Untyped): SandboxAccess[] {
+  if (!isArray(value)) return []
+  return [...new Set(value.filter((name) => isString(name) && isSandboxAccess(name)))]
 }

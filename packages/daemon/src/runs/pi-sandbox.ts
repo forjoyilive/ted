@@ -109,9 +109,10 @@ export async function piSandboxScope(input: PiScopeInput): Promise<PiSandbox> {
 async function copyPiAgent(source: string, copy: string): Promise<string> {
   await rm(copy, { recursive: true, force: true })
   await makeFolder(copy)
-  if (!(await isFolder(source))) return copy
-  const sessions = path.join(source, 'sessions')
-  await cp(source, copy, {
+  const folder = await realpath(source).catch(() => undefined)
+  if (folder === undefined || !(await isFolder(folder))) return copy
+  const sessions = path.join(folder, 'sessions')
+  await cp(folder, copy, {
     recursive: true,
     verbatimSymlinks: true,
     filter: (file) => file !== sessions,

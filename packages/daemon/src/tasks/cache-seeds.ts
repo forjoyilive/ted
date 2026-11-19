@@ -10,7 +10,7 @@ import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
 import { factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
-import type { Sandbox } from '../sandbox.ts'
+import { type Sandbox, sandboxGrants } from '../sandbox.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import type { CheckSlots } from './check-slots.ts'
@@ -241,12 +241,13 @@ export function createCacheSeeds(options: {
         writable: made.map((m) => m.worktree),
         readable: [...new Set(made.map((m) => m.clone))],
         cache,
-        sockets: workflow.settings.sandbox_sockets ?? [],
+        ...sandboxGrants(workflow.settings),
       }
       for (const { entry, worktree } of made) {
         if (!entry.setup) continue
         const result = await runTaskCommand({
           label: 'seed setup',
+          owner: `the worktree setup of repo ${entry.name}`,
           command: entry.setup,
           cwd: worktree,
           env: worktreeCommandEnv(entry.env, {}, options.env()),

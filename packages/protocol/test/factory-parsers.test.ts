@@ -10,8 +10,8 @@ const repos = [
     name: 'ted',
     baseBranch: 'main',
     mergeMethod: 'merge',
-    setup: { run: 'pnpm install', timeout: '1m' },
-    teardown: { run: 'cleanup', timeout: '1m' },
+    setup: { run: 'pnpm install', timeout: '1m', sandboxAccess: ['ios-xcode'] },
+    teardown: { run: 'cleanup', timeout: '1m', sandboxAccess: [] },
     env: [{ name: 'KEY', value: 'value' }],
     copy: ['.env'],
     apps: [
@@ -22,6 +22,7 @@ const repos = [
         run: 'pnpm dev',
         url: 'http://localhost:3000',
         preview: 'mobile',
+        sandboxAccess: ['ios-xcode'],
       },
       { name: 'Phone', kind: 'android-emulator', run: './gradlew installDebug', device: 'Pixel_8' },
     ],
@@ -66,7 +67,16 @@ const library = {
 const settings = {
   ...library,
   repos,
-  checks: [{ was: 0, name: 'Check', run: 'pnpm typecheck', repo: 'ted', timeout: '30s' }],
+  checks: [
+    {
+      was: 0,
+      name: 'Check',
+      run: 'pnpm typecheck',
+      repo: 'ted',
+      timeout: '30s',
+      sandboxAccess: ['ios-xcode'],
+    },
+  ],
   instructionChecks: [
     {
       was: 1,
@@ -352,6 +362,14 @@ rejects(
     repos: [{ ...repos[0], apps: [{ name: 'Dev', kind: 'web', run: 'x', preview: 'watch' }] }],
   },
   'an App’s preview must be desktop, tablet or mobile',
+)
+rejects(
+  P.parseFactorySettingsChanges,
+  {
+    ...settings,
+    checks: [{ name: 'Check', run: 'make', sandboxAccess: ['network'] }],
+  },
+  'Check sandboxAccess has an unknown sandbox access group',
 )
 rejects(
   P.parseFactorySettingsChanges,

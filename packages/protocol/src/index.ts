@@ -28,6 +28,7 @@ export {
   isLoopbackUrl,
   isSimulatorApp,
   type RecordAppRequest,
+  type RestartAppRequest,
   type SimulatorAsk,
   type SimulatorSlots,
   type StartAppRequest,
@@ -48,7 +49,12 @@ export {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
-export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
+export {
+  parseAppRef,
+  parseRecordAppRequest,
+  parseRestartAppRequest,
+  parseStartAppRequest,
+} from './app-parsers.ts'
 export {
   type AsanaConfiguration,
   type AsanaStatus,
@@ -579,6 +585,7 @@ export {
   type AppInput,
   type AppKind,
   agentRoles,
+  appCompared,
   appKinds,
   type CheckInput,
   type CheckTry,
@@ -594,6 +601,8 @@ export {
   type CommandCheckTryRequest,
   type CopyFileState,
   cleanupStepProblem,
+  commandCompared,
+  comparedAccess,
   type DiffLine,
   type DiffLineKind,
   type DriftCounts,
@@ -816,6 +825,14 @@ export {
   parseOutsideCommandAnswer,
   parseRunOutsideCommandRequest,
 } from './outside-command.ts'
+export {
+  approvedOutsideSandbox,
+  type OutsideSandboxApproval,
+  type OutsideSandboxApprovals,
+  parseOutsideSandboxApprovalsRequest,
+  readOutsideSandboxApprovals,
+  withOutsideSandboxApproval,
+} from './outside-sandbox.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
@@ -907,6 +924,26 @@ export {
   parseStartDevRunRequest,
   parseStartSubAgentRequest,
 } from './run-parsers.ts'
+export * from './sandbox-access.ts'
+export type {
+  NamedSocket,
+  SandboxAccess,
+  SandboxGroup,
+  SandboxGroupInfo,
+  SocketAccess,
+} from './sandbox-groups.ts'
+export {
+  accessGroups,
+  accessSockets,
+  isSandboxAccess,
+  isSandboxGroup,
+  isSocketName,
+  sandboxGroupNames,
+  sandboxGroups,
+  socketAccess,
+  socketOf,
+} from './sandbox-groups.ts'
+export * from './sandbox-openings.ts'
 export {
   type AutomationSchedule,
   checkSchedule,
@@ -1161,6 +1198,7 @@ export {
   type SetupFileLine,
   type SetupProposal,
   type SetupStageLine,
+  type SetupWorktreeAccess,
   type SignOffChanges,
   type SizeCheck,
   type SizeCheckInput,

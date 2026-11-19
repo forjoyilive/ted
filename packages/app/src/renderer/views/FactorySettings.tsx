@@ -9,6 +9,7 @@ import type {
   RepoSettingsInput,
   RepoSettingsView,
   RepoSource,
+  SandboxAccess,
   SaveSettingsResult,
   SettingsMergeMethod,
   Task,
@@ -34,6 +35,7 @@ import { FactoryIconPicker } from '../components/FactoryIconPicker.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { Skeleton } from '../components/Loading.tsx'
+import { AccessChips, SandboxAccessField, sandboxAccessHelp } from '../components/SandboxAccess.tsx'
 import { Select } from '../components/Select.tsx'
 import { SettingsSearch } from '../components/SettingsSearch.tsx'
 import { useEventValue } from '../data.ts'
@@ -73,6 +75,7 @@ import {
 } from './FactorySettingsSections.tsx'
 import { GitHubIntakeSection } from './GitHubIntakeSection.tsx'
 import { LinearIntakeSection } from './LinearIntakeSection.tsx'
+import { SandboxSection } from './SandboxSection.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
@@ -110,6 +113,7 @@ const repoSections: ReadonlySet<FactorySectionId> = new Set([
   'cleanup',
   'agents',
   'permissions',
+  'sandbox',
   'notes',
 ])
 
@@ -237,6 +241,16 @@ export function FactorySettings({
         },
         dispatch,
       ),
+    [factory.id, dispatch],
+  )
+  const openSection = useCallback(
+    (id: FactorySectionId) => {
+      if (scroller.current) scroller.current.scrollTop = 0
+      dispatch({
+        type: 'open',
+        screen: { kind: 'factory', factoryId: factory.id, view: 'settings', section: id },
+      })
+    },
     [factory.id, dispatch],
   )
   const onDraft = useCallback((change: (current: SettingsDraft) => SettingsDraft) => {
@@ -378,18 +392,7 @@ export function FactorySettings({
                 key={id}
                 type="button"
                 className={styles.navItem}
-                onClick={() => {
-                  if (scroller.current) scroller.current.scrollTop = 0
-                  dispatch({
-                    type: 'open',
-                    screen: {
-                      kind: 'factory',
-                      factoryId: factory.id,
-                      view: 'settings',
-                      section: id,
-                    },
-                  })
-                }}
+                onClick={() => openSection(id)}
                 {...(id === section && { 'aria-current': 'page' as const })}
               >
                 <span className={styles.navLabel}>{label}</span>
@@ -528,6 +531,15 @@ export function FactorySettings({
                       loaded={base.draft}
                       onDraft={onDraft}
                       onMode={onMode}
+                    />
+                  )}
+                  {section === 'sandbox' && (
+                    <SandboxSection
+                      view={view}
+                      onOpenPermissions={() => openSection('permissions')}
+                      onOpenRepos={() => openSection('repos')}
+                      onOpenChecks={() => openSection('checks')}
+                      onOpenProviders={() => dispatch({ type: 'open-settings', section: 'agents' })}
                     />
                   )}
                   {section === 'notes' && (
@@ -1198,10 +1210,16 @@ function CommandField({
   const id = useId()
   const run = value?.run ?? ''
   const timeout = value?.timeout
-  const update = (next: { run: string; timeout?: string | undefined }) => {
+  const access = value?.sandboxAccess
+  const update = (next: {
+    run: string
+    timeout?: string | undefined
+    sandboxAccess?: SandboxAccess[] | undefined
+  }) => {
     if (next.run === '' && (next.timeout ?? '') === '') return onChange(undefined)
     const setup: NonNullable<RepoSettingsInput['setup']> = { run: next.run }
     if (next.timeout) setup.timeout = next.timeout
+    if (next.sandboxAccess) setup.sandboxAccess = next.sandboxAccess
     return onChange(setup)
   }
   return (
@@ -1214,7 +1232,7 @@ function CommandField({
         className={`${styles.input} ${styles.mono}`}
         placeholder={placeholder}
         value={run}
-        onChange={(event) => update({ run: event.target.value, timeout })}
+        onChange={(event) => update({ run: event.target.value, timeout, sandboxAccess: access })}
       />
       {(defaultTimeout !== undefined || timeout !== undefined) && run !== '' && (
         <span className={styles.timeout}>
@@ -1224,10 +1242,24 @@ function CommandField({
             className={styles.timeoutInput}
             placeholder={defaultTimeout ?? '15m'}
             value={timeout ?? ''}
-            onChange={(event) => update({ run, timeout: event.target.value })}
+            onChange={(event) =>
+              update({ run, timeout: event.target.value, sandboxAccess: access })
+            }
           />
           <Help>A duration such as 30s, 15m or 1h.</Help>
         </span>
+      )}
+      {run !== '' && (
+        <div className={styles.access}>
+          <span className={styles.label}>
+            Sandbox access <Help>{sandboxAccessHelp}</Help>
+          </span>
+          <SandboxAccessField
+            label={label}
+            groups={access}
+            onChange={(sandboxAccess) => update({ run, timeout, sandboxAccess })}
+          />
+        </div>
       )}
     </div>
   )
@@ -1453,6 +1485,11 @@ function Apps({
               <ActionButton type="button" className={styles.link} onClick={() => setEditing(index)}>
                 Edit
               </ActionButton>
+              {app.sandboxAccess && app.sandboxAccess.length > 0 && (
+                <span className={styles.accessLine}>
+                  <AccessChips groups={app.sandboxAccess} />
+                </span>
+              )}
             </div>
           ),
         )}
@@ -1527,7 +1564,7 @@ function AppEditor({
           Run command{' '}
           <Help>
             {app.kind === 'ios-simulator'
-              ? 'Ted passes the Task’s simulator as $TED_SIMULATOR_UDID. Build with xcodebuild -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" so the build stays in the Task’s own folders.'
+              ? 'Ted passes the Task’s simulator as $TED_SIMULATOR_UDID. Build with xcodebuild -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" so the build stays in the Task’s own folders. Add SWIFTC_DISABLE_SANDBOX=YES if the code uses Swift macros, such as @Observable or #Preview. For an Expo app, run node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh first, with PODS_ROOT and PLATFORM_NAME=iphonesimulator set and an xcodebuild wrapper on PATH that adds -IDEPackageSupportDisableManifestSandbox=1 and -IDEDisablePackageManifestCaching=1 and keeps $TMPDIR, because Xcode’s own ExpoModulesJSI step can’t pass those flags in the sandbox.'
               : app.kind === 'android-emulator'
                 ? 'Ted passes the Task’s emulator as $ANDROID_SERIAL and $TED_EMULATOR_SERIAL, and points $GRADLE_USER_HOME at the Task’s own cache folder.'
                 : 'Ted passes a free port as $PORT.'}
@@ -1538,6 +1575,16 @@ function AppEditor({
           className={`${styles.input} ${styles.mono}`}
           value={app.run}
           onChange={(event) => onChange({ ...app, run: event.target.value })}
+        />
+      </div>
+      <div className={styles.field}>
+        <span className={styles.label}>
+          Sandbox access <Help>{sandboxAccessHelp}</Help>
+        </span>
+        <SandboxAccessField
+          label={`App ${app.name}`}
+          groups={app.sandboxAccess}
+          onChange={(sandboxAccess) => onChange({ ...app, sandboxAccess })}
         />
       </div>
       {(app.kind === 'ios-simulator' || app.kind === 'android-emulator') && (

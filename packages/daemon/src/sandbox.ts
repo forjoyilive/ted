@@ -3,7 +3,13 @@ import { constants, type Stats } from 'node:fs'
 import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import { outsideTedEnv } from '@ted/protocol'
+import {
+  accessGroups,
+  accessSockets,
+  type NamedSocket,
+  outsideTedEnv,
+  type SandboxAccess,
+} from '@ted/protocol'
 import { protectedPaths } from './protected-folders.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -12,20 +18,34 @@ export interface SandboxScope {
   readable: readonly string[]
   tmp: string
   cache: string
-  sockets?: readonly string[]
-  electron?: boolean
+  sockets?: readonly NamedSocket[]
+  reads?: readonly string[]
   ownTempOnly?: boolean
   hideProtected?: boolean
+  groups?: readonly SandboxAccess[]
 }
 
 export interface Sandboxed {
   argv: [string, ...string[]]
   env: Record<string, string>
   fds: readonly number[]
+  missingSockets: readonly string[]
   close(): Promise<void>
 }
 
 export const firstBindFd = 3
+
+export interface SandboxGrants {
+  sockets: readonly NamedSocket[]
+  reads: readonly string[]
+}
+
+export function sandboxGrants(settings: {
+  sandbox_sockets?: readonly NamedSocket[]
+  sandbox_reads?: readonly string[]
+}): SandboxGrants {
+  return { sockets: settings.sandbox_sockets ?? [], reads: settings.sandbox_reads ?? [] }
+}
 
 export interface Sandbox {
   problem(): Promise<string | undefined>
@@ -60,6 +80,19 @@ async function makeBuildCaches(
 }
 
 export class SandboxUnavailable extends Error {}
+
+export function withSandboxEnv(
+  base: NodeJS.ProcessEnv,
+  sandboxed: Record<string, string>,
+): NodeJS.ProcessEnv {
+  const given = base.JAVA_TOOL_OPTIONS?.trim()
+  const own = sandboxed.JAVA_TOOL_OPTIONS
+  return {
+    ...base,
+    ...sandboxed,
+    ...(given && own !== undefined && { JAVA_TOOL_OPTIONS: `${given} ${own}` }),
+  }
+}
 
 const probeTimeoutMs = 10_000
 
@@ -142,23 +175,35 @@ export function createSandbox(options: {
       if (why !== undefined || ready === undefined) throw new SandboxUnavailable(why)
       const env = options.env()
       const paths = await sandboxPaths(platform, options.tedHome, scope)
+      const groups = accessGroups(scope.groups)
+      const electron = groups.includes('electron')
+      const xcode = scope.ownTempOnly !== true && groups.includes('ios-xcode')
+      const asked = accessSockets(scope.groups)
+      const named = new Map((scope.sockets ?? []).map((socket) => [socket.name, socket.path]))
+      const missingSockets = asked.filter((name) => !named.has(name))
+      let perUserTemp: string | undefined
       if (platform === 'darwin') {
         userTemp ??= userTempFolder()
-        const found = await userTemp
-        if (found !== undefined) {
-          const saves = path.join(found, 'TemporaryItems')
-          paths.unlisted = [found, saves]
-          const [first = ''] = path.relative(found, paths.tedHome).split(path.sep)
-          if (scope.ownTempOnly !== true) {
+        perUserTemp = await userTemp
+        if (perUserTemp !== undefined) {
+          const saves = path.join(perUserTemp, 'TemporaryItems')
+          paths.unlisted = [perUserTemp, saves]
+          const [first = ''] = path.relative(perUserTemp, paths.tedHome).split(path.sep)
+          if (xcode) {
             if (!inside(saves, paths.tedHome) && !inside(paths.tedHome, saves)) paths.saves = saves
-            if (!inside(paths.tedHome, found) && !xcodeTempNames.test(first)) paths.userTemp = found
+            if (!inside(paths.tedHome, perUserTemp) && !xcodeTempNames.test(first))
+              paths.userTemp = perUserTemp
           }
         }
-        const logs = scope.ownTempOnly === true ? undefined : await manifestLogFolder(env)
+        const logs = xcode ? await manifestLogFolder(env) : undefined
         if (logs !== undefined && !inside(paths.tedHome, logs) && !inside(logs, paths.tedHome))
           paths.manifestLogs = logs
       }
-      const sockets = await allowedSockets(scope.sockets ?? [], env)
+      const sockets = await listedPaths(
+        'sandbox_sockets',
+        asked.flatMap((name) => named.get(name) ?? []),
+        env,
+      )
       const cache = (name: string) => path.join(paths.cache, name)
       const added: Record<string, string> = {
         TMPDIR: paths.tmp,
@@ -175,7 +220,9 @@ export function createSandbox(options: {
         TED_SANDBOX: '1',
         // Chromium on macOS ignores TMPDIR and makes its single-instance socket in the user temp folder.
         ...(platform === 'darwin' && { MAC_CHROMIUM_TMPDIR: paths.tmp }),
-        ...(scope.electron === true && { TED_SANDBOX_ELECTRON: '1' }),
+        // The JVM on macOS ignores TMPDIR and uses the per-user temp folder.
+        JAVA_TOOL_OPTIONS: `-Djava.io.tmpdir="${paths.tmp}"`,
+        ...(electron && { TED_SANDBOX_ELECTRON: '1' }),
         ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }
       if (platform === 'darwin') {
@@ -190,7 +237,11 @@ export function createSandbox(options: {
             ...seatbeltArgs(
               paths,
               sockets,
-              scope.electron === true,
+              [
+                ...(await baseReads(env, perUserTemp)),
+                ...(await listedPaths('sandbox_reads', scope.reads ?? [], env)),
+              ],
+              electron,
               await personalFolders(env),
               pipeMode,
             ),
@@ -201,14 +252,17 @@ export function createSandbox(options: {
           ],
           env: added,
           fds: [],
+          missingSockets,
           close: async () => {},
         }
       }
       const table = await socketTable()
       const linux = await linuxSockets(table, paths, sockets, env)
       const binds = bwrapBinds(paths)
-      const hidden =
-        scope.hideProtected === true ? await existingFolders(await personalFolders(env)) : []
+      const personal = await personalFolders(env)
+      const hidden = scope.hideProtected === true ? await existingFolders(personal) : []
+      const listed = await listedPaths('sandbox_reads', scope.reads ?? [], env)
+      const reads = await linuxReads(env, listed, [...personal, paths.tedHome])
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -222,9 +276,15 @@ export function createSandbox(options: {
         throw error
       }
       return {
-        argv: [ready, ...bwrapArgs(paths, env, linux, binds, bindFds, hidden), '--', ...argv],
+        argv: [
+          ready,
+          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, reads),
+          '--',
+          ...argv,
+        ],
         env: added,
         fds: handles.map((handle) => handle.fd),
+        missingSockets,
         close,
       }
     },
@@ -253,6 +313,7 @@ const xcodeSavers =
   'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtool|ibtoold|swift-build|swift-run|swift-test'
 const xcodeTempNames =
   /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8}|(actool-sprite-atlas-scratch-)?[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}|ibtoold-[0-9]+)$/i
+const ownTemp = 'file-read-data file-read-xattr file-write*'
 const chars = (set: string, count: number) => `[${set}]`.repeat(count)
 const uuid = [8, 4, 4, 4, 12].map((count) => chars('0-9A-F', count)).join('-')
 
@@ -268,6 +329,7 @@ function ownPipes(pattern: string, mode: number): string[] {
     ),
   ].join(' ')
   return [
+    `(allow file-read-data file-read-xattr (require-all (regex #"${pattern}") ${types}))`,
     `(allow file-write-create (require-all (regex #"${pattern}") ${types}))`,
     `(allow file-write* (require-all (regex #"${pattern}") ${types} ${exact}))`,
     `(deny file-link (regex #"${pattern}"))`,
@@ -277,7 +339,7 @@ function ownPipes(pattern: string, mode: number): string[] {
 function actoolTempRules(userTemp: string, pipeMode: number | undefined): string[] {
   const at = (pattern: string) => `^${escapeRegex(userTemp)}/${pattern}`
   const noLinks = (pattern: string, types: string[]) => [
-    `(allow file-write* (require-all (regex #"${pattern}") (require-any ${types.map((type) => `(vnode-type ${type})`).join(' ')})))`,
+    `(allow ${ownTemp} (require-all (regex #"${pattern}") (require-any ${types.map((type) => `(vnode-type ${type})`).join(' ')})))`,
     `(deny file-link (regex #"${pattern}"))`,
   ]
   return [
@@ -289,6 +351,7 @@ function actoolTempRules(userTemp: string, pipeMode: number | undefined): string
       ? ownPipes(at(`ibtoold-[0-9]+(/IB(/${uuid}\\.(HostToRemote|RemoteToHost))?)?$`), pipeMode)
       : []),
     `(deny file-read-data (regex #"${at('ibtoold-[0-9]+(/IB)?/?$')}"))`,
+    ...noLinks(at(`${uuid}\\.storyboard$`), ['REGULAR-FILE']),
     ...noLinks(at(`Untitled-${chars('A-Za-z0-9', 8)}\\.uicatalog(-journal)?$`), ['REGULAR-FILE']),
     ...noLinks(
       at(
@@ -319,7 +382,10 @@ async function sandboxPaths(
   scope: SandboxScope,
 ): Promise<SandboxPaths> {
   const daemonTmp = await real(tmpdir())
-  const sharedTmp = platform === 'darwin' && scope.ownTempOnly !== true ? '/private/tmp' : undefined
+  const sharedTmp =
+    platform === 'darwin' && scope.ownTempOnly !== true && scope.groups?.includes('shared-tmp')
+      ? '/private/tmp'
+      : undefined
   const home = await real(tedHome)
   const given = path.resolve(tedHome)
   const plain = (dir: string, create = false) => plainFolder(home, given, dir, create)
@@ -380,7 +446,8 @@ async function existingFolders(dirs: readonly string[]): Promise<string[]> {
   return [...new Set(found.filter((dir) => dir !== undefined))]
 }
 
-async function allowedSockets(
+async function listedPaths(
+  setting: 'sandbox_sockets' | 'sandbox_reads',
   entries: readonly string[],
   env: NodeJS.ProcessEnv,
 ): Promise<string[]> {
@@ -394,9 +461,7 @@ async function allowedSockets(
         : entry
     if (expanded === undefined || !expanded.startsWith('/') || expanded.includes('\0')) {
       console.error(
-        redactSecrets(
-          `sandbox_sockets entry ${entry} isn’t an absolute path here, so Ted skips it`,
-        ),
+        redactSecrets(`${setting} entry ${entry} isn’t an absolute path here, so Ted skips it`),
       )
       continue
     }
@@ -406,9 +471,143 @@ async function allowedSockets(
   return [...found]
 }
 
+const systemReads = [
+  '/usr',
+  '/bin',
+  '/sbin',
+  '/System',
+  '/Library',
+  '/Applications',
+  '/opt',
+  '/nix',
+  '/private/etc',
+  '/private/var/db',
+  '/private/var/select',
+  '/private/var/run/resolv.conf',
+  '/dev',
+]
+
+const toolchainReads = [
+  '.gitconfig',
+  '.config/git/config',
+  '.config/git/ignore',
+  '.config/git/attributes',
+  '.nvm',
+  '.fnm',
+  '.local/share/fnm',
+  '.volta',
+  '.local/share/mise',
+  '.asdf',
+  '.rbenv',
+  '.pyenv',
+  '.gem/ruby',
+  '.rustup',
+  '.cargo/bin',
+  '.bun/bin',
+  'Library/pnpm',
+  'Library/Developer',
+  'Library/Android/sdk',
+]
+
+const linuxSystemReads = [
+  '/usr',
+  '/bin',
+  '/sbin',
+  '/lib',
+  '/lib32',
+  '/lib64',
+  '/libx32',
+  '/etc',
+  '/opt',
+  '/nix',
+  '/snap',
+  '/sys',
+  '/etc/resolv.conf',
+  '/run/systemd/resolve',
+]
+
+async function homeFolder(env: NodeJS.ProcessEnv): Promise<string> {
+  return real(env.HOME?.startsWith('/') ? env.HOME : homedir())
+}
+
+async function readCandidates(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  userTemp: string | undefined,
+): Promise<string[]> {
+  const home = await homeFolder(env)
+  const fromEnv = ['DEVELOPER_DIR', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT'].flatMap(
+    (name) => (env[name]?.startsWith('/') === true ? [env[name]] : []),
+  )
+  const onPath = (env.PATH ?? '')
+    .split(':')
+    .filter((dir) => dir.startsWith('/'))
+    .flatMap((dir) =>
+      path.basename(dir) === 'bin' && !inside(home, dir) ? [dir, path.dirname(dir)] : [dir],
+    )
+  return [
+    ...(platform === 'darwin' ? systemReads : linuxSystemReads),
+    ...toolchainReads.map((name) => path.join(home, name)),
+    ...fromEnv,
+    ...onPath,
+    corepackHome(env),
+    ...(userTemp === undefined ? [] : [path.join(userTemp, 'xcrun_db')]),
+  ].filter((candidate) => !/["\n\r\0]/.test(candidate))
+}
+
+async function baseReads(env: NodeJS.ProcessEnv, userTemp: string | undefined): Promise<string[]> {
+  const home = await homeFolder(env)
+  const found = new Set<string>()
+  for (const candidate of await readCandidates(env, 'darwin', userTemp)) {
+    const resolved = await realpath(candidate).catch(() => undefined)
+    if (resolved === undefined || resolved === '/' || inside(resolved, home)) continue
+    found.add(resolved)
+  }
+  return [...found]
+}
+
+interface LinuxReads {
+  binds: [string, string][]
+  links: [string, string][]
+}
+
+async function linuxReads(
+  env: NodeJS.ProcessEnv,
+  listed: readonly string[],
+  refused: readonly string[],
+): Promise<LinuxReads> {
+  const home = await homeFolder(env)
+  const reals = new Set<string>()
+  const links = new Map<string, string>()
+  const add = async (candidate: string, keepHome: boolean) => {
+    const asGiven = path.resolve(candidate)
+    const resolved = await realpath(asGiven).catch(() => undefined)
+    if (resolved === undefined || resolved === '/') return
+    if (!keepHome && inside(resolved, home)) return
+    if (refused.some((dir) => inside(dir, resolved))) return
+    reals.add(resolved)
+    if (asGiven !== resolved) links.set(asGiven, resolved)
+  }
+  for (const candidate of await readCandidates(env, 'linux', undefined)) await add(candidate, false)
+  for (const entry of listed) await add(entry, true)
+  const shown = (dest: string) =>
+    [...reals].some((dir) => dir !== dest && inside(dir, dest)) ||
+    [...links.keys()].some((link) => link !== dest && inside(link, dest))
+  const depth = ([, dest]: [string, string]) => dest.split('/').length
+  return {
+    binds: [...reals]
+      .flatMap((dir): [string, string][] => (shown(dir) || links.has(dir) ? [] : [[dir, dir]]))
+      .sort((x, y) => depth(x) - depth(y)),
+    links: [...links].flatMap(([dest, target]): [string, string][] =>
+      shown(dest) || reals.has(dest) ? [] : [[target, dest]],
+    ),
+  }
+}
+
 function seatbeltArgs(
   paths: SandboxPaths,
   sockets: readonly string[],
+  reads: readonly string[],
   electron: boolean,
   personal: readonly string[],
   pipeMode: number | undefined,
@@ -441,41 +640,45 @@ function seatbeltArgs(
     '(version 1)',
     '(allow default)',
     '(deny file-write*)',
+    '(deny file-read-data file-read-xattr)',
+    `(allow file-read-data file-read-xattr (literal "/") ${param('B', reads)})`,
     `(allow file-write* (literal "/dev/null") (literal "/dev/zero") (literal "/dev/ptmx") (literal "/dev/dtracehelper") (regex #"^/dev/tty") (regex #"^/dev/fd/") ${paths.sharedTmp === undefined ? '' : `(subpath "${paths.sharedTmp}")`})`,
+    ...(paths.sharedTmp === undefined
+      ? []
+      : [`(allow file-read-data file-read-xattr (subpath "${paths.sharedTmp}"))`]),
     `(deny file-write* file-read-data file-read-xattr ${param('H', [paths.tedHome])})`,
     `(deny file-write* file-read-data file-read-xattr ${param('P', personal)})`,
     `(allow file-read-data file-read-xattr ${param('R', [...paths.readable, ...own])})`,
     `(allow file-write* ${param('W', own)})`,
     ...(paths.saves === undefined
       ? []
-      : [`(allow file-write* (regex #"^${escapeRegex(paths.saves)}/NSIRD_(${xcodeSavers})_"))`]),
+      : [`(allow ${ownTemp} (regex #"^${escapeRegex(paths.saves)}/NSIRD_(${xcodeSavers})_"))`]),
     ...(paths.userTemp === undefined
       ? []
       : [
           // SwiftPM (TemporaryDirectory.XXXXXX) and Swift Build (swbuild.tmp.XXXXXXXX) mkdtemp in the per-user temp folder, ignoring TMPDIR.
           // Seatbelt regexes have no {n} repeat, so the random characters are written out.
-          `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
-          `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
-          // actool’s helpers write these in the per-user temp folder, ignoring TMPDIR. ibtoold-<pid> names are guessable and stay behind, so links are refused.
+          `(allow ${ownTemp} (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
+          `(allow ${ownTemp} (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
+          // actool’s and ibtool’s helpers write these in the per-user temp folder, ignoring TMPDIR. ibtoold-<pid> names are guessable and stay behind, so links are refused.
           ...actoolTempRules(paths.userTemp, pipeMode),
         ]),
     ...(paths.manifestLogs === undefined
       ? []
       : [
           // Xcode’s package resolution writes <package>.dia here whatever its cache options say. Plain files only, so no link can send the user’s own builds elsewhere.
-          `(allow file-write* (require-all (regex #"^${escapeRegex(paths.manifestLogs)}/[^/]+\\.dia$") (vnode-type REGULAR-FILE)))`,
+          `(allow ${ownTemp} (require-all (regex #"^${escapeRegex(paths.manifestLogs)}/[^/]+\\.dia$") (vnode-type REGULAR-FILE)))`,
           `(deny file-link (regex #"^${escapeRegex(paths.manifestLogs)}/"))`,
         ]),
     ...(paths.unlisted === undefined
       ? []
       : [`(deny file-read-data ${literalPath('U', paths.unlisted)})`]),
+    // ibtool hands its job to any idle ibtoold listed in this shared-memory registry, including the user's own unsandboxed one.
+    // Without it, ibtool runs ibtoold itself, inside the sandbox.
+    '(deny ipc-posix-shm* (ipc-posix-name-prefix "ib"))',
     '(deny appleevent-send)',
-    '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
-    '(allow mach-lookup (global-name "com.apple.lsd.mapdb"))',
-    // Electron aborts at launch unless it can check in with launchservicesd.
-    ...(electron
-      ? ['(allow mach-lookup (global-name "com.apple.coreservices.launchservicesd"))']
-      : []),
+    '(deny mach-lookup)',
+    `(allow mach-lookup ${macServiceFilters(electron ? [...macServices, ...macElectronServices] : macServices)})`,
     '(deny user-preference-write)',
     '(deny network-outbound (remote unix-socket))',
     `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets, ...sockets])})`,
@@ -508,6 +711,7 @@ function bwrapArgs(
   binds: readonly Bind[],
   byFd: boolean,
   hidden: readonly string[],
+  reads: LinuxReads,
 ): string[] {
   const runtime = runtimeDir(env)
   const bind = (b: Bind, i: number) =>
@@ -518,9 +722,8 @@ function bwrapArgs(
   return [
     '--die-with-parent',
     '--unshare-pid',
-    '--ro-bind',
-    '/',
-    '/',
+    ...reads.binds.flatMap(([source, dest]) => ['--ro-bind', source, dest]),
+    ...reads.links.flatMap(([target, dest]) => ['--symlink', target, dest]),
     '--dev',
     '/dev',
     '--proc',
@@ -543,6 +746,42 @@ function runtimeDir(env: NodeJS.ProcessEnv): string | undefined {
 }
 
 const macSystemSockets = ['/private/var/run/mDNSResponder', '/private/var/run/syslog']
+
+type MacService = { name: string } | { prefix: string } | { regex: string }
+
+const macServices: readonly MacService[] = [
+  { name: 'com.apple.system.opendirectoryd.libinfo' },
+  { name: 'com.apple.system.opendirectoryd.membership' },
+  { name: 'com.apple.bsd.dirhelper' },
+  { name: 'com.apple.system.notification_center' },
+  { name: 'com.apple.system.logger' },
+  { name: 'com.apple.logd' },
+  { name: 'com.apple.SystemConfiguration.configd' },
+  { name: 'com.apple.SystemConfiguration.DNSConfiguration' },
+  { name: 'com.apple.trustd' },
+  { name: 'com.apple.trustd.agent' },
+  { name: 'com.apple.lsd.mapdb' },
+  { name: 'com.apple.FSEvents' },
+  { prefix: 'com.apple.CoreSimulator.' },
+  { regex: '\\.MachPortRendezvousServer\\.[0-9]+$' },
+]
+
+const macElectronServices: readonly MacService[] = [
+  { name: 'com.apple.coreservices.launchservicesd' },
+  { name: 'com.apple.windowserver.active' },
+]
+
+function macServiceFilters(services: readonly MacService[]): string {
+  return services
+    .map((service) =>
+      'name' in service
+        ? `(global-name "${service.name}")`
+        : 'prefix' in service
+          ? `(global-name-prefix "${service.prefix}")`
+          : `(global-name-regex #"${service.regex}")`,
+    )
+    .join(' ')
+}
 
 interface LinuxSockets {
   masks: string[]

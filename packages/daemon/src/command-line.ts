@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
 import {
   access,
+  chmod,
   lstat,
   mkdir,
   readFile,
@@ -112,7 +113,8 @@ export function createCommandLine(options: CommandLineOptions = {}): CommandLine
       ELECTRON_RUN_AS_NODE: '1',
     })
     const tmp = `${target}.${process.pid}.tmp`
-    await writeFile(tmp, script, { mode: 0o755 })
+    await writeFile(tmp, script)
+    await chmod(tmp, 0o755)
     await rename(tmp, target)
   }
 

@@ -76,6 +76,17 @@ async function start(runs?: { stopGraceMs: number }) {
   return { ...client, ok }
 }
 
+// The idle checks compare the clock with real file and output times, so a clock left ahead
+// lets a Run that was just woken for a message sleep again before it answers.
+async function withClockAhead<T>(wait: () => Promise<T>): Promise<T> {
+  ahead = 31 * 60_000
+  try {
+    return await wait()
+  } finally {
+    ahead = 0
+  }
+}
+
 const agentStarts = async () =>
   (
     await readFile(
@@ -125,8 +136,7 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
     path.join(home, 'stub-claude.json'),
     JSON.stringify({ resumeSteps: [{ say: 'awake' }, { endTurn: true }] }),
   )
-  ahead = 31 * 60_000
-  const slept: Run = await asleep('the idle Run to be put to sleep')
+  const slept: Run = await withClockAhead(() => asleep('the idle Run to be put to sleep'))
   expect(slept).toMatchObject({ id: run.id, state: 'idle', sessionId: run.sessionId })
   expect(slept.ended).toBeUndefined()
   await waitUntil(
@@ -179,10 +189,12 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
   expect(wokenEnv.FORGED).toBeUndefined()
   expect(second[1]?.argv[(second[1]?.argv.indexOf('--resume') ?? -1) + 1]).toBe(run.sessionId)
 
-  await waitUntil(async () => {
-    const found = (await client.getRun(run.id)).run
-    return (found.asleep && (await hostStarts(run.id)).length === 2) || undefined
-  }, 'the Run to sleep again')
+  await withClockAhead(() =>
+    waitUntil(async () => {
+      const found = (await client.getRun(run.id)).run
+      return (found.asleep && (await hostStarts(run.id)).length === 2) || undefined
+    }, 'the Run to sleep again'),
+  )
   await writeFile(
     envFile,
     JSON.stringify({ ...JSON.parse(await readFile(envFile, 'utf8')), FORGED: 'yes' }),
@@ -195,10 +207,12 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
   expect(await agentStarts()).toHaveLength(3)
   expect((await agentEnv()).FORGED).toBeUndefined()
 
-  await waitUntil(async () => {
-    const found = (await client.getRun(run.id)).run
-    return (found.asleep && (await hostStarts(run.id)).length === 3) || undefined
-  }, 'the Run to sleep a third time')
+  await withClockAhead(() =>
+    waitUntil(async () => {
+      const found = (await client.getRun(run.id)).run
+      return (found.asleep && (await hostStarts(run.id)).length === 3) || undefined
+    }, 'the Run to sleep a third time'),
+  )
   const sent = await client.call('POST', `/runs/${run.id}/messages`, { text: 'And now?' })
   expect(sent.status).toBeLessThan(300)
   const woken = await waitUntil(async () => {
@@ -215,10 +229,12 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
   expect(after.leadRunId).toBe(run.id)
   expect(after.status?.kind).not.toBe('failed')
 
-  await waitUntil(async () => {
-    const found = (await client.getRun(run.id)).run
-    return (found.asleep && (await hostStarts(run.id)).length === 4) || undefined
-  }, 'the Run to sleep a fourth time')
+  await withClockAhead(() =>
+    waitUntil(async () => {
+      const found = (await client.getRun(run.id)).run
+      return (found.asleep && (await hostStarts(run.id)).length === 4) || undefined
+    }, 'the Run to sleep a fourth time'),
+  )
   await client.ok('POST', `/tasks/${task.id}/stop`)
   const stopped = await waitUntil(async () => {
     const found = (await client.getRun(run.id)).run
@@ -262,8 +278,7 @@ test('an idle sub-agent and then its Lead sleep, stay asleep across a daemon res
     }, what)
   const [subStart] = await hostStarts(sub.id)
 
-  ahead = 31 * 60_000
-  await bothAsleep('the sub-agent and then its Lead to be put to sleep')
+  await withClockAhead(() => bothAsleep('the sub-agent and then its Lead to be put to sleep'))
   await waitUntil(
     () =>
       (!isAlive(Number(subStart?.hostPid)) && !isAlive(Number(subStart?.agentPid))) || undefined,
@@ -304,7 +319,7 @@ test('an idle sub-agent and then its Lead sleep, stay asleep across a daemon res
   expect(resumed[resumed.indexOf('--resume') + 1]).toBe((await client.getRun(sub.id)).run.sessionId)
   expect((await agentEnv()).TED_TASK).toBe('NB-1')
 
-  await bothAsleep('both Runs to sleep again')
+  await withClockAhead(() => bothAsleep('both Runs to sleep again'))
   const starts = (await agentStarts()).length
   await client.ok('POST', `/tasks/${task.id}/stop`)
   await waitUntil(
@@ -332,8 +347,7 @@ test('an idle Coordinator chat sleeps, stays asleep across a daemon restart and 
     waitUntil(async () => (await client.getRun(run.id)).run.asleep || undefined, what)
   const [first] = await hostStarts(run.id)
 
-  ahead = 31 * 60_000
-  await asleep('the idle Coordinator Run to be put to sleep')
+  await withClockAhead(() => asleep('the idle Coordinator Run to be put to sleep'))
   await waitUntil(
     () => (!isAlive(Number(first?.hostPid)) && !isAlive(Number(first?.agentPid))) || undefined,
     'the host and the agent to exit',
@@ -381,10 +395,11 @@ test('a wake that keeps failing shows a banner until the agent starts', async ()
     path.join(home, 'stub-claude.json'),
     JSON.stringify({ resumeSteps: [{ say: 'awake' }, { endTurn: true }] }),
   )
-  ahead = 31 * 60_000
-  await waitUntil(
-    async () => (await client.getRun(run.id)).run.asleep || undefined,
-    'the idle Run to be put to sleep',
+  await withClockAhead(() =>
+    waitUntil(
+      async () => (await client.getRun(run.id)).run.asleep || undefined,
+      'the idle Run to be put to sleep',
+    ),
   )
   const lockPath = path.join(home, 'runs', run.id, 'host.lock')
   const lock = await waitUntil(() => tryLock(lockPath), 'the old host to let go of its lock')

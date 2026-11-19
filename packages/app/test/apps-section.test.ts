@@ -184,11 +184,15 @@ test('the sign-off’s Preview row opens a command App after one confirmation, t
 
   await card.getByRole('button', { name: 'Open Desk' }).click()
   const confirm = window.getByRole('dialog', { name: 'Run Desk outside the sandbox?' })
-  await confirm.getByRole('checkbox', { name: 'Always for Desk in this Factory' }).check()
+  await confirm
+    .getByRole('checkbox', { name: 'Always for Desk in this Factory, until its command changes' })
+    .check()
   await confirm.getByRole('button', { name: 'Run' }).click()
 
   await card.getByRole('button', { name: 'Running' }).waitFor()
-  expect((await client.getSettings()).appsOutsideSandbox[factory.id]).toEqual(['Desk'])
+  expect((await client.getSettings()).appsOutsideSandbox[factory.id]).toEqual([
+    { repo: expect.any(String), app: 'Desk', declaration: expect.stringMatching(/^[0-9a-f]{64}$/) },
+  ])
   await window.getByRole('tab', { name: 'Apps' }).click()
   const section = window
     .getByRole('complementary', { name: 'Task details' })

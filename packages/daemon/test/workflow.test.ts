@@ -2,10 +2,12 @@ import type { RepoSettingsInput } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { appDeclarations } from '../src/apps/declared.ts'
 import { promptGuidance } from '../src/guidance.ts'
+import { workflowAccessChanges } from '../src/workflow/access.ts'
 import { applyChanges, repoSettingsFrom } from '../src/workflow/edit.ts'
 import {
   boardStages,
   checkLayer,
+  inheritedFrom,
   type LayerFiles,
   readDefaultLayer,
   resolveAgentChoices,
@@ -317,27 +319,80 @@ describe('layers', () => {
     expect(settings.max_working_runs).toBeUndefined()
   })
 
-  test('sandbox_sockets lists socket paths, and the later layer’s list wins', async () => {
-    const good = factory({
+  test('only the Library names sockets; a Factory can’t, and the old list form grants nothing', async () => {
+    const named = library({
       'workflow.yaml':
-        'version: 1\nsandbox_sockets: [/var/run/docker.sock, ~/.colima/docker.sock, $SSH_AUTH_SOCK]\n',
+        'version: 1\nsandbox_sockets:\n  docker: /var/run/docker.sock\n  colima: ~/.colima/docker.sock\n  ssh-agent: $SSH_AUTH_SOCK\n',
+    })
+    const repo = factory({
+      'workflow.yaml': 'version: 1\nsandbox_sockets: { db: /run/db.sock }\n',
+    })
+    const { settings } = resolveWorkflow([await defaults(), named, repo])
+    expect(named.problems).toEqual([])
+    expect(repo.problems.map((p) => [p.severity, p.line, p.message])).toEqual([
+      [
+        'error',
+        2,
+        '`sandbox_sockets` can only be set in your Library (Settings → Library), so a repo can’t open a socket on its own. Ask for a socket the Library names with `socket:<name>` in `sandbox_access`',
+      ],
+    ])
+    expect(settings.sandbox_sockets).toEqual([
+      { name: 'docker', path: '/var/run/docker.sock' },
+      { name: 'colima', path: '~/.colima/docker.sock' },
+      { name: 'ssh-agent', path: '$SSH_AUTH_SOCK' },
+    ])
+
+    for (const kind of ['library', 'factory'] as const) {
+      const old = checkLayer({
+        kind,
+        files: { 'workflow.yaml': 'version: 1\nsandbox_sockets: [/var/run/docker.sock]\n' },
+      })
+      expect(old.settings.sandbox_sockets).toBeUndefined()
+      expect(old.problems.map((p) => [p.severity, p.message])).toEqual([
+        [
+          'warning',
+          'a list of `sandbox_sockets` no longer grants anything, because it let every command reach those sockets. Name each socket in your Library (Settings → Library, `sandbox_sockets: { <name>: <path> }`), then add `socket:<name>` to `sandbox_access` on each App, Check or worktree setup that uses it. Listed here: /var/run/docker.sock',
+        ],
+      ])
+    }
+    expect(
+      resolveWorkflow([
+        await defaults(),
+        named,
+        factory({ 'workflow.yaml': 'version: 1\nsandbox_sockets: [/run/a.sock]\n' }),
+      ]).settings.sandbox_sockets,
+    ).toHaveLength(3)
+
+    const message =
+      '`sandbox_sockets` must map socket names (lowercase letters, digits and -) to socket paths: absolute, starting with ~/, or a whole $NAME'
+    for (const bad of [
+      'docker: docker.sock',
+      'docker: /run/../a.sock',
+      'docker: $HOME/a.sock',
+      'Docker: /run/a.sock',
+      'docker: yes',
+    ]) {
+      const layer = library({ 'workflow.yaml': `version: 1\nsandbox_sockets: { ${bad} }\n` })
+      expect(layer.problems.map((p) => p.message)).toEqual([message])
+    }
+  })
+
+  test('sandbox_reads lists files and folders, and the later layer’s list wins', async () => {
+    const good = factory({
+      'workflow.yaml': 'version: 1\nsandbox_reads: [/srv/fixtures, ~/.npmrc, $GRADLE_HOME]\n',
     })
     const { settings } = resolveWorkflow([
       await defaults(),
-      library({ 'workflow.yaml': 'version: 1\nsandbox_sockets: [/run/a.sock]\n' }),
+      library({ 'workflow.yaml': 'version: 1\nsandbox_reads: [/srv/other]\n' }),
       good,
     ])
     expect(good.problems).toEqual([])
-    expect(settings.sandbox_sockets).toEqual([
-      '/var/run/docker.sock',
-      '~/.colima/docker.sock',
-      '$SSH_AUTH_SOCK',
-    ])
+    expect(settings.sandbox_reads).toEqual(['/srv/fixtures', '~/.npmrc', '$GRADLE_HOME'])
 
-    for (const bad of ['docker.sock', '/run/../a.sock', '$HOME/a.sock', '~', 'yes']) {
-      const layer = factory({ 'workflow.yaml': `version: 1\nsandbox_sockets: ['${bad}']\n` })
+    for (const bad of ['.npmrc', '/srv/../etc', '$HOME/.aws', '~', 'yes']) {
+      const layer = factory({ 'workflow.yaml': `version: 1\nsandbox_reads: ['${bad}']\n` })
       expect(layer.problems.map((p) => p.message)).toEqual([
-        '`sandbox_sockets` must be a list of socket paths: absolute, starting with ~/, or a whole $NAME',
+        '`sandbox_reads` must be a list of files or folders: absolute, starting with ~/, or a whole $NAME',
       ])
     }
   })
@@ -638,6 +693,84 @@ describe('checking a layer', () => {
       'warning .ted/workflow.yaml 28 9 pass $TED_ELECTRON_ARGS to Electron in `run`, or Ted can’t reach the app or start it in the sandbox',
       'error .ted/workflow.yaml 36 18 `preview` must be desktop, tablet or mobile',
       'warning .ted/workflow.yaml 40 9 only a web App has a `preview` size',
+    ])
+  })
+
+  test('sandbox_access names only Ted’s access groups, on an App, a command check or worktree setup and teardown', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: app',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown:',
+      '        run: clean',
+      '        sandbox_access: ios-xcode',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode, android-gradle, electron, socket:docker, socket:Bad]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: Build',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      '      - name: Review',
+      '        instruction: Look it over',
+      '        sandbox_access: [ios-xcode]',
+      '',
+    ].join('\n')
+    const checked = checkLayer({ kind: 'factory', files: { 'workflow.yaml': yaml } })
+    expect(problems({ 'workflow.yaml': yaml })).toEqual([
+      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode, shared-tmp, electron, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 13 78 `socket:Bad` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 22 9 an instruction check runs no command in the sandbox, so it takes no `sandbox_access`',
+    ])
+    expect(checked.settings.repos?.[0]?.worktree?.setup).toEqual({
+      run: 'make',
+      sandbox_access: ['ios-xcode'],
+    })
+    expect(checked.settings.stages.validate?.checks?.[0]).toEqual({
+      name: 'Build',
+      run: 'xcodebuild',
+      sandbox_access: ['ios-xcode'],
+    })
+  })
+
+  test('asking for a socket the Library doesn’t name is a warning, and the entry is kept', () => {
+    const below = library({
+      'workflow.yaml': 'version: 1\nsandbox_sockets: { docker: /var/run/docker.sock }\n',
+    })
+    const yaml = [
+      'version: 1',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: E2E',
+      '        run: pnpm e2e',
+      '        sandbox_access: [electron, socket:docker, socket:db]',
+      '',
+    ].join('\n')
+    const checked = checkLayer({
+      kind: 'factory',
+      files: { 'workflow.yaml': yaml },
+      inherited: inheritedFrom([below]),
+    })
+    expect(checked.problems.map((p) => [p.severity, p.line, p.column, p.message])).toEqual([
+      [
+        'warning',
+        7,
+        51,
+        'your Library names no socket `db`, so this command gets none until it does: add `db: <path>` under `sandbox_sockets` in the Library',
+      ],
+    ])
+    expect(checked.settings.stages.validate?.checks?.[0]?.sandbox_access).toEqual([
+      'electron',
+      'socket:docker',
+      'socket:db',
     ])
   })
 
@@ -1347,5 +1480,182 @@ describe('App preview size edits', () => {
       repoSettingsFrom(layer.settings, stored),
     )
     expect(cleared).not.toContain('preview')
+  })
+})
+
+describe('sandbox access through Settings edits', () => {
+  test('saving Settings keeps sandbox_access on setup, teardown, Apps and command checks', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: web',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown: { run: clean, timeout: 5m, sandbox_access: [ios-xcode] }',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - name: Build',
+      '        run: xcodebuild',
+      '        sandbox_access: [ios-xcode]',
+      '',
+    ].join('\n')
+    const stored = [
+      { repo: 'owner/web', name: 'web', cloneUrl: 'https://github.com/owner/web.git' },
+    ]
+    const edited = applyChanges(
+      yaml,
+      {
+        repos: [
+          {
+            was: 'web',
+            repo: 'owner/web',
+            name: 'web',
+            setup: { run: 'make all' },
+            teardown: { run: 'clean' },
+            env: [],
+            copy: [],
+            apps: [{ was: 0, name: 'Sim', kind: 'command', run: 'xcodebuild build' }],
+          },
+        ],
+        checks: [{ was: 0, name: 'Build', run: 'xcodebuild test' }],
+      },
+      repoSettingsFrom(factory({ 'workflow.yaml': yaml }).settings, stored),
+    )
+    const layer = factory({ 'workflow.yaml': edited })
+    expect(layer.problems).toEqual([])
+    const repo = layer.settings.repos?.[0]
+    expect(repo?.worktree?.setup).toEqual({ run: 'make all', sandbox_access: ['ios-xcode'] })
+    expect(repo?.worktree?.teardown).toEqual({ run: 'clean', sandbox_access: ['ios-xcode'] })
+    expect(appDeclarations(repo?.apps)).toMatchObject([
+      { name: 'Sim', run: 'xcodebuild build', sandboxAccess: ['ios-xcode'] },
+    ])
+    expect(layer.settings.stages.validate?.checks).toEqual([
+      { name: 'Build', run: 'xcodebuild test', sandbox_access: ['ios-xcode'] },
+    ])
+  })
+
+  test('Settings read each group, add one where it is missing and remove one set to none', () => {
+    const yaml = [
+      'version: 1',
+      'repos:',
+      '  - name: web',
+      '    worktree:',
+      '      setup: { run: make, sandbox_access: [ios-xcode] }',
+      '      teardown: clean',
+      '    apps:',
+      '      - name: Sim',
+      '        kind: command',
+      '        run: xcodebuild',
+      '      - name: Old',
+      '        run: serve',
+      '        sandbox_access: [ios-xcode]',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - { name: Build, run: xcodebuild }',
+      '',
+    ].join('\n')
+    const stored = [
+      { repo: 'owner/web', name: 'web', cloneUrl: 'https://github.com/owner/web.git' },
+    ]
+    const current = repoSettingsFrom(factory({ 'workflow.yaml': yaml }).settings, stored)
+    expect(current[0]).toMatchObject({
+      setup: { run: 'make', sandboxAccess: ['ios-xcode'] },
+      teardown: { run: 'clean' },
+      apps: [
+        { name: 'Sim', run: 'xcodebuild' },
+        { name: 'Old', run: 'serve', sandboxAccess: ['ios-xcode'] },
+      ],
+    })
+    expect(current[0]?.setup).not.toHaveProperty('sandbox_access')
+    expect(current[0]?.apps[0]).not.toHaveProperty('sandboxAccess')
+    const edited = applyChanges(
+      yaml,
+      {
+        repos: [
+          {
+            was: 'web',
+            repo: 'owner/web',
+            name: 'web',
+            setup: { run: 'make', sandboxAccess: [] },
+            teardown: { run: 'clean', sandboxAccess: ['ios-xcode'] },
+            env: [],
+            copy: [],
+            apps: [
+              {
+                was: 0,
+                name: 'Sim',
+                kind: 'command',
+                run: 'xcodebuild',
+                sandboxAccess: ['ios-xcode'],
+              },
+              { was: 1, name: 'Old', kind: 'web', run: 'serve', sandboxAccess: [] },
+            ],
+          },
+        ],
+        checks: [{ was: 0, name: 'Build', run: 'xcodebuild', sandboxAccess: ['ios-xcode'] }],
+      },
+      current,
+    )
+    expect(edited).toContain('setup: make\n')
+    const layer = factory({ 'workflow.yaml': edited })
+    expect(layer.problems).toEqual([])
+    const repo = layer.settings.repos?.[0]
+    expect(repo?.worktree?.setup).toEqual({ run: 'make' })
+    expect(repo?.worktree?.teardown).toEqual({ run: 'clean', sandbox_access: ['ios-xcode'] })
+    expect(appDeclarations(repo?.apps)).toMatchObject([
+      { name: 'Sim', sandboxAccess: ['ios-xcode'] },
+      { name: 'Old' },
+    ])
+    expect(appDeclarations(repo?.apps)[1]).not.toHaveProperty('sandboxAccess')
+    expect(layer.settings.stages.validate?.checks).toEqual([
+      { name: 'Build', run: 'xcodebuild', sandbox_access: ['ios-xcode'] },
+    ])
+  })
+
+  test('a sign-off’s access changes compare sandbox_access between two workflow.yaml files', () => {
+    const before = [
+      'version: 1',
+      'repos:',
+      '  - name: mobile',
+      '    worktree:',
+      '      setup: { run: pod install, sandbox_access: [ios-xcode] }',
+      '    apps:',
+      '      - { name: iOS simulator, kind: command, run: sim.sh }',
+      '      - { name: Gone, run: gone.sh, sandbox_access: [ios-xcode] }',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - { name: Build, run: xcodebuild }',
+      '',
+    ].join('\n')
+    const after = [
+      'version: 1',
+      'repos:',
+      '  - name: mobile',
+      '    worktree:',
+      '      setup: pod install',
+      '    apps:',
+      '      - { name: iOS simulator, kind: command, run: sim.sh, sandbox_access: [ios-xcode] }',
+      'stages:',
+      '  validate:',
+      '    checks:',
+      '      - { name: Build, run: xcodebuild, sandbox_access: [ios-xcode] }',
+      '',
+    ].join('\n')
+    expect(workflowAccessChanges(before, after)).toEqual([
+      { kind: 'setup', repo: 'mobile', name: 'setup', gained: [], lost: ['ios-xcode'] },
+      { kind: 'app', repo: 'mobile', name: 'iOS simulator', gained: ['ios-xcode'], lost: [] },
+      { kind: 'check', name: 'Build', gained: ['ios-xcode'], lost: [] },
+      { kind: 'app', repo: 'mobile', name: 'Gone', gained: [], lost: ['ios-xcode'] },
+    ])
+    expect(workflowAccessChanges(after, after)).toEqual([])
+    expect(workflowAccessChanges(undefined, after)).toHaveLength(2)
   })
 })

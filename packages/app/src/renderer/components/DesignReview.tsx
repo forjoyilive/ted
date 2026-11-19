@@ -195,6 +195,36 @@ function duration(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${rest.toString().padStart(2, '0')}s`
 }
 
+function SetupAccess({ setup }: { setup: SetupProposal }) {
+  const lines = [
+    ...setup.apps
+      .filter((app) => app.passed)
+      .map((app) => ({ who: `App ${app.name}`, groups: app.sandboxAccess ?? [] })),
+    ...setup.checks
+      .filter((check) => check.passed)
+      .map((check) => ({ who: `Check ${check.name}`, groups: check.sandboxAccess ?? [] })),
+    ...(setup.worktree ?? []).map((line) => ({
+      who: `Worktree ${line.step}${line.repo === undefined ? '' : ` · ${line.repo}`}`,
+      groups: line.sandboxAccess,
+    })),
+  ]
+  if (lines.length === 0) return null
+  return (
+    <SetupSection label="Sandbox access">
+      <dl className={styles.setupStages}>
+        {lines.map((line) => (
+          <div key={line.who} className={styles.setupStage}>
+            <dt>{line.who}</dt>
+            <dd className={line.groups.length === 0 ? styles.asDefault : undefined}>
+              {line.groups.length === 0 ? 'Base sandbox only' : line.groups.join(', ')}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </SetupSection>
+  )
+}
+
 function Result({ passed }: { passed: boolean }) {
   return passed ? (
     <span className={styles.passed} role="img" aria-label="Passed">
@@ -374,6 +404,7 @@ function SetupProposalView({
           </ul>
         </SetupSection>
       )}
+      <SetupAccess setup={setup} />
       {agents.length > 0 && <SetupAgents agents={agents} removed={removed} onToggle={toggle} />}
       <SetupSection label="Files it will write">
         <ul className={styles.setupRows}>

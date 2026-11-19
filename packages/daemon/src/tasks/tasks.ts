@@ -37,6 +37,7 @@ import type {
   ClarifyDepth,
   Comment,
   CommentAnswer,
+  CommentGate,
   CommitChanges,
   CreatedTask,
   DaemonEvent,
@@ -82,10 +83,13 @@ import type {
   RepoSetupReport,
   RequestArchiveRequest,
   ResolveFailureRequest,
+  RestartAppRequest,
   RoundInput,
   Run,
   RunMessage,
   RunSlots,
+  SandboxAccess,
+  SandboxAccessChange,
   SaveSettingsResult,
   SendBack,
   SendBackCause,
@@ -263,7 +267,7 @@ import { chatItems } from '../runs/conversations.ts'
 import { parsedOutput } from '../runs/parsed-output.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
-import type { Sandbox, SandboxScope } from '../sandbox.ts'
+import { type Sandbox, type SandboxGrants, type SandboxScope, sandboxGrants } from '../sandbox.ts'
 import type {
   BlockersCleared,
   CleanupCommandResult,
@@ -281,6 +285,7 @@ import type {
   TedStore,
 } from '../store/index.ts'
 import { messageOf } from '../text.ts'
+import { workflowAccessChanges } from '../workflow/access.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import {
   type AgentChoice,
@@ -557,6 +562,7 @@ import {
   pickDepth,
   roundAnswerSummary,
 } from './rounds.ts'
+import { approvedApps, approvedChecks, setupWorktreeDifferences } from './setup-access.ts'
 import { setupAgentDifferences } from './setup-agents.ts'
 import { clashMessage, sourceClash, sourceKey } from './sources.ts'
 import {
@@ -889,7 +895,7 @@ export interface Tasks {
   listApps(ref: string, caller: Caller): Promise<TaskApp[]>
   startApp(ref: string, caller: Caller, app: StartAppRequest): Promise<TaskApp>
   stopApp(ref: string, app: AppRef): Promise<TaskApp>
-  restartApp(ref: string, app: AppRef): Promise<TaskApp>
+  restartApp(ref: string, app: RestartAppRequest): Promise<TaskApp>
   appLog(ref: string, app: AppRef): Promise<AppLog>
   showApp(ref: string, app: AppRef): Promise<TaskApp>
   screenshotApp(ref: string, caller: Caller, app: AppRef): Promise<AppCapture>
@@ -1027,7 +1033,7 @@ export function createTasks(options: {
     worktreesDir,
     logsDir,
     sandbox: options.sandbox,
-    sandboxSockets: async (taskId) => sandboxSockets(find(taskId)),
+    sandboxGrants: async (taskId) => taskSandboxGrants(find(taskId)),
     startCache: (factoryId, cache) => seeds.startCache(factoryId, cache),
     env: () => options.env?.() ?? process.env,
   })
@@ -1230,8 +1236,8 @@ export function createTasks(options: {
     return problem
   }
 
-  async function sandboxSockets(task: StoredTask): Promise<readonly string[]> {
-    return (await taskWorkflow(task, { fetch: false })).workflow.settings.sandbox_sockets ?? []
+  async function taskSandboxGrants(task: StoredTask): Promise<SandboxGrants> {
+    return sandboxGrants((await taskWorkflow(task, { fetch: false })).workflow.settings)
   }
 
   async function sandboxScope(
@@ -1245,7 +1251,7 @@ export function createTasks(options: {
       writable: [...new Set(live.map((r) => r.worktree))],
       readable: [...new Set(live.map((r) => clonePath(reposDir, r)))],
       cache,
-      sockets: await sandboxSockets(task),
+      ...(await taskSandboxGrants(task)),
     }
   }
 
@@ -1570,6 +1576,37 @@ export function createTasks(options: {
       (r) => !r.removed && (repoEntry(entries, r)?.name ?? r.name) === (entries[0]?.name ?? ''),
     )
     return { repo, baseBranch: repo && repoEntry(entries, repo)?.baseBranch, repos: entries.length }
+  }
+
+  async function signOffAccess(
+    task: StoredTask,
+    workflow: ResolvedWorkflow,
+  ): Promise<SandboxAccessChange[] | undefined> {
+    const { repo, baseBranch } = primaryRepo(task, workflow)
+    if (!repo) return undefined
+    const file = '.ted/workflow.yaml'
+    try {
+      const base = `origin/${baseBranch ?? (await git.defaultBranch(repo.worktree))}`
+      const from = await git.mergeBase(repo.worktree, base, 'HEAD')
+      const read = async (commit: string) =>
+        (await git.blobIds(repo.worktree, commit, [file]))[file] === undefined
+          ? undefined
+          : await git.showFile(repo.worktree, commit, file)
+      return workflowAccessChanges(await read(from), await read('HEAD'))
+    } catch (error) {
+      console.error(
+        `couldn’t compare sandbox access for ${task.displayId}:`,
+        redactSecrets(textOf(error)),
+      )
+      return undefined
+    }
+  }
+
+  function accessGate(
+    access: SandboxAccessChange[] | undefined,
+  ): Pick<CommentGate, 'sandboxAccess' | 'sandboxAccessUnknown'> {
+    if (access === undefined) return { sandboxAccessUnknown: true as const }
+    return access.length > 0 ? { sandboxAccess: access } : {}
   }
 
   async function settingsFingerprint(worktree: string): Promise<string> {
@@ -2890,34 +2927,34 @@ export function createTasks(options: {
           )}\n\nWrite exactly the approved Agents to .ted/agents.yaml and .ted/agents/<id>.md, and nothing else.`,
       )
     }
+    const access = setupWorktreeDifferences(
+      approved.proposal,
+      read.layer.settings.repos ?? [],
+      read.primary.name,
+    )
+    if (access.length > 0) {
+      throw new RequestError(
+        409,
+        `The worktree setup and teardown in .ted/workflow.yaml don’t match the approved setup proposal:\n\n${access
+          .map((d) => `- ${d}`)
+          .join(
+            '\n',
+          )}\n\nGive each worktree.setup and worktree.teardown exactly the sandbox_access the user approved.`,
+      )
+    }
   }
 
   async function approvedSetupChecks(task: StoredTask): Promise<CheckSettings[]> {
     const approved = await approvedSetup(task)
     if (!approved) return []
     const { primary, settings, proposal } = approved
-    const key = (name: string, command: string, repo: string | undefined) =>
-      [name, command, repo ?? primary.name].join('\0')
-    const passed = new Set(
-      proposal.checks.filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
-    )
-    return (settings.stages.validate?.checks ?? []).filter(
-      (c) => c.run !== undefined && passed.has(key(c.name, c.run, c.repo)),
-    )
+    return approvedChecks(settings.stages.validate?.checks ?? [], proposal.checks, primary.name)
   }
 
   async function approvedSetupApps(task: StoredTask): Promise<Map<string, AppDeclaration[]>> {
     const approved = await approvedSetup(task)
     if (!approved) return new Map()
     const { primary, settings, proposal } = approved
-    const passed = (names: readonly string[], app: AppDeclaration) =>
-      proposal.apps.some(
-        (a) =>
-          a.passed &&
-          a.name === app.name &&
-          a.run === app.run &&
-          names.includes(a.repo ?? primary.name),
-      )
     const remoteRepo = (remote: string | undefined) =>
       remote === undefined ? undefined : githubRepoOf(remote)
     const repos = settings.repos ?? []
@@ -2933,7 +2970,12 @@ export function createTasks(options: {
                   return repo !== undefined && sameRepo(repo, r.repo)
                 })
           const names = [r.name, ...(listed?.name !== undefined ? [listed.name] : [])]
-          const apps = appDeclarations(listed?.apps).filter((a) => passed(names, a))
+          const apps = approvedApps(
+            appDeclarations(listed?.apps),
+            proposal.apps,
+            names,
+            primary.name,
+          )
           return [r.name, apps] as const
         }),
     )
@@ -4453,6 +4495,7 @@ export function createTasks(options: {
     }))
     const noCi = ready.flatMap(({ target }) => (target.hasCi ? [] : [target.name]))
     const changes = await signOffChanges(task)
+    const access = await signOffAccess(task, (await taskWorkflow(task, { fetch: false })).workflow)
     await requireObligations(find(task.id))
     const count = rows.length
     store.postComment({
@@ -4469,6 +4512,7 @@ export function createTasks(options: {
         pullRequests: rows,
         ...(changes && { changes }),
         ...(noCi.length > 0 && { noCi }),
+        ...accessGate(access),
       },
     })
   }
@@ -7274,6 +7318,16 @@ export function createTasks(options: {
     return reports
   }
 
+  async function setupGroups(
+    task: StoredTask,
+    repo: TaskRepo,
+    setup: RecordedSetup,
+  ): Promise<readonly SandboxAccess[]> {
+    const resolution = await taskWorkflow(task, { fetch: false })
+    const entry = repoEntry(factoryRepos(resolution.workflow, factoryOf(task)), repo)
+    return entry?.setup?.run === setup.command ? (entry.setup.groups ?? []) : []
+  }
+
   async function runSetup(
     task: StoredTask,
     repo: TaskRepo,
@@ -7283,9 +7337,14 @@ export function createTasks(options: {
   ): Promise<{ result: CommandResult; report?: string } | undefined> {
     const log = commandLog(task, 'setup', repo.name)
     const ref = await execution.local(task.id)
+    const groups = await setupGroups(task, repo, setup)
     const result = await lifecycle.command(lifecycle.worktree(ref, repo), {
       kind: 'setup',
-      command: { run: setup.command, timeoutMs: setup.timeoutMs },
+      command: {
+        run: setup.command,
+        timeoutMs: setup.timeoutMs,
+        ...(groups.length > 0 && { groups }),
+      },
       env: setup.env,
       signal,
     })
@@ -13754,6 +13813,7 @@ export function createTasks(options: {
             workflow.stages.includes(stageWith('merges')) &&
             workflow.settings.stages.merge?.gate !== true
           const noCi = mergesOnApproval ? await reposWithoutCi(find(task.id), resolution) : []
+          const access = leadsToMerge ? await signOffAccess(current, workflow) : []
           const design = outcome.design
           const requestedFor =
             signsOffCode(stage) || entersMerge(stage, workflow.next(stage), workflow.stages)
@@ -13773,6 +13833,7 @@ export function createTasks(options: {
               ...gateButtons(workflow, stage),
               ...(changes && { changes }),
               ...(noCi.length > 0 && { noCi }),
+              ...accessGate(access),
             },
             ...(design && { attachments: designFiles(design) }),
             ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),
@@ -14371,9 +14432,10 @@ export function createTasks(options: {
     listApps(ref, caller) {
       return apps.list(appCaller(ref, caller).task.id)
     },
-    startApp(ref, caller, { shutDown, reason, ...app }) {
+    startApp(ref, caller, { shutDown, reason, declaration, ...app }) {
       const { task, by, runId } = runnableApps(ref, caller)
       return apps.start(task.id, app, by, {
+        ...(by === 'human' && { confirmed: { ...(declaration !== undefined && { declaration }) } }),
         ...(runId !== undefined && { runId }),
         ...(runId === undefined && shutDown !== undefined && { shutDown }),
         ...(runId !== undefined && reason !== undefined && { reason }),
@@ -14501,10 +14563,10 @@ export function createTasks(options: {
       browser.cancel(find(ref).id, app)
       return apps.stop(find(ref).id, app)
     },
-    restartApp(ref, app) {
+    restartApp(ref, { declaration, ...app }) {
       const { task, by } = runnableApps(ref, { kind: 'app' })
       browser.cancel(task.id, app)
-      return apps.restart(task.id, app, by)
+      return apps.restart(task.id, app, by, declaration)
     },
     appLog(ref, app) {
       return apps.log(find(ref).id, app)

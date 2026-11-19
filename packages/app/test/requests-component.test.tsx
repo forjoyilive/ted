@@ -1779,6 +1779,104 @@ test('a Review confirmation shows completed Checks once when progress is availab
   expect(screen.getAllByRole('button', { name: '✓Typecheck' })).toHaveLength(1)
 })
 
+test('Review and Merge sign-offs show sandbox access changes on their own line, and only when there are some', () => {
+  requestApi()
+  const sandboxAccess = [
+    {
+      kind: 'app' as const,
+      repo: 'mobile',
+      name: 'iOS simulator',
+      gained: ['ios-xcode' as const],
+      lost: [],
+    },
+    {
+      kind: 'setup' as const,
+      repo: 'mobile',
+      name: 'setup',
+      gained: [],
+      lost: ['ios-xcode' as const],
+    },
+  ]
+  const review = render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'signoff',
+        stage: 'review',
+        gate: { approveLabel: 'Approve', sandboxAccess },
+      })}
+    />,
+  )
+  const line = within(screen.getByRole('region', { name: 'Sandbox access changes' }))
+  expect(line.getByText('Sandbox access changes in .ted/workflow.yaml')).toBeTruthy()
+  expect(line.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+    'iOS simulator App in mobile gains ios-xcode',
+    'Worktree setup in mobile loses ios-xcode',
+  ])
+  expect(line.getByText(/ios-xcode is shared access on your Mac/)).toBeTruthy()
+  review.unmount()
+
+  const merge = render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'signoff',
+        stage: 'merge',
+        title: 'Ready to merge: PR #7',
+        gate: {
+          approveLabel: 'Merge',
+          pullRequests: [
+            {
+              name: 'mobile',
+              repo: 'acme/mobile',
+              number: 7,
+              title: 'Build iOS',
+              url: 'https://github.com/acme/mobile/pull/7',
+              checks: { passed: 1, failed: 0, pending: 0 },
+              mergeable: true,
+              method: 'squash',
+              reviewMissing: false,
+            },
+          ],
+          sandboxAccess: sandboxAccess.slice(1),
+        },
+      })}
+    />,
+  )
+  expect(
+    within(screen.getByRole('region', { name: 'Sandbox access changes' })).getByText(
+      'Worktree setup in mobile loses ios-xcode',
+    ),
+  ).toBeTruthy()
+  expect(screen.queryByText(/ios-xcode is shared access/)).toBeNull()
+  merge.unmount()
+
+  const plain = render(
+    <RequestCard
+      task={task()}
+      request={comment({ kind: 'signoff', stage: 'review', gate: { approveLabel: 'Approve' } })}
+    />,
+  )
+  expect(screen.queryByRole('region', { name: 'Sandbox access changes' })).toBeNull()
+  plain.unmount()
+
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'signoff',
+        stage: 'review',
+        gate: { approveLabel: 'Approve', sandboxAccessUnknown: true },
+      })}
+    />,
+  )
+  expect(
+    within(screen.getByRole('region', { name: 'Sandbox access changes' })).getByText(
+      'Ted couldn’t compare sandbox access in .ted/workflow.yaml. Check the file’s changes.',
+    ),
+  ).toBeTruthy()
+})
+
 test('an obsolete Check repair does not claim a later execution', () => {
   const value: FailureCase = {
     id: 'abcdef01-0000-4000-8000-000000000000',

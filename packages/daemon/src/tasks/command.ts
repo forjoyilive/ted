@@ -1,8 +1,10 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { SandboxAccess } from '@ted/protocol'
 import { markProcessRoot, type ProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
-import type { Sandbox, SandboxScope } from '../sandbox.ts'
+import { type Sandbox, type SandboxScope, withSandboxEnv } from '../sandbox.ts'
+import { appendRefusalHints } from '../sandbox-hints.ts'
 import { type CommandResult, runWorktreeCommand } from './worktree.ts'
 
 export interface CommandSandbox {
@@ -22,9 +24,12 @@ export async function runTaskCommand(
     sandbox?: CommandSandbox
     prepareLaunch?: () => Promise<CommandLaunch>
     root?: ProcessRoot
+    groups?: readonly SandboxAccess[]
+    owner?: string
   },
 ): Promise<CommandResult> {
-  const { sandbox: givenSandbox, prepareLaunch, label, root, ...base } = input
+  const { sandbox: givenSandbox, prepareLaunch, label, root, owner, ...base } = input
+  const groups = input.groups ?? input.command.groups ?? []
   let release = () => {}
   let unmark = () => {}
   let closeFds = async () => {}
@@ -47,18 +52,23 @@ export async function runTaskCommand(
     const wrapped = await sandbox.sandbox.wrap(input.shell ?? ['/bin/sh', '-c'], {
       ...sandbox.scope,
       tmp,
+      groups,
     })
     closeFds = wrapped.close
-    return await runWorktreeCommand({
+    const result = await runWorktreeCommand({
       ...command,
       shell: wrapped.argv,
       fds: wrapped.fds,
-      env: { ...command.env, ...wrapped.env },
+      env: withSandboxEnv(command.env, wrapped.env),
       onSpawn: (pid) => {
         command.onSpawn(pid)
         void wrapped.close()
       },
     })
+    if (owner !== undefined && result.outcome !== 'interrupted') {
+      await appendRefusalHints(input.log, groups, owner, wrapped.missingSockets)
+    }
+    return result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const problem = redactSecrets(`Ted didn’t run ${label}: ${message}`)

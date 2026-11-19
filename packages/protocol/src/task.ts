@@ -6,6 +6,8 @@ import type { DeclaredSendBackCause, FindingSeverity } from './checks.ts'
 import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
+import type { SandboxAccessChange } from './sandbox-access.ts'
+import type { SandboxAccess } from './sandbox-groups.ts'
 import type { SetupAgentProposal } from './setup-agents.ts'
 import type { AgentStageId, StageId } from './stage.ts'
 import { RequestValidationError } from './validation.ts'
@@ -920,8 +922,15 @@ export interface SetupProposal {
   checks: SetupCheckTried[]
   apps: SetupAppTried[]
   agents?: SetupAgentProposal[]
+  worktree?: SetupWorktreeAccess[]
   files: SetupFileLine[]
   defaults?: string
+}
+
+export interface SetupWorktreeAccess {
+  repo?: string
+  step: 'setup' | 'teardown'
+  sandboxAccess: SandboxAccess[]
 }
 
 export interface SetupStageLine {
@@ -936,6 +945,7 @@ export interface SetupCheckTried {
   passed: boolean
   durationMs: number
   reason?: string
+  sandboxAccess?: SandboxAccess[]
 }
 
 export interface SetupAppTried {
@@ -946,6 +956,7 @@ export interface SetupAppTried {
   ready: string
   passed: boolean
   reason?: string
+  sandboxAccess?: SandboxAccess[]
 }
 
 export interface SetupFileLine {
@@ -972,6 +983,8 @@ export interface CommentGate {
   pullRequests?: MergeRow[]
   changes?: SignOffChanges
   noCi?: string[]
+  sandboxAccess?: SandboxAccessChange[]
+  sandboxAccessUnknown?: true
 }
 
 export interface MergeRow {
