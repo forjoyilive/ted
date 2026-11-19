@@ -12,6 +12,7 @@ import type {
   RepoSettingsInput,
   SaveSettingsResult,
   SettingsPreview,
+  Task,
 } from '@ted/protocol'
 import { readDaemonInfo, settingsInput } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -668,11 +669,29 @@ describe('Factory settings', () => {
           ),
         'the new repo to be cloned',
       )
+      const repoAdded = async () =>
+        (await client.ok<Banner[]>('GET', '/banners')).find((b) => b.problem === 'repo-added')
+      const offers = await waitUntil(repoAdded, 'the repo-added warning')
+      expect(offers).toMatchObject({
+        text: 'acme/api was added · Set up its checks and Apps with a setup Task',
+        action: { label: 'New setup Task' },
+      })
       const banners = await client.ok<Banner[]>('GET', '/banners')
-      expect(banners.map((b) => b.text)).toContain(
-        'acme/api was added · a New setup Task can set up its checks and Apps',
-      )
       expect(banners.some((b) => b.problem === 'clone-failed')).toBe(false)
+
+      await client.ok('POST', `/banners/${encodeURIComponent(offers.id)}/action`, {})
+      const setup = await waitUntil(
+        async () => (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.setup),
+        'the setup Task',
+      )
+      const opens = await waitUntil(
+        async () => ((await repoAdded())?.action?.opens ? repoAdded() : undefined),
+        'the warning to open the setup Task',
+      )
+      expect(opens?.action).toEqual({
+        label: `Open ${setup.displayId}`,
+        opens: { kind: 'task', taskId: setup.id },
+      })
     } finally {
       delete process.env.GIT_CONFIG_COUNT
       delete process.env.GIT_CONFIG_KEY_0

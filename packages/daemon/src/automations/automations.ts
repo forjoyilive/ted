@@ -74,6 +74,7 @@ import {
   failingTestFiles,
   planCheckFailures,
   sandboxSkipped,
+  setupErrorSummary,
 } from './check-failures.ts'
 import { createCheckouts } from './checkout.ts'
 import { createAutomationDrafts } from './drafts.ts'
@@ -1234,7 +1235,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         firingId,
         {
           outcome: 'failed',
-          error: `Couldn’t set up the worktree: ${firstLine(result.tail.split('\n').findLast((l) => l.trim() !== '') ?? 'see the output', 300)}`,
+          error: `Couldn’t set up the worktree: ${setupErrorSummary(result.tail) || 'see the output'}`,
         },
         { ...base, failing: [], updatedTaskIds: [] },
       )

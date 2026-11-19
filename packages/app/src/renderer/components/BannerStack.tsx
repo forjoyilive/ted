@@ -1,4 +1,4 @@
-import type { Banner } from '@ted/protocol'
+import { type Banner, dismissClears } from '@ted/protocol/banner'
 import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import { foldBanners } from '../banners.ts'
 import { ActionButton } from './ActionButton.tsx'
@@ -91,8 +91,8 @@ function BannerRow({
         <ActionButton
           type="button"
           className={styles.dismiss}
-          aria-label="Dismiss for 24 hours"
-          title="Hide for 24 hours"
+          aria-label={dismissClears(banner) ? 'Dismiss' : 'Dismiss for 24 hours'}
+          title={dismissClears(banner) ? 'Dismiss' : 'Hide for 24 hours'}
           onClick={() => onDismiss(banner)}
         >
           ×

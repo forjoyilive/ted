@@ -8,6 +8,7 @@ import {
   maxTasksPerFiring,
   planCheckFailures,
   sandboxSkipped,
+  setupErrorSummary,
 } from '../src/automations/check-failures.ts'
 import { promptGuidance } from '../src/guidance.ts'
 
@@ -121,4 +122,26 @@ test('the agent prompt fences and redacts the result and says what the Run may d
   const allowed = checkAgentPrompt({ ...input, startTasks: true, instructions: 'Group them.' })
   expect(allowed).toContain('`ted automation start <Task ID>`')
   expect(allowed).toContain('## Your instructions\n\nGroup them.')
+})
+
+test('a setup failure summary names npm’s error, not its log path', () => {
+  const tail = [
+    'The setup command for ted failed with exit code 1:',
+    'added 3 packages in 2s',
+    'npm error code EPERM',
+    'npm error syscall open',
+    'npm error path /Users/me/.ted/package-lock.json',
+    'npm error',
+    'npm error A complete log of this run can be found in: /Users/me/.npm/_logs/debug-0.log',
+    '',
+  ].join('\n')
+  expect(setupErrorSummary(tail)).toBe(
+    'npm error code EPERM · npm error syscall open · npm error path /Users/me/.ted/package-lock.json',
+  )
+})
+
+test('a setup failure summary falls back to the last line and stays short', () => {
+  expect(setupErrorSummary('The setup command failed:\nstep one\nstep two\n')).toBe('step two')
+  expect(setupErrorSummary(`Error: ${'x'.repeat(400)}`, 50)).toHaveLength(50)
+  expect(setupErrorSummary('')).toBe('')
 })

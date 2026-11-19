@@ -17,6 +17,7 @@ import {
   settingsChanges,
   settingsDraft,
   stageEdited,
+  tryAccessText,
   unsavedChanges,
   unsavedLine,
   unsavedSections,
@@ -271,6 +272,24 @@ describe('Factory settings draft', () => {
     expect(unsavedSummary(unsavedChanges(notesOnly, loaded))).toBe(
       '1 unsaved change to .ted/notes.md',
     )
+  })
+
+  test('a tried Check’s result says which access groups it ran with', () => {
+    const base = { factoryId: 'f1', name: 'Build', repo: 'app', startedAt: '2026-11-09T10:00:00Z' }
+    expect(tryAccessText({ ...base, state: 'passed', sandboxAccess: ['ios-xcode'] })).toEqual({
+      text: 'Ran with ios-xcode',
+    })
+    expect(tryAccessText({ ...base, state: 'failed', withheldAccess: ['ios-xcode'] })).toEqual({
+      text: 'Ran without access groups',
+      title: 'Save the Check to run it with ios-xcode',
+    })
+    expect(tryAccessText({ ...base, state: 'passed' })).toBeUndefined()
+    expect(
+      tryAccessText({ ...base, state: 'running', sandboxAccess: ['ios-xcode'] }),
+    ).toBeUndefined()
+    expect(
+      tryAccessText({ ...base, state: 'failed', setupFailed: true, sandboxAccess: ['ios-xcode'] }),
+    ).toBeUndefined()
   })
 
   test('a Check’s last run reads like the Checks table', () => {
