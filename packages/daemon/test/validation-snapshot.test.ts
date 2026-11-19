@@ -2,9 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { FailureCase } from '@ted/protocol'
-import { expect, test } from 'vitest'
-import { openStore } from '../src/store/index.ts'
+import { expect, expectTypeOf, test } from 'vitest'
+import type { ChecksArea } from '../src/store/checks.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import { taskThreadEvents } from '../src/tasks/thread.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 test('a persisted validation judgment keeps its original visit and failures after later changes', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'ted-validation-snapshot-'))

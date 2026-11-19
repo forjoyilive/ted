@@ -3,9 +3,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { FailureCase, FailureChoice, FailureContext } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, expect, expectTypeOf, test, vi } from 'vitest'
 import { RequestError } from '../src/errors.ts'
-import { openStore } from '../src/store/index.ts'
+import type { ChecksArea } from '../src/store/checks.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import {
   acceptRefusals,
   createFailureCases,
@@ -13,6 +14,8 @@ import {
   leadFixed,
 } from '../src/tasks/failure-cases.ts'
 import { offeredChoice } from './support/failure-choice.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 const lead = 'run-lead-7f3a'
 const secret = 'abcdefghijklmnopqrstuvwxyz'

@@ -12,12 +12,13 @@ import {
   type Task,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import type { DaemonWrappers } from '../src/daemon.ts'
 import type { MakeDirectory } from '../src/files.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { openStore } from '../src/store/index.ts'
+import type { AgentsArea } from '../src/store/agents.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import {
   api,
   killRunHosts,
@@ -27,6 +28,8 @@ import {
   stubCodexPath,
   waitUntil,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<AgentsArea>()
 
 const pauses = {
   closing: undefined as (() => void) | undefined,

@@ -10,10 +10,11 @@ import {
   type Comment,
   type Task,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import { AsanaReadError } from '../src/asana/asana.ts'
 import { coordinatorNeverAnswers } from '../src/coordinators/coordinators.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TrackersArea } from '../src/store/trackers.ts'
 import {
   type AsanaSync,
   type AsanaSyncApi,
@@ -24,6 +25,8 @@ import {
 import { unfinishedTitle } from '../src/tasks/asana-unfinished.ts'
 import { ordinaryAutopilotRequest } from '../src/tasks/autopilot.ts'
 import { ManualClock } from './support/manual-clock.ts'
+
+expectTypeOf<TedStore>().toExtend<TrackersArea>()
 
 interface FakeTask {
   completed: boolean

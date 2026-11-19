@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { GitHubIssueUrl, Task } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { GhError } from '../src/github/gh.ts'
 import {
   type GitHubIssueSyncApi,
@@ -11,10 +11,13 @@ import {
   issueKey,
 } from '../src/github/issue-sync.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TrackersArea } from '../src/store/trackers.ts'
 import { createGitHubSync, fixedText, leftOpenNote, startedText } from '../src/tasks/github-sync.ts'
 import { pullRequestBody, withIssueLine } from '../src/tasks/pull-requests.ts'
 import type { TrackerSync } from '../src/tasks/tracker-sync/sync.ts'
 import { ManualClock } from './support/manual-clock.ts'
+
+expectTypeOf<TedStore>().toExtend<TrackersArea>()
 
 interface FakeIssue {
   state: IssueSyncState

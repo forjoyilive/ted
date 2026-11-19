@@ -1,8 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { expect, test } from 'vitest'
-import { openStore } from '../src/store/index.ts'
+import { expect, expectTypeOf, test } from 'vitest'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TaskTreeArea } from '../src/store/task-tree.ts'
+import type { TasksArea } from '../src/store/tasks.ts'
+
+expectTypeOf<TedStore>().toExtend<TasksArea>()
+expectTypeOf<TedStore>().toExtend<TaskTreeArea>()
 
 test('snooze replay, Activity and lifecycle commits agree', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'ted-snooze-store-'))

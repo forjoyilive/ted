@@ -10,7 +10,7 @@ import {
   type TokenUse,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
 import { classifyProcesses, countAgentRuns, sharedUsage } from '../src/diagnostics.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -18,6 +18,7 @@ import { loadRunTokens } from '../src/run-token.ts'
 import { runFiles } from '../src/runs/host-files.ts'
 import { parsedOutput } from '../src/runs/parsed-output.ts'
 import { createRunOutput } from '../src/runs/run-output.ts'
+import type { StoreContext } from '../src/store/context.ts'
 import type { TedStore } from '../src/store/index.ts'
 import {
   api,
@@ -28,6 +29,8 @@ import {
   waitUntil,
 } from './helpers.ts'
 import { sandboxReasons, skipInsideTedSandbox } from './support/ted-sandbox.ts'
+
+expectTypeOf<StoreContext>().toHaveProperty('store')
 
 let home: string
 let cleanup: () => Promise<void>

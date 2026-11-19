@@ -9,11 +9,12 @@ import {
   readDaemonInfo,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { createBanners } from '../src/banners.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { MachineArea } from '../src/store/machine.ts'
 import {
   appClient,
   commitToOrigin,
@@ -23,6 +24,8 @@ import {
   rawRequest,
   stubClaudePath,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<MachineArea>()
 
 describe('banners in the store', () => {
   let dir: string

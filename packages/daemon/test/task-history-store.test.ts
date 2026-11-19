@@ -1,8 +1,11 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test, vi } from 'vitest'
 import { type NewStageEntry, openStore, type TedStore } from '../src/store/index.ts'
+import type { TasksArea } from '../src/store/tasks.ts'
+
+expectTypeOf<TedStore>().toExtend<TasksArea>()
 
 let dir: string
 let store: TedStore

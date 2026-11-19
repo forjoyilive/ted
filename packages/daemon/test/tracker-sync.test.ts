@@ -2,13 +2,16 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Task } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { TrackersArea } from '../src/store/trackers.ts'
 import type { TrackerConnector, TrackerItem } from '../src/tasks/tracker-sync/connector.ts'
 import { createTrackerConsent } from '../src/tasks/tracker-sync/consent.ts'
 import { trackerRecords } from '../src/tasks/tracker-sync/records.ts'
 import { createTrackerSync, type TrackerSync } from '../src/tasks/tracker-sync/sync.ts'
 import { ManualClock } from './support/manual-clock.ts'
+
+expectTypeOf<TedStore>().toExtend<TrackersArea>()
 
 interface FakeItem {
   closed: boolean

@@ -9,9 +9,11 @@ import {
   noBacklogStarts,
   readDaemonInfo,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { openStore } from '../src/store/index.ts'
+import type { FactoriesArea } from '../src/store/factories.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import type { MachineArea } from '../src/store/machine.ts'
 import {
   appClient,
   appHeaders,
@@ -21,6 +23,9 @@ import {
   rawRequest,
   stubClaudePath,
 } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<MachineArea>()
+expectTypeOf<TedStore>().toExtend<FactoriesArea>()
 
 const picture =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='

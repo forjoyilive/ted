@@ -3,13 +3,16 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type IntegrationsHealth, integrationInstallPages, readDaemonInfo } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from 'vitest'
 import { createBanners } from '../src/banners.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { createIntegrations, type Integrations } from '../src/integrations.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { MachineArea } from '../src/store/machine.ts'
 import { terminalScript } from '../src/terminal.ts'
 import { appClient, appHeaders, makeTempHome, rawRequest, stubClaudePath } from './helpers.ts'
+
+expectTypeOf<TedStore>().toExtend<MachineArea>()
 
 const stubGh = fileURLToPath(new URL('./fixtures/stub-gh.ts', import.meta.url))
 

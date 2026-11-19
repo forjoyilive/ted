@@ -8,8 +8,13 @@ import {
   firstFactoryNotifications,
   type WaitingRequest,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import type { MachineArea } from '../src/store/machine.ts'
+import type { RequestsArea } from '../src/store/requests.ts'
+
+expectTypeOf<TedStore>().toExtend<RequestsArea>()
+expectTypeOf<TedStore>().toExtend<MachineArea>()
 
 let dir: string
 let store: TedStore

@@ -2,10 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
+import type { StoreContext } from '../src/store/context.ts'
 import { eventlogFile, stateFile } from '../src/store/files.ts'
-import { openStore } from '../src/store/index.ts'
+import { openStore } from '../src/store/open.ts'
 import { markEventsSynced } from '../src/store/sync-head.ts'
+
+expectTypeOf<StoreContext>().toHaveProperty('store')
 
 let dir: string
 

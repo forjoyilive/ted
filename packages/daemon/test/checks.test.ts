@@ -16,9 +16,10 @@ import type {
 } from '@ted/protocol'
 import { defaultMachineSettings, tedPaths } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { openStore } from '../src/store/index.ts'
+import type { ChecksArea } from '../src/store/checks.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
 import { checkCpus } from '../src/tasks/check-slots.ts'
 import {
   api,
@@ -33,6 +34,8 @@ import {
   waitUntil,
 } from './helpers.ts'
 import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
+
+expectTypeOf<TedStore>().toExtend<ChecksArea>()
 
 let home: string
 let cleanup: () => Promise<void>
