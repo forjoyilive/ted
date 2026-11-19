@@ -1,10 +1,10 @@
-import { mkdir, readdir } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { tedPaths } from '@ted/protocol'
 import type { AppTask } from '../apps/apps.ts'
 import type { AppDeclaration } from '../apps/declared.ts'
 import type { Banners } from '../banners.ts'
-import { ensureClone } from '../factories.ts'
+import { freshFolder, makeCopy, removeCopy } from '../code-copy.ts'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
 import type { Sandbox, SandboxScope } from '../sandbox.ts'
@@ -12,7 +12,6 @@ import type { StoredFactory, TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
 import { runScratchSetup } from '../tasks/scratch-setup.ts'
-import { copyFiles } from '../tasks/worktree.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 
 export interface CheckoutRepo {
@@ -144,10 +143,7 @@ export function createCheckouts(options: {
   }
 
   async function discard(runId: string, repos: readonly { clone: string; worktree: string }[]) {
-    for (const { clone, worktree } of repos) {
-      await git.removeWorktree(clone, worktree).catch(() => undefined)
-    }
-    await removeInside(root, runId).catch((error: unknown) =>
+    await removeCopy(repos, root, runId).catch((error: unknown) =>
       console.error(
         redactSecrets(`couldn’t remove the checkout of Run ${runId}: ${String(error)}`),
       ),
@@ -157,29 +153,23 @@ export function createCheckouts(options: {
 
   return {
     async make(input) {
-      const folder = folderOf(input.runId)
-      await removeInside(root, input.runId)
-      await mkdir(folder, { recursive: true, mode: 0o700 })
+      const folder = await freshFolder(root, input.runId)
       const { entries, workflow } = await entriesOf(input.factory)
-      const repos: CheckoutRepo[] = []
-      let commit: string | undefined
+      let repos: CheckoutRepo[] = []
       try {
-        for (const entry of entries) {
-          const clone = await ensureClone(
-            { banners: options.banners, reposDir: options.reposDir },
-            entry.primary
-              ? input.factory
-              : { ...input.factory, repo: entry.repo, cloneUrl: entry.cloneUrl },
-          )
-          await git.fetch(clone)
-          const base = await git.defaultBranch(clone)
-          const repo = repoOf(entry, folder, clone)
-          const at = entry.primary && input.commit !== undefined ? input.commit : `origin/${base}`
-          await git.addScratchWorktree(clone, repo.worktree, at)
-          repos.push(repo)
-          if (entry.primary) commit = await git.headCommit(repo.worktree)
-          await copyFiles(options.store.localFolder(entry.repo), repo.worktree, entry.copy)
-        }
+        const made = await makeCopy(options, {
+          folder,
+          factory: input.factory,
+          entries,
+          branch: 'default',
+          ...(input.commit !== undefined && { commit: input.commit }),
+          clone: { ensure: options.banners },
+          fetch: 'all',
+          copyFiles: 'required',
+        })
+        repos = made.map((m) => repoOf(m.entry, folder, m.clone))
+        const primary = made.find((m) => m.entry.primary)
+        const commit = primary ? await git.headCommit(primary.worktree) : undefined
         const checkout = checkoutOf(input, repos, workflow.settings.sandbox_sockets ?? [], commit)
         await setUp(checkout, entries, input.signal)
         live.set(input.runId, checkout)

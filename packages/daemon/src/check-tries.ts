@@ -13,6 +13,7 @@ import {
   isInstructionTry,
 } from '@ted/protocol'
 import type { Banners } from './banners.ts'
+import { makeCopy, removeCopy } from './code-copy.ts'
 import { loginShell, worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
@@ -22,7 +23,7 @@ import { type CheckSlots, checkCpusEnv } from './tasks/check-slots.ts'
 import { defaultCheckTimeout, readOutput } from './tasks/checks.ts'
 import { removeInside } from './tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos, findRepo, isSafeRepo } from './tasks/repos.ts'
-import { copyFiles, durationMs, runWorktreeCommand } from './tasks/worktree.ts'
+import { durationMs, runWorktreeCommand } from './tasks/worktree.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface InstructionTries {
@@ -135,12 +136,10 @@ export function createCheckTries(options: {
   async function removeWorktree(factoryId: string, name: string, repo: string): Promise<void> {
     const root = await worktreesDir(factoryId, false)
     if (root === undefined || !safeName.test(name)) return
-    if (isSafeRepo(repo)) {
-      await git
-        .removeWorktree(clonePath(reposDir, { repo }), path.join(root, name))
-        .catch(() => undefined)
-    }
-    await removeInside(root, name)
+    const made = isSafeRepo(repo)
+      ? [{ clone: clonePath(reposDir, { repo }), worktree: path.join(root, name) }]
+      : []
+    await removeCopy(made, root, name)
   }
 
   async function sweepFactory(factoryId: string, now: number): Promise<void> {
@@ -202,14 +201,24 @@ export function createCheckTries(options: {
       return { worktree }
     }
     await removeWorktree(factory.id, entry.name, known?.repo ?? entry.repo)
-    await git.addScratchWorktree(clone, worktree, `origin/${base}`)
+    await makeCopy(
+      { reposDir, store },
+      {
+        folder: root,
+        factory,
+        entries: [entry],
+        branch: 'base',
+        clone: 'existing',
+        fetch: 'none',
+        copyFiles: 'ignore-errors',
+      },
+    )
     const now = new Date().toISOString()
     state.worktrees = [
       ...state.worktrees.filter((w) => w.name !== entry.name),
       { repo: entry.repo, name: entry.name, createdAt: now, usedAt: now },
     ]
     await save(factory.id, state)
-    await copyFiles(store.localFolder(entry.repo), worktree, entry.copy).catch(() => undefined)
     if (entry.setup) {
       const result = await runWorktreeCommand({
         command: entry.setup,

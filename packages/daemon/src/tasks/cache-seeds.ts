@@ -4,6 +4,7 @@ import { constants } from 'node:fs'
 import { copyFile, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { type CopiedRepo, makeCopy, removeCopy } from '../code-copy.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
@@ -17,7 +18,6 @@ import { runTaskCommand } from './command.ts'
 import { plain as plainFolder } from './local-lifecycle.ts'
 import { removeInside } from './remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from './repos.ts'
-import { copyFiles } from './worktree.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -212,7 +212,7 @@ export function createCacheSeeds(options: {
     const folder = folderOf(factory.id)
     const fillName = `fill-${randomBytes(6).toString('hex')}`
     const fillDir = path.join(folder, fillName)
-    const made: { clone: string; worktree: string }[] = []
+    let made: CopiedRepo[] = []
     try {
       if (signal.aborted || !usable(factory.id) || store.newWorkHold() !== undefined) return
       if ((await options.sandbox.problem()) !== undefined) return
@@ -225,14 +225,17 @@ export function createCacheSeeds(options: {
       await mkdir(cache, { mode: 0o700 })
       await mkdir(repos, { mode: 0o700 })
       for (const entry of entries) {
-        const clone = clonePath(options.reposDir, entry)
-        await plainFolder(options.reposDir, clone)
-        const base = entry.baseBranch ?? (await git.defaultBranch(clone))
-        const worktree = path.join(repos, entry.name)
-        await git.addScratchWorktree(clone, worktree, `origin/${base}`)
-        made.push({ clone, worktree })
-        await copyFiles(store.localFolder(entry.repo), worktree, entry.copy)
+        await plainFolder(options.reposDir, clonePath(options.reposDir, entry))
       }
+      made = await makeCopy(options, {
+        folder: repos,
+        factory,
+        entries,
+        branch: 'base',
+        clone: 'existing',
+        fetch: 'none',
+        copyFiles: 'required',
+      })
       const { workflow } = await options.workflows.resolve(factory, { fetch: false })
       const scope = {
         writable: made.map((m) => m.worktree),
@@ -240,13 +243,12 @@ export function createCacheSeeds(options: {
         cache,
         sockets: workflow.settings.sandbox_sockets ?? [],
       }
-      for (const [i, entry] of entries.entries()) {
-        const repo = made[i]
-        if (!entry.setup || !repo) continue
+      for (const { entry, worktree } of made) {
+        if (!entry.setup) continue
         const result = await runTaskCommand({
           label: 'seed setup',
           command: entry.setup,
-          cwd: repo.worktree,
+          cwd: worktree,
           env: worktreeCommandEnv(entry.env, {}, options.env()),
           log: path.join(options.logsDir, 'seeds', `${factory.id}-${entry.name}-setup.log`),
           signal,
@@ -279,10 +281,7 @@ export function createCacheSeeds(options: {
       failed.delete(factory.id)
     } finally {
       release()
-      for (const { clone, worktree } of made) {
-        await git.removeWorktree(clone, worktree).catch(() => undefined)
-      }
-      await removeInside(folder, fillName).catch(() => undefined)
+      await removeCopy(made, folder, fillName).catch(() => undefined)
     }
   }
 
