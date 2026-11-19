@@ -271,7 +271,13 @@ test(
 test(
   'restart reconstructs a persisted failed execution before its case was recorded, with ordinary and unsafe output, and after a fix-first Check took a new context; a recovery that throws tells the Task and its Lead',
   async () => {
-    const kinds = ['ordinary', 'unsafe output', 'fix-first', 'late context']
+    const kinds = [
+      'ordinary',
+      'unsafe output',
+      'fix-first',
+      'late context',
+      'fix-first, context after finish',
+    ]
     const live = await boot()
     const scenes = await Promise.all(kinds.map(() => walk(live)))
     await ctx.daemon?.stop()
@@ -293,7 +299,7 @@ test(
         trigger: 'validate',
         stage: 'validate',
         checks: progress.checks.map((check, n) =>
-          kinds[i] === 'fix-first' && n === 1
+          kinds[i]?.startsWith('fix-first') && n === 1
             ? {
                 name: 'Docs drift',
                 instruction: 'Fix docs that no longer match the code.',
@@ -305,19 +311,24 @@ test(
         ),
       })
       let contextId = progress.contextId
-      if (kinds[i] === 'fix-first' || kinds[i] === 'late context') {
-        const before = contextId ? store.failures.context(contextId) : undefined
-        const during: FailureContext = {
+      const before = contextId ? store.failures.context(contextId) : undefined
+      const captureAfter = (at: string) => {
+        const later: FailureContext = {
           version: 2,
-          fingerprint: 'during the fix-first Check',
+          fingerprint: 'after the Check run started',
           repos: [],
           checks: '',
           ...before,
           taskId: s.task.id,
           id: randomUUID(),
-          capturedAt: new Date(Date.parse(run.startedAt) + 1).toISOString(),
+          capturedAt: new Date(Date.parse(at) + 1).toISOString(),
         }
-        contextId = store.failures.capture(during).id
+        contextId = store.failures.capture(later).id
+        return later.capturedAt
+      }
+      if (kinds[i] === 'fix-first' || kinds[i] === 'late context') {
+        const capturedAt = captureAfter(run.startedAt)
+        while (new Date().toISOString() <= capturedAt) await new Promise(setImmediate)
       }
       const recoveredLog = path.join(
         tedPaths(ctx.home).logs,
@@ -335,6 +346,8 @@ test(
       }
       store.checkFinished(run.id, 0, { state: 'failed', exitCode: 1, durationMs: 1 })
       const finished = store.finishChecks(run.id, 'failed')
+      if (kinds[i] === 'fix-first, context after finish')
+        captureAfter(required(finished.finishedAt))
       store.failures.saveProgress({
         ...progress,
         ...(contextId && { contextId }),
@@ -357,7 +370,7 @@ test(
       const made = saved[i]
       if (!s || !made) throw new Error('missing scene')
       const { run, finished, recoveredLog, contextId } = made
-      if (kind === 'late context') {
+      if (kind === 'late context' || kind === 'fix-first, context after finish') {
         const refusal = 'context must be captured before check execution'
         const note = await waitUntil(
           async () =>

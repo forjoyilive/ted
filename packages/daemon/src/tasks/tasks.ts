@@ -2795,6 +2795,13 @@ export function createTasks(options: {
     if (!task || task.archived) return
     const text = `Ted couldn’t ${what}: ${redactSecrets(problem)}`
     tedNote(taskId, text)
+    const now = find(taskId)
+    if (
+      now.stage === 'done' ||
+      now.stage === 'backlog' ||
+      now.markers.some((m) => m.kind === 'needs-planning')
+    )
+      return
     const message = `${text}\n\nTed didn’t carry this step out. Check where the Task stands and carry on with the Stage, or ask the human if you can’t.`
     if (await deliver(find(taskId), message).catch(() => false)) return
     store.holdLeadMessage(taskId, message)
@@ -11503,23 +11510,25 @@ export function createTasks(options: {
   const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
   for (const task of store.listTasks()) {
     if (task.archived && task.repos.some((r) => !r.removed)) {
-      inBackground(`finish archiving ${task.displayId}`, () => clearing(task.id))
+      recoverTask(task.id, `finish archiving ${task.displayId}`, () => clearing(task.id))
       continue
     }
     if (task.stage === 'done' && task.repos.some((r) => !r.removed)) {
-      inBackground(`finish ${task.displayId}`, () => clearing(task.id))
+      recoverTask(task.id, `finish ${task.displayId}`, () => clearing(task.id))
       continue
     }
     if (
       task.markers.some((m) => m.kind === 'needs-planning') &&
       (task.runs.length > 0 || task.repos.some((r) => !r.removed))
     ) {
-      inBackground(`move ${task.displayId} to Backlog for planning`, () => clearing(task.id))
+      recoverTask(task.id, `move ${task.displayId} to Backlog for planning`, () =>
+        clearing(task.id),
+      )
       continue
     }
     if (heldAtStart.has(task.id)) continue
     if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
-      inBackground(`resume ${task.displayId}`, () => resume(task.id))
+      recoverTask(task.id, `resume ${task.displayId}`, () => resume(task.id))
     }
   }
 
