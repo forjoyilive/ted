@@ -17,6 +17,7 @@ roundTrip(parseSetBacklogStartsRequest, {
   groupIds: ['g1'],
   factoryIds: ['f1', 'f2'],
   includeAgentFiled: true,
+  includeGitHubIssues: true,
 })
 
 test('parseSetBacklogStartsRequest drops repeated IDs', () => {
@@ -33,6 +34,7 @@ test('parseSetBacklogStartsRequest drops repeated IDs', () => {
     groupIds: ['g1'],
     factoryIds: ['f1'],
     includeAgentFiled: false,
+    includeGitHubIssues: false,
   })
 })
 
@@ -61,6 +63,11 @@ rejects(
   parseSetBacklogStartsRequest,
   { enabled: true, all: false, groupIds: [], factoryIds: [], includeAgentFiled: 'yes' },
   'includeAgentFiled must be true or false',
+)
+rejects(
+  parseSetBacklogStartsRequest,
+  { enabled: true, all: false, groupIds: [], factoryIds: [], includeGitHubIssues: 1 },
+  'includeGitHubIssues must be true or false',
 )
 rejects(
   parseSetBacklogStartsRequest,
@@ -120,4 +127,5 @@ test('sameBacklogStarts ignores the order of IDs', () => {
   ).toBe(true)
   expect(sameBacklogStarts(starts({}), { ...starts({}), enabled: false })).toBe(false)
   expect(sameBacklogStarts(starts({}), starts({ includeAgentFiled: true }))).toBe(false)
+  expect(sameBacklogStarts(starts({}), starts({ includeGitHubIssues: true }))).toBe(false)
 })

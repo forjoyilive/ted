@@ -2098,6 +2098,17 @@ describe('Factory GitHub intake enforcement', () => {
       const found = await client.ok<Task[]>('GET', '/tasks')
       return found[0]?.backlogWait === 'automation' ? found : undefined
     }, 'the imported issue to say an Automation filed it')
+    await client.ok('PUT', '/backlog-starts', {
+      enabled: true,
+      all: false,
+      groupIds: [],
+      factoryIds: [factory.id],
+      includeAgentFiled: true,
+    })
+    await waitUntil(async () => {
+      const found = await client.ok<Task[]>('GET', '/tasks')
+      return found[0]?.backlogWait === 'automation' ? found : undefined
+    }, 'the issue to keep waiting with only agent-filed Tasks included')
 
     await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: null })
     const anyIssue = await create(client, {

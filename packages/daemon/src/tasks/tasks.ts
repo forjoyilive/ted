@@ -2180,13 +2180,13 @@ export function createTasks(options: {
   }
 
   function filedWait(task: StoredTask): BacklogWait | undefined {
-    const include = store.settings().backlogStarts.includeAgentFiled
+    const { includeAgentFiled, includeGitHubIssues } = store.settings().backlogStarts
     if (task.createdBy === 'task-lead') {
       const creator = task.createdByTaskId === undefined ? undefined : taskNow(task.createdByTaskId)
       if (creator?.createdBy === 'task-lead') return 'follow-up'
-      return include ? undefined : 'task-lead'
+      return includeAgentFiled ? undefined : 'task-lead'
     }
-    return !include && automationGitHubTask(task) ? 'automation' : undefined
+    return !includeGitHubIssues && automationGitHubTask(task) ? 'automation' : undefined
   }
 
   function backlogWait(task: StoredTask): BacklogWait | undefined {

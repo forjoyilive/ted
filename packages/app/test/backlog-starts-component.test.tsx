@@ -83,7 +83,7 @@ test('a Backlog row Ted won’t start says why, and the rest say they start or s
     },
     {
       label: 'From an Automation',
-      hint: 'Turn on “Include agent-filed Tasks” or start it yourself.',
+      hint: 'Turn on “Include Tasks from GitHub issues” or start it yourself.',
     },
     {
       label: 'Follow-up of a follow-up',
@@ -126,6 +126,9 @@ test('the menu saves the switch and each choice at once, a choice made while off
   await user().click(include)
   expect(saved.at(-1)).toEqual(on({ includeAgentFiled: true }))
   await waitFor(() => expect(include.disabled).toBe(false))
+  await user().click(screen.getByRole('switch', { name: 'Include Tasks from GitHub issues' }))
+  expect(saved.at(-1)).toEqual(on({ includeGitHubIssues: true }))
+  await waitFor(() => expect(include.disabled).toBe(false))
   const group = within(screen.getByRole('group', { name: 'Kriya Design' }))
   await user().click(group.getByRole('checkbox', { name: /Kriya Design/ }))
   expect(saved.at(-1)).toEqual(on({ groupIds: ['g1'] }))
@@ -143,7 +146,7 @@ test('the menu saves the switch and each choice at once, a choice made while off
 
   await user().click(within(list()).getByRole('radio', { name: 'All Factories' }))
   expect(saved.at(-1)).toEqual(on({ groupIds: ['g1'], all: true }))
-  expect(api.request.mock.calls.filter(([name]) => name === 'setBacklogStarts')).toHaveLength(6)
+  expect(api.request.mock.calls.filter(([name]) => name === 'setBacklogStarts')).toHaveLength(7)
 })
 
 test('the menu disables the switch and scope buttons while saving, keeps them usable after a failed save and shows why', async () => {

@@ -291,6 +291,14 @@ function BacklogStartsGroup({ settings }: Pick<SettingsPageProps, 'settings'>) {
           onChange={(includeAgentFiled) => save({ ...starts, includeAgentFiled })}
         />
       </SettingRow>
+      <SettingRow setting="app.general.backlog-starts.github-issues">
+        <Switch
+          label="Include Tasks from GitHub issues"
+          checked={starts.includeGitHubIssues}
+          disabled={saving || !starts.enabled}
+          onChange={(includeGitHubIssues) => save({ ...starts, includeGitHubIssues })}
+        />
+      </SettingRow>
       <div className={styles.row} data-setting="app.general.backlog-starts.from">
         <div className={styles.rowText}>
           <span className={styles.rowTitle}>Start from</span>

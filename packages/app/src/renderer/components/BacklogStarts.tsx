@@ -189,6 +189,15 @@ export function BacklogStartsMenu({
           onChange={(includeAgentFiled) => save({ ...starts, includeAgentFiled })}
         />
       </div>
+      <div className={styles.menuOption}>
+        <span>{includeIssuesLabel}</span>
+        <Switch
+          label={includeIssuesLabel}
+          checked={starts.includeGitHubIssues}
+          disabled={saving || !starts.enabled}
+          onChange={(includeGitHubIssues) => save({ ...starts, includeGitHubIssues })}
+        />
+      </div>
       {error !== undefined && (
         <span className={styles.error} role="alert">
           {error}
@@ -235,11 +244,12 @@ export function backlogStatus(
 }
 
 const includeLabel = 'Include agent-filed Tasks'
-const includeHint = `Turn on “${includeLabel}” or start it yourself.`
+const includeIssuesLabel = 'Include Tasks from GitHub issues'
+const includeHint = (label: string) => `Turn on “${label}” or start it yourself.`
 
 const backlogWaitText: Record<BacklogWait, { label: string; hint: string }> = {
-  'task-lead': { label: 'Filed by a Task Lead', hint: includeHint },
-  automation: { label: 'From an Automation', hint: includeHint },
+  'task-lead': { label: 'Filed by a Task Lead', hint: includeHint(includeLabel) },
+  automation: { label: 'From an Automation', hint: includeHint(includeIssuesLabel) },
   'follow-up': {
     label: 'Follow-up of a follow-up',
     hint: 'Agents’ follow-ups of follow-ups always start by hand.',

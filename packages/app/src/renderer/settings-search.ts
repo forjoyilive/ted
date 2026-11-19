@@ -101,8 +101,14 @@ const entries = {
   },
   'app.general.backlog-starts.agent-filed': {
     name: 'Include agent-filed Tasks',
-    keywords: 'auto start automatic backlog task lead automation follow-up filed',
-    detail: 'Tasks a Task Lead or Automation filed. Their own follow-ups still wait for you.',
+    keywords: 'auto start automatic backlog task lead follow-up filed',
+    detail: 'Tasks a Task Lead filed. Their own follow-ups still wait for you.',
+  },
+  'app.general.backlog-starts.github-issues': {
+    name: 'Include Tasks from GitHub issues',
+    keywords: 'auto start automatic backlog automation github issue intake outsider',
+    detail:
+      'Tasks an Automation made from a GitHub issue. The issue’s text may come from people outside your team.',
   },
   'app.general.backlog-starts.from': {
     name: 'Start from',
