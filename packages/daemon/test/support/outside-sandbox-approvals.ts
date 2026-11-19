@@ -4,8 +4,11 @@ import type { api } from '../helpers.ts'
 export async function approveAppsOutsideSandbox(
   client: Pick<DaemonClient, 'listApps' | 'getSettings' | 'updateSettings'>,
   task: { id: string; factoryId: string },
+  only?: readonly string[],
 ): Promise<void> {
-  const approvals = (await client.listApps(task.id)).flatMap((a) => a.outsideSandboxApproval ?? [])
+  const approvals = (await client.listApps(task.id))
+    .filter((a) => only === undefined || only.includes(a.name))
+    .flatMap((a) => a.outsideSandboxApproval ?? [])
   const { appsOutsideSandbox } = await client.getSettings()
   await client.updateSettings({
     appsOutsideSandbox: {

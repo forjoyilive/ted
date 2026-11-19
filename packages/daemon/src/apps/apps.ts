@@ -111,7 +111,18 @@ export function outsideSandboxApproval(
   return { repo: repo.name, app: app.name, declaration }
 }
 
-function refuseUnconfirmed(
+export function relaunchOptions(
+  instance: Pick<Instance, 'runId' | 'declaration'> | undefined,
+): StartOptions {
+  return {
+    ...(instance?.runId !== undefined && { runId: instance.runId }),
+    confirmed: {
+      ...(instance?.declaration !== undefined && { declaration: instance.declaration }),
+    },
+  }
+}
+
+export function refuseUnconfirmed(
   task: AppTask,
   repo: AppRepo,
   app: AppDeclaration,
@@ -216,6 +227,7 @@ interface Instance {
   runId?: string
   restart?: boolean
   sandboxed?: boolean
+  declaration?: string
   waitingFor?: string
   readyAt?: string
   builtAt?: string
@@ -680,7 +692,7 @@ export function createApps(options: AppsOptions): Apps {
     restarting: boolean,
   ): Promise<TaskApp> {
     const { task, repo, app } = await find(taskId, ref)
-    if (start.confirmed !== undefined) refuseUnconfirmed(task, repo, app, by, start.confirmed)
+    refuseUnconfirmed(task, repo, app, by, start.confirmed ?? {})
     const { runId } = start
     let restart = restarting
     const dir = dirOf(taskId, repo.name, app.name)
@@ -835,6 +847,8 @@ export function createApps(options: AppsOptions): Apps {
         startedAt: new Date().toISOString(),
         startedBy: by,
         ...(sandboxed.shell !== undefined && { sandboxed: true }),
+        ...(sandboxed.shell === undefined &&
+          by === 'human' && { declaration: outsideSandboxApproval(repo, app).declaration }),
         ...(logFrom !== undefined && { readyFrom: logFrom }),
       }
       try {
@@ -1395,7 +1409,7 @@ export function createApps(options: AppsOptions): Apps {
               taskId,
               { repo: repo.name, name: app.name },
               instance?.startedBy ?? 'human',
-              instance?.runId === undefined ? {} : { runId: instance.runId },
+              relaunchOptions(instance),
               true,
             )
           })
@@ -1433,7 +1447,7 @@ export function createApps(options: AppsOptions): Apps {
             taskId,
             { repo: repo.name, name: app.name },
             instance?.startedBy ?? 'automation',
-            instance?.runId === undefined ? {} : { runId: instance.runId },
+            relaunchOptions(instance),
             wasLive,
           )
         })
