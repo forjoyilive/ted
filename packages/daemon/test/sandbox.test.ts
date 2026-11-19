@@ -175,6 +175,8 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       [
         `mkdir '${bundle}' && echo x > '${bundle}/Info.plist' && rm -r '${bundle}' && echo wrote || echo refused`,
         `mkdir '${shortBundle}' 2>/dev/null && echo wrote || echo refused`,
+        `ln -s '${outside}' '${bundle}' 2>/dev/null && echo wrote || echo refused`,
+        `mkdir '${bundle}' && ln -s '${outside}' '${bundle}/Data' 2>/dev/null && echo wrote || echo refused`,
         `d=$(mktemp -d '${userTemp}/TemporaryDirectory.XXXXXX') && echo x > "$d/Package.swift" && rm -r "$d" && test ! -e "$d" && echo wrote || echo refused`,
         `d=$(mktemp -d '${userTemp}/swbuild.tmp.XXXXXXXX') && echo x > "$d/build.db" && rm -r "$d" && test ! -e "$d" && echo wrote || echo refused`,
         `mkdir '${longer}' 2>/dev/null && echo wrote || echo refused`,
@@ -184,8 +186,10 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(loose),
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 9)).toEqual([
+    expect(result.stdout.split('\n').slice(0, 11)).toEqual([
       'wrote',
+      'refused',
+      'refused',
       'refused',
       'wrote',
       'wrote',
@@ -331,6 +335,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       [
         tryWrite(path.join(logs, 'apple.dia')),
         `ln -s '${target}' '${path.join(logs, 'linked.dia')}' 2>/dev/null && echo wrote || echo refused`,
+        `ln '${target}' '${path.join(logs, 'hard.dia')}' 2>/dev/null && echo wrote || echo refused`,
         `mkdir '${path.join(logs, 'folder.dia')}' 2>/dev/null && echo wrote || echo refused`,
         tryWrite(path.join(logs, 'apple.txt')),
         tryWrite(path.join(manifests, 'manifest.db')),
@@ -341,6 +346,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     )
     expect(result.stdout.trim().split('\n')).toEqual([
       'wrote',
+      'refused',
       'refused',
       'refused',
       'refused',
