@@ -96,6 +96,12 @@ test('the guard catches new direct, computed, aliased and destructured reads', (
   expect(rawReads("process.env.TED_TASK = 'NB-1'")).toEqual([])
 })
 
+const notEnvironmentNames = {
+  TED_COMMAND_SCRIPT: 'marker in the shell script command-line.ts writes, not an environment input',
+  TED_APP_READY:
+    'line a simulator or emulator App prints when its build is ready, read from its log',
+}
+
 test('runtime Ted environment reads use the central policy and name classified inputs', () => {
   const root = path.resolve(import.meta.dirname, '../../..')
   const findings: string[] = []
@@ -105,7 +111,7 @@ test('runtime Ted environment reads use the central policy and name classified i
     findings.push(...rawReads(source).map((read) => `${file}: ${read}`))
     for (const match of source.matchAll(/['"](TED_[A-Z0-9_]+)['"]/g)) {
       const name = match[1] ?? ''
-      if (name === 'TED_COMMAND_SCRIPT') continue
+      if (Object.hasOwn(notEnvironmentNames, name)) continue
       if (!Object.hasOwn(tedEnvironment, name)) findings.push(`${file}: ${name}`)
     }
   }

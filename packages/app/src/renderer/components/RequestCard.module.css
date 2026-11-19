@@ -168,6 +168,11 @@
   font-size: var(--text-12-5);
 }
 
+.choiceTag {
+  color: var(--text-secondary);
+  font-weight: var(--weight-regular);
+}
+
 .answered {
   display: flex;
   flex-direction: column;

@@ -3,7 +3,7 @@ import { devicesLine } from '@ted/protocol'
 import { noChecks } from '@ted/protocol/slots'
 import { describe, expect, test } from 'vitest'
 import { appStatusLine, needsSlot, previewChoice } from '../src/renderer/apps.ts'
-import { busyDetail, nowLine, runsLine, statusDetail } from '../src/renderer/slots.ts'
+import { busyDetail, nowLine, runsLine } from '../src/renderer/slots.ts'
 
 const task = (preview?: { url: string; label: string }) =>
   ({
@@ -255,7 +255,7 @@ test('the sidebar names slot usage and its limit, including above-limit and queu
   expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 of 6 slots in use')
   expect(runsLine({ ...slots, working: 0 })).toBe('0 of 6 slots in use · 1 queued')
   expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 of 6 slots in use')
-  expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toContain('computer is busy')
+  expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toBe('7 of 6 slots in use · 1 queued')
 })
 
 test('the sidebar counts running and waiting Checks beside the agents', () => {
@@ -269,9 +269,7 @@ test('the sidebar counts running and waiting Checks beside the agents', () => {
     checks: { ...noChecks, running: 3, waiting: 1 },
     busy: { loadRatio: 1.4 },
   }
-  expect(runsLine(slots)).toBe(
-    '1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · computer is busy',
-  )
+  expect(runsLine(slots)).toBe('1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued')
   expect(nowLine(slots)).toBe(
     'Now: 1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · computer is busy',
   )
@@ -291,8 +289,4 @@ test('hovering a busy hold names each resource that holds, with its figure and m
       'CPU load: 1.30 per core · waits at 1, starts again below 0.75',
     ].join('\n'),
   )
-  expect(statusDetail({ kind: 'queued', hold: 'computer is busy', busy: { loadRatio: 2 } })).toBe(
-    'CPU load: 2.00 per core · waits at 1, starts again below 0.75',
-  )
-  expect(statusDetail({ kind: 'queued', place: 2 })).toBeUndefined()
 })

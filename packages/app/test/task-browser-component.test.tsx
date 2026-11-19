@@ -132,3 +132,52 @@ test('← and → follow the result of a back command without waiting for the ne
   await waitFor(() => expect(forward.hasAttribute('disabled')).toBe(false))
   expect(back.hasAttribute('disabled')).toBe(true)
 })
+
+test('← and → follow a page change that ends after its command has returned', async () => {
+  let stateReads = 0
+  const held = deferred<never>()
+  const reply = deferred<BrowserResult>()
+  let reloading = false
+  const api = bridge({
+    listApps: () => [web()],
+    browserCommand: (): BrowserResult | Promise<BrowserResult> =>
+      reloading ? reply.promise : { url: address, text: 'Ready' },
+    browserState: () => {
+      stateReads++
+      return stateReads === 1 ? { url: address, text: 'Ready' } : held.promise
+    },
+    presentBrowser: () => undefined,
+    hideBrowser: () => undefined,
+  })
+  render(<Pane taskId="NB-9" />)
+  const pane = await screen.findByRole('region', { name: 'Task browser' })
+  const back = within(pane).getByRole('button', { name: 'Back' })
+  const forward = within(pane).getByRole('button', { name: 'Forward' })
+  const reload = within(pane).getByRole('button', { name: 'Reload' })
+  await waitFor(() => expect(reload.hasAttribute('disabled')).toBe(false))
+  expect(back.hasAttribute('disabled')).toBe(true)
+  const history = (app: string, canGoBack: boolean, canGoForward: boolean) =>
+    act(async () =>
+      api.emit({
+        type: 'browser-history',
+        taskId: 'NB-9',
+        app: { repo: 'widgets', name: app },
+        canGoBack,
+        canGoForward,
+      }),
+    )
+
+  await history('Other', true, true)
+  expect(back.hasAttribute('disabled')).toBe(true)
+  await history('Web', true, false)
+  await waitFor(() => expect(back.hasAttribute('disabled')).toBe(false))
+
+  reloading = true
+  await user().click(reload)
+  await history('Web', false, true)
+  await act(async () =>
+    reply.resolve({ url: address, text: 'Ready', canGoBack: true, canGoForward: false }),
+  )
+  await waitFor(() => expect(forward.hasAttribute('disabled')).toBe(false))
+  expect(back.hasAttribute('disabled')).toBe(true)
+})

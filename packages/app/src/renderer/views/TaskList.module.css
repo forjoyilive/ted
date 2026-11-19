@@ -625,10 +625,14 @@
 
 .groupSelectionHit {
   display: flex;
+  flex: none;
   align-self: stretch;
   align-items: center;
+  justify-content: center;
+  box-sizing: content-box;
+  width: 24px;
   margin-inline: -20px -26px;
-  padding-inline: 20px 26px;
+  padding-inline: 20px 16px;
 }
 
 @media (hover: none) {

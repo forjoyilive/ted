@@ -141,8 +141,59 @@ test('existing repair selection refuses self and cycles, leaves Backlog alone, a
   expect((await client.call('GET', '/tasks')).body as Task[]).toHaveLength(2)
 })
 
+test('a repair Task named in the assessment is its own decision choice', async () => {
+  const s = await setup()
+  const repair = await s.client.ok<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: 'Named repair',
+  })
+  const closed = await s.client.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'Closed' })
+  await s.client.ok('POST', `/tasks/${closed.id}/archive`, {})
+  const assess = (repairTask: string) =>
+    s.lead.call('POST', `${s.root}/failures/${s.failure.id}/assessments`, {
+      assessment: 'unrelated',
+      recommendation: `Wait for ${repairTask}`,
+      repairTask,
+    })
+  expect((await assess(s.current.displayId)).status).toBe(409)
+  expect((await assess(closed.displayId)).status).toBe(409)
+  expect((await assess('NB-999')).status).toBe(409)
+  const assessed = await assess(repair.displayId)
+  expect(assessed.status, JSON.stringify(assessed.body)).toBe(200)
+  expect((assessed.body as FailureCase).assessments.at(-1)?.repairTask).toBe(repair.id)
+  const asked = await s.lead.call('POST', `${s.root}/failures/${s.failure.id}/decision`, {})
+  expect(asked.status, JSON.stringify(asked.body)).toBe(201)
+  const decision = required((asked.body as FailureCase).decisions.at(-1))
+  expect(decision.repairTask).toEqual({
+    id: repair.id,
+    displayId: repair.displayId,
+    title: repair.title,
+  })
+  const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+  const question = required(comments.find((c) => c.id === decision.commentId))
+  const choices = question.choices ?? []
+  expect(choices.indexOf(`Wait for ${repair.displayId}`)).toBe(
+    choices.indexOf('Wait for a repair Task') - 1,
+  )
+  await s.client.ok('POST', `/comments/${decision.commentId}/answer`, {
+    action: 'answer',
+    choice: `Wait for ${repair.displayId}`,
+  })
+  const waiting = await waitUntil(async () => {
+    const t = await getTask(s.client, s.current.id)
+    return t.runs.every((r) => r.state === 'finished') ? t : undefined
+  }, 'named repair wait to release the Lead')
+  expect(waiting).toMatchObject({ stage: 'validate', blockedBy: [repair.id] })
+  expect((await getTask(s.client, repair.id)).stage).toBe('backlog')
+  const answered = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+  expect(answered.find((c) => c.id === decision.commentId)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: `Wait for ${repair.displayId}`,
+  })
+})
+
 test.each(['archive', 'delete'] as const)(
-  '%s of a repair never passes the failure and records why continuation stopped',
+  '%s of a repair never passes the failure, records why, and the Task carries on to reassess it',
   async (action) => {
     const s = await setup()
     const repair = await s.client.ok<Task>('POST', '/tasks', {
@@ -162,7 +213,7 @@ test.each(['archive', 'delete'] as const)(
       ).deleteTask(repair.id, {})
     }
     const affected = await getTask(s.client, s.current.id)
-    expect(affected.status?.kind).toBe('stopped')
+    expect(affected.status?.kind).not.toBe('stopped')
     expect(affected.stage).toBe('validate')
     expect(affected.blockedBy).toEqual([])
     expect(
@@ -175,7 +226,6 @@ test.each(['archive', 'delete'] as const)(
     expect(brief.text).toContain('needs a decision again')
     expect(brief.text).toContain(repair.displayId)
     if (action === 'delete') return
-    await s.client.ok('POST', `${s.root}/resume`, {})
     const resumed = await waitUntil(async () => {
       const t = await getTask(s.client, s.current.id)
       return t.leadRunId !== s.current.leadRunId &&
@@ -184,7 +234,7 @@ test.each(['archive', 'delete'] as const)(
         !t.checksActive
         ? t
         : undefined
-    }, 'a resumed Task Lead')
+    }, 'a fresh Task Lead without Resume')
     const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
     const lead = api(required(ctx.daemon).port, tokens.issue(required(resumed.leadRunId)))
     const verify = (body: { evidence: string; fixedBy?: string }) =>

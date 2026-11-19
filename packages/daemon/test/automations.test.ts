@@ -8,6 +8,7 @@ import type {
   AutomationRun,
   AutomationTemplate,
   Banner,
+  Comment,
   Factory,
   RunSlots,
   RunWithConversation,
@@ -825,7 +826,7 @@ describe('Automations', () => {
     }
   })
 
-  test('a Task Lead creates up to 10 Tasks in Backlog, with a reminder past 3, and waits for a child it made', async () => {
+  test('a Task Lead creates up to 10 Tasks in Backlog, with a reminder past 3, and starts and waits for a child it made', async () => {
     const client = await startTed()
     const factory = (await client.ok<Factory[]>('GET', '/factories')).find((f) => f.key === 'NB')
     await client.ok('PUT', '/backlog-starts', {
@@ -835,6 +836,13 @@ describe('Automations', () => {
       factoryIds: [factory?.id],
     })
     const make = (...args: string[]) => ({ run: ['ted', 'task', 'create', ...args] })
+    const childTitle = steps(
+      make('--child', 'Grandchild'),
+      { endTurn: true },
+      {
+        everyMessage: [{ endTurn: true }],
+      },
+    )
     const task = await client.ok<Task>('POST', '/tasks', {
       factory: 'NB',
       start: true,
@@ -842,7 +850,7 @@ describe('Automations', () => {
         make('--description', 'Found while working', 'Separate work'),
         make('--start', 'Started at once'),
         make('--factory', 'OTHER', 'Elsewhere'),
-        make('--child', 'Child work'),
+        make('--child', childTitle),
         make('Third'),
         make('Fourth'),
         ...['Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'].map((title) => make(title)),
@@ -876,16 +884,14 @@ describe('Automations', () => {
     )
 
     const made = (await client.ok<Task[]>('GET', '/tasks')).filter(
-      (t) => t.createdBy === 'task-lead',
+      (t) => t.createdBy === 'task-lead' && t.title !== 'Grandchild',
     )
     expect(made).toHaveLength(10)
-    expect(
-      made.slice(0, 4).map((t) => [t.title, t.stage, t.createdBy, t.parentId ?? null]),
-    ).toEqual([
-      ['Separate work', 'backlog', 'task-lead', null],
-      ['Child work', 'backlog', 'task-lead', task.id],
-      ['Third', 'backlog', 'task-lead', null],
-      ['Fourth', 'backlog', 'task-lead', null],
+    expect(made.slice(0, 4).map((t) => [t.title, t.createdBy, t.parentId ?? null])).toEqual([
+      ['Separate work', 'task-lead', null],
+      [childTitle, 'task-lead', task.id],
+      ['Third', 'task-lead', null],
+      ['Fourth', 'task-lead', null],
     ])
     expect(made.at(-1)?.title).toBe('Tenth')
     const child = made[1]
@@ -905,12 +911,31 @@ describe('Automations', () => {
       const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
       return found?.status?.kind === 'blocked' ? found : undefined
     }, 'the creating Task to wait for its child')
+    await waitUntil(async () => {
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === child?.id)
+      return found && found.stage !== 'backlog' ? found : undefined
+    }, 'the child to start without the user')
+    expect(await threadTexts(client, child as Task)).toContain(
+      'Started because the Task Lead of the Task above it filed it',
+    )
+    const grandchild = await waitUntil(async () => {
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.title === 'Grandchild')
+      return found
+    }, 'the child’s Task Lead to file its own child')
+    expect(grandchild).toMatchObject({ stage: 'backlog', parentId: child?.id, runs: [] })
+    const held = await waitUntil(async () => {
+      const comments = await client.ok<Comment[]>('GET', `/tasks/${child?.id}/comments`)
+      return comments.find((c) => c.title === 'Child Task waits in Backlog')
+    }, 'the note that the nested child waits')
+    expect(held.body).toContain('this Task was itself created by a Task Lead')
     const later = await client.ok<Task[]>('GET', '/tasks')
-    const laterMade = later.filter((t) => t.createdBy === 'task-lead')
+    const laterMade = later.filter(
+      (t) => t.createdBy === 'task-lead' && t.id !== child?.id && t.id !== grandchild.id,
+    )
     expect(laterMade.map((t) => [t.stage, t.runs.length])).toEqual(
       laterMade.map(() => ['backlog', 0]),
     )
-    expect(laterMade).toHaveLength(10)
+    expect(laterMade).toHaveLength(9)
   }, 90_000)
 
   test('a failed Run is resumed once, then fails with Retry; three failures in a row raise a banner', async () => {
@@ -1313,9 +1338,19 @@ test('Automation Runs use auto permissions even when the Factory is set to bypas
     if (agent === 'claude') {
       expect(argv[argv.indexOf('--permission-mode') + 1]).toBe('auto')
     } else {
-      expect(argv).toEqual(
-        expect.arrayContaining(['sandbox_mode="workspace-write"', 'approval_policy="on-request"']),
-      )
+      if (process.platform === 'darwin') {
+        expect(argv).toEqual(
+          expect.arrayContaining(['default_permissions="ted"', 'approval_policy="on-request"']),
+        )
+        expect(argv.find((arg) => arg.startsWith('permissions='))).toContain('extends=":workspace"')
+      } else {
+        expect(argv).toEqual(
+          expect.arrayContaining([
+            'sandbox_mode="workspace-write"',
+            'approval_policy="on-request"',
+          ]),
+        )
+      }
       expect(argv.join(' ')).not.toContain('danger-full-access')
     }
   }
@@ -1532,6 +1567,27 @@ describe('Tasks an Automation Run starts', () => {
       id: done.id,
       displayId: done.displayId,
     })
+    const parent = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      start: true,
+      title: steps(
+        { run: ['ted', 'task', 'create', '--child', 'Bypass child'] },
+        { endTurn: true },
+        { everyMessage: [{ endTurn: true }] },
+      ),
+    })
+    const child = await waitUntil(async () => {
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find(
+        (t) => t.title === 'Bypass child',
+      )
+      return found
+    }, 'the Task Lead to file a child')
+    expect(child).toMatchObject({ stage: 'backlog', parentId: parent.id, runs: [] })
+    const childNote = await waitUntil(async () => {
+      const comments = await client.ok<Comment[]>('GET', `/tasks/${parent.id}/comments`)
+      return comments.find((c) => c.title === 'Child Task waits in Backlog')
+    }, 'the note that the child waits')
+    expect(childNote.body).toContain('this Factory runs agents without the sandbox')
 
     await client.ok('PUT', `/factories/${factory?.id}/permissions`, { mode: 'auto' })
     const started = await fire(client, done, 'Auto')
@@ -1553,7 +1609,7 @@ describe('Tasks an Automation Run starts', () => {
         `Auto: ${task.title}`,
       ).toHaveLength(1)
     }
-  })
+  }, 90_000)
 })
 
 test('a Run reads only its own Factory’s Automations', async () => {

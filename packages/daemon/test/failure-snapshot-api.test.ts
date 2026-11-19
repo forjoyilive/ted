@@ -30,6 +30,7 @@ test('acceptance, capture, obligations and the Gate each reject local verificati
   const client = await start({
     mergePollMs: pollEveryMs,
     daemon: { clock, githubReadBurst: 10_000 },
+    workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
   })
   const pollFinished = () =>
     eventWait(
@@ -37,7 +38,8 @@ test('acceptance, capture, obligations and the Gate each reject local verificati
       () => clock.pending.includes(pollEveryMs),
       'CI observation applied and GitHub poll rearmed',
     )
-  const { task, signoff } = await toSignoff(client, {}, clock)
+  const { task, signoff } = await toSignoff(client, {}, clock, pollEveryMs)
+  expect(signoff.stage).toBe('merge')
   await writeFile(client.mergingFile, '')
   const current = await getTask(client, task.id)
   const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)

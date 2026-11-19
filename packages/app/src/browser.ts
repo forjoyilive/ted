@@ -38,6 +38,10 @@ interface ChosenSize {
   byAgent: boolean
 }
 
+export type BrowserNotice =
+  | { type: 'select'; taskId: string; app: TaskApp }
+  | { type: 'history'; taskId: string; app: TaskApp; canGoBack: boolean; canGoForward: boolean }
+
 export interface BrowserBounds {
   x: number
   y: number
@@ -78,7 +82,7 @@ async function stopSessionWorkers(ses: Session, electron: BrowserViews) {
 export function createTaskBrowsers(
   getWindow: () => BrowserWindow | undefined,
   getClient: () => DaemonClient,
-  onSelect: (taskId: string, app: TaskApp) => void,
+  notify: (notice: BrowserNotice) => void,
   electron: BrowserViews,
   timing: { captureMs?: number; reloadMs?: number } = {},
   proxy?: GuestProxyRules,
@@ -335,6 +339,19 @@ export function createTaskBrowsers(
           }
           opened = page
           pages.set(taskId, opened)
+          const contents = page.view.webContents
+          const report = () => {
+            if (!page.ready || pages.get(taskId) !== page || contents.isDestroyed()) return
+            notify({
+              type: 'history',
+              taskId,
+              app: page.app,
+              canGoBack: contents.navigationHistory.canGoBack(),
+              canGoForward: contents.navigationHistory.canGoForward(),
+            })
+          }
+          contents.on('did-navigate', report)
+          contents.on('did-navigate-in-page', report)
         },
         beforeLoad: async () => {
           if (opened) await emulate(opened, taskId)
@@ -430,7 +447,7 @@ export function createTaskBrowsers(
       ])
       check()
       if (activeTask === command.taskId && command.request.action === 'open')
-        onSelect(command.taskId, command.app)
+        notify({ type: 'select', taskId: command.taskId, app: command.app })
     } catch (error) {
       void client
         .replyBrowser(owner, command.id, {

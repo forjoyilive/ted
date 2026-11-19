@@ -625,6 +625,7 @@ export {
 export {
   parseAddFailureEvidenceRequest,
   parseAssessFailureRequest,
+  parseChooseFailureFixRequest,
   parseRecordFailureRequest,
   parseResolveFailureRequest,
   parseVerifyFailureRequest,
@@ -633,6 +634,7 @@ export type * from './failures.ts'
 export {
   ciFailureLabel,
   failureChoices,
+  namedRepairChoice,
   validateFailureChoices,
   validationExecution,
 } from './failures.ts'
@@ -766,6 +768,7 @@ export {
   listSorts,
   type StatusFilter,
 } from './list-view.ts'
+export type { LocalFolderCheck, LocalFolderState, LocalFolderUpdate } from './local-folder.ts'
 export type { AgentRunCount, MemoryGroup, MemoryPart, MemoryUse } from './memory.ts'
 export {
   emptyMessageDraft,

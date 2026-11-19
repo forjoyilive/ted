@@ -505,6 +505,34 @@ test('a Dashboard filtered to one Factory expands that Factory’s group, not th
   expect(within(group('Acme')).queryByRole('article', { name: 'widgets' })).toBeNull()
 })
 
+test('while the computer is busy a strip above usage says so, shows the figures on hover and opens Limits', () => {
+  bridge({})
+  const dispatch = vi.fn()
+  const props = {
+    factories: [factory()],
+    currentFactoryId: 'f1',
+    inboxCount: 0,
+    dispatch,
+    onNewTask: vi.fn(),
+    onSearch: vi.fn(),
+    onAddFactory: vi.fn(),
+    navigation: { ...initialNavigation, screen: { kind: 'inbox' } as const },
+    footer: { runs: '3 of 3 slots in use · 4 queued' },
+    usage: <p>Usage</p>,
+  }
+  const view = render(<Sidebar {...props} busy="CPU load: 1.42 per core" />)
+  const strip = screen.getByRole('button', { name: 'Computer is busy · new work waits' })
+  expect(strip.getAttribute('title')).toBe('CPU load: 1.42 per core')
+  expect(screen.getByText('3 of 3 slots in use · 4 queued')).toBeTruthy()
+  expect(
+    strip.compareDocumentPosition(screen.getByText('Usage')) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  fireEvent.click(strip)
+  expect(dispatch).toHaveBeenCalledWith({ type: 'open-settings', section: 'limits' })
+  view.rerender(<Sidebar {...props} />)
+  expect(screen.queryByRole('button', { name: 'Computer is busy · new work waits' })).toBeNull()
+})
+
 test('an open Task expands its own Factory’s group, not the group of the screen under it', () => {
   bridge({})
   localStorage.setItem('ted.sidebar.groupsOpen', JSON.stringify({ acme: false, home: false }))

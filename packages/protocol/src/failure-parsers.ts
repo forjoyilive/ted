@@ -1,6 +1,7 @@
 import type {
   AddFailureEvidenceRequest,
   AssessFailureRequest,
+  ChooseFailureFixRequest,
   FailureSource,
   RecordFailureRequest,
   RepairSelection,
@@ -98,9 +99,11 @@ export function parseAssessFailureRequest(value: Untyped): AssessFailureRequest 
     ['regression', 'unrelated', 'uncertain'],
     'unknown failure assessment',
   )
+  const repairTask = read.optional(body, 'repairTask', failureString)
   const input: AssessFailureRequest = {
     assessment,
     recommendation: failureString(body, 'recommendation'),
+    ...(repairTask !== undefined && { repairTask }),
   }
   return input
 }
@@ -133,6 +136,12 @@ export function parseResolveFailureRequest(value: Untyped): ResolveFailureReques
     ...(repair && { repair }),
     ...(body.reason !== undefined && { reason: failureString(body, 'reason') }),
   }
+  return input
+}
+
+export function parseChooseFailureFixRequest(value: Untyped): ChooseFailureFixRequest {
+  const body = failureObject(value)
+  const input: ChooseFailureFixRequest = { reason: failureString(body, 'reason') }
   return input
 }
 

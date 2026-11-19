@@ -467,7 +467,7 @@ describe('Validate rounds in a multi-repo Factory', () => {
         '  - name: api',
         '    remote: https://github.com/acme/api.git',
         'stages:',
-        '  validate: { max_back: 5, loop_check: false }',
+        '  validate: { max_back: 5, loop_check: false, p1_only_from: false }',
         '',
       ].join('\n'),
     })

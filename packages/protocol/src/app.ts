@@ -15,6 +15,7 @@ export interface TaskApp {
   port?: number
   url?: string
   startedAt?: string
+  builtAt?: string
   endedAt?: string
   exitCode?: number
   signal?: string
@@ -23,6 +24,7 @@ export interface TaskApp {
   removed?: boolean
   waitingFor?: string
   waitingOn?: { displayId: string; app: string }
+  asking?: true
   simulator?: AppSimulator
   confirmOutsideSandbox?: true
   electron?: true

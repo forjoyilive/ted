@@ -23,3 +23,44 @@
   color: var(--text-secondary);
   overflow-wrap: anywhere;
 }
+
+.status {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--status-neutral-bg);
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+}
+
+.ok {
+  border-color: transparent;
+  background: var(--status-success-bg);
+  color: var(--status-success-fg);
+}
+
+.warn {
+  border-color: var(--status-warning-border);
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+}
+
+.plain {
+  color: var(--text-secondary);
+}
+
+.detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+  overflow-wrap: anywhere;
+}
+
+.fix {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+}

@@ -1,8 +1,12 @@
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { scriptLiteral, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { prepareDemo } from '../src/dev/demo.ts'
+import { prepareDemo, stopDemo } from '../src/dev/demo.ts'
 import {
   checkDemoHome,
   demoEnvironment,
@@ -11,6 +15,8 @@ import {
   markDemo,
   withDemoEnvironment,
 } from '../src/dev/home.ts'
+import { lockHolders } from '../src/lock.ts'
+import { sandboxReasons, skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 let folder: string
 beforeEach(async () => {
@@ -102,19 +108,72 @@ test('reset recovers an incomplete demo with stale daemon metadata', async () =>
   expect(await readdir(folder)).not.toContain('daemon.json')
 })
 
-test('reset still refuses a live daemon', async () => {
+test('reset and stop refuse while the demo app is open', async () => {
   await markDemo(folder, { version: demoVersion, complete: false })
-  await writeFile(
-    path.join(folder, 'daemon.json'),
-    JSON.stringify({
-      port: 9,
-      token: 'demo-fixture-token',
-      pid: process.pid,
-      version: '0.1.3',
-    }),
-  )
+  await mkdir(path.join(folder, 'electron'))
+  await symlink(`demo-host-${process.pid}`, path.join(folder, 'electron', 'SingletonLock'))
   await expect(prepareDemo(folder, true)).rejects.toThrow('Quit the demo app')
-  expect(await readdir(folder)).toContain('daemon.json')
+  await expect(stopDemo(folder)).rejects.toThrow('Quit the demo app')
+  expect(await readdir(folder)).toContain('demo.json')
+})
+
+test('stop never signals a recorded pid that holds none of the demo’s locks', async () => {
+  await markDemo(folder, { version: demoVersion, complete: true })
+  const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    env: process.env,
+    stdio: 'ignore',
+  })
+  try {
+    const dir = path.join(folder, 'runs', '00000000-0000-4000-8000-000000000001')
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      path.join(dir, 'host.log'),
+      `${JSON.stringify({ t: 'start', hostPid: stranger.pid, agentPid: null })}\n`,
+    )
+    await stopDemo(folder)
+    expect(stranger.exitCode).toBeNull()
+    expect(stranger.signalCode).toBeNull()
+    expect(await readdir(folder)).toContain('quit-mark')
+  } finally {
+    stranger.kill('SIGKILL')
+  }
+})
+
+test('stop still ends a lock holder that ignores SIGTERM when the graceful stop fails', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.processes)
+  await markDemo(folder, { version: demoVersion, complete: true })
+  const lock = pathToFileURL(fileURLToPath(new URL('../src/lock.ts', import.meta.url))).href
+  const code = `import { tryLock } from ${scriptLiteral(lock)}
+globalThis.held = tryLock(${scriptLiteral(tedPaths(folder).daemonLock)})
+if (!globalThis.held) process.exit(2)
+process.on('SIGTERM', () => {})
+setInterval(() => {}, 1000)
+console.log('locked')`
+  const holder = spawn(process.execPath, ['--input-type=module', '-e', code], {
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    detached: true,
+  })
+  try {
+    const exited = once(holder, 'exit') as Promise<[number | null, NodeJS.Signals | null]>
+    await once(holder.stdout as NodeJS.ReadableStream, 'data')
+
+    await expect(stopDemo(folder, { startTimeoutMs: 1_000 })).rejects.toThrow('didn’t start')
+
+    expect(await exited).toEqual([null, 'SIGKILL'])
+    expect(await readdir(folder)).toContain('quit-mark')
+    expect(await lockHolders(tedPaths(folder).daemonLock)).toEqual([])
+  } finally {
+    holder.kill('SIGKILL')
+  }
+}, 60_000)
+
+test('stop refuses a folder without a demo and leaves an idle demo quit', async () => {
+  await expect(stopDemo(folder)).rejects.toThrow('no demo')
+  await markDemo(folder, { version: demoVersion, complete: true })
+  await stopDemo(folder)
+  expect(await readdir(folder)).toContain('quit-mark')
+  expect((await checkDemoHome(folder))?.complete).toBe(true)
 })
 
 test('withDemoEnvironment uses the demo stubs and then restores the caller’s environment', async () => {

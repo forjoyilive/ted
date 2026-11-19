@@ -10,6 +10,7 @@ import {
   openMovedTaskEvent,
 } from '../src/renderer/components/ArchiveDialogs.tsx'
 import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
+import { OvernightContext } from '../src/renderer/overnight.tsx'
 import { DataScreen } from '../src/renderer/views/DataScreen.tsx'
 import { EditTaskDialog } from '../src/renderer/views/EditTaskDialog.tsx'
 import { appState } from './support/app.tsx'
@@ -290,6 +291,44 @@ test('Task actions opens and chooses actions without opening the enclosing Task'
   await u.click(within(autopilot).getByRole('menuitemradio', { name: 'Autopilot on' }))
   expect(api.request).toHaveBeenCalledWith('setTaskAutopilot', 'NB-1', { choice: 'on' })
   expect(open).not.toHaveBeenCalled()
+})
+
+test.each([
+  [true, 'On'],
+  [false, 'Off'],
+])('a Task that follows global Autopilot (%s) shows Global (%s)', async (on, label) => {
+  bridge({})
+  await act(async () => {
+    render(
+      <OvernightContext value={{ on, openGeneral: () => undefined }}>
+        <TaskActionsMenu task={task()} />
+      </OvernightContext>,
+    )
+  })
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Task actions' }))
+  const autopilotItem = screen.getByRole('menuitem', { name: 'Autopilot' })
+  expect(autopilotItem.textContent).toContain(`Global (${label})`)
+  await u.click(autopilotItem)
+  const autopilot = screen.getByRole('menu', { name: 'Autopilot' })
+  expect(
+    within(autopilot).getByRole('menuitemradio', { name: `Use global setting (${label})` })
+      .ariaChecked,
+  ).toBe('true')
+})
+
+test.each([
+  ['Done', task({ stage: 'done' })],
+  ['archived', task({ archived: { at: createdAt, ended: { kind: 'never-started' } } })],
+])('a %s Task has no Autopilot entry', async (_kind, ended) => {
+  bridge({})
+  await act(async () => {
+    render(<TaskActionsMenu task={ended} />)
+  })
+  await user().click(await screen.findByRole('button', { name: 'Task actions' }))
+  expect(screen.getByRole('menu', { name: /Task actions/ })).toBeTruthy()
+  expect(screen.queryByRole('menuitem', { name: 'Autopilot' })).toBeNull()
+  expect(screen.queryByText('Autopilot')).toBeNull()
 })
 
 test('Task menu keyboard navigation reaches choices, dismisses and restores focus', async () => {

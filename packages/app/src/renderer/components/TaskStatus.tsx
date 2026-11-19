@@ -1,7 +1,6 @@
 import type { BlockerEnded, GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
 import { snoozeTime } from '../request-snooze.ts'
 import { ago, useNow } from '../requests.ts'
-import { statusDetail } from '../slots.ts'
 import { formatDate } from '../time.ts'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from './StatusChip.tsx'
@@ -161,7 +160,7 @@ function Marker({
 function statusTitle(status: TaskStatus): string | undefined {
   if (status.kind === 'waiting-on-you' && status.snoozedUntil !== undefined)
     return `Snoozed until ${snoozeTime(status.snoozedUntil)}`
-  return statusDetail(status)
+  return undefined
 }
 
 function detailedLabel(status: TaskStatus, now: number): string {

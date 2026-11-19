@@ -1,9 +1,9 @@
 import type { Coordinator, Factory, FactoryGroup, FactoryLayout } from '@ted/protocol'
 import { factoryGroupNameMax } from '@ted/protocol/factory'
 import type { LucideIcon } from 'lucide-react'
-import { Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
-import type { DragEvent, ReactNode } from 'react'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { ChevronRight, Gauge, Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
+import type { DragEvent, ReactNode, RefObject } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   addGroup,
   arrange,
@@ -62,6 +62,7 @@ interface SidebarProps {
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
   footer?: SidebarFooter
+  busy?: string
   runsOpen?: boolean
   onOpenRuns?: () => void
   devicesOpen?: boolean
@@ -244,6 +245,29 @@ function useOpenRecord(
   return [record, setOpen]
 }
 
+function useHiddenEdges(list: RefObject<HTMLDivElement | null>) {
+  const [edges, setEdges] = useState({ above: false, below: false })
+  useLayoutEffect(() => {
+    const box = list.current
+    if (!box) return
+    const update = () => {
+      const above = box.scrollTop >= 1
+      const below = box.scrollTop + box.clientHeight < box.scrollHeight - 1
+      setEdges((old) => (old.above === above && old.below === below ? old : { above, below }))
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(box)
+    for (const child of box.children) observer.observe(child)
+    box.addEventListener('scroll', update, { passive: true })
+    return () => {
+      observer.disconnect()
+      box.removeEventListener('scroll', update)
+    }
+  })
+  return edges
+}
+
 function taskViewFactory(screen: Screen): string | undefined {
   return screen.kind === 'factory' && taskViews.includes(screen.view) ? screen.factoryId : undefined
 }
@@ -266,6 +290,7 @@ export function Sidebar({
   badges = {},
   settingsProblem = false,
   footer = {},
+  busy,
   runsOpen = false,
   onOpenRuns,
   devicesOpen = false,
@@ -286,6 +311,8 @@ export function Sidebar({
   const [dragging, setDragging] = useState<LayoutKey>()
   const [dropAt, setDropAt] = useState<DropTarget>()
   const [orderError, setOrderError] = useState<string>()
+  const factoryList = useRef<HTMLDivElement>(null)
+  const hidden = useHiddenEdges(factoryList)
   const [openFactories, setFactoryOpen] = useOpenRecord(openFactoriesKey)
   const [openTaskViews, setTaskViewsOpen] = useOpenRecord(openTaskViewsKey)
   const [openGroups, setGroupOpen] = useOpenRecord(openGroupsKey)
@@ -737,7 +764,10 @@ export function Sidebar({
             <PlusIcon />
           </ActionButton>
         </div>
-        <div className={styles.factoryList}>
+        <div
+          ref={factoryList}
+          className={`${styles.factoryList} ${hidden.above ? styles.moreAbove : ''} ${hidden.below ? styles.moreBelow : ''}`}
+        >
           {entries.map((entry) =>
             entry.kind === 'factory'
               ? renderFactory(entry.factory)
@@ -893,6 +923,18 @@ export function Sidebar({
               </ActionButton>
             )}
           </footer>
+        )}
+        {busy !== undefined && (
+          <ActionButton
+            type="button"
+            className={styles.busy}
+            title={busy}
+            onClick={() => dispatch({ type: 'open-settings', section: 'limits' })}
+          >
+            <Gauge size={14} strokeWidth={2} aria-hidden="true" />
+            <span className={styles.busyLabel}>Computer is busy · new work waits</span>
+            <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
+          </ActionButton>
         )}
         {usage}
         {developerMode && <ResourceUsage dispatch={dispatch} />}

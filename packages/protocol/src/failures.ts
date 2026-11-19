@@ -56,6 +56,11 @@ export interface RecordFailureRequest {
 export interface AssessFailureRequest {
   assessment: 'regression' | 'unrelated' | 'uncertain'
   recommendation: string
+  repairTask?: string
+}
+
+export function namedRepairChoice(displayId: string): string {
+  return `Wait for ${displayId}`
 }
 
 export interface FailureAssessment extends AssessFailureRequest {
@@ -88,6 +93,7 @@ export interface FailureDecision {
   commentId: string
   assessmentId: string
   contextId?: string
+  repairTask?: { id: string; displayId: string; title: string }
 }
 
 export interface FailureCase {
@@ -118,6 +124,14 @@ export interface FailureCase {
     repos: { repo: string; head: string; onto: string }[]
   }[]
   invalidations: { requestId: string; reason: string; at: string }[]
+  leadFixes?: LeadFix[]
+}
+
+export interface LeadFix {
+  assessmentId: string
+  reason: string
+  runId: string
+  at: string
 }
 
 export interface ValidationObligations {
@@ -169,6 +183,10 @@ export function validationExecution(progress: ValidationProgress, position: numb
 export interface AddFailureEvidenceRequest {
   evidence: string
   contextId?: string
+}
+
+export interface ChooseFailureFixRequest {
+  reason: string
 }
 
 export interface VerifyFailureRequest {

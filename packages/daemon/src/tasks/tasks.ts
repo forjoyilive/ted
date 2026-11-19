@@ -263,6 +263,7 @@ import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import type { Sandbox, SandboxScope } from '../sandbox.ts'
 import type {
+  BlockersCleared,
   CleanupCommandResult,
   FoundConflict,
   LoopCheck,
@@ -391,6 +392,7 @@ import {
   failureText,
   leadClosesFailures,
   leadClosesRefusal,
+  leadFixed,
 } from './failure-cases.ts'
 import { freshAfterFailure, retryChoice } from './failures.ts'
 import { listTaskFiles, readTaskFile } from './files.ts'
@@ -503,6 +505,7 @@ import {
   type QueueSource,
   queueOrder,
   type SlotUse,
+  stageQueue,
   startsNow,
 } from './queue.ts'
 import { removeInside } from './remove-files.ts'
@@ -555,7 +558,12 @@ import {
   splitApprovedSummary,
 } from './split.ts'
 import { leadAskedAtMerge } from './status.ts'
-import { createSubAgents, type PlannedReview, type ReviewerChoice } from './sub-agents.ts'
+import {
+  createSubAgents,
+  isCheckAgent,
+  type PlannedReview,
+  type ReviewerChoice,
+} from './sub-agents.ts'
 import { titleFromText } from './task-title.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
 import { createTrackerConsent, type TrackerConsent } from './tracker-sync/consent.ts'
@@ -695,6 +703,7 @@ export interface Tasks {
     evidence: string,
     fixedBy?: string,
   ): Promise<FailureCase>
+  chooseFailureFix(ref: string, caller: Caller, id: string, reason: string): Promise<FailureCase>
   requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
   create(input: CreateTaskInput, caller?: Caller): Promise<CreatedTask>
@@ -1082,6 +1091,7 @@ export function createTasks(options: {
   const repoSetups = new Map<string, AbortController>()
   const changingRepos = new Map<string, Promise<TaskReposResult>>()
   const caps = new Map<string, number | undefined>()
+  const stageSettings = new Map<string, WorkflowSettings['stages']>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const mergeWaits = new Map<string, AbortController>()
   const mergeUrgent = new Set<string>()
@@ -1454,7 +1464,20 @@ export function createTasks(options: {
 
   function remember(factoryId: string, resolution: WorkflowResolution): WorkflowResolution {
     caps.set(factoryId, resolution.workflow.settings.max_working_runs)
+    stageSettings.set(factoryId, resolution.workflow.settings.stages)
     return resolution
+  }
+
+  function queuePlace(task: StoredTask): Pick<QueueEntry, 'stageRank' | 'skipsBusy'> {
+    const { rank, skipsBusy } = stageQueue(stageSettings.get(task.factoryId) ?? {}, task.stage)
+    return { stageRank: rank, ...(skipsBusy && { skipsBusy: true as const }) }
+  }
+
+  function placedQueue(): QueueEntry[] {
+    return store.queue().map((entry) => {
+      const task = taskNow(entry.id)
+      return task ? { ...entry, ...queuePlace(task) } : entry
+    })
   }
 
   async function resolveWorkflow(
@@ -1862,7 +1885,7 @@ export function createTasks(options: {
     queueOrder<QueueEntry>([
       ...subAgents.queued(),
       ...continuationsReady(),
-      ...runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
+      ...runnable(placedQueue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
       ...sources.flatMap((source) =>
         source
           .queued()
@@ -1916,7 +1939,7 @@ export function createTasks(options: {
             rank: task.rank,
             priority: task.priority,
             factoryId: task.factoryId,
-            ...(isCleanup(task.stage) && { skipsBusy: true as const }),
+            ...queuePlace(task),
             ...(heldAt !== undefined && continuationFlags(heldAt, clock.now())),
           },
         ]
@@ -2083,18 +2106,18 @@ export function createTasks(options: {
       return [
         {
           id: task.id,
-          kind: 'task' as const,
+          kind: 'continuation' as const,
           rank: -1,
           factoryId: task.factoryId,
-          ...(isCleanup(task.stage) && { skipsBusy: true as const }),
+          ...queuePlace(task),
         },
       ]
     })
   }
 
-  function cleanupStage(taskId: string): boolean {
+  function placedTask(taskId: string): Pick<QueueEntry, 'stageRank' | 'skipsBusy'> {
     const task = taskNow(taskId)
-    return task !== undefined && isCleanup(task.stage)
+    return task ? queuePlace(task) : {}
   }
 
   function revivesReady(): QueueEntry[] {
@@ -2108,10 +2131,10 @@ export function createTasks(options: {
         : [
             {
               id: taskId,
-              kind: 'task' as const,
+              kind: 'continuation' as const,
               rank: -1,
               factoryId,
-              ...(cleanupStage(taskId) && { skipsBusy: true as const }),
+              ...placedTask(taskId),
             },
           ],
     )
@@ -2231,22 +2254,27 @@ export function createTasks(options: {
           factoryId: task.factoryId,
         })),
     )
-    const revives = revivesReady()
-    const held = heldReady()
+    const waitingRevives = revivesReady()
+    const waitingHeld = heldReady()
     const queued = ready()
-    const waiting = queued.length + held.length + revives.length + automatic.length > 0
+    const waiting =
+      queued.length + waitingHeld.length + waitingRevives.length + automatic.length > 0
     await checkBusy(waiting)
     if (closed || !waiting) return
     const { use } = await slotUse(
-      [...revives, ...held, ...queued, ...automatic].flatMap((q) => q.factoryId ?? []),
+      [...waitingRevives, ...waitingHeld, ...queued, ...automatic].flatMap(
+        (q) => q.factoryId ?? [],
+      ),
     )
     if (closed || store.newWorkHold() !== undefined) return
+    const revives = revivesReady()
+    const held = heldReady()
     const heldIds = new Set(held.map((h) => h.id))
     const reviveIds = new Set(revives.map((r) => r.id))
     const sourceOf = new Map(
       sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
     )
-    for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
+    for (const entry of startsNow<QueueEntry>(queueOrder([...revives, ...held, ...ready()]), use)) {
       if (inFlight.inHierarchyWork(entry.id) || unfinishedChildren(entry.id)) continue
       if (reviveIds.has(entry.id)) {
         inBackground('resume a Task Lead session', () => leadLifecycle.beginRevive(entry.id))
@@ -2263,7 +2291,7 @@ export function createTasks(options: {
       try {
         const { use } = await slotUse([task.factoryId])
         if (version !== backlogVersion) return
-        const before = [...revivesReady(), ...heldReady(), ...ready()]
+        const before = queueOrder<QueueEntry>([...revivesReady(), ...heldReady(), ...ready()])
         if (!startsNow([...before, entry], use).some((q) => q.id === entry.id)) continue
         const current = find(task.id)
         if (current.preparation === 'ready') {
@@ -2316,7 +2344,7 @@ export function createTasks(options: {
     const ordered = queueOrder<QueueEntry>([
       ...subAgents.queued(),
       ...continuationsReady(true),
-      ...store.queue(),
+      ...placedQueue(),
       ...sources.flatMap((source) => source.queued()),
     ])
     for (const entry of ordered) {
@@ -2327,7 +2355,13 @@ export function createTasks(options: {
     store.setQueueActivity({
       taskPlaces: ordered.flatMap((entry, index) =>
         entry.kind === 'task' || entry.kind === 'setup-task' || entry.kind === 'continuation'
-          ? [{ id: entry.id, place: index + 1 }]
+          ? [
+              {
+                id: entry.id,
+                place: index + 1,
+                ...(entry.skipsBusy && { skipsBusy: true as const }),
+              },
+            ]
           : [],
       ),
       queuedTasks: leadLifecycle.pendingRecoveryTaskIds(),
@@ -2366,7 +2400,7 @@ export function createTasks(options: {
     const ordered = queueOrder<QueueEntry>([
       ...subAgents.queued(),
       ...continuationsReady(true),
-      ...store.queue(),
+      ...placedQueue(),
       ...sources.flatMap((source) => source.queued()),
     ])
     const byId = new Map(candidates.map((t) => [t.id, t]))
@@ -3372,6 +3406,11 @@ export function createTasks(options: {
       })
       await prs.publish(pullRequestTask(current), targets)
       recordSignOff(taskId)
+      const published = find(taskId).repos.filter((r) => targets.some((t) => t.name === r.name))
+      if (published.some((r) => r.pushFailed)) return
+      mergeUrgent.add(taskId)
+      mergeWaits.get(taskId)?.abort()
+      if (inFlight.is(taskId, 'merging')) watch?.kick()
     }
     const next = (pullRequestQueue.get(taskId) ?? Promise.resolve()).then(work)
     const settled = next.catch(() => undefined)
@@ -5754,7 +5793,7 @@ export function createTasks(options: {
       tasks: plan.creates.map(({ node, parent }) => ({
         key: node.gid,
         ...(parent && { parent: ref(parent) }),
-        title: node.name,
+        title: (node.gid === tree.rootGid && input.title) || node.name,
         description: node.notes ?? '',
         priority: input.priority ?? 'none',
         lead,
@@ -6661,6 +6700,10 @@ export function createTasks(options: {
         find,
         holding,
         failures: { findDecision: failures.findDecision, resolve: validation.resolve },
+        waitForRepair: async (taskId, failureId, input) => {
+          await untilChecksReported(taskId)
+          return holdingSignoff(find(taskId), () => waitForRepair(find(taskId), failureId, input))
+        },
         holdingSignoff,
         humanComment,
         answerRunPermission: (runId, generation, reply) =>
@@ -8757,10 +8800,14 @@ export function createTasks(options: {
       store.madeParent(taskId) &&
       store.childrenOf(taskId).some((c) => store.isMerged(c))
     ) {
-      wakeTask(taskId)
+      wakeAfterRemoval(taskId)
       return
     }
     if (task.stage === 'backlog') {
+      if (task.startRequested && unmergedBlockers(taskId).length === 0) {
+        wakeAfterRemoval(taskId)
+        return
+      }
       if (task.startRequested) store.setStartRequested(taskId, false)
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
     } else if (
@@ -8770,7 +8817,32 @@ export function createTasks(options: {
       !liveLead(task) &&
       !task.archived
     )
+      carryOnOrStop(taskId)
+  }
+
+  function wakeAfterRemoval(taskId: string): void {
+    store.setBlockersRemoved(taskId, true)
+    wakeTask(taskId)
+  }
+
+  function needsTheUser(taskId: string): boolean {
+    const task = find(taskId)
+    const status = publicTask(taskId).status?.kind
+    return task.preparation === 'ready' || status === 'failed' || status === 'waiting-on-you'
+  }
+
+  function carryOnOrStop(taskId: string): void {
+    const task = find(taskId)
+    const queued = store.queue().some((entry) => entry.id === taskId)
+    if (
+      unmergedBlockers(taskId).length > 0 ||
+      needsTheUser(taskId) ||
+      !(task.waitsForBlockers || queued)
+    ) {
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
+    } else if (task.waitsForBlockers) {
+      wakeAfterRemoval(taskId)
+    }
   }
 
   function setParent(ref: string, input: SetTaskParentRequest): Task {
@@ -8880,7 +8952,7 @@ export function createTasks(options: {
     taskId: string,
     caller: Caller,
     blockerId?: string,
-    reason = `was unblocked without merging. ${reopened} Use Resume when ready to reassess the failure.`,
+    reason = `was unblocked without merging. ${reopened} The next Task Lead Run reassesses the failure.`,
   ): void {
     const links = store.blockers(taskId).filter((link) => link.kind === undefined)
     const wasBlocked = links.some((l) => !l.merged)
@@ -8894,14 +8966,14 @@ export function createTasks(options: {
     const current = find(taskId)
     if (caller.kind !== 'run' && wasBlocked && unmergedBlockers(taskId).length === 0) {
       if (current.stage === 'backlog' && current.startRequested) {
-        store.setStartRequested(taskId, false)
+        wakeAfterRemoval(taskId)
       } else if (
         (current.waitsForBlockers ||
           (current.preparation === 'ready' && store.childrenOf(taskId).length > 0)) &&
         !liveLead(current) &&
         !current.archived
       ) {
-        store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
+        carryOnOrStop(taskId)
       }
     }
   }
@@ -8909,7 +8981,7 @@ export function createTasks(options: {
   function settleDependents(taskId: string, action = 'archived'): void {
     const dependents = store.blockedBy(taskId)
     for (const dependent of dependents) {
-      const reason = `was ${action} without merging. ${reopened} Its blocker was removed. Use Resume when ready to reassess the failure.`
+      const reason = `was ${action} without merging. ${reopened} Its blocker was removed. The next Task Lead Run reassesses the failure.`
       removeBlockers(dependent, { kind: 'app' }, taskId, reason)
     }
     if (action === 'archived') store.recordArchiveUnblocks(taskId, dependents)
@@ -9121,6 +9193,7 @@ export function createTasks(options: {
       if (parent) releaseParent(parent.id, wasBlocked)
       hierarchyDone()
     }
+    if (parent && store.blockersRemoved(parent.id)) wakeTask(parent.id)
     wake()
   }
 
@@ -9814,9 +9887,7 @@ export function createTasks(options: {
           !backlogEligible(live(task.id), true) ||
           !startsNow(
             [
-              ...revivesReady(),
-              ...heldReady(),
-              ...ready(),
+              ...queueOrder<QueueEntry>([...revivesReady(), ...heldReady(), ...ready()]),
               {
                 id: current.id,
                 kind: 'task',
@@ -10029,6 +10100,12 @@ export function createTasks(options: {
       return fromTheBrief(task, {
         heading: 'Picking up after a stop',
         why: 'The human resumed this Task after its Task Lead stopped.',
+      })
+    }
+    if (last?.kind === 'blockers' && last.removed) {
+      return fromTheBrief(task, {
+        heading: 'Picking up after a blocker',
+        why: 'The human removed the blockers this Task waited for, so it carries on without them. If a note from Ted says a repair Task ended without merging, reassess that failure first.',
       })
     }
     const merged = store
@@ -10502,9 +10579,17 @@ export function createTasks(options: {
 
   function wakeTask(id: string, queued = new Set(store.queue().map((q) => q.id))): void {
     if (queued.has(id) || inFlight.is(id, 'starting') || inFlight.inHierarchyWork(id)) return
-    if (finishingParents.has(id) || unmergedBlockers(id).length > 0) return
+    if (finishingParents.has(id)) return
+    if (unmergedBlockers(id).length > 0) {
+      store.setBlockersRemoved(id, false)
+      return
+    }
     const task = store.getTask(id)
-    if (!task || task.archived || task.stopped || task.stage === 'done') return
+    if (!task || task.archived || task.stopped || task.stage === 'done') {
+      if (task) store.setBlockersRemoved(id, false)
+      return
+    }
+    const why: BlockersCleared = store.blockersRemoved(id) ? 'removed' : 'merged'
     const wakes =
       (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) ||
       (task.waitsForBlockers && !liveLead(task))
@@ -10528,11 +10613,13 @@ export function createTasks(options: {
         .blockers(id)
         .filter((b) => b.merged)
         .map((b) => b.displayId)
+      const cause: StartCause =
+        why === 'removed' ? { cause: 'blockers-removed' } : { cause: 'blockers-merged', blockers }
       inBackground(`start ${task.displayId}`, async () => {
-        await start(id, {}, { cause: 'blockers-merged', blockers })
+        await start(id, {}, cause)
       })
     } else if (task.waitsForBlockers && !liveLead(task)) {
-      store.requeueAfterBlockers(id)
+      store.requeueAfterBlockers(id, why)
     }
   }
 
@@ -11149,7 +11236,7 @@ export function createTasks(options: {
   leadLifecycle.restoreHealth()
 
   for (const run of store.listRuns()) {
-    if (run.state !== 'finished' && store.reviewerOf(run.id)?.purpose === 'instruction-check')
+    if (run.state !== 'finished' && isCheckAgent(store.reviewerOf(run.id)?.purpose))
       inBackground('stop an instruction check’s agent left from before Ted restarted', () =>
         runs.stop(run.id),
       )
@@ -11553,7 +11640,10 @@ export function createTasks(options: {
         .map(async (r) => {
           const entry = repoEntry(entries, r)
           const baseBranch = entry?.baseBranch ?? (await git.defaultBranch(r.worktree))
-          const changes = await readChanges(reads, r.worktree, `origin/${baseBranch}`)
+          const base = `origin/${baseBranch}`
+          const changes = await (reads === undefined
+            ? git.workingTree(r.worktree, base)
+            : reads.changes(r.worktree, base))
           return {
             repo: r.repo,
             head: changes.head,
@@ -12088,6 +12178,7 @@ export function createTasks(options: {
       const imported = await importAsana(
         {
           url: sourceUrl,
+          ...(title?.trim() && { title: title.trim() }),
           ...(key !== undefined && { factory: key }),
           ...(fields.priority !== undefined && { priority: fields.priority }),
           ...(startNow !== undefined && { start: startNow }),
@@ -12265,6 +12356,21 @@ export function createTasks(options: {
     }
     if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check || githubIntake)
       return task
+    if (creator && taskLeadLink?.child) {
+      const why = runsInBypass(resolution)
+        ? 'this Factory runs agents without the sandbox'
+        : creator.task.createdBy === 'task-lead'
+          ? 'this Task was itself created by a Task Lead'
+          : undefined
+      if (why === undefined) return queueAndAnswer(task.id, { cause: 'task-lead-child' })
+      store.postComment({
+        taskId: creator.task.id,
+        author: { kind: 'ted' },
+        title: 'Child Task waits in Backlog',
+        body: `${task.displayId} waits in Backlog for the user to start it, because ${why}. This Task waits until it merges.`,
+      })
+      return task
+    }
     if (startNow !== true) return task
     const cause: StartCause | undefined = automation && { cause: 'automation' }
     return startInBackground === true ? queueAndAnswer(task.id, cause) : start(task.id, {}, cause)
@@ -12318,6 +12424,8 @@ export function createTasks(options: {
       ),
     assessFailure: (ref, caller, id, input) =>
       failureLead(ref, caller, (task, runId) => failures.assess(task, id, runId, input)),
+    chooseFailureFix: (ref, caller, id, reason) =>
+      failureLead(ref, caller, (task, runId) => failures.chooseFix(task, id, runId, reason)),
     verifyFailure: (ref, caller, id, evidence, fixedBy) =>
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
@@ -12360,7 +12468,8 @@ export function createTasks(options: {
               ? ['repair']
               : []),
           ].includes(value.resolutions.at(-1)?.resolution ?? '') &&
-          value.assessments.at(-1)?.assessment !== 'regression'
+          value.assessments.at(-1)?.assessment !== 'regression' &&
+          !value.leadFixes?.length
         )
           throw new RequestError(
             409,
@@ -13250,12 +13359,13 @@ export function createTasks(options: {
                 const assessment = value.assessments.at(-1)
                 if (
                   value.resolutions.at(-1)?.resolution !== 'fix' &&
+                  !leadFixed(value) &&
                   (assessment?.assessment !== 'regression' ||
                     assessment.evidenceCount !== value.additions.length)
                 )
                   throw new RequestError(
                     409,
-                    'substantiate a regression assessment before sending back; unrelated or uncertain failures need the human’s decision',
+                    'substantiate a regression assessment before sending back. For an unrelated or uncertain failure, choose to fix it in this Task with `ted failure fix <id>`, or ask the human with `ted failure ask <id>`',
                   )
                 if (
                   value.source.kind === 'factory-check' ||
@@ -13786,6 +13896,7 @@ export function createTasks(options: {
           mayFix: false,
           log,
           signal: AbortSignal.any([stopping.signal, signal]),
+          runNow: true,
         })
         const taskDisplayId = task.displayId
         if (outcome.kind === 'interrupted') return { state: 'stopped', taskDisplayId }
@@ -13889,7 +14000,10 @@ export function createTasks(options: {
     wake(factoryId) {
       if (closed) return
       continuationFailures.clear()
-      if (factoryId !== undefined) caps.delete(factoryId)
+      if (factoryId !== undefined) {
+        caps.delete(factoryId)
+        stageSettings.delete(factoryId)
+      }
       void pump()
       const live = new Set(store.liveRuns().flatMap((run) => run.taskId ?? []))
       for (const { id } of store.taskOutlines()) {

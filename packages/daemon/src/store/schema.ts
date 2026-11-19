@@ -107,6 +107,7 @@ export const tasks = State.SQLite.table({
     leadRestartPending: State.SQLite.boolean({ default: false }),
     startRequested: State.SQLite.boolean({ default: false }),
     waitsForBlockers: State.SQLite.boolean({ default: false }),
+    blockersRemoved: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
@@ -1170,6 +1171,7 @@ export const chatCommands = State.SQLite.table({
     endedAt: State.SQLite.text(),
     tail: State.SQLite.text(),
     outside: State.SQLite.text({ nullable: true }),
+    outsideFolder: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -1208,6 +1210,7 @@ export const chatRequests = State.SQLite.table({
     proposal: State.SQLite.text({ nullable: true }),
     agentDraft: State.SQLite.text({ nullable: true }),
     outsideCommand: State.SQLite.text({ nullable: true }),
+    outsideFolder: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -1538,6 +1541,14 @@ export const events = {
     name: 'v1.ChatOutsideCommandRan',
     schema: Schema.Struct({ id: Schema.String, outside: Schema.String }),
   }),
+  chatOutsideFolderChecked: Events.synced({
+    name: 'v1.ChatOutsideFolderChecked',
+    schema: Schema.Struct({ id: Schema.String, folder: Schema.String }),
+  }),
+  chatOutsideFolderRan: Events.synced({
+    name: 'v1.ChatOutsideFolderRan',
+    schema: Schema.Struct({ id: Schema.String, folder: Schema.String }),
+  }),
   outsideCommandAllowed: Events.synced({
     name: 'v1.OutsideCommandAllowed',
     schema: Schema.Struct({
@@ -1628,6 +1639,15 @@ export const events = {
   }),
   failureResolved: Events.synced({
     name: 'v1.FailureResolved',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  failureFixChosen: Events.synced({
+    name: 'v1.FailureFixChosen',
     schema: Schema.Struct({
       id: Schema.String,
       taskId: Schema.String,
@@ -1786,6 +1806,14 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskBlockersRemovedChanged: Events.synced({
+    name: 'v1.TaskBlockersRemovedChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      removed: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
   taskWaitingForBlockers: Events.synced({
     name: 'v1.TaskWaitingForBlockers',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
@@ -1793,6 +1821,15 @@ export const events = {
   taskRequeuedAfterBlockers: Events.synced({
     name: 'v1.TaskRequeuedAfterBlockers',
     schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
+  taskRequeuedAfterBlockersV2: Events.synced({
+    name: 'v2.TaskRequeuedAfterBlockers',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      rank: Schema.Number,
+      why: Schema.String,
+      at: Schema.String,
+    }),
   }),
   taskPreparationChanged: Events.synced({
     name: 'v1.TaskPreparationChanged',
@@ -4370,6 +4407,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskWaitingForBlockers': (args) => task(args),
   'v1.TaskRequeuedAfterBlockers': (args) => task(args),
+  'v2.TaskRequeuedAfterBlockers': (args) => task(args, { why: args.why }),
   'v1.TaskPreparationChanged': (args) => task(args, { state: args.state }),
   'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
   'v1.TaskResumed': (args) => task(args),
@@ -4851,6 +4889,8 @@ const materializers = counted(
       'v1.RequestSnoozeCleared': ({ requestId }) => requestSnoozes.delete().where({ requestId }),
       'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
         tasks.update({ startRequested }).where({ id: taskId }),
+      'v1.TaskBlockersRemovedChanged': ({ taskId, removed }) =>
+        tasks.update({ blockersRemoved: removed }).where({ id: taskId }),
       'v1.TaskWaitingForBlockers': ({ taskId }) => [
         taskQueue.delete().where({ taskId }),
         tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
@@ -4886,6 +4926,10 @@ const materializers = counted(
       'v1.GitHubActivityQueued': ({ taskId, rank, at }) =>
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
       'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
+      ],
+      'v2.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
       ],
@@ -5199,6 +5243,7 @@ const materializers = counted(
             leadRestartPending: false,
             startRequested: false,
             waitsForBlockers: false,
+            blockersRemoved: false,
             snoozedUntil: null,
             stoppedAt: null,
             stoppedRuns: null,
@@ -5290,6 +5335,7 @@ const materializers = counted(
             leadRestartPending: false,
             startRequested: false,
             waitsForBlockers: false,
+            blockersRemoved: false,
             snoozedUntil: null,
             stoppedAt: null,
             stoppedRuns: null,
@@ -5398,6 +5444,7 @@ const materializers = counted(
       'v1.FailureDecisionRequested': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureRepairIncorporated': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureResolved': (row) => failureCases.insert(row).onConflict('id', 'replace'),
+      'v1.FailureFixChosen': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureAcceptanceInvalidated': (row) =>
         failureCases.insert(row).onConflict('id', 'replace'),
       'v1.CommentAnswered': ({ id, answer, at }) => [
@@ -6278,6 +6325,10 @@ const materializers = counted(
         chatRequests.update({ outsideCommand: ask }).where({ id }),
       'v1.ChatOutsideCommandRan': ({ id, outside }) =>
         chatCommands.update({ outside }).where({ id }),
+      'v1.ChatOutsideFolderChecked': ({ id, folder }) =>
+        chatRequests.update({ outsideFolder: folder }).where({ id }),
+      'v1.ChatOutsideFolderRan': ({ id, folder }) =>
+        chatCommands.update({ outsideFolder: folder }).where({ id }),
       'v1.OutsideCommandAllowed': ({ at, ...allowance }) =>
         outsideCommandAllowances
           .insert({ ...allowance, allowedAt: at })

@@ -77,6 +77,13 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     const captures = process.env.TED_PREPARATION_SCREENSHOT_DIR
     if (captures) await window.screenshot({ path: path.join(captures, 'list-hover.png') })
     await groupSelection.check()
+    const rowSelection = window.getByRole('checkbox', { name: `Select ${task.displayId}` })
+    const centre = async (box: typeof rowSelection) => {
+      const bounds = await box.boundingBox()
+      if (!bounds) throw new Error('The checkbox is not visible.')
+      return bounds.x + bounds.width / 2
+    }
+    expect(await centre(groupSelection)).toBeCloseTo(await centre(rowSelection), 0)
     const actions = window.getByRole('toolbar', { name: 'Selected Tasks' })
     await actions.getByRole('button', { name: 'Archive…', exact: true }).waitFor()
     expect(await actions.getByRole('button', { name: 'Clear selection' }).count()).toBe(0)

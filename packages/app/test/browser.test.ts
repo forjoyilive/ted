@@ -19,6 +19,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import {
   checkGuestNetwork,
+  checkHeldRefusal,
   checkInFlightNavigation,
   checkModalRace,
   checkOutsideRequests,
@@ -63,7 +64,8 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     TED_CLAUDE_BIN: stubClaude,
     TED_HIDDEN_WINDOW: '1',
     TED_IDLE_EXIT_MS: '30000',
-    TED_BROWSER_HOSTS: 'private.example=10.0.0.1',
+    TED_BROWSER_HOSTS:
+      'private.example=10.0.0.1,held.example=held,data.example=held,post.example=held,www.youtube.com=held',
   }
   const originDir = path.join(home, 'origin')
   const origin = await makeOriginRepo(originDir)
@@ -135,6 +137,19 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
     command({ action: 'reload' }),
+  )
+  await checkHeldRefusal(
+    app,
+    panel,
+    new URL(running.url ?? '').href,
+    (value) => command({ action: 'navigate', value }),
+    () =>
+      window.evaluate(
+        async (id) =>
+          ((await globalThis.window.ted.request('browserState', id)) as { blocked?: number })
+            .blocked,
+        task.id,
+      ),
   )
   await checkWorkerMedia(app, panel, new URL(running.url ?? '').href)
   const snapshot = await command({ action: 'snapshot' })
@@ -482,6 +497,12 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await expect
     .poll(() => onAdmin('document.elementFromPoint(5, 5)?.textContent'))
     .toBe('Tap target')
+  await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
+  await expect.poll(() => onAdmin('document.visibilityState')).toBe('visible')
+  // A tap sent before the reattached view is shown and has drawn a frame can be lost, and is never resent.
+  await onAdmin(
+    'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
+  )
   await app.evaluate(({ webContents }, url) => {
     const page = webContents.getAllWebContents().find((c) => c.getURL() === url)
     // sendInputEvent skips Chromium's touch emulation; a mouse event sent this way never answers.

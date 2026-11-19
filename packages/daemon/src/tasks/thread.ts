@@ -187,7 +187,10 @@ export function runNowAgents(
   for (const entry of log) {
     if (entry.name !== 'v4.RunStarted' && entry.name !== 'v5.RunStarted') continue
     const runId = entry.data.runId
-    if (!isString(runId) || purposeOf(runId) !== 'instruction-check') continue
+    if (!isString(runId)) continue
+    const purpose = purposeOf(runId)
+    if (purpose === 'run-now-check') found.add(runId)
+    if (purpose !== 'instruction-check') continue
     const at = Date.parse(entry.at)
     const inCheckRun = checkRuns.some(
       (run) =>
@@ -588,6 +591,15 @@ export function threadEvents(
       }
       case 'v1.TaskRequeuedAfterBlockers':
         add(entry, 'run', 'Blockers merged · Task queued to carry on')
+        break
+      case 'v2.TaskRequeuedAfterBlockers':
+        add(
+          entry,
+          'run',
+          data.why === 'removed'
+            ? 'Blockers removed · carrying on'
+            : 'Blockers merged · Task queued to carry on',
+        )
         break
       case 'v1.TaskPreparationChanged':
         if (data.state === 'preparing') add(entry, 'run', 'Preparing through Design')
@@ -1098,6 +1110,8 @@ const startCauseLines = new Map([
   ['snooze', 'Started because its snooze ended'],
   ['coordinator', 'Started by the Coordinator'],
   ['automation', 'Started by an Automation'],
+  ['blockers-removed', 'Started because its blockers were removed'],
+  ['task-lead-child', 'Started because the Task Lead of the Task above it filed it'],
 ])
 
 function startLine(cause: Untyped, blockers: Untyped) {

@@ -354,6 +354,11 @@
   box-shadow: 0 1px 2px var(--shadow-popover);
 }
 
+.segment:has(:disabled) {
+  color: var(--text-faint);
+  cursor: default;
+}
+
 .segment:has(:focus-visible) {
   outline: 2px solid var(--focus-ring);
 }

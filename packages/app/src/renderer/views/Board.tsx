@@ -62,7 +62,6 @@ import {
 import { useNow } from '../requests.ts'
 import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
-import { statusDetail } from '../slots.ts'
 import { useStages } from '../stages.tsx'
 import { ted } from '../ted.ts'
 import styles from './Board.module.css'
@@ -517,9 +516,7 @@ export function Board({
               onOpenTask={onOpenTask}
             />
             {shows('activity') && activity !== undefined && (
-              <span className={styles.cardActivity} title={statusDetail(task.status)}>
-                {activity}
-              </span>
+              <span className={styles.cardActivity}>{activity}</span>
             )}
           </>
         )}

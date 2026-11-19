@@ -113,6 +113,8 @@ describe('event lines', () => {
           entry('v2.TaskBlockerAdded', 1, { blockerId: 'b1', runId: 'r1' }),
           entry('v1.TaskWaitingForBlockers', 2),
           entry('v1.TaskRequeuedAfterBlockers', 3),
+          entry('v2.TaskRequeuedAfterBlockers', 4, { why: 'merged' }),
+          entry('v2.TaskRequeuedAfterBlockers', 5, { why: 'removed' }),
         ],
         ['NB-46'],
       ),
@@ -120,6 +122,8 @@ describe('event lines', () => {
       { tone: 'edit', text: 'Task Lead made this Task wait for NB-46' },
       { tone: 'quiet', text: 'Waiting for NB-46 to merge' },
       { tone: 'run', text: 'Blockers merged · Task queued to carry on' },
+      { tone: 'run', text: 'Blockers merged · Task queued to carry on' },
+      { tone: 'run', text: 'Blockers removed · carrying on' },
     ])
   })
 
@@ -135,7 +139,7 @@ describe('event lines', () => {
     ])
   })
 
-  test('a Run now agent on the Task leaves no line, and a Validate instruction Check’s agent does', () => {
+  test('a Run now agent on the Task leaves no line, even beside a Validate Check of the same name, and a Validate instruction Check’s agent does', () => {
     const sub = (minute: number, runId: string) =>
       entry('v5.RunStarted', minute, {
         runId,
@@ -145,7 +149,7 @@ describe('event lines', () => {
         parentRunId: 'lead',
         name: 'Check · Docs drift',
       })
-    const log = [sub(2, 'validate'), sub(5, 'try'), sub(6, 'explore')]
+    const log = [sub(2, 'validate'), sub(2, 'now'), sub(5, 'try'), sub(6, 'explore')]
     const checkRuns: Pick<CheckRun, 'checks' | 'startedAt' | 'finishedAt'>[] = [
       {
         startedAt: at(1),
@@ -157,10 +161,11 @@ describe('event lines', () => {
     ]
     const runNow = runNowAgents(
       log,
-      (runId) => (runId === 'explore' ? undefined : 'instruction-check'),
+      (runId) =>
+        runId === 'explore' ? undefined : runId === 'now' ? 'run-now-check' : 'instruction-check',
       checkRuns,
     )
-    expect([...runNow]).toEqual(['try'])
+    expect([...runNow]).toEqual(['now', 'try'])
     expect(
       threadEvents('t1', log, {
         comments: [],

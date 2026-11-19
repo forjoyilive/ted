@@ -53,6 +53,7 @@ test('the import request parser copies every field and rejects bad input', () =>
   expect(
     parseAsanaImportRequest({
       url: ' https://app.asana.com/0/0/7/f ',
+      title: ' Ship the launch page ',
       factory: 'NB',
       priority: 'high',
       start: true,
@@ -64,6 +65,7 @@ test('the import request parser copies every field and rejects bad input', () =>
     }),
   ).toEqual({
     url: 'https://app.asana.com/0/0/7/f',
+    title: 'Ship the launch page',
     factory: 'NB',
     priority: 'high',
     start: true,
@@ -75,11 +77,15 @@ test('the import request parser copies every field and rejects bad input', () =>
   expect(parseAsanaImportRequest({ url: 'https://app.asana.com/0/0/7' })).toEqual({
     url: 'https://app.asana.com/0/0/7',
   })
+  expect(parseAsanaImportRequest({ url: 'https://app.asana.com/0/0/7', title: '  ' })).toEqual({
+    url: 'https://app.asana.com/0/0/7',
+  })
   for (const body of [
     null,
     {},
     { url: 'https://linear.app/a/issue/A-1' },
     { url: 'https://app.asana.com/0/0/7', factory: '' },
+    { url: 'https://app.asana.com/0/0/7', title: 7 },
     { url: 'https://app.asana.com/0/0/7', priority: 'p1' },
     { url: 'https://app.asana.com/0/0/7', start: 'yes' },
     { url: 'https://app.asana.com/0/0/7', addToTree: 1 },

@@ -24,7 +24,7 @@ export type FreshRunRequest = { pending: boolean } & (
   | { kind: 'resumed' }
   | { kind: 'overnight' }
   | { kind: 'planning' }
-  | { kind: 'blockers' }
+  | { kind: 'blockers'; removed: boolean }
   | { kind: 'retried' }
   | { kind: 'unarchived' }
   | { kind: 'moved'; from: string }
@@ -37,6 +37,7 @@ const asksForFreshRun = (entry: LoggedEvent): boolean =>
   entry.name === 'v1.TaskResumedOvernight' ||
   entry.name === 'v1.TaskStartedAfterPlanning' ||
   entry.name === 'v1.TaskRequeuedAfterBlockers' ||
+  entry.name === 'v2.TaskRequeuedAfterBlockers' ||
   entry.name === 'v1.TaskRetried' ||
   entry.name === 'v1.GitHubActivityQueued' ||
   ((entry.name === 'v1.TaskUnarchived' || entry.name === 'v2.TaskUnarchived') &&
@@ -196,7 +197,7 @@ export function createTaskHistory(
             notices: Array.isArray(last.data.notices) ? (last.data.notices as GitHubNotice[]) : [],
           }
         default:
-          return { kind: 'blockers', pending }
+          return { kind: 'blockers', removed: last.data.why === 'removed', pending }
       }
     },
     heldBeforeWork(taskId: string): boolean {

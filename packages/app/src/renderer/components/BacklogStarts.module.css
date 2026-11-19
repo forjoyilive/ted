@@ -9,8 +9,19 @@
   font-size: var(--text-13);
 }
 
-.disabled {
-  opacity: 0.5;
+.disabled,
+.disabled .caption,
+.disabled .inGroup,
+.disabled .note {
+  color: var(--text-faint);
+}
+
+.disabled .row {
+  cursor: default;
+}
+
+.disabled .row:hover {
+  background: none;
 }
 
 .caption {

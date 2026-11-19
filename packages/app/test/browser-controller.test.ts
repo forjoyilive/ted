@@ -56,7 +56,11 @@ function makeContents() {
     }),
     setWindowOpenHandler: vi.fn(),
     getURL: () => 'http://localhost:3000/',
-    navigationHistory: { canGoBack: () => false, canGoForward: () => false, clear: vi.fn() },
+    navigationHistory: {
+      canGoBack: (): boolean => false,
+      canGoForward: (): boolean => false,
+      clear: vi.fn(),
+    },
     getUserAgent: () => 'Electron desktop',
     reload: vi.fn((): void => {}),
     capturePage: vi.fn(
@@ -100,7 +104,7 @@ const electron: BrowserViews = {
 } as never
 
 import { createBrowserBroker } from '../../daemon/src/tasks/browser.ts'
-import { type BrowserViews, createTaskBrowsers } from '../src/browser.ts'
+import { type BrowserNotice, type BrowserViews, createTaskBrowsers } from '../src/browser.ts'
 
 const app = {
   name: 'Web',
@@ -802,6 +806,37 @@ test('an obsolete reconnect validation cannot clear a later connection’s sessi
   expect(mocks.views[0]?.webContents.close).not.toHaveBeenCalled()
 })
 
+test('a navigation the page starts after its command returns reports back and forward', async () => {
+  const transport = bridge()
+  const notify = vi.fn<(notice: BrowserNotice) => void>()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    notify,
+    electron,
+  )
+  controllers.push(controller)
+  await transport.send('snapshot', 'one', 'snapshot')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing guest')
+  const history = (back: boolean, forward: boolean) =>
+    notify.mock.calls.some(
+      ([notice]) =>
+        notice.type === 'history' &&
+        notice.taskId === 'one' &&
+        notice.canGoBack === back &&
+        notice.canGoForward === forward,
+    )
+  contents.navigationHistory.canGoBack = () => true
+  contents.emit('did-navigate')
+  expect(history(true, false)).toBe(true)
+  contents.navigationHistory.canGoBack = () => false
+  contents.navigationHistory.canGoForward = () => true
+  contents.emit('did-navigate-in-page')
+  expect(history(false, true)).toBe(true)
+})
+
 test('navigation after a coordinate lookup prevents input to the new document', async () => {
   const transport = bridge()
   const controller = createTaskBrowsers(
@@ -984,14 +1019,16 @@ test('a size command emulates a phone, sends clicks as taps scaled with the zoom
     method === 'Page.captureScreenshot' ? { data: Buffer.from('phone').toString('base64') } : {},
   )
   const script = contents.executeJavaScriptInIsolatedWorld.getMockImplementation()
-  contents.executeJavaScriptInIsolatedWorld.mockImplementation(async (world, scripts) =>
-    scripts[0]?.code === 'devicePixelRatio' ? 2 : script?.(world, scripts),
-  )
+  contents.executeJavaScriptInIsolatedWorld.mockImplementation(async (world, scripts) => {
+    if (scripts[0]?.code === 'devicePixelRatio') return 2
+    if (scripts[0]?.code === 'visualViewport ? visualViewport.scale : 1') return 0.5
+    return script?.(world, scripts)
+  })
   await transport.send('shot', 'one', 'screenshot')
   await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce())
   expect(Buffer.from(upload.mock.calls[0]?.[2] ?? []).toString()).toBe('phone')
   expect(sent('Page.captureScreenshot')).toEqual([
-    { format: 'png', clip: { x: 0, y: 0, width: 390, height: 844, scale: 0.5 } },
+    { format: 'png', clip: { x: 0, y: 0, width: 780, height: 1688, scale: 0.25 } },
   ])
   expect(contents.capturePage).toHaveBeenCalledWith(undefined, {
     stayHidden: true,

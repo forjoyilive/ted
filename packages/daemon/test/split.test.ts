@@ -427,6 +427,52 @@ describe('Split it', () => {
     )
   }, 90_000)
 
+  test('a parent with work of its own and a merged child says its blockers were removed when its last unmerged child is archived', async () => {
+    const client = await start()
+    const pieces = await client.file(
+      'pieces.json',
+      JSON.stringify({
+        title: 'Two pieces',
+        tasks: [
+          { title: 'Merging piece', scope: 'The first part.', description: toDone },
+          {
+            title: 'Archived piece',
+            scope: 'The second part.',
+            description: steps({ endTurn: true }),
+          },
+        ],
+      }),
+    )
+    const task = await startTask(
+      client,
+      { run: ['sh', '-c', 'echo own > own.txt'] },
+      advance,
+      propose(pieces),
+      { endTurn: true },
+    )
+    const request = await openRequest(client, 'proposal')
+    await client.ok('POST', `/comments/${request.request.id}/answer`, {
+      action: 'approve',
+      proposal: { startUnblocked: true },
+    })
+    await waitUntil(async () => {
+      const merged = (await allTasks(client)).find((t) => t.title === 'Merging piece')
+      return merged?.stage === 'done' || undefined
+    }, 'the first child to merge')
+    const archived = (await allTasks(client)).find((t) => t.title === 'Archived piece')
+    if (!archived) throw new Error('no Archived piece')
+    await client.ok('POST', `/tasks/${archived.id}/archive`, {})
+    await waitUntil(
+      async () =>
+        (await threadLines(client, task)).includes('Blockers removed · carrying on') || undefined,
+      'the parent to carry on because its blockers were removed',
+    )
+    expect(await threadLines(client, task)).not.toContain(
+      'Blockers merged · Task queued to carry on',
+    )
+    expect((await getTask(client, task.id)).stage).not.toBe('done')
+  }, 90_000)
+
   test('proposals are checked: rows in range, no cycles, at least two rows, Task Lead only', async () => {
     const client = await start()
     const bad = async (name: string, tasks: unknown[]) =>

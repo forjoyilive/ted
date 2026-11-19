@@ -9,6 +9,7 @@ import type {
   Comment,
   Factory,
   FailureCase,
+  RunSummary,
   SendBack,
   Task,
   ThreadEvent,
@@ -534,6 +535,9 @@ describe('Instruction Checks at Validate', () => {
         e.text.startsWith('Sub-agent “Check · Silent” started'),
       ).length
     expect(await agentsStarted()).toBe(1)
+    expect(
+      (await threadEvents(client, task)).filter((e) => e.text.includes('Check · Quick look')),
+    ).toEqual([])
     await hostsStarted(home)
     await stopTed()
     client = await startTed()
@@ -597,6 +601,58 @@ describe('Instruction Checks at Validate', () => {
       }, 'the return to Work'),
     ).toMatchObject([{ cause: 'check', checkRunId: failed?.id }])
   }, 180_000)
+
+  test('an instruction Check whose agent runs past its timeout is stopped and ends as no report, and Count it as failed returns the Task to Work', async () => {
+    await workflow(
+      instructionCheck('Slow', steps({ waitFor: 'stub-never' }, { endTurn: true }), [
+        'timeout: 1s',
+      ]),
+    )
+    const client = await startTed()
+    const task = await startTask(client, committingLead())
+    const asked = await waitUntil(
+      async () =>
+        (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
+          (c) => c.purpose?.kind === 'check-report' && c.answer === undefined,
+        ),
+      'the no-report question',
+      60_000,
+    )
+    expect(asked).toMatchObject({
+      title: 'An instruction check didn’t report: Slow',
+      choices: ['Try again', 'Count it as failed'],
+    })
+    expect(asked.body).toContain('The instruction check “Slow” has no report: timed out after 1s.')
+    const agent = await waitUntil(
+      async () =>
+        (await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)).find(
+          (r) => r.name === 'Check · Slow' && r.state === 'finished',
+        ),
+      'the timed-out agent to stop',
+    )
+    expect(agent).toBeDefined()
+    const [waiting] = await checkRuns(client, task)
+    expect(waiting?.finishedAt).toBeUndefined()
+
+    await client.ok('POST', `/comments/${asked.id}/answer`, {
+      action: 'answer',
+      choice: 'Count it as failed',
+    })
+    const [failed] = await finishedRuns(client, task, 1)
+    expect(failed?.outcome).toBe('failed')
+    expect(failed?.checks[0]).toMatchObject({ state: 'failed', noReport: 'timed out after 1s' })
+    const report = await client.ok<{ text: string }>(
+      'GET',
+      `/check-runs/${failed?.id}/checks/0/output`,
+    )
+    expect(report.text).toContain('No report: timed out after 1s.')
+    expect(
+      await waitUntil(async () => {
+        const backs = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
+        return backs.length > 0 ? backs : undefined
+      }, 'the return to Work'),
+    ).toMatchObject([{ cause: 'check', checkRunId: failed?.id }])
+  }, 120_000)
 })
 
 describe('Checks killed for lack of memory', () => {
@@ -738,6 +794,7 @@ describe('Checks at Validate', () => {
     expect(failure.evidence).toContain('[redacted]')
     expect(failure.evidence).not.toContain('ghp_abcdefghij')
     expect(failure.evidence).toMatch(/Full output: .*checks.*2\.log/)
+    expect(failure.evidence.match(/Full output: /g)).toHaveLength(1)
     await waitUntil(
       async () =>
         (await leadMessages(client, task)).some(

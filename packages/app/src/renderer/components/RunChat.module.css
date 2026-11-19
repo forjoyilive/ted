@@ -487,3 +487,31 @@
   padding: 0;
   list-style: none;
 }
+
+.localFolder {
+  margin: 8px 12px 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-control);
+  background: var(--status-neutral-bg);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+
+.localFolderDetail {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+}
+
+.localFolder.ok {
+  background: var(--status-success-bg);
+  color: var(--status-success-fg);
+}
+
+.localFolder.warn {
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+}

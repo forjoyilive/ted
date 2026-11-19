@@ -379,10 +379,19 @@
   flex-direction: column;
   gap: 2px;
   min-height: 0;
-  margin-block: -2px;
+  margin-block: -2px 4px;
   padding-block: 2px;
   overflow-x: hidden;
   overflow-y: auto;
+  border-block: 1px solid transparent;
+}
+
+.moreAbove {
+  border-top-color: var(--border-subtle);
+}
+
+.moreBelow {
+  border-bottom-color: var(--border-subtle);
 }
 
 .spacer {
@@ -475,6 +484,40 @@
 .subDot {
   display: inline-flex;
   margin-left: 6px;
+}
+
+.busy {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--button-height);
+  margin-top: 10px;
+  padding: 4px 8px 4px 10px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: 6px;
+  background: var(--status-waiting-bg);
+  color: var(--status-waiting-fg);
+  font: inherit;
+  font-size: var(--text-11-5);
+  font-weight: var(--weight-medium);
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+
+.busy:hover {
+  border-color: var(--status-waiting-fg);
+}
+
+.busy:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.busyLabel {
+  flex: 1;
+  color: var(--status-warning-text);
 }
 
 .updateChip,

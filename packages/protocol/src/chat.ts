@@ -1,3 +1,4 @@
+import type { LocalFolderState } from './local-folder.ts'
 import type { AgentKind, RunState } from './run.ts'
 import type { Comment, Effort } from './task.ts'
 
@@ -48,7 +49,7 @@ export type ChatItem =
       kind: 'command'
       id: string
       name: string
-      outside?: { command: string; folder: string; always?: true }
+      outside?: { command: string; folder: string; always?: true; local?: LocalFolderState }
       status: 'running' | 'passed' | 'failed' | 'stopped'
       exitCode?: number
       output: string

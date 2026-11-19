@@ -172,7 +172,7 @@ describe('Factory settings: Workflow', () => {
     expect(row('design')).toMatchObject({ enabled: true, gate: true, maxBack: 3, from: 'ted' })
     expect(row('clarify')).toMatchObject({ depth: 'auto' })
     expect(row('validate')).toMatchObject({
-      maxBack: 5,
+      maxBack: 8,
       from: 'factory',
       factoryFile: '# Validate here\n',
     })
@@ -206,7 +206,7 @@ describe('Factory settings: Workflow', () => {
     const client = await start()
     const view = await client.settings()
     const validate = (v: typeof view) => v.stages.find((s) => s.id === 'validate')
-    expect(validate(view)).toMatchObject({ p1OnlyFrom: false, subAgents: false })
+    expect(validate(view)).toMatchObject({ p1OnlyFrom: 2, subAgents: false })
     expect(view.stages.find((s) => s.id === 'work')).not.toHaveProperty('p1OnlyFrom')
 
     await client.save(
@@ -214,7 +214,7 @@ describe('Factory settings: Workflow', () => {
         ...unchanged(view),
         stages: {
           validate: { p1OnlyFrom: 3, subAgents: true },
-          work: { leadClosesFailures: true },
+          work: { leadClosesFailures: false },
           merge: { commitTitles: false },
         },
       },
@@ -223,13 +223,13 @@ describe('Factory settings: Workflow', () => {
     const yaml = await originFile('.ted/workflow.yaml')
     expect(yaml).toMatch(/p1_only_from: 3/)
     expect(yaml).toMatch(/sub_agents: true/)
-    expect(yaml).toMatch(/lead_closes_failures: true/)
+    expect(yaml).toMatch(/lead_closes_failures: false/)
     expect(yaml).toMatch(/commit_titles: false/)
     expect(yaml).toContain('- { name: Typecheck, run: npm run typecheck }')
     const on = await client.settings()
-    expect(validate(on)).toMatchObject({ p1OnlyFrom: 3, subAgents: true, maxBack: 5 })
-    expect(view.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
-    expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
+    expect(validate(on)).toMatchObject({ p1OnlyFrom: 3, subAgents: true, maxBack: 8 })
+    expect(view.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
+    expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
     expect(view.stages.find((s) => s.id === 'merge')).toMatchObject({ commitTitles: true })
     expect(on.stages.find((s) => s.id === 'merge')).toMatchObject({ commitTitles: false })
 

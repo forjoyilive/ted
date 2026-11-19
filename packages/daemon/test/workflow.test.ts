@@ -82,15 +82,16 @@ describe('Ted defaults', () => {
     expect(settings.stages.review?.gate).toBe(true)
     expect(settings.stages.merge).toMatchObject({ enabled: true, gate: false })
     expect(settings.stages.work?.max_back).toBe(3)
+    expect(settings.stages.work?.lead_closes_failures).toBe(true)
     expect(settings.stages.validate?.max_back).toBe(8)
-    expect(settings.stages.validate?.loop_check).toBe(3)
+    expect(settings.stages.validate?.loop_check).toBe(5)
+    expect(settings.stages.validate?.p1_only_from).toBe(2)
     expect(settings.stages.clarify?.depth).toBe('auto')
   })
 
-  test('leave P1-only rounds and other sub-agents in Validate off', async () => {
+  test('leave other sub-agents in Validate off', async () => {
     const { settings } = resolveWorkflow([await defaults()])
 
-    expect(settings.stages.validate?.p1_only_from).toBeUndefined()
     expect(settings.stages.validate?.sub_agents).toBeUndefined()
   })
 })
@@ -137,7 +138,7 @@ describe('layers', () => {
 
     expect(settings.stages.validate).toMatchObject({
       max_back: 8,
-      loop_check: 3,
+      loop_check: 5,
       p1_only_from: false,
       sub_agents: true,
     })
@@ -649,7 +650,7 @@ describe('checking a layer', () => {
     expect(layer.valid).toBe(true)
   })
 
-  test('a custom Stage takes only name, gate, max_back, effort, enabled and based_on; a built-in Stage takes no name', () => {
+  test('a custom Stage takes only name, gate, max_back, effort, enabled, based_on, priority and skip_busy_hold; a built-in Stage takes no name', () => {
     expect(
       problems({
         'workflow.yaml': [
@@ -668,7 +669,7 @@ describe('checking a layer', () => {
         'stages/security.md': '# Security\n',
       }),
     ).toEqual([
-      'error .ted/workflow.yaml 8 5 a custom Stage takes only `name`, `gate`, `max_back`, `effort`, `enabled`, `based_on`',
+      'error .ted/workflow.yaml 8 5 a custom Stage takes only `name`, `gate`, `max_back`, `effort`, `enabled`, `based_on`, `priority`, `skip_busy_hold`',
       'error .ted/workflow.yaml 10 5 only a custom Stage takes `name`',
     ])
     expect(
@@ -757,7 +758,7 @@ describe('checking a layer', () => {
 
     expect(found.problems.map((p) => `${p.severity} ${p.message}`)).toEqual([
       'error `cleanup` can’t be in `order`; turn it on with `stages.cleanup.enabled`',
-      'error Cleanup takes only `enabled`, `effort`, `based_on`, `steps`',
+      'error Cleanup takes only `enabled`, `effort`, `based_on`, `steps`, `priority`, `skip_busy_hold`',
       'error each Cleanup step needs an `instruction` or a `command`',
       'error each Cleanup step needs a `name`',
       'error two Cleanup steps are named `Drop db`',
@@ -890,6 +891,28 @@ describe('checking a layer', () => {
     expect(work('commit_titles: false')).toEqual([
       'warning .ted/workflow.yaml 3 5 unknown key `stages.work.commit_titles`',
     ])
+    for (const value of ['-1', '1.5', 'high', 'true']) {
+      expect(work(`priority: ${value}`)).toEqual([
+        `error .ted/workflow.yaml 3 15 \`stages.work.priority\` must be a whole number, 0 or more`,
+      ])
+    }
+    expect(work('skip_busy_hold: 1')).toEqual([
+      'error .ted/workflow.yaml 3 21 `stages.work.skip_busy_hold` must be true or false',
+    ])
+    for (const id of ['intake', 'work', 'validate', 'merge']) {
+      expect(
+        problems({
+          'workflow.yaml': `stages:\n  ${id}: { priority: 3, skip_busy_hold: true }\n`,
+        }),
+      ).toEqual([])
+    }
+    expect(
+      problems({
+        'workflow.yaml':
+          'order: [intake, security, work]\nstages:\n  security: { priority: 0, skip_busy_hold: false }\n',
+        'stages/security.md': '# Security\n',
+      }),
+    ).toEqual([])
   })
 
   test('Checks are Factory only', () => {

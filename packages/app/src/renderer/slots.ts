@@ -1,11 +1,4 @@
-import type {
-  BusyHold,
-  DeviceWait,
-  RunSlots,
-  SimulatorSlots,
-  Task,
-  TaskStatus,
-} from '@ted/protocol'
+import type { BusyHold, DeviceWait, RunSlots, SimulatorSlots, Task } from '@ted/protocol'
 import { busyHold, busyMarks, isChat } from '@ted/protocol/slots'
 import { plural } from './words.ts'
 
@@ -23,12 +16,6 @@ export function busyDetail(busy: BusyHold): string {
     .join('\n')
 }
 
-export function statusDetail(status: TaskStatus | undefined): string | undefined {
-  return status?.kind === 'queued' && 'busy' in status && status.busy !== undefined
-    ? busyDetail(status.busy)
-    : undefined
-}
-
 export function slotsDetail(slots: RunSlots | undefined): string | undefined {
   return slots?.busy === undefined ? undefined : busyDetail(slots.busy)
 }
@@ -43,8 +30,7 @@ function checksPart({ running, waiting }: RunSlots['checks']): string {
 
 function counts(slots: RunSlots): string {
   const queued = slots.queued > 0 ? ` · ${slots.queued} queued` : ''
-  const busy = slots.busy !== undefined ? ` · ${busyHold}` : ''
-  return `${slots.working} of ${plural(slots.limit, 'slot')} in use${checksPart(slots.checks)}${queued}${busy}`
+  return `${slots.working} of ${plural(slots.limit, 'slot')} in use${checksPart(slots.checks)}${queued}`
 }
 
 export function runsLine(slots: RunSlots): string {
@@ -61,7 +47,8 @@ export function nowLine(
     devices?.supported === true
       ? ` · ${devices.booted.length} of ${devices.limit} simulators and emulators running`
       : ''
-  return `Now: ${counts(slots)}${running}`
+  const busy = slots.busy !== undefined ? ` · ${busyHold}` : ''
+  return `Now: ${counts(slots)}${busy}${running}`
 }
 
 export function deviceWaitText(wait: DeviceWait, machine: string): string {

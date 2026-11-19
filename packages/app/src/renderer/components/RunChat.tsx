@@ -2,6 +2,7 @@
 // ActivityRun.tsx and ChatTimelineItems.tsx. Ted changed: CSS Modules and RunChat items, its own
 // grouping of calls (tool-groups.ts), and Edit rows that expand to their diff.
 import type { RunChat as Chat, ChatDiff, ChatItem, MessageBox, RunSummary } from '@ted/protocol'
+import { localFolderLine, notedNotRepository, repoShortName } from '@ted/protocol/local-folder'
 import { memo, type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChatState } from '../data.ts'
@@ -248,13 +249,17 @@ function CommandRow({
   item,
   now,
   stopOutside,
+  noted,
 }: {
   item: Extract<ChatItem, { kind: 'command' }>
   now: number
   stopOutside?: (() => void) | undefined
+  noted: boolean
 }) {
   const { outside } = item
   const running = item.status === 'running'
+  const local =
+    outside?.local && localFolderLine(outside.local, repoShortName(outside.folder), noted)
   return (
     <Collapsible
       label={running ? 'Ted is running' : 'Ted ran'}
@@ -267,6 +272,19 @@ function CommandRow({
         <p className={styles.outsideLine} data-outside-command={item.name}>
           <code>{outside.command}</code>
           {` in ${outside.folder}`}
+        </p>
+      )}
+      {local && (
+        <p
+          className={`${styles.localFolder} ${styles[local.tone] ?? ''}`}
+          data-local-folder={local.tone}
+        >
+          {local.text}
+          {local.detail !== undefined && (
+            <span className={styles.localFolderDetail} data-git-said>
+              {`Git said: ${local.detail}`}
+            </span>
+          )}
         </p>
       )}
       {(!running || outside) && (
@@ -531,11 +549,13 @@ interface ChatRowProps {
   run: RunSummary
   now: number
   options: ChatOptions
+  noted: boolean
 }
 
 function sameRow(before: ChatRowProps, after: ChatRowProps): boolean {
   return (
     before.now === after.now &&
+    before.noted === after.noted &&
     before.run.id === after.run.id &&
     before.run.agent === after.run.agent &&
     before.run.name === after.run.name &&
@@ -552,7 +572,7 @@ function sameRow(before: ChatRowProps, after: ChatRowProps): boolean {
   )
 }
 
-const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps) {
+const ChatRow = memo(function ChatRow({ item, run, now, options, noted }: ChatRowProps) {
   switch (item.kind) {
     case 'instructions':
       return (
@@ -604,7 +624,7 @@ const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps)
     case 'permission':
       return <PermissionRow item={item} now={now} inspect={options.inspect} />
     case 'command':
-      return <CommandRow item={item} now={now} stopOutside={options.stopOutside} />
+      return <CommandRow item={item} now={now} stopOutside={options.stopOutside} noted={noted} />
   }
 }, sameRow)
 
@@ -845,6 +865,13 @@ export function ChatTimeline({
   const now = useNow()
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map())
   const working = run !== undefined && (options.working ?? run.state === 'working')
+  const noted = notedNotRepository(
+    items.flatMap((item) =>
+      item.kind === 'command' && item.outside
+        ? [{ id: item.id, folder: item.outside.folder, local: item.outside.local }]
+        : [],
+    ),
+  )
   const itemRow = (item: ChatItem, run: RunSummary) => (
     <div
       key={`${run.id}:${item.kind}:${item.id}`}
@@ -861,6 +888,7 @@ export function ChatTimeline({
             : now
         }
         options={options}
+        noted={noted.has(item.id)}
       />
     </div>
   )

@@ -124,13 +124,17 @@ export function fetch(repo: string, timeoutMs?: number): Promise<void> {
   return turn
 }
 
-async function fetchNow(repo: string, timeoutMs?: number): Promise<void> {
+async function fetchNow(
+  repo: string,
+  timeoutMs?: number,
+  args: string[] = ['fetch', '--prune', 'origin'],
+): Promise<void> {
   if (timeoutMs === undefined) {
-    await git(repo, 'fetch', '--prune', 'origin')
+    await git(repo, ...args)
     return
   }
   try {
-    await execFileAsync('git', ['fetch', '--prune', 'origin'], {
+    await execFileAsync('git', args, {
       cwd: repo,
       env: env(),
       timeout: timeoutMs,
@@ -714,53 +718,20 @@ async function together<T extends readonly unknown[]>(
   return Promise.all(reads)
 }
 
-export async function workingChanges(
+export type WorkingTree = Pick<WorkingChanges, 'head' | 'base' | 'tree' | 'mergeBase'>
+
+type ScratchRun = (args: string[], work?: string) => Promise<string>
+
+export function workingTree(worktree: string, base: string): Promise<WorkingTree> {
+  return inWorkingScratch(worktree, base, async (tested) => tested)
+}
+
+export function workingChanges(
   worktree: string,
   base: string,
   options: { diffs?: readonly string[] | 'all' } = {},
 ): Promise<WorkingChanges> {
-  const [head, baseTip, common] = await together([
-    headCommit(worktree),
-    revParse(worktree, base),
-    git(worktree, ...noHooks, 'rev-parse', '--git-common-dir'),
-  ])
-  const objects = path.join(path.resolve(worktree, common), 'objects')
-  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-working-'))
-  const gitDir = path.join(scratch, 'repo.git')
-  const env = worktreeCommandEnv(
-    {},
-    {
-      GIT_TERMINAL_PROMPT: '0',
-      GIT_OPTIONAL_LOCKS: '0',
-      GIT_DIR: gitDir,
-      GIT_INDEX_FILE: path.join(scratch, 'index'),
-    },
-  )
-  const run = async (args: string[], work?: string): Promise<string> => {
-    try {
-      const { stdout } = await execFileAsync('git', [...readOnly, ...args], {
-        cwd: work ?? scratch,
-        env: work === undefined ? env : { ...env, GIT_WORK_TREE: work },
-        maxBuffer: 64 * 1024 * 1024,
-      })
-      return stdout
-    } catch (error) {
-      const stderr = (error as { stderr?: string }).stderr?.trim()
-      throw new GitError(redactSecrets(`git ${args[0]} failed${stderr ? `: ${stderr}` : ''}`))
-    }
-  }
-  try {
-    await run(['init', '--bare', '--quiet', gitDir])
-    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
-    const writeTree = async () => {
-      await run(['read-tree', head])
-      await run(['-c', 'core.bare=false', 'add', '--all', '--', '.'], worktree)
-      return (await run(['write-tree'])).trim()
-    }
-    const [tree, mergeBase] = await together([
-      writeTree(),
-      run(['merge-base', head, baseTip]).then((out) => out.trim()),
-    ])
+  return inWorkingScratch(worktree, base, async ({ head, base: baseTip, tree, mergeBase }, run) => {
     const numstat = async (to: string) =>
       new Map(
         parseNumstat(await run(['diff', ...diffFlags, '--numstat', '-z', mergeBase, to, '--'])).map(
@@ -813,6 +784,57 @@ export async function workingChanges(
       })
     }
     return { head, base: baseTip, tree, mergeBase, files, diffs }
+  })
+}
+
+async function inWorkingScratch<T>(
+  worktree: string,
+  base: string,
+  read: (tested: WorkingTree, run: ScratchRun) => Promise<T>,
+): Promise<T> {
+  const [head, baseTip, common] = await together([
+    headCommit(worktree),
+    revParse(worktree, base),
+    git(worktree, ...noHooks, 'rev-parse', '--git-common-dir'),
+  ])
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-working-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const env = worktreeCommandEnv(
+    {},
+    {
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_OPTIONAL_LOCKS: '0',
+      GIT_DIR: gitDir,
+      GIT_INDEX_FILE: path.join(scratch, 'index'),
+    },
+  )
+  const run = async (args: string[], work?: string): Promise<string> => {
+    try {
+      const { stdout } = await execFileAsync('git', [...readOnly, ...args], {
+        cwd: work ?? scratch,
+        env: work === undefined ? env : { ...env, GIT_WORK_TREE: work },
+        maxBuffer: 64 * 1024 * 1024,
+      })
+      return stdout
+    } catch (error) {
+      const stderr = (error as { stderr?: string }).stderr?.trim()
+      throw new GitError(redactSecrets(`git ${args[0]} failed${stderr ? `: ${stderr}` : ''}`))
+    }
+  }
+  try {
+    await run(['init', '--bare', '--quiet', gitDir])
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    const writeTree = async () => {
+      await run(['read-tree', head])
+      await run(['-c', 'core.bare=false', 'add', '--all', '--', '.'], worktree)
+      return (await run(['write-tree'])).trim()
+    }
+    const [tree, mergeBase] = await together([
+      writeTree(),
+      run(['merge-base', head, baseTip]).then((out) => out.trim()),
+    ])
+    return await read({ head, base: baseTip, tree, mergeBase }, run)
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
@@ -1286,4 +1308,110 @@ export async function* worktreeFiles(worktree: string): AsyncGenerator<string> {
     await stop?.()
     await rm(scratch, { recursive: true, force: true })
   }
+}
+
+export interface FolderHead {
+  head: string
+  branch?: string
+  uncommitted: number
+  objects: string
+}
+
+export async function folderHead(folder: string): Promise<FolderHead> {
+  const read = (...args: string[]) =>
+    git(folder, '--no-optional-locks', '--no-replace-objects', ...noHooks, ...args)
+  const head = await read('rev-parse', '--verify', 'HEAD^{commit}')
+  const branch = await read('symbolic-ref', '--quiet', '--short', 'HEAD').catch(() => undefined)
+  const status = await read('status', '--porcelain', '--untracked-files=no')
+  const common = await read('rev-parse', '--git-common-dir')
+  return {
+    head,
+    ...(branch && { branch }),
+    uncommitted: status.split('\n').filter((line) => line.trim() !== '').length,
+    objects: path.join(path.resolve(folder, common), 'objects'),
+  }
+}
+
+async function inObjects<T>(
+  objectDirs: readonly string[],
+  work: (run: (args: string[]) => Promise<string>) => Promise<T>,
+): Promise<T> {
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-gap-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const env = worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_NO_REPLACE_OBJECTS: '1' })
+  try {
+    await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], { cwd: scratch, env })
+    await writeFile(
+      path.join(gitDir, 'objects', 'info', 'alternates'),
+      objectDirs.map((dir) => `${dir}\n`).join(''),
+    )
+    return await work(async (args) => {
+      const { stdout } = await execFileAsync('git', ['-c', 'core.commitGraph=false', ...args], {
+        cwd: scratch,
+        env,
+        maxBuffer: 16 * 1024 * 1024,
+      })
+      return stdout.trim()
+    })
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+export async function cloneObjects(clone: string): Promise<string> {
+  const common = await git(
+    clone,
+    '--no-replace-objects',
+    ...noHooks,
+    'rev-parse',
+    '--git-common-dir',
+  )
+  return path.join(path.resolve(clone, common), 'objects')
+}
+
+export async function commitGap(
+  objectDirs: readonly string[],
+  from: string,
+  to: string,
+): Promise<{ ahead: number; behind: number } | undefined> {
+  return inObjects(objectDirs, async (run) => {
+    const out = await run(['rev-list', '--left-right', '--count', `${from}...${to}`, '--'])
+    const [ahead, behind] = out.split(/\s+/).map(Number)
+    if (ahead === undefined || behind === undefined || Number.isNaN(ahead + behind))
+      return undefined
+    return { ahead, behind }
+  }).catch(() => undefined)
+}
+
+export async function changedFileNames(
+  objectDirs: readonly string[],
+  from: string,
+  to: string,
+): Promise<string[]> {
+  return inObjects(objectDirs, async (run) => {
+    const out = await run(['diff', '--no-ext-diff', '--name-only', from, to, '--'])
+    return out.split('\n').filter((line) => line !== '')
+  }).catch(() => [])
+}
+
+const folderFetchMs = 60_000
+
+export async function fastForwardFolder(
+  folder: string,
+  checked: { branch?: string; head: string; uncommitted: number },
+  against: string,
+  target: string,
+): Promise<void> {
+  await fetchNow(folder, folderFetchMs, ['fetch', '--quiet', 'origin', against])
+  await git(folder, 'cat-file', '-e', `${target}^{commit}`).catch(() => {
+    throw new GitError(`the fetch from origin didn’t bring ${target.slice(0, 7)}`)
+  })
+  const now = await folderHead(folder)
+  if (
+    now.branch !== checked.branch ||
+    now.head !== checked.head ||
+    now.uncommitted !== checked.uncommitted
+  )
+    throw new GitError('the folder changed while Ted fetched, so Ted left it alone')
+  await git(folder, 'merge', '--ff-only', '--quiet', target)
 }

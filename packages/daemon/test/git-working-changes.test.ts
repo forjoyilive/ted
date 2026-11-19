@@ -12,6 +12,7 @@ import {
   mergeConflicts,
   ownCommits,
   workingChanges,
+  workingTree,
 } from '../src/git.ts'
 import { worktreeReads } from '../src/tasks/worktree-reads.ts'
 
@@ -92,6 +93,9 @@ test('lists committed and uncommitted work against the merge-base, not the base 
     },
     { path: 'src/search/useSearch.ts', added: 1, removed: 0, uncommitted: true },
   ])
+  const { head, base, tree, mergeBase } = changes
+  expect(await workingTree(repo, 'main')).toEqual({ head, base, tree, mergeBase })
+  expect(tree).not.toBe(await git('rev-parse', 'HEAD^{tree}'))
 })
 
 test('committed-only files are not marked uncommitted, and ignored files are left out', async () => {

@@ -41,6 +41,11 @@ export function PriorityButton({ task }: { task: Task }) {
           event.stopPropagation()
           actions.open(buttonPosition(event.currentTarget), 'Priority', priorityMenuItems(task))
         }}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          actions.open(buttonPosition(event.currentTarget), 'Priority', priorityMenuItems(task))
+        }}
       >
         <PriorityIcon priority={task.priority} />
       </button>

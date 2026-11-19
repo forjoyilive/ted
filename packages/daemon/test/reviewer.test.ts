@@ -305,7 +305,7 @@ describe('the Validate loop check', () => {
     'the limit gets a fresh assessment after early convergence and still waits for the human',
     async () => {
       const client = await start(
-        `${validateFlow}stages:\n  validate: { max_back: 2, loop_check: 1 }\n`,
+        `${validateFlow}stages:\n  validate: { max_back: 2, loop_check: 1, p1_only_from: false }\n`,
       )
       const task = await loopTask(client, 'converging')
       const ask = await waitForAsk(client, task)
@@ -344,7 +344,7 @@ describe('the Validate loop check', () => {
     'a pending limit assessment survives restart and still asks after converging',
     async () => {
       const client = await start(
-        `${validateFlow}stages:\n  validate: { max_back: 1, loop_check: 3 }\n`,
+        `${validateFlow}stages:\n  validate: { max_back: 1, loop_check: 3, p1_only_from: false }\n`,
       )
       const release = path.join(scratch, 'release-review')
       await writeFile(
@@ -404,7 +404,7 @@ describe('the Validate loop check', () => {
     'a looping and an unknown limit assessment each ask, with a recommendation or explicit uncertainty',
     async () => {
       const client = await start(
-        'version: 1\norder: [intake, design, work, validate, review, merge]\nstages:\n  design: { gate: false }\n  validate: { max_back: 1, loop_check: 3 }\n',
+        'version: 1\norder: [intake, design, work, validate, review, merge]\nstages:\n  design: { gate: false }\n  validate: { max_back: 1, loop_check: 3, p1_only_from: false }\n',
       )
       await all(['looping', 'unknown'], async (verdict) => {
         const task = await loopTask(client, verdict, 4)
@@ -429,7 +429,7 @@ describe('the Validate loop check', () => {
     'at the third send-back a looping verdict asks the human, and the Task Lead can’t advance until they answer',
     async () => {
       const client = await start(
-        `${validateFlow}stages:\n  validate: { max_back: 5, loop_check: 3 }\n`,
+        `${validateFlow}stages:\n  validate: { max_back: 5, loop_check: 3, p1_only_from: false }\n`,
       )
       const task = await loopTask(client, 'looping')
       const ask = await waitForAsk(client, task)
@@ -505,7 +505,7 @@ describe('the Validate loop check', () => {
     'a converging verdict sends the Task back to Work with the verdict added',
     async () => {
       const client = await start(
-        `${validateFlow}stages:\n  validate: { max_back: 5, loop_check: 3 }\n`,
+        `${validateFlow}stages:\n  validate: { max_back: 5, loop_check: 3, p1_only_from: false }\n`,
       )
       await writeFile(path.join(home, 'stub-codex.json'), JSON.stringify({ turnStartDelayMs: 500 }))
       const task = await loopTask(client, 'converging')
@@ -534,7 +534,7 @@ describe('the Validate loop check', () => {
     'loop_check: false sends the third round back as usual; over max_back the limit question offers Keep going and Stop the Task, and Stop the Task stops it',
     async () => {
       const client = await start(
-        'version: 1\norder: [intake, design, work, validate, review, merge]\nstages:\n  design: { gate: false }\n  validate: { max_back: 3, loop_check: false }\n',
+        'version: 1\norder: [intake, design, work, validate, review, merge]\nstages:\n  design: { gate: false }\n  validate: { max_back: 3, loop_check: false, p1_only_from: false }\n',
       )
       const file = path.join(scratch, 'findings.md')
       const script = [
