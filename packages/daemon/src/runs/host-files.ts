@@ -1,6 +1,13 @@
 import path from 'node:path'
 import type { PermissionMode } from '@ted/protocol'
+import type { SandboxScope } from '../sandbox.ts'
 import type { LaunchAuthority } from './launch-authority.ts'
+
+export interface LaunchSandbox {
+  tedHome: string
+  scope: SandboxScope
+  program?: string
+}
 
 export interface LaunchFile {
   launchId?: string
@@ -13,6 +20,7 @@ export interface LaunchFile {
   driver?: string
   lines?: 'lf'
   inputFrom?: number
+  sandbox?: LaunchSandbox
 }
 
 export interface HostDriver {

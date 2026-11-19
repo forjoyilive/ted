@@ -8,6 +8,12 @@ export const usageLimitProblem = 'agent-usage-limit'
 
 export const offlineProblem = 'offline'
 
+export const piSandboxProblem = 'pi-sandbox-unavailable'
+
+export function piSandboxQuestion(reason: string): string {
+  return `Ted can’t sandbox Pi here (${reason.replace(/[.\s]+$/, '')}). Pi will run every command without asking. Run it anyway?`
+}
+
 export const agentHealthStates = [
   'ready',
   'not-installed',
@@ -60,6 +66,7 @@ export interface AgentHealth {
   limitResetsAt?: string
   keySource?: string
   planUsage?: PlanUsage
+  sandboxProblem?: string
   pausedRuns: number
   checkedAt: string
 }

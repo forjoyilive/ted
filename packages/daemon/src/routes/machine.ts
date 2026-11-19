@@ -486,6 +486,7 @@ export const settingParsers: {
   aiDisclosure: onOff('aiDisclosure'),
   lowPriorityWork: onOff('lowPriorityWork'),
   antigravityPlanAccepted: onOff('antigravityPlanAccepted'),
+  piUnsandboxedAllowed: onOff('piUnsandboxedAllowed'),
   startNewTasks: onOff('startNewTasks'),
   maxChecksAtOnce(value) {
     const { min, max } = checkLimits

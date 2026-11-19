@@ -702,6 +702,8 @@ export {
   type PlanWindow,
   type PlanWindowKind,
   pausedReason,
+  piSandboxProblem,
+  piSandboxQuestion,
   planChip,
   planWarnPercent,
   planWindows,

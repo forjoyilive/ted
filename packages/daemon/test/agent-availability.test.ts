@@ -1,14 +1,15 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   DaemonClient,
   parseChangeAgentAvailabilityRequest,
+  piSandboxQuestion,
   readDaemonInfo,
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { piAlwaysAutoHold, piAutoHold, piModelHold } from '../src/agent-eligibility.ts'
+import { piModelHold } from '../src/agent-eligibility.ts'
 import type { MakeDirectory } from '../src/files.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -243,14 +244,15 @@ test('disabled Task, Planning and Coordinator choices wait without blocking enab
   await waitUntil(async () => (await client.getPlan(plan.id)).plan.runId, 're-enabled planner')
 })
 
-test('Pi Task work waits in an Auto Factory, then until Pi has a model, and starts once the cause clears; Pi planning and Coordinator chats keep waiting', async () => {
+test('without a sandbox, Pi work in an Auto Factory waits for the user’s switch and keeps waiting while it is off; once allowed it waits for a model, then starts; a Run token can’t set the switch', async () => {
   const agentDir = path.join(scratch, 'pi-agent')
-  const before = process.env.PI_CODING_AGENT_DIR
+  const before = { agentDir: process.env.PI_CODING_AGENT_DIR, sandbox: process.env.TED_SANDBOX_BIN }
   process.env.PI_CODING_AGENT_DIR = agentDir
+  process.env.TED_SANDBOX_BIN = path.join(scratch, 'no-such-sandbox')
   try {
-    const { client } = await start({ pi: true })
+    const { client, info } = await start({ pi: true })
     const origin = await makeOriginRepo(scratch)
-    const factory = await client.addFactory({ repo: origin, key: 'NB' })
+    await client.addFactory({ repo: origin, key: 'NB' })
     const task = await client.createTask({
       factory: 'NB',
       title: 'Pi work',
@@ -258,26 +260,43 @@ test('Pi Task work waits in an Auto Factory, then until Pi has a model, and star
       start: true,
     })
     const plan = await client.startPlan({ factory: 'NB', message: 'Plan with Pi', agent: 'pi' })
-    const chat = await client.startCoordinatorChat(factory.id, { text: 'Hello', agent: 'pi' })
     const holdOf = async () => {
       const status = (await taskOf(client, task.id)).status
       return status?.kind === 'queued' && 'hold' in status ? status.hold : undefined
     }
-    await waitUntil(
-      async () => (await holdOf()) === piAutoHold || undefined,
-      'the Task to wait for Bypass',
+    const health = (await client.checkAgentHealth()).find((h) => h.agent === 'pi')
+    expect(health?.sandboxProblem).toMatch(/sandbox-exec|bwrap/)
+    const question = piSandboxQuestion(health?.sandboxProblem ?? '')
+    expect(question).toMatch(
+      /^Ted can’t sandbox Pi here \(.+\)\. Pi will run every command without asking\. Run it anyway\?$/,
     )
-    expect((await client.getPlan(plan.id)).plan.paused).toBe(piAlwaysAutoHold)
-    expect((await client.coordinator(chat.id)).error).toBe(piAlwaysAutoHold)
+    await waitUntil(
+      async () => (await holdOf()) === question || undefined,
+      'the Task to wait for the sandbox switch',
+    )
+    expect((await client.getPlan(plan.id)).plan.paused).toBe(question)
+    const banner = async () =>
+      (await client.listBanners()).find((b) => b.problem === 'pi-sandbox-unavailable')
+    expect(await banner()).toMatchObject({
+      severity: 'stops-work',
+      text: question,
+      action: { opens: { kind: 'settings', section: 'agents' } },
+    })
 
-    await client.setFactoryPermissions(factory.id, 'bypass', true)
+    if (!daemon) throw new Error('Missing daemon')
+    const token = await devRunToken(home, daemon.port, daemon.appToken)
+    await expect(
+      new DaemonClient(info, token).updateSettings({ piUnsandboxedAllowed: true }),
+    ).rejects.toThrow()
+    await client.updateSettings({ piUnsandboxedAllowed: false })
+    expect(await holdOf()).toBe(question)
+    expect((await taskOf(client, task.id)).leadRunId).toBeUndefined()
+
+    await client.updateSettings({ piUnsandboxedAllowed: true })
     await waitUntil(
       async () => (await holdOf()) === piModelHold || undefined,
       'the Task to wait for a Pi model',
     )
-    expect((await client.getPlan(plan.id)).plan.paused).toBe(piAlwaysAutoHold)
-    expect((await taskOf(client, task.id)).leadRunId).toBeUndefined()
-
     await mkdir(agentDir, { recursive: true })
     await writeFile(
       path.join(agentDir, 'settings.json'),
@@ -286,15 +305,18 @@ test('Pi Task work waits in an Auto Factory, then until Pi has a model, and star
     await client.checkAgentHealth()
     const runId = await waitUntil(
       async () => (await taskOf(client, task.id)).leadRunId,
-      'the Pi Task Lead to start',
+      'the Pi Task Lead to start without a sandbox',
     )
     expect((await client.getRun(runId)).run.agent).toBe('pi')
-    expect((await client.getPlan(plan.id)).plan.runId).toBeUndefined()
-    expect((await client.getPlan(plan.id)).plan.paused).toBe(piAlwaysAutoHold)
-    expect((await client.coordinator(chat.id)).error).toBe(piAlwaysAutoHold)
+    const launch = JSON.parse(await readFile(path.join(home, 'runs', runId, 'launch.json'), 'utf8'))
+    expect(launch.sandbox).toBeUndefined()
+    expect((await client.getPlan(plan.id)).plan.paused).not.toBe(question)
+    expect(await banner()).toBeUndefined()
   } finally {
-    if (before === undefined) delete process.env.PI_CODING_AGENT_DIR
-    else process.env.PI_CODING_AGENT_DIR = before
+    if (before.agentDir === undefined) delete process.env.PI_CODING_AGENT_DIR
+    else process.env.PI_CODING_AGENT_DIR = before.agentDir
+    if (before.sandbox === undefined) delete process.env.TED_SANDBOX_BIN
+    else process.env.TED_SANDBOX_BIN = before.sandbox
   }
 }, 90_000)
 

@@ -315,7 +315,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         read: () => busy.memory(),
         ...(options.load?.checkEveryMs !== undefined && { everyMs: options.load.checkEveryMs }),
       })
+      const sandbox = createSandbox({
+        tedHome: paths.home,
+        env: environment.current,
+        ...(sandboxProgram && { program: sandboxProgram }),
+      })
+      store.setPiSandboxProblem(await sandbox.problem())
       const startedRuns = await startRunManager({
+        sandbox,
+        ...(sandboxProgram && { sandboxProgram }),
         home: paths.home,
         store,
         agents,
@@ -349,6 +357,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       )
       await disk.check()
       const health = createAgentHealth({
+        sandbox,
         agents,
         environment,
         store,
@@ -442,11 +451,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const checkSlots = createCheckSlots({
         limit: () => store.settings().maxChecksAtOnce,
         cpuPercent: () => store.settings().checkCpuPercent,
-      })
-      const sandbox = createSandbox({
-        tedHome: paths.home,
-        env: environment.current,
-        ...(sandboxProgram && { program: sandboxProgram }),
       })
       const checkTries = createCheckTries({
         store,

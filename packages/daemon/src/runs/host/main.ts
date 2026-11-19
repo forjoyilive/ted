@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import {
   closeSync,
@@ -16,12 +16,14 @@ import { pathToFileURL } from 'node:url'
 import { watchExitWith } from '../../exit-with.ts'
 import { waitForLock } from '../../lock.ts'
 import { homeOfRunDir, quitMarkedSync } from '../../quit-mark.ts'
+import { createSandbox, type Sandboxed } from '../../sandbox.ts'
 import {
   type DriveAgent,
   type HostDriver,
   type HostRecord,
   hostProtocol,
   type LaunchFile,
+  type LaunchSandbox,
   readGenerationLine,
   runFiles,
 } from '../host-files.ts'
@@ -54,7 +56,7 @@ const log = openSync(files.log, 'a')
 const write = (record: HostRecord) => writeSync(log, `${JSON.stringify(record)}\n`)
 
 interface Started {
-  agent: ChildProcessWithoutNullStreams
+  kill: (signal: NodeJS.Signals) => void
   driver: HostDriver | undefined
   send: (line: string) => void
   closed: Promise<[number | null, NodeJS.Signals | null]>
@@ -77,10 +79,22 @@ async function startAgent(): Promise<Started> {
       : ((await import(pathToFileURL(launch.driver).href)) as { drive: DriveAgent }).drive
   if (asked.stop) throw new Error('The Run was stopped before its agent started')
   checkLaunchAuthority(launch.authority)
-  const agent = spawn(launch.command, launch.args, {
-    cwd: launch.cwd,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  })
+  let wrapped: Sandboxed | undefined
+  try {
+    wrapped = launch.sandbox && (await wrapInSandbox(launch.sandbox, launch))
+  } catch (error) {
+    return refused(launch, error instanceof Error ? error.message : String(error))
+  }
+  const agent = wrapped
+    ? spawn(wrapped.argv[0], wrapped.argv.slice(1), {
+        cwd: launch.cwd,
+        env: { ...process.env, ...wrapped.env },
+        stdio: ['pipe', 'pipe', 'pipe', ...wrapped.fds],
+      })
+    : spawn(launch.command, launch.args, { cwd: launch.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+  await wrapped?.close()
+  const { stdin: agentIn, stdout: agentOut, stderr: agentErr } = agent
+  if (!agentIn || !agentOut || !agentErr) throw new Error('The agent started without its pipes')
   write({
     t: 'start',
     v: hostProtocol,
@@ -94,9 +108,9 @@ async function startAgent(): Promise<Started> {
   agent.on('error', (error) => {
     spawnError = error.message
   })
-  agent.stdin.on('error', () => {})
+  agentIn.on('error', () => {})
   const send = (line: string) => {
-    if (agent.stdin.writable) agent.stdin.write(`${line}\n`)
+    if (agentIn.writable) agentIn.write(`${line}\n`)
   }
   const driver = drive?.({
     input: launch.input,
@@ -117,12 +131,9 @@ async function startAgent(): Promise<Started> {
   }
   const stdout =
     launch.lines === 'lf'
-      ? lfLines(agent.stdout, onOut)
-      : createInterface({ input: agent.stdout, crlfDelay: Number.POSITIVE_INFINITY }).on(
-          'line',
-          onOut,
-        )
-  const stderr = createInterface({ input: agent.stderr, crlfDelay: Number.POSITIVE_INFINITY })
+      ? lfLines(agentOut, onOut)
+      : createInterface({ input: agentOut, crlfDelay: Number.POSITIVE_INFINITY }).on('line', onOut)
+  const stderr = createInterface({ input: agentErr, crlfDelay: Number.POSITIVE_INFINITY })
   stderr.on('line', (line) => write({ t: 'err', line }))
 
   const closed = Promise.all([
@@ -130,7 +141,40 @@ async function startAgent(): Promise<Started> {
     once(stdout, 'close'),
     once(stderr, 'close'),
   ]).then(([result]) => result as [number | null, NodeJS.Signals | null])
-  return { agent, driver, send, closed, spawnError: () => spawnError }
+  return {
+    kill: (signal) => agent.kill(signal),
+    driver,
+    send,
+    closed,
+    spawnError: () => spawnError,
+  }
+}
+
+function wrapInSandbox(sandbox: LaunchSandbox, launch: LaunchFile): Promise<Sandboxed> {
+  return createSandbox({
+    tedHome: sandbox.tedHome,
+    env: () => process.env,
+    ...(sandbox.program !== undefined && { program: sandbox.program }),
+  }).wrap([launch.command, ...launch.args], sandbox.scope)
+}
+
+function refused(launch: LaunchFile, reason: string): Started {
+  write({
+    t: 'start',
+    v: hostProtocol,
+    hostPid: process.pid,
+    agentPid: null,
+    ...(launch.permissions !== undefined && { permissions: launch.permissions }),
+  })
+  generation += 1
+  write({ t: 'err', line: `Ted didn’t start the agent in its sandbox: ${reason}` })
+  return {
+    kill: () => {},
+    driver: undefined,
+    send: () => {},
+    closed: Promise.resolve([null, null]),
+    spawnError: () => `Ted didn’t start the agent in its sandbox: ${reason}`,
+  }
 }
 
 // Node’s readline also ends lines at U+2028 and U+2029, which are valid inside JSON strings.
@@ -199,7 +243,7 @@ const inputTimer = setInterval(forwardInput, 150)
 const stop = () => {
   asked.stop = true
   restartWanted = false
-  current?.agent.kill('SIGTERM')
+  current?.kill('SIGTERM')
 }
 process.on('SIGTERM', stop)
 watchExitWith(stop)
@@ -207,7 +251,7 @@ process.on('SIGHUP', () => {
   if (asked.stop) return
   restartWanted = true
   restarting = true
-  current?.agent.kill('SIGTERM')
+  current?.kill('SIGTERM')
 })
 
 let code: number | null
