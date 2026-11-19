@@ -607,6 +607,28 @@ Run these outside the sandbox, at most 3 files per command: pnpm vitest run <fil
   test('Electron tests that only import changed code aren’t in the run, so nothing is left out', () => {
     expect(text('packages/app/test/first-window.ts')).toBeUndefined()
   })
+
+  test('files whose tests Ted’s sandbox skipped are listed with their reasons, Electron or not', () => {
+    const skipped = new Map([
+      ['packages/daemon/test/sandbox.test.ts', ['a second sandbox can’t start']],
+      ['packages/cli/test/demo.test.ts', ['Ted home', 'processes']],
+    ])
+    expect(
+      leftOutText([], electron, undefined, skipped),
+    ).toBe(`Ted’s sandbox made some tests skip themselves, so the Affected tests Check left these files out.
+Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>
+  packages/cli/test/demo.test.ts  skipped: Ted home; processes
+  packages/daemon/test/sandbox.test.ts  skipped: a second sandbox can’t start`)
+    const selection = select('packages/app/test/app.test.ts')
+    expect(
+      leftOutText(chooseTests(selection, tests, electron).run, electron, 'Ted’s sandbox', skipped),
+    ).toBe(`Ted’s sandbox can’t start Electron, so the Affected tests Check left the Electron app tests out.
+Ted’s sandbox made some tests skip themselves, so the Affected tests Check left these files out.
+Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>
+  packages/app/test/app.test.ts  changed
+  packages/cli/test/demo.test.ts  skipped: Ted home; processes
+  packages/daemon/test/sandbox.test.ts  skipped: a second sandbox can’t start`)
+  })
 })
 
 test('Electron can’t start in Codex’s sandbox, or in Ted’s on macOS', () => {

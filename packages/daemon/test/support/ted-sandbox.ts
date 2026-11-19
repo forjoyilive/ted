@@ -1,3 +1,5 @@
+import type { TestContext } from 'vitest'
+
 export const insideTedSandbox = process.env.TED_SANDBOX === '1'
 
 export const insideTedSandboxReason =
@@ -14,13 +16,21 @@ export const sandboxReasons = {
 
 const reported = new Set<string>()
 
+declare module 'vitest' {
+  interface TaskMeta {
+    tedSandboxSkipped?: string
+  }
+}
+
 export function skipInsideTedSandbox(
-  context: { skip: (condition: boolean, note?: string) => void },
+  context: Pick<TestContext, 'skip' | 'task'>,
   reason: string = sandboxReasons.secondSandbox,
 ): void {
-  if (insideTedSandbox && !reported.has(reason)) {
+  if (!insideTedSandbox) return
+  if (!reported.has(reason)) {
     reported.add(reason)
     console.warn(`TED_SANDBOX_SKIPPED: ${reason}`)
   }
-  context.skip(insideTedSandbox, reason)
+  context.task.meta.tedSandboxSkipped = reason
+  context.skip(true, reason)
 }

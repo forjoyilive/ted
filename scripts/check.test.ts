@@ -22,6 +22,8 @@ import {
   passedFiles,
   passedInRun,
   runRefusal,
+  sandboxSkipped,
+  sandboxSkippedInRun,
 } from './check.ts'
 import {
   appendRun,
@@ -161,6 +163,52 @@ describe('pnpm check --affected', () => {
       testResults: value.testResults.map((result) => ({ ...result, message: 'afterAll failed' })),
     }
     expect(passedFiles(parse(suiteError).report, [])).toEqual([])
+  })
+
+  test('a file whose tests Ted’s sandbox skipped is left out, not counted as passed', () => {
+    const file = 'scripts/example.test.ts'
+    const reason = 'a second sandbox can’t start'
+    const value = {
+      ...report('passed'),
+      numTotalTests: 3,
+      numPassedTests: 1,
+      numPendingTests: 2,
+      testResults: report('passed').testResults.map((result) => ({
+        ...result,
+        assertionResults: [
+          { fullName: 'example works', status: 'passed', meta: {} },
+          { fullName: 'needs a sandbox', status: 'skipped', meta: { tedSandboxSkipped: reason } },
+          { fullName: 'needs it too', status: 'skipped', meta: { tedSandboxSkipped: reason } },
+        ],
+      })),
+    }
+    const parsed = parse(value)
+    expect(parsed.problems).toEqual([])
+    expect(sandboxSkipped(parsed.report)).toEqual(new Map([[file, [reason]]]))
+    expect(passedFiles(parsed.report, [])).toEqual([])
+    expect([...sandboxSkippedInRun([{ project: 'node', result: parsed, retried: [] }])]).toEqual([
+      [file, [reason]],
+    ])
+    expect([...passedInRun([{ project: 'node', result: parsed, retried: [] }])]).toEqual([])
+  })
+
+  test('a test skipped for another reason still lets its file count as passed', () => {
+    const file = 'scripts/example.test.ts'
+    const value = {
+      ...report('passed'),
+      numTotalTests: 2,
+      numPendingTests: 1,
+      testResults: report('passed').testResults.map((result) => ({
+        ...result,
+        assertionResults: [
+          { fullName: 'example works', status: 'passed' },
+          { fullName: 'only on Linux', status: 'skipped', meta: {} },
+        ],
+      })),
+    }
+    const parsed = parse(value)
+    expect(sandboxSkipped(parsed.report).size).toBe(0)
+    expect(passedFiles(parsed.report, [])).toEqual([file])
   })
 
   test('a project whose report has problems or no retry report records no passes', () => {
