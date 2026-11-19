@@ -47,6 +47,7 @@ function automation(fields: Partial<Automation> = {}): Automation {
     on: true,
     createdAt,
     nextFirings: [],
+    priority: 'high',
     failuresInARow: 0,
     totals: { runs: 1, tasksCreated: 1 },
     ...fields,

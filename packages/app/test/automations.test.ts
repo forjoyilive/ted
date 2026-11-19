@@ -2,7 +2,7 @@ import { setTimePreferences } from '../src/renderer/time.ts'
 
 beforeEach(() => setTimePreferences({ timeFormat: '24-hour', timeZone: 'Europe/London' }))
 
-import type { Automation, AutomationRun, AutomationSchedule } from '@ted/protocol'
+import type { Automation, AutomationRun, AutomationRunRow, AutomationSchedule } from '@ted/protocol'
 import { beforeEach, describe, expect, test } from 'vitest'
 import {
   agentModel,
@@ -15,6 +15,7 @@ import {
   nextFiring,
   nowChip,
   retryable,
+  runRowStatus,
   scheduleOf,
   templateScheduleText,
   trigger,
@@ -47,6 +48,7 @@ const automation = (fields: Partial<Automation> = {}): Automation => ({
   on: true,
   createdAt: minutes(-10_000),
   nextFirings: [],
+  priority: 'high',
   failuresInARow: 0,
   totals: { runs: 0, tasksCreated: 0 },
   ...fields,
@@ -276,7 +278,7 @@ describe('the Automation view', () => {
   })
 
   test('Duplicate copies everything but turns the copy off', () => {
-    expect(duplicateOf(automation({ checkout: true }))).toEqual({
+    expect(duplicateOf(automation({ checkout: true, priority: 'low' }))).toEqual({
       factory: 'NB',
       name: 'Daily triage copy',
       prompt: 'Triage',
@@ -285,7 +287,47 @@ describe('the Automation view', () => {
       model: 'sonnet',
       effort: 'medium',
       checkout: true,
+      priority: 'low',
       on: false,
     })
+  })
+})
+
+describe('Automation Runs rows', () => {
+  const row = (fields: Partial<AutomationRunRow>, result: Partial<AutomationRun> = {}) => ({
+    run: run(result),
+    automationName: 'Daily triage',
+    factoryId: 'nb',
+    priority: 'high' as const,
+    state: 'ended' as const,
+    ...fields,
+  })
+
+  test('say what a Run is doing or how it ended, in a few words', () => {
+    expect(runRowStatus(row({ state: 'queued', place: 2 }), now)).toMatchObject({
+      text: 'Queued · 2nd',
+      tone: 'queued',
+    })
+    expect(
+      runRowStatus(row({ state: 'running', checking: true }, { startedAt: minutes(-4) }), now),
+    ).toMatchObject({ text: 'Running checks', when: '4m ago' })
+    expect(
+      runRowStatus(row({}, { result: { kind: 'failed', error: 'a long error' } }), now),
+    ).toMatchObject({ text: 'Failed', tone: 'failed' })
+    expect(
+      runRowStatus(
+        row(
+          {},
+          {
+            result: {
+              kind: 'created',
+              tasks: [{ id: 't', displayId: 'NB-1', title: 'Crash', stage: 'backlog' }],
+            },
+          },
+        ),
+        now,
+      ).text,
+    ).toBe('Created 1 Task')
+    expect(runRowStatus(row({}, { result: { kind: 'dropped' } }), now).text).toBe('Stopped')
   })
 })

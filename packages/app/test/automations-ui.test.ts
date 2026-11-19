@@ -230,12 +230,15 @@ describe('Automations in the app', () => {
     expect(await asana.getByLabel('Unit').inputValue()).toBe('minutes')
     await asana.getByLabel('How often').fill('2')
     await asana.getByLabel('Unit').selectOption('hours')
+    expect(await asana.getByLabel('Priority').inputValue()).toBe('high')
+    await asana.getByLabel('Priority').selectOption('low')
     await asana.getByText(/^Next: .+ · .+ · .+/).waitFor()
     await asana.getByRole('button', { name: 'Save', exact: true }).click()
     await asana.waitFor({ state: 'detached' })
     const intake = (await ted.listAutomations()).find((a) => a.template === 'asana')
     expect(intake).toMatchObject({
       on: true,
+      priority: 'low',
       schedule: { kind: 'every', every: 2, unit: 'hours' },
       scheduleText: 'Every 2 hours',
     })
@@ -506,5 +509,40 @@ describe('Automations in the app', () => {
       (a: Automation) => a.name === 'Daily triage copy',
     )
     expect(copy).toMatchObject({ on: false, schedule: { kind: 'weekdays', at: '09:00' } })
+
+    await sidebar(window).getByRole('button', { name: 'Automation Runs' }).click()
+    const runs = window.getByRole('region', { name: 'Automation Runs' })
+    const recent = runs.getByRole('button', { name: /^Recent/ })
+    await expect.poll(() => recent.getAttribute('aria-expanded')).toBe('false')
+    await recent.click()
+    const runRows = runs.locator('[data-automation-run]')
+    await expect.poll(() => runRows.count()).toBe(3)
+    expect(await runRows.first().textContent()).toContain('Daily triage')
+
+    await runs.getByRole('button', { name: 'Filter' }).click()
+    await window.getByRole('menuitem', { name: 'Status' }).hover()
+    await window.getByRole('menuitemcheckbox', { name: /^Skipped/ }).click()
+    await runs.getByText('No Automation Runs match these filters').waitFor()
+    await expect
+      .poll(async () => (await ted.getSettings()).automationRunsView.filters)
+      .toEqual({ statuses: ['skipped'] })
+    await window.keyboard.press('Escape')
+    await runs.getByRole('button', { name: 'Clear filters' }).click()
+    await expect.poll(() => runRows.count()).toBe(3)
+
+    const automationHead = runs.getByRole('columnheader', { name: /^Automation/ })
+    await automationHead.getByRole('button').click()
+    await expect.poll(() => automationHead.getAttribute('aria-sort')).toBe('ascending')
+    await automationHead.getByRole('button').click()
+    await expect.poll(() => automationHead.getAttribute('aria-sort')).toBe('descending')
+    await expect
+      .poll(async () => (await ted.getSettings()).automationRunsView)
+      .toMatchObject({ filters: {}, sort: 'automation', direction: 'descending' })
+
+    await runRows.first().click()
+    await window
+      .getByRole('region', { name: 'Automation Run' })
+      .getByRole('heading', { name: /^Daily triage · Run of / })
+      .waitFor()
   })
 })

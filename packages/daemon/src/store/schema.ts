@@ -995,6 +995,7 @@ export const automations = State.SQLite.table({
     effort: State.SQLite.text({ nullable: true }),
     on: State.SQLite.boolean(),
     checkout: State.SQLite.boolean({ default: false }),
+    priority: State.SQLite.text({ nullable: true }),
     checkCommand: State.SQLite.text({ nullable: true }),
     checkTimeout: State.SQLite.text({ nullable: true }),
     checkRunBy: State.SQLite.text({ nullable: true }),
@@ -3788,6 +3789,18 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  baseBranchMerged: Events.synced({
+    name: 'v1.BaseBranchMerged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      base: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      commit: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   p1OnlyReviewRecorded: Events.synced({
     name: 'v1.SeverityRuleReviewRecorded',
     schema: Schema.Struct({
@@ -3947,6 +3960,10 @@ export const events = {
   automationCheckoutSet: Events.synced({
     name: 'v1.AutomationCheckoutSet',
     schema: Schema.Struct({ id: Schema.String, checkout: Schema.Boolean, at: Schema.String }),
+  }),
+  automationPrioritySet: Events.synced({
+    name: 'v1.AutomationPrioritySet',
+    schema: Schema.Struct({ id: Schema.String, priority: Schema.String, at: Schema.String }),
   }),
   automationSwitched: Events.synced({
     name: 'v1.AutomationSwitched',
@@ -4545,6 +4562,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       sendBackId: args.sendBackId,
     }),
   'v1.BaseBranchAdopted': (args) => task(args, { repo: args.repo, base: args.base }),
+  'v1.BaseBranchMerged': (args) => task(args, { repo: args.repo, base: args.base }),
   'v1.SendBackSeverityDeclared': (args) =>
     task(args, { runId: args.runId, round: args.round, severity: args.severity }),
   'v1.SeverityRuleReviewRecorded': (args) =>
@@ -4983,6 +5001,8 @@ const materializers = counted(
       'v1.MergeCommitChosen': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.BaseBranchAdopted': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.BaseBranchMerged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateKeptOvernight': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
@@ -6117,6 +6137,8 @@ const materializers = counted(
         automations.update({ ...fields, ...(rescheduled && { handledUntil: at }) }).where({ id }),
       'v1.AutomationCheckoutSet': ({ id, checkout }) =>
         automations.update({ checkout }).where({ id }),
+      'v1.AutomationPrioritySet': ({ id, priority }) =>
+        automations.update({ priority }).where({ id }),
       'v1.AutomationSwitched': ({ id, on, at }) =>
         automations.update({ on, ...(on && { handledUntil: at }) }).where({ id }),
       'v1.AutomationDeleted': ({ id }) => [

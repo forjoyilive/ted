@@ -5,6 +5,7 @@ import type {
   Automation,
   AutomationDetail,
   AutomationRequest,
+  AutomationRunRow,
   AutomationTaskLink,
   AutomationTemplate,
   Banner,
@@ -1073,6 +1074,18 @@ export function useAutomationsState(factoryId: string | undefined) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new connection or list starts a new watch
   const affects = useMemo(() => automationWatch(listShown), [epoch, key])
   return useReloadingState(() => ted.listAutomations(factoryId), affects, key, everyEvent)
+}
+
+const runRowsShown = (rows: AutomationRunRow[]): AutomationsShown => ({
+  ids: [...new Set(rows.map((row) => row.run.automationId))],
+  tasks: rows.flatMap((row) => row.run.created ?? []),
+})
+
+export function useAutomationRunsState() {
+  const { epoch } = useConnection()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new connection starts a new watch
+  const affects = useMemo(() => automationWatch(runRowsShown), [epoch])
+  return useReloadingState(() => ted.automationRuns(), affects, 'automation-runs', everyEvent)
 }
 
 export function useAutomation(id: string): AutomationDetail | null | undefined {

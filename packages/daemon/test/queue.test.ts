@@ -13,11 +13,11 @@ const task = (id: string, priority: Priority, rank: number, factoryId = 'nb') =>
   ({ id, kind: 'task', priority, rank, factoryId }) as const
 
 describe('queueOrder', () => {
-  test('setup, sub-agents, Planning, Coordinators, drafts and Automations come before Tasks', () => {
+  test('setup, sub-agents, Planning, Coordinators and drafts come before Tasks and Automations', () => {
     const order = queueOrder([
       task('urgent-task', 'urgent', 1),
       { ...task('cleanup-task', 'none', 2), stageRank: 2 },
-      { id: 'automation', kind: 'automation', rank: 1 },
+      { id: 'automation', kind: 'automation', rank: 1, priority: 'high' },
       { id: 'draft', kind: 'automation-draft', rank: 1 },
       { id: 'coordinator', kind: 'coordinator', rank: 1 },
       { id: 'planning', kind: 'planning', rank: 1 },
@@ -30,9 +30,32 @@ describe('queueOrder', () => {
       'coordinator',
       'planning',
       'draft',
-      'automation',
       'cleanup-task',
       'urgent-task',
+      'automation',
+    ])
+  })
+
+  test('Automations wait behind continuations and ranked Stages, then go by Priority with new Tasks', () => {
+    const automation = (id: string, priority: Priority, rank: number) =>
+      ({ id, kind: 'automation', priority, rank, factoryId: 'nb' }) as const
+    const order = queueOrder([
+      task('new-low', 'low', 1),
+      task('new-high', 'high', 2),
+      automation('auto-urgent', 'urgent', 9),
+      automation('auto-high', 'high', 9),
+      automation('auto-none', 'none', 1),
+      { ...task('merge-low', 'low', 3), stageRank: 1 },
+      { ...task('answered-none', 'none', 4), kind: 'continuation' },
+    ])
+    expect(order.map((e) => e.id)).toEqual([
+      'merge-low',
+      'answered-none',
+      'auto-urgent',
+      'auto-high',
+      'new-high',
+      'new-low',
+      'auto-none',
     ])
   })
 
@@ -177,33 +200,33 @@ describe('startsNow', () => {
 
 describe('Automation admission', () => {
   const automationQueue = queueOrder([
-    { id: 'firing', kind: 'automation', rank: 1, factoryId: 'nb' },
+    { id: 'firing', kind: 'automation', rank: 1, factoryId: 'nb', priority: 'high' },
     { id: 'draft', kind: 'automation-draft', rank: 1, factoryId: 'nb' },
-    task('same-factory', 'high', 1),
-    task('other-factory', 'high', 2, 'ms'),
+    task('same-factory', 'medium', 1),
+    task('other-factory', 'medium', 2, 'ms'),
   ])
 
   test.each([
     {
       name: 'machine capacity',
       use: { limit: 1, working: 2, byFactory: {}, caps: {} },
-      expected: ['draft', 'firing'],
+      expected: ['draft'],
     },
     {
       name: 'Factory capacity',
       use: { limit: 6, working: 1, byFactory: { nb: 1 }, caps: { nb: 1 } },
-      expected: ['draft', 'firing', 'other-factory'],
+      expected: ['draft', 'other-factory'],
     },
     {
       name: 'busy computer',
       use: { limit: 6, working: 1, byFactory: {}, caps: {}, busy: true },
-      expected: ['draft', 'firing'],
+      expected: ['draft'],
     },
-  ])('bypasses $name while ordinary work respects it', ({ use, expected }) => {
+  ])('an Automation Run waits for $name; a draft doesn’t', ({ use, expected }) => {
     expect(startsNow(automationQueue, use).map((e) => e.id)).toEqual(expected)
   })
 
-  test('both kinds count against machine and Factory capacity in the same pass', () => {
+  test('an Automation Run takes a slot before a lower-priority Task', () => {
     expect(
       startsNow(automationQueue, { limit: 2, working: 0, byFactory: {}, caps: {} }).map(
         (e) => e.id,
@@ -214,6 +237,22 @@ describe('Automation admission', () => {
         (e) => e.id,
       ),
     ).toEqual(['draft', 'firing', 'other-factory'])
+  })
+
+  test('Start now passes the limit, the Factory cap and the busy hold', () => {
+    const pushed = queueOrder([
+      task('waiting', 'urgent', 1),
+      { id: 'pushed', kind: 'automation', rank: 1, factoryId: 'nb', pastLimits: true },
+    ])
+    expect(
+      startsNow(pushed, {
+        limit: 1,
+        working: 1,
+        byFactory: { nb: 1 },
+        caps: { nb: 1 },
+        busy: true,
+      }).map((e) => e.id),
+    ).toEqual(['pushed'])
   })
 })
 
@@ -282,7 +321,7 @@ describe('chats', () => {
   ])
 
   test('share the Planning tier', () => {
-    expect(ordered.map((e) => e.id)).toEqual(['coordinator', 'plan', 'side-chat', 'auto', 'a'])
+    expect(ordered.map((e) => e.id)).toEqual(['coordinator', 'plan', 'side-chat', 'a', 'auto'])
   })
 
   test.each([
@@ -304,7 +343,7 @@ describe('chats', () => {
   test('take no slot from the work after them', () => {
     expect(
       startsNow(ordered, { limit: 2, working: 0, byFactory: {}, caps: { nb: 1 } }).map((e) => e.id),
-    ).toEqual(['coordinator', 'plan', 'side-chat', 'auto', 'a'])
+    ).toEqual(['coordinator', 'plan', 'side-chat', 'a', 'auto'])
   })
 })
 

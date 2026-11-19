@@ -8,6 +8,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { devicesLine } from '@ted/protocol/app'
+import { automationRunCount } from '@ted/protocol/automation-runs-view'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { agentKinds } from '@ted/protocol/run'
@@ -140,6 +141,7 @@ import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { AgentsView } from './views/Agents.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
+import { AutomationRuns } from './views/AutomationRuns.tsx'
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
 import { Board } from './views/Board.tsx'
 import { Dashboard } from './views/Dashboard.tsx'
@@ -221,6 +223,7 @@ const allowedInSettings = new Set([
   'send',
   'go-to-inbox',
   'go-to-all-tasks',
+  'go-to-automation-runs',
   'go-to-board',
   'go-to-list',
   'go-to-map',
@@ -954,6 +957,21 @@ export function App({ start }: { start?: AppStart | undefined }) {
           />
         )
       }
+      case 'automation-runs':
+        return (
+          <AutomationRuns
+            factories={factories}
+            settings={settings}
+            onOpen={(row) =>
+              dispatch({
+                type: 'open-automation',
+                automationId: row.run.automationId,
+                factoryId: row.factoryId,
+                ...(row.run.runId !== undefined && { runId: row.run.runId }),
+              })
+            }
+          />
+        )
       case 'all-tasks':
         return (
           <TaskList
@@ -1355,6 +1373,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
           currentFactoryId={currentFactoryId(navigation, tasks)}
           developerMode={settings?.developerMode ?? false}
           inboxCount={inboxCount}
+          automationRunCount={slots === undefined ? 0 : automationRunCount(slots)}
           badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}
           {...(slots?.busy !== undefined && { busy: slots.busy })}

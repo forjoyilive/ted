@@ -506,15 +506,19 @@
 }
 
 .apps {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: fit-content(200px) 110px minmax(0, 1fr) auto;
+  column-gap: 8px;
+}
+
+.apps > * {
+  grid-column: 1 / -1;
 }
 
 .appRow {
   display: grid;
-  grid-template-columns: 80px 110px minmax(0, 1fr) auto;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 8px;
   min-height: 32px;
   border-top: 1px solid var(--border-subtle);
 }
@@ -524,8 +528,11 @@
 }
 
 .appName {
+  overflow: hidden;
   font-size: var(--text-13-5);
   font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .appKind {

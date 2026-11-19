@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { Banners } from './banners.ts'
 import { clonePath, ensureClone } from './factories.ts'
 import * as git from './git.ts'
-import { endProcessesInside, taskFolder } from './leftover-processes.ts'
+import { type EndOptions, endProcessesInside, taskFolder } from './leftover-processes.ts'
 import { redactSecrets } from './redact.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import { removeInside } from './tasks/remove-files.ts'
@@ -89,13 +89,39 @@ export async function freshFolder(root: string, name: string): Promise<string> {
   return folder
 }
 
+export interface RemoveOptions {
+  sandbox?: { root: string; name: string }
+  processes?: EndOptions
+}
+
 export async function removeCopy(
   made: readonly { clone: string; worktree: string }[],
   root: string,
   name: string,
+  options: RemoveOptions = {},
 ): Promise<void> {
+  const places = [{ root, name }, ...(options.sandbox ? [options.sandbox] : [])]
+  await endLeftovers(places, options.processes).catch((error) =>
+    console.error(
+      redactSecrets(
+        `couldn’t end the processes left in ${path.join(root, name)}: ${String(error)}`,
+      ),
+    ),
+  )
   await removeWorktrees(made)
   await removeInside(root, name)
+}
+
+async function endLeftovers(
+  places: readonly { root: string; name: string }[],
+  processes: EndOptions | undefined,
+): Promise<void> {
+  const folders: string[] = []
+  for (const place of places) {
+    const folder = await taskFolder(place.root, place.name)
+    if (folder !== undefined && (await lstat(folder).catch(() => undefined))) folders.push(folder)
+  }
+  if (folders.length > 0) await endProcessesInside(folders, processes)
 }
 
 export async function discardCopy(
