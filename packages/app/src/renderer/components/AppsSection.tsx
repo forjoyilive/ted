@@ -117,12 +117,13 @@ export function useAppActions(task: Task, app: TaskApp) {
     dialog,
     preview: () => act(() => ted.openAppPreview(task.id, app.repo, app.name)),
     start: (shutDown?: string) =>
-      confirm(() =>
+      confirm((confirmed) =>
         act(() =>
           ted.startApp(task.id, {
             repo: app.repo,
             name: app.name,
             ...(shutDown !== undefined && { shutDown }),
+            ...confirmed,
           }),
         ),
       ),
@@ -130,7 +131,9 @@ export function useAppActions(task: Task, app: TaskApp) {
     screenshot: () => act(() => ted.screenshotApp(task.id, { repo: app.repo, name: app.name })),
     stop: () => act(() => ted.stopApp(task.id, { repo: app.repo, name: app.name })),
     restart: () =>
-      confirm(() => act(() => ted.restartApp(task.id, { repo: app.repo, name: app.name }))),
+      confirm((confirmed) =>
+        act(() => ted.restartApp(task.id, { repo: app.repo, name: app.name, ...confirmed })),
+      ),
   }
 }
 

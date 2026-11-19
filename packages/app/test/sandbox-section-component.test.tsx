@@ -42,7 +42,10 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   let settings: MachineSettings = {
     ...defaultMachineSettings,
     factoryPermissions: { factory: 'bypass' },
-    appsOutsideSandbox: { factory: ['Ted Dev'], other: ['Web'] },
+    appsOutsideSandbox: {
+      factory: [{ repo: 'ted', app: 'Ted Dev', declaration: 'a'.repeat(64) }],
+      other: [{ repo: 'web', app: 'Web', declaration: 'b'.repeat(64) }],
+    },
   }
   const api = bridge({
     getSettings: () => settings,
@@ -73,7 +76,7 @@ test('unsandboxed items come first, and Stop allowing removes an App approved ou
   expect(links.onOpenPermissions).toHaveBeenCalled()
   await user().click(screen.getByRole('button', { name: 'Stop allowing' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', {
-    appsOutsideSandbox: { other: ['Web'] },
+    appsOutsideSandbox: { other: [{ repo: 'web', app: 'Web', declaration: 'b'.repeat(64) }] },
   })
   api.emit({ type: 'settings-changed', settings })
   expect(await screen.findByText('1 thing runs outside the sandbox.')).toBeTruthy()

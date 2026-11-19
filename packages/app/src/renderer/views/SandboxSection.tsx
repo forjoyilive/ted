@@ -53,12 +53,14 @@ export function SandboxSection({
     access: settingsAccessHolders(view),
   })
 
-  const stopAllowing = async (app: string) => {
+  const stopAllowing = async (repo: string, app: string) => {
     setBusy(app)
     setError(undefined)
     try {
       const current = await ted.getSettings()
-      const kept = (current.appsOutsideSandbox[view.factoryId] ?? []).filter((a) => a !== app)
+      const kept = (current.appsOutsideSandbox[view.factoryId] ?? []).filter(
+        (a) => a.repo !== repo || a.app !== app,
+      )
       const { [view.factoryId]: _, ...others } = current.appsOutsideSandbox
       await ted.updateSettings({
         appsOutsideSandbox: kept.length > 0 ? { ...others, [view.factoryId]: kept } : others,
@@ -83,7 +85,7 @@ export function SandboxSection({
           <Button
             size="small"
             disabled={busy !== undefined}
-            onClick={() => void stopAllowing(opening.app)}
+            onClick={() => void stopAllowing(opening.repo, opening.app)}
           >
             Stop allowing
           </Button>
@@ -199,7 +201,7 @@ function SummaryLine({ summary }: { summary: SandboxSummary }) {
 function rowKey(opening: SandboxOpening): string {
   switch (opening.kind) {
     case 'app-outside':
-      return `app-outside:${opening.app}`
+      return `app-outside:${opening.repo}:${opening.app}`
     case 'socket':
       return `socket:${opening.socket}`
     case 'electron-app':
@@ -229,7 +231,7 @@ function describe(opening: SandboxOpening): OpeningText {
       return {
         name: `App “${opening.app}” runs outside the sandbox`,
         what: 'When you start it with ▶, it runs as you: it can read and change any file and use the network.',
-        where: `Approved on ${machine} when you chose to always run it outside the sandbox.`,
+        where: `Approved on ${machine} when you chose to always run it outside the sandbox. Ted asks again if its command changes.`,
       }
     case 'pi-unsandboxed':
       return {

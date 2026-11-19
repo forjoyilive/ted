@@ -7,6 +7,7 @@ import type { GitHubIntakeScope } from './github-intake.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
 import type { ListView } from './list-view.ts'
+import type { OutsideSandboxApprovals } from './outside-sandbox.ts'
 import {
   type AgentKind,
   agentKinds,
@@ -155,7 +156,7 @@ export interface MachineSettings {
   trackerSyncDeclined: TrackerGroupLists
   trackerSyncGroupAccounts: TrackerGroupAccounts
   factoryPermissions: Readonly<Record<string, PermissionMode>>
-  appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
+  appsOutsideSandbox: OutsideSandboxApprovals
   lowPriorityWork: boolean
   antigravityPlanAccepted: boolean
   piUnsandboxedAllowed: boolean

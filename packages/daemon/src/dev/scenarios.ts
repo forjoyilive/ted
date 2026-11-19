@@ -569,7 +569,15 @@ async function populateScenarios(
       from: { new: row.new },
       body: 'Please also mention how an empty notebook behaves.',
     })
-    await client.startApp(work.id, { repo: 'web', name: 'iPhone' })
+    const iPhone = (await client.listApps(work.id)).find(
+      (a) => a.repo === 'web' && a.name === 'iPhone',
+    )
+    const declaration = iPhone?.outsideSandboxApproval?.declaration
+    await client.startApp(work.id, {
+      repo: 'web',
+      name: 'iPhone',
+      ...(declaration !== undefined && { declaration }),
+    })
     await steps(work, [
       { say: 'I’m checking how the editor restores its previous note.' },
       {

@@ -72,6 +72,7 @@ import {
   type RunEnding,
   type RunProblem,
   type RunState,
+  readOutsideSandboxApprovals,
   type SimulatorAsk,
   type SizeCheck,
   type SnoozedRequest,
@@ -2347,6 +2348,7 @@ export async function openContext({
         values.backlogStarts === undefined
           ? backlogStartsBeforeSaving()
           : parseSetBacklogStartsRequest(values.backlogStarts),
+      appsOutsideSandbox: readOutsideSandboxApprovals(values.appsOutsideSandbox),
       billing: {
         ...defaultMachineSettings.billing,
         ...(values.billing as Partial<MachineSettings['billing']> | undefined),
