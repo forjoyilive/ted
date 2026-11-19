@@ -1,4 +1,5 @@
 import type {
+  AcceptRefusal,
   CheckRun,
   Comment,
   FailureCase,
@@ -38,6 +39,31 @@ export function acceptedPositions(failures: readonly FailureCase[], runId: strin
   )
 }
 
+function cantAcceptCaption(
+  failure: FailureCase,
+  reason: AcceptRefusal | undefined,
+  closable: boolean,
+): string {
+  const check =
+    failure.source.kind === 'factory-check' || failure.source.kind === 'post-rebase-check'
+  const why =
+    reason === 'changed'
+      ? `the Task’s code or checks changed since ${check ? 'the check failed' : 'it was tested'}`
+      : reason === 'unknown'
+        ? 'Ted has no record it can verify of what was tested when it failed'
+        : 'Ted can’t tie it to the Task’s code as it is now'
+  if (!failure.validation)
+    return `This failure can’t be accepted: ${why}. Close it as fixed or no longer applicable; if it still happens, write to the Task Lead.`
+  const retry =
+    failure.source.kind === 'github-ci'
+      ? 'Retry waits for the check to run again on GitHub.'
+      : check
+        ? 'Retry runs the check on the current code.'
+        : 'Retry runs the failed step again on the current code.'
+  const close = closable ? ' Fixed and No longer applicable close it with a reason.' : ''
+  return `This failure can’t be accepted: ${why}. ${retry}${close}`
+}
+
 const assessmentWords = {
   regression: 'This Task caused it',
   unrelated: 'This Task didn’t cause it',
@@ -49,10 +75,12 @@ export function FailureDetails({
   requestId,
   onOpenTask,
   noAccept = false,
+  closable = false,
 }: {
   failure: FailureCase
   requestId?: string
   noAccept?: boolean
+  closable?: boolean
   onOpenTask?: ((id: string) => void) | undefined
 }) {
   const [open, setOpen] = useState(false)
@@ -154,9 +182,7 @@ export function FailureDetails({
       </details>
       <p className={styles.caption}>
         {noAccept
-          ? failure.validation
-            ? 'This failure can’t be accepted: Ted can’t tie it to the Task’s code as it is now.'
-            : 'This failure can’t be accepted: Ted can’t tie it to the Task’s code as it is now. If it still happens, send a message to the Task Lead instead of choosing.'
+          ? cantAcceptCaption(failure, request?.acceptRefused, closable)
           : 'Accepting covers only this failure. It doesn’t count as passed or approve a merge.'}
       </p>
     </section>
@@ -284,12 +310,14 @@ export function FailureRequestDetails({
   fallback,
   onOpenTask,
   noAccept,
+  closable,
 }: {
   taskId: string
   requestId: string
   fallback: string
   onOpenTask?: ((id: string) => void) | undefined
   noAccept?: boolean
+  closable?: boolean
 }) {
   const failures = useFailures(taskId)
   const failure = failures.find((f) => f.decisions.some((d) => d.commentId === requestId))
@@ -299,6 +327,7 @@ export function FailureRequestDetails({
       requestId={requestId}
       onOpenTask={onOpenTask}
       {...(noAccept && { noAccept })}
+      {...(closable && { closable })}
     />
   ) : (
     <p className={styles.summary}>{fallback}</p>

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type {
+  AcceptRefusal,
   AssessFailureRequest,
   Comment,
   FailureCase,
@@ -935,7 +936,12 @@ export function createFailureCases(options: {
           409,
           `The Task’s code, checks or CI changed since tested context ${shortReference(bound.id)}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
         )
-      const why = unknown ? cantAccept.unknown : stale || moved ? cantAccept.changed : undefined
+      const refused: AcceptRefusal | undefined = unknown
+        ? 'unknown'
+        : stale || moved
+          ? 'changed'
+          : undefined
+      const why = refused && cantAccept[refused]
       const fromWork = value.validation === true && handsOff(task.stage)
       if (fromWork && !latestCheckReturn(task, value))
         throw new RequestError(
@@ -980,7 +986,7 @@ export function createFailureCases(options: {
                 'Wait for a repair Task is available at Validate and Merge. Select existing work or edit and approve an ordinary new repair before waiting; this never accepts the original failure.',
               ]),
         ].join('\n\n'),
-        !why,
+        refused,
         runId,
         closable,
       )

@@ -404,6 +404,7 @@ test('a Check failure stays acceptable with later evidence on the same code, and
   const asked = await s.request(value)
   expect(asked.decisions.at(-1)?.contextId).toBe(later.id)
   expect(s.comment(asked.decisions.at(-1)?.commentId)?.choices).toContain('Accept this failure')
+  expect(asked.decisions.at(-1)?.acceptRefused).toBeUndefined()
   expect((await s.resolve(asked)).resolutions.at(-1)?.resolution).toBe('accepted')
   expect(await s.obligations()).toMatchObject({
     cases: [{ disposition: 'accepted', context: 'current' }],
@@ -414,6 +415,7 @@ test('a Check failure stays acceptable with later evidence on the same code, and
   vi.setSystemTime(start + 3000)
   s.worktree.head = 'head-2'
   const asked2 = await s.request(changed)
+  expect(asked2.decisions.at(-1)?.acceptRefused).toBe('changed')
   expect(s.comment(asked2.decisions.at(-1)?.commentId)).toMatchObject({
     choices: ['Fixed', 'No longer applicable'],
     body: expect.stringContaining('Ted can’t tie a later test run to it'),
@@ -452,6 +454,7 @@ test('a Check failure asked about after only the CI reading changed gets a card 
 test('accepting a failure with no tested context says so and tells the Task Lead to record it again', async () => {
   const s = await setup()
   const asked = await s.request(await s.record())
+  expect(asked.decisions.at(-1)?.acceptRefused).toBe('unknown')
   expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
     choices: ['Fixed', 'No longer applicable'],
     body: expect.stringContaining('Ted has no record it can verify of what was tested'),

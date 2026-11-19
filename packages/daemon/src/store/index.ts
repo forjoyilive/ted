@@ -25,6 +25,7 @@ import type {
   TaskIntervalHistory,
 } from '@ted/protocol'
 import {
+  type AcceptRefusal,
   type Activity,
   type AgentKind,
   type AgentStageId,
@@ -1366,7 +1367,7 @@ export interface TedStore extends TaskHistory {
   postFailureDecision(
     value: FailureCase,
     body: string,
-    canAccept?: boolean,
+    acceptRefused?: AcceptRefusal,
     askedBy?: string,
     closable?: boolean,
   ): FailureCase
@@ -4228,7 +4229,7 @@ export async function openStore({
       updatedQueue(approval.failure.taskId)
       return next
     },
-    postFailureDecision(value, body, canAccept = true, askedBy, closable = false) {
+    postFailureDecision(value, body, acceptRefused, askedBy, closable = false) {
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
@@ -4256,10 +4257,11 @@ export async function openStore({
           ...(value.validation && {
             title: `How should we handle the ${value.originalCheck?.name ?? (value.source.kind === 'github-ci' ? 'CI' : 'validation')} failure?`,
           }),
-          choices: offeredFailureChoices(value, stage, canAccept, closable).flatMap((choice) =>
-            choice === 'repair' && repairTask
-              ? [namedRepairChoice(repairTask.displayId), failureChoiceLabels[choice]]
-              : [failureChoiceLabels[choice]],
+          choices: offeredFailureChoices(value, stage, !acceptRefused, closable).flatMap(
+            (choice) =>
+              choice === 'repair' && repairTask
+                ? [namedRepairChoice(repairTask.displayId), failureChoiceLabels[choice]]
+                : [failureChoiceLabels[choice]],
           ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
@@ -4276,6 +4278,7 @@ export async function openStore({
             assessmentId: assessment.id,
             ...(assessment.contextId && { contextId: assessment.contextId }),
             ...(repairTask && { repairTask }),
+            ...(acceptRefused && { acceptRefused }),
           },
         ],
       }

@@ -98,7 +98,7 @@ test.each(
         },
         'assessed',
       )
-      saved = store.postFailureDecision(assessed, 'Wait for a separate export repair.', false)
+      saved = store.postFailureDecision(assessed, 'Wait for a separate export repair.', 'unknown')
       requestId = saved.decisions.at(-1)?.commentId
     }
     const assessment = saved.assessments.at(-1)
