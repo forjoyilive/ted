@@ -851,7 +851,7 @@ describe('checking a layer', () => {
       }),
     ).toEqual([
       'error .ted/workflow.yaml 1 16 `lead.agent` must be claude, codex, antigravity or pi',
-      'error .ted/workflow.yaml 2 11 `reviewer` must be codex, claude, antigravity or same',
+      'error .ted/workflow.yaml 2 11 `reviewer` must be codex, claude, antigravity, pi or same',
       'error .ted/workflow.yaml 3 20 `planner.effort` must be one of low, medium, high, xhigh, max, ultra',
       'error .ted/workflow.yaml 4 14 `permissions` must be auto or bypass',
       'error .ted/workflow.yaml 5 19 `max_working_runs` must be a whole number above 0',
@@ -1201,7 +1201,7 @@ describe('instruction Checks', () => {
       'a check’s `fix` must be true or false',
     ])
     expect(refused('{ name: A, instruction: y, agent: gemini }')).toEqual([
-      'a check’s `agent` must be codex, claude, antigravity or same',
+      'a check’s `agent` must be codex, claude, antigravity, pi or same',
     ])
     expect(refused('{ name: A, instruction: y, timeout: soon }')).toEqual([
       '`timeout` must be a duration such as 30s, 15m or 1h',

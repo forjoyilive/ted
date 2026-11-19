@@ -175,7 +175,7 @@ export function createSideChats(options: {
     const agent = agents.get(run.agent)
     if (
       (chatToolPolicy(run.agent) === 'none' &&
-        agent.chat(entries, run.cwd).some((e) => e.kind === 'tool')) ||
+        agent.chat(entries, run.cwd).some((e) => e.kind === 'tool' && e.thinking !== true)) ||
       run.state === 'waiting'
     ) {
       fail(c, 'The side chat attempted to use a tool. Its reply was stopped.')

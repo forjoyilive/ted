@@ -353,17 +353,38 @@ describe('agent kinds', () => {
     expect(agents.get('codex').problemFrom(claudeLine)).toBeUndefined()
   })
 
-  test('the Task Lead defaults to Claude Code, or Codex when only Codex is installed', () => {
+  test('the Task Lead defaults to Claude Code, or Codex when only Codex is installed, or Pi when only Pi is', () => {
     const stub = process.execPath
-    expect(createAgents({ claudeBin: stub, codexBin: stub }).defaultLead()).toBe('claude')
-    expect(createAgents({ claudeBin: '/nowhere/claude', codexBin: stub }).defaultLead()).toBe(
-      'codex',
-    )
-    expect(createAgents({ claudeBin: stub, codexBin: '/nowhere/codex' }).defaultLead()).toBe(
-      'claude',
-    )
+    const none = { antigravityBin: '/nowhere/agy', piBin: '/nowhere/pi' }
+    expect(createAgents({ ...none, claudeBin: stub, codexBin: stub }).defaultLead()).toBe('claude')
     expect(
-      createAgents({ claudeBin: '/nowhere/claude', codexBin: '/nowhere/codex' }).defaultLead(),
+      createAgents({ ...none, claudeBin: '/nowhere/claude', codexBin: stub }).defaultLead(),
+    ).toBe('codex')
+    expect(
+      createAgents({ ...none, claudeBin: stub, codexBin: '/nowhere/codex' }).defaultLead(),
+    ).toBe('claude')
+    expect(
+      createAgents({
+        ...none,
+        claudeBin: '/nowhere/claude',
+        codexBin: '/nowhere/codex',
+      }).defaultLead(),
+    ).toBe('claude')
+    expect(
+      createAgents({
+        ...none,
+        claudeBin: '/nowhere/claude',
+        codexBin: '/nowhere/codex',
+        piBin: stub,
+      }).defaultLead(),
+    ).toBe('pi')
+    expect(
+      createAgents({
+        ...none,
+        claudeBin: stub,
+        codexBin: '/nowhere/codex',
+        piBin: stub,
+      }).defaultLead(),
     ).toBe('claude')
   })
 })

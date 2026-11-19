@@ -519,7 +519,7 @@ test('a Pi Task Lead in a Bypass Factory streams its chat, takes a follow-up, st
       .split('\n')
       .map((line) => JSON.parse(line))
 
-  const first = await said('Hello from Pi')
+  const first = await said('Hello\u2028from Pi')
   expect(first.items).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ kind: 'tool', tool: 'Thinking', output: 'Thinking it over' }),
@@ -552,7 +552,8 @@ test('a Pi Task Lead in a Bypass Factory streams its chat, takes a follow-up, st
   await raw.call('POST', `/runs/${runId}/messages`, { text: 'STUB_WAIT for a stop' })
   await waitUntil(
     async () =>
-      (await lines('stub-pi-commands.jsonl')).some((c) => c.message?.includes('STUB_WAIT')) ||
+      ((await lines('stub-pi-commands.jsonl')).some((c) => c.message?.includes('STUB_WAIT')) &&
+        (await client.getRun(runId)).run.state === 'working') ||
       undefined,
     'Pi to start the long turn',
   )
@@ -575,6 +576,45 @@ test('a Pi Task Lead in a Bypass Factory streams its chat, takes a follow-up, st
   await raw.call('POST', `/runs/${runId}/messages`, { text: 'PI_AFTER_RESTART' })
   await said('from Pi: PI_AFTER_RESTART')
   expect((await client.getRun(runId)).run.sessionId).toBe(sessionId)
+}, 90_000)
+
+test('a Pi side chat starts Pi without tools and shows its thinking without stopping the reply', async () => {
+  const { client } = await startPiFactory(stubPiPath)
+  const task = await client.createTask({
+    factory: 'NB',
+    title: 'Talk with Pi',
+    lead: { agent: 'pi', model: 'stub/model-1' },
+    start: true,
+  })
+  const leadId = await piLeadOf(client, task.id)
+  await waitUntil(
+    async () => (await client.getRun(leadId)).run.state === 'idle' || undefined,
+    'the Pi Task Lead to finish its turn',
+  )
+  const opened = await client.openSideChat(leadId)
+  await client.sendSideChat(leadId, 'PI_SIDE_CHAT')
+  const side = await waitUntil(async () => {
+    const now = await client.getSideChat(leadId)
+    if (now?.state === 'failed') throw new Error(now.error)
+    return now?.state === 'ready' &&
+      (now.chat?.items ?? []).some(
+        (item) => item.kind === 'agent' && item.text.includes('PI_SIDE_CHAT'),
+      )
+      ? now
+      : undefined
+  }, 'the side chat to answer')
+  expect(side.chat?.items).toEqual(
+    expect.arrayContaining([expect.objectContaining({ kind: 'tool', tool: 'Thinking' })]),
+  )
+  const launches = (
+    await readFile(path.join(home, 'runs', opened.id, 'stub-pi-launches.jsonl'), 'utf8')
+  )
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  expect(launches[0].argv).toEqual(
+    expect.arrayContaining(['--no-tools', '--no-mcp', '--no-extensions', '--no-skills']),
+  )
 }, 90_000)
 
 const realPi = process.env.TED_REAL_PI_BIN
@@ -611,7 +651,7 @@ test.skipIf(!realPi)(
             return side?.state === 'ready' && answers.length >= count ? true : undefined
           },
           label,
-          120_000,
+          240_000,
         )
       await client.sendSideChat(leadId, 'Reply with one short sentence.')
       await answered(1, 'Pi to answer')
@@ -637,5 +677,5 @@ test.skipIf(!realPi)(
       else process.env.PI_CODING_AGENT_DIR = before
     }
   },
-  600_000,
+  900_000,
 )

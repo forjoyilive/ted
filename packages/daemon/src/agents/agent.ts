@@ -117,6 +117,7 @@ export type AgentChatEntry =
       diffs?: ChatDiff[]
       at?: string
       endedAt?: string
+      thinking?: true
     }
 
 export interface AgentChat {

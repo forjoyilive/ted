@@ -108,6 +108,7 @@ test('only the app can toggle agents; generic settings cannot bypass the decisio
   await expect(client.updateSettings({ enabledAgents: [] })).rejects.toThrow(/Settings/)
   expect((await client.changeAgentAvailability(input)).confirmationRequired).toBe(false)
   await client.changeAgentAvailability({ agent: 'antigravity', enabled: false })
+  await client.changeAgentAvailability({ agent: 'pi', enabled: false })
   await expect(client.changeAgentAvailability({ agent: 'claude', enabled: false })).rejects.toThrow(
     /another Provider/,
   )

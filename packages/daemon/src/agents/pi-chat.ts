@@ -84,7 +84,7 @@ export function piChatFrom(cwd: string): AgentChat {
     for (const key of open) {
       const entry = chat.get(key)
       if (entry?.kind === 'agent') chat.put({ ...entry, done: true })
-      if (entry?.kind === 'tool' && entry.status === 'running' && entry.tool === 'Thinking')
+      if (entry?.kind === 'tool' && entry.status === 'running' && entry.thinking === true)
         chat.put({ ...entry, status: 'done' })
     }
     open.clear()
@@ -105,6 +105,7 @@ export function piChatFrom(cwd: string): AgentChat {
       tool: 'Thinking',
       title: label(text) || 'Thinking',
       status: done ? 'done' : 'running',
+      thinking: true,
       ...(text !== '' && { output: clip(text) }),
       ...(at !== undefined && { at }),
     })

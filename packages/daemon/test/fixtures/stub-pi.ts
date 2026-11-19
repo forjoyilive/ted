@@ -2,7 +2,6 @@
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { createInterface } from 'node:readline'
 import type { JsonObject } from '@ted/protocol/parse'
 
 interface StubState {
@@ -124,13 +123,30 @@ async function turn(text: string) {
     send({
       type: 'message_update',
       usage: usage(0, 0, 0),
-      assistantMessageEvent: { type: 'text_delta', contentIndex: 1, delta: 'Hello ' },
+      assistantMessageEvent: { type: 'text_delta', contentIndex: 1, delta: 'Hello\u2028' },
     })
     send({
       type: 'message_update',
       usage: usage(0, 0, 0),
       assistantMessageEvent: { type: 'text_delta', contentIndex: 1, delta: `from Pi: ${text}` },
     })
+    if (argv.includes('--no-tools')) {
+      send({
+        type: 'message_end',
+        message: assistant(
+          [
+            { type: 'thinking', thinking: 'Thinking it over' },
+            { type: 'text', text: `Hello\u2028from Pi: ${text}` },
+          ],
+          'stop',
+        ),
+      })
+      send({ type: 'turn_end', message: {}, toolResults: [] })
+      streaming = false
+      send({ type: 'agent_end', messages: [], willRetry: false })
+      send({ type: 'agent_settled', aborted: false })
+      return
+    }
     const call = { type: 'toolCall', id: 'call-1', name: 'bash', arguments: { command: 'ls -la' } }
     send({
       type: 'message_update',
@@ -142,7 +158,7 @@ async function turn(text: string) {
       message: assistant(
         [
           { type: 'thinking', thinking: 'Thinking it over' },
-          { type: 'text', text: `Hello from Pi: ${text}` },
+          { type: 'text', text: `Hello\u2028from Pi: ${text}` },
           call,
         ],
         'toolUse',
@@ -190,7 +206,20 @@ async function turn(text: string) {
   send({ type: 'agent_settled', aborted: false })
 }
 
-for await (const line of createInterface({ input: process.stdin })) {
+async function* lfLines(input: NodeJS.ReadableStream) {
+  let buffered = ''
+  for await (const chunk of input) {
+    buffered += chunk.toString()
+    let end = buffered.indexOf('\n')
+    while (end !== -1) {
+      yield buffered.slice(0, end).replace(/\r$/, '')
+      buffered = buffered.slice(end + 1)
+      end = buffered.indexOf('\n')
+    }
+  }
+}
+
+for await (const line of lfLines(process.stdin)) {
   const command = JSON.parse(line)
   record(command)
   const respond = (data?: JsonObject) =>
