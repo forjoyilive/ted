@@ -143,10 +143,11 @@ export function createCheckouts(options: {
   }
 
   async function discard(runId: string, repos: readonly { clone: string; worktree: string }[]) {
-    await removeCopy(repos, root, runId).catch((error: unknown) =>
-      console.error(
-        redactSecrets(`couldn’t remove the checkout of Run ${runId}: ${String(error)}`),
-      ),
+    await removeCopy(repos, root, runId, { sandbox: { root: sandboxRoot, name: runId } }).catch(
+      (error: unknown) =>
+        console.error(
+          redactSecrets(`couldn’t remove the checkout of Run ${runId}: ${String(error)}`),
+        ),
     )
     await removeInside(sandboxRoot, runId).catch(() => undefined)
   }
