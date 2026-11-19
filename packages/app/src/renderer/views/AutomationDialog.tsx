@@ -651,6 +651,7 @@ export function AutomationDialog({
               </Help>
             </span>
             <Select
+              className={styles.prioritySelect}
               id={`${id}-priority`}
               value={priority}
               onChange={(event) => {

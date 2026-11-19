@@ -321,6 +321,7 @@ export function runRowStatus(row: AutomationRunRow, now: number): RunRowStatus {
       }
       if (kind === 'stopped' || kind === 'dropped') return { text: 'Stopped', when, tone: 'quiet' }
       if (kind === 'skipped') return { text: 'Skipped', when, tone: 'quiet' }
+      if (kind === 'failed') return { text: 'Failed', when, tone: 'failed' }
       const result = historyResult(run)
       return {
         text: result.text,

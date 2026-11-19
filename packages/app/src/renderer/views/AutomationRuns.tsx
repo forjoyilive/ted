@@ -176,7 +176,6 @@ export function AutomationRuns({
         onClick={open}
         onKeyDown={onKeyDown}
       >
-        <td className={list.cell} />
         <td className={`${list.cell} ${list.title}`}>
           <span className={list.titleCell}>
             <span className={list.titleText}>{r.automationName}</span>
@@ -250,7 +249,6 @@ export function AutomationRuns({
         <table className={`${list.table} ${styles.table}`} aria-label="Automation Runs">
           <thead>
             <tr className={`${list.row} ${list.heads}`}>
-              <th className={list.cell} aria-hidden />
               {head('Automation', 'automation')}
               {head('Factory', 'factory')}
               {head('Priority', 'priority')}
