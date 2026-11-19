@@ -149,7 +149,7 @@ export function createTaskBrowsers(
   let generation = 0
   const running = new Map<string, AbortController>()
   const commands = new Map<string, AbortController>()
-  const runTasks = new Map<string, string>()
+  const runTasks = new Map<string, { taskId: string; commandId: string }>()
   const rechecks = new Map<string, ReturnType<typeof setTimeout>>()
   const owner = randomUUID()
   const attached = new Set<WebContentsView>()
@@ -413,18 +413,23 @@ export function createTaskBrowsers(
     const controller = new AbortController()
     running.set(command.taskId, controller)
     commands.set(command.id, controller)
-    if (command.runId) runTasks.set(command.runId, command.taskId)
+    if (command.runId)
+      runTasks.set(command.runId, { taskId: command.taskId, commandId: command.id })
     const check = () => {
       if (stopped || controller.signal.aborted || version !== generation || client !== getClient())
         throw new Error('The browser connection changed; inspect the page before retrying')
       if (Date.now() >= command.expiresAt) throw new Error('Browser command expired')
+    }
+    const release = () => {
+      if (running.get(command.taskId) === controller) running.delete(command.taskId)
     }
     let timer: ReturnType<typeof setTimeout> | undefined
     const canceled = new Promise<never>((_resolve, reject) => {
       controller.signal.addEventListener(
         'abort',
         () => {
-          close(command.taskId, false)
+          const holder = running.get(command.taskId)
+          if (!holder || holder === controller) close(command.taskId, false)
           reject(new Error('Browser command canceled or expired; inspect the page before retrying'))
         },
         { once: true },
@@ -434,6 +439,7 @@ export function createTaskBrowsers(
     try {
       const { capture, ...result } = await Promise.race([execute(command, check), canceled])
       check()
+      release()
       await Promise.race([
         capture
           ? client.uploadBrowserCapture(owner, command.id, capture)
@@ -451,9 +457,10 @@ export function createTaskBrowsers(
         .catch(() => undefined)
     } finally {
       clearTimeout(timer)
-      if (running.get(command.taskId) === controller) running.delete(command.taskId)
+      release()
       commands.delete(command.id)
-      if (command.runId) runTasks.delete(command.runId)
+      if (command.runId && runTasks.get(command.runId)?.commandId === command.id)
+        runTasks.delete(command.runId)
     }
   }
   const loop = async () => {
@@ -482,8 +489,8 @@ export function createTaskBrowsers(
       for (const taskId of sessions.keys()) reconcile(taskId)
     },
     ended(runId: string) {
-      const taskId = runTasks.get(runId)
-      if (taskId) running.get(taskId)?.abort()
+      const entry = runTasks.get(runId)
+      if (entry) running.get(entry.taskId)?.abort()
     },
     async present(taskId: string, bounds: BrowserBounds, zoom: number) {
       const version = ++presentation
