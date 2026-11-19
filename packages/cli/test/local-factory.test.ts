@@ -29,7 +29,7 @@ afterEach(async () => {
 })
 
 async function git(cwd: string, ...args: string[]) {
-  await exec('git', args, {
+  const { stdout } = await exec('git', args, {
     cwd,
     env: {
       ...process.env,
@@ -39,10 +39,11 @@ async function git(cwd: string, ...args: string[]) {
       GIT_COMMITTER_EMAIL: 'test@example.com',
     },
   })
+  return stdout.trim()
 }
 
-async function makeSourceRepo(): Promise<string> {
-  const folder = path.join(scratch, 'widgets')
+async function makeSourceRepo(parent = scratch): Promise<string> {
+  const folder = path.join(parent, 'widgets')
   await mkdir(path.join(folder, '.ted'), { recursive: true })
   const touch = (name: string) => `touch ${JSON.stringify(path.join(markers, name))}`
   await writeFile(
@@ -63,7 +64,7 @@ repos:
       - { name: Web, run: '${touch('app')}', port: 4987, url: 'http://localhost:4987' }
 `,
   )
-  await git(scratch, 'init', '--initial-branch=main', folder)
+  await git(parent, 'init', '--initial-branch=main', folder)
   await git(folder, 'add', '.')
   await git(folder, 'commit', '-m', 'first')
   return folder
@@ -112,6 +113,9 @@ test('adds a Factory from a local repo inside a Run without GitHub or repo comma
   await git(folder, 'commit', '-m', 'second')
   const again = await ted('dev', 'factory', 'add', folder, '--key', 'WG')
   expect(again.stdout).toContain('Updated WG’s copy of local/widgets')
+  expect(await git(path.join(home, 'origins', 'local', 'widgets.git'), 'rev-parse', 'main')).toBe(
+    await git(folder, 'rev-parse', 'HEAD'),
+  )
 
   expect(await readdir(markers)).toEqual([])
   const client = await openHome()
@@ -140,4 +144,27 @@ test('refuses the Ted homes, a folder that isn’t a repo’s top and a home who
     stderr: expect.stringContaining('Quit it first'),
   })
   expect(await readdir(markers)).toEqual([])
+}, 90_000)
+
+test('refuses a same-named repo from another folder and a second key for the same repo', async () => {
+  const folder = await makeSourceRepo()
+  await ted('dev', 'factory', 'add', folder, '--key', 'WG')
+  const copy = path.join(home, 'origins', 'local', 'widgets.git')
+  const copied = await git(copy, 'rev-parse', 'main')
+
+  await mkdir(path.join(scratch, 'other'))
+  const other = await makeSourceRepo(path.join(scratch, 'other'))
+  await writeFile(path.join(other, 'OTHER.md'), 'other\n')
+  await git(other, 'add', '.')
+  await git(other, 'commit', '-m', 'other')
+  await expect(ted('dev', 'factory', 'add', other, '--key', 'BW')).rejects.toMatchObject({
+    stderr: expect.stringContaining(`already has local/widgets from ${folder}`),
+  })
+  expect(await git(copy, 'rev-parse', 'main')).toBe(copied)
+
+  await expect(ted('dev', 'factory', 'add', folder, '--key', 'BW')).rejects.toMatchObject({
+    stderr: expect.stringContaining('already has local/widgets as Factory WG'),
+  })
+  const client = await openHome()
+  expect(await client.listFactories()).toMatchObject([{ key: 'WG', repo: 'local/widgets' }])
 }, 90_000)

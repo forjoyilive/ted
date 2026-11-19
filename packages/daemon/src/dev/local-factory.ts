@@ -44,14 +44,25 @@ async function sourceRepo(
   return { folder: real, name, branch }
 }
 
+async function checkCopySource(source: { folder: string; name: string }, origin: string) {
+  const existing = await stat(origin).catch(() => undefined)
+  if (!existing) return
+  if (!existing.isDirectory()) throw new Error(`${origin} isn’t a folder.`)
+  const copied = await git(origin, 'config', '--get', 'ted.source').catch(() => '')
+  if (copied !== source.folder)
+    throw new Error(
+      `This TED_HOME already has local/${source.name} from ${copied || 'another folder'}. Use another TED_HOME, or rename ${source.folder}.`,
+    )
+}
+
 async function copyCommits(source: { folder: string; branch: string }, origin: string) {
   const existing = await stat(origin).catch(() => undefined)
   if (!existing) {
     await mkdir(path.dirname(origin), { recursive: true })
     await git(path.dirname(origin), 'clone', '--bare', '--quiet', '--', source.folder, origin)
+    await git(origin, 'config', 'ted.source', source.folder)
     return
   }
-  if (!existing.isDirectory()) throw new Error(`${origin} isn’t a folder.`)
   await git(
     origin,
     'fetch',
@@ -73,6 +84,7 @@ export async function addLocalFactory(
   const source = await sourceRepo(folder)
   const origin = path.join(resolvedHome, 'origins', 'local', `${source.name}.git`)
   const repo = `local/${source.name}`
+  await checkCopySource(source, origin)
   const wasQuit = await quitMarked(resolvedHome)
   const { startDaemon } = await import('../daemon.ts')
   const { DaemonAlreadyRunningError } = await import('../lock.ts')
@@ -93,9 +105,13 @@ export async function addLocalFactory(
       const info = await readDaemonInfo(resolvedHome)
       if (!info) throw new Error('The daemon didn’t publish its connection.')
       const client = new DaemonClient(info, '', { appKey: daemon.appToken })
-      await copyCommits(source, origin)
       try {
         const known = (await client.listFactories()).find((factory) => factory.repo === repo)
+        if (known && known.key !== key)
+          throw new Error(
+            `This TED_HOME already has local/${source.name} as Factory ${known.key}. Run again with --key ${known.key} to update it.`,
+          )
+        await copyCommits(source, origin)
         if (known) return { factory: known, added: false }
         const factory = await client.addFactory({ repo: `file://${origin}`, key })
         return { factory, added: true }
