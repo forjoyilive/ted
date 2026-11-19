@@ -1,4 +1,5 @@
 import { DaemonClient, readDaemonInfo, tedPaths } from '@ted/protocol'
+import { localCalendarDate } from '@ted/protocol/dashboard'
 import { expect, expectTypeOf, test, vi } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
@@ -118,6 +119,19 @@ test('read-only Dashboard request combines or narrows Factories and validates it
     const request = (path: string, token = info.token) =>
       rawRequest(daemon?.port ?? 0, { path, headers: { authorization: `Bearer ${token}` } })
     expect((await request(`/dashboard?range=bad`)).status).toBe(400)
+    const today = localCalendarDate(Date.now())
+    const weekAgo = localCalendarDate(Date.now() - 7 * 86_400_000)
+    const custom = await client.dashboard({ from: weekAgo, to: today })
+    expect(custom).toMatchObject({ range: { from: weekAgo, to: today } })
+    expect(custom.current.taskIds).toEqual(expect.arrayContaining([taskId, otherTaskId]))
+    const tomorrow = localCalendarDate(Date.now() + 86_400_000)
+    for (const query of [
+      `from=${today}&to=${weekAgo}`,
+      `from=${today}&to=${tomorrow}`,
+      `from=${today}`,
+      'from=2026-02-30&to=2026-03-01',
+    ])
+      expect((await request(`/dashboard?${query}`)).status).toBe(400)
     expect((await request(`/dashboard?range=7d&factory=${factoryId}&factory=missing`)).status).toBe(
       404,
     )

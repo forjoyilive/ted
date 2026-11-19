@@ -1,3 +1,5 @@
+import { isObject, isOneOf, isString, type Untyped } from './parse.ts'
+
 export const dashboardRanges = [
   'today',
   '7d',
@@ -9,10 +11,50 @@ export const dashboardRanges = [
   'year',
   'all',
 ] as const
-export type DashboardRange = (typeof dashboardRanges)[number]
+export type DashboardPreset = (typeof dashboardRanges)[number]
 
-export function dashboardRange(value: unknown): DashboardRange | undefined {
-  return dashboardRanges.find((range) => range === value)
+export interface DashboardCustomRange {
+  from: string
+  to: string
+}
+
+export type DashboardRange = DashboardPreset | DashboardCustomRange
+
+export function isCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return false
+  const [year, month, day] = match.slice(1).map(Number)
+  const date = new Date(Date.UTC(year ?? 0, (month ?? 0) - 1, day ?? 0))
+  return date.toISOString().slice(0, 10) === value
+}
+
+export function localCalendarDate(time: number): string {
+  const date = new Date(time)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+export function localDayStart(date: string): number {
+  const [year = 0, month = 1, day = 1] = date.split('-').map(Number)
+  return new Date(year, month - 1, day).getTime()
+}
+
+export function customRange(from: string, to: string): DashboardCustomRange | undefined {
+  return isCalendarDate(from) && isCalendarDate(to) && from <= to ? { from, to } : undefined
+}
+
+export function dashboardRange(value: Untyped): DashboardRange | undefined {
+  if (isOneOf(value, dashboardRanges)) return value
+  if (!isObject(value) || !isString(value.from) || !isString(value.to)) return undefined
+  return customRange(value.from, value.to)
+}
+
+export function isPreset(range: DashboardRange): range is DashboardPreset {
+  return isString(range)
+}
+
+export function rangeDays(range: DashboardCustomRange): number {
+  return Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86_400_000) + 1
 }
 export type DashboardMetric = 'completed' | 'merged' | 'created' | 'backlog' | 'intake'
 export type DashboardDuration = 'created' | 'backlog' | 'intake'

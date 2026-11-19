@@ -14,6 +14,7 @@ import { FactoryIcon } from '../components/FactoryIcon.tsx'
 import {
   type CostSelection,
   type DashboardSelection,
+  hourlyRange,
   rangeComparison,
   rangeLabels,
 } from '../dashboard.ts'
@@ -596,7 +597,7 @@ export function Cost({
         </header>
         <SpendChart
           period={data}
-          today={range === 'today'}
+          today={hourlyRange(range)}
           equivalent={equivalent}
           label={label}
           select={select}
