@@ -1445,7 +1445,9 @@ function Apps({
             />
           ) : (
             <div className={styles.appRow} key={rows.keys[index]}>
-              <span className={styles.appName}>{app.name || 'Unnamed App'}</span>
+              <span className={styles.appName} title={app.name || undefined}>
+                {app.name || 'Unnamed App'}
+              </span>
               <span className={styles.appKind}>{appKindLabels[app.kind]}</span>
               <span className={styles.appRun}>{app.run}</span>
               <ActionButton type="button" className={styles.link} onClick={() => setEditing(index)}>
