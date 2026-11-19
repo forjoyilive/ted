@@ -230,8 +230,31 @@ interface SandboxPaths {
 }
 
 const xcodeSavers =
-  'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtoold|swift-build|swift-run|swift-test'
-const xcodeTempNames = /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8})$/
+  'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtool|ibtoold|swift-build|swift-run|swift-test'
+const xcodeTempNames =
+  /^(TemporaryDirectory\.[A-Za-z0-9]{6}|swbuild\.tmp\.[A-Za-z0-9]{8}|(actool-sprite-atlas-scratch-)?[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}|ibtoold-[0-9]+)$/
+const chars = (set: string, count: number) => `[${set}]`.repeat(count)
+const uuid = [8, 4, 4, 4, 12].map((count) => chars('0-9A-F', count)).join('-')
+
+function actoolTempRules(userTemp: string): string[] {
+  const at = (pattern: string) => `^${escapeRegex(userTemp)}/${pattern}`
+  const noLinks = (pattern: string, types: string[]) => [
+    `(allow file-write* (require-all (regex #"${pattern}") (require-any ${types.map((type) => `(vnode-type ${type})`).join(' ')})))`,
+    `(deny file-link (regex #"${pattern}"))`,
+  ]
+  return [
+    ...noLinks(at(`(actool-sprite-atlas-scratch-)?${uuid}(/|$)`), ['DIRECTORY', 'REGULAR-FILE']),
+    ...noLinks(at(`ibtoold-[0-9]+(/IB(/${uuid}\\.(HostToRemote|RemoteToHost))?)?$`), [
+      'DIRECTORY',
+      'FIFO',
+    ]),
+    ...noLinks(at(`Untitled-${chars('A-Za-z0-9', 8)}\\.uicatalog(-journal)?$`), ['REGULAR-FILE']),
+    ...noLinks(
+      at(`\\.?[^/]+_${uuid}-[0-9]+-${chars('0-9A-F', 16)}\\.png(-${chars('A-Za-z0-9', 6)})?$`),
+      ['REGULAR-FILE'],
+    ),
+  ]
+}
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -378,6 +401,8 @@ function seatbeltArgs(
           // Seatbelt regexes have no {n} repeat, so the random characters are written out.
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/TemporaryDirectory\\.${'[A-Za-z0-9]'.repeat(6)}(/|$)"))`,
           `(allow file-write* (regex #"^${escapeRegex(paths.userTemp)}/swbuild\\.tmp\\.${'[A-Za-z0-9]'.repeat(8)}(/|$)"))`,
+          // actool’s helpers write these in the per-user temp folder, ignoring TMPDIR. ibtoold-<pid> names are guessable and stay behind, so links are refused.
+          ...actoolTempRules(paths.userTemp),
         ]),
     ...(paths.manifestLogs === undefined
       ? []

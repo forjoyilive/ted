@@ -118,7 +118,6 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     const interfaceSave = path.join(saves, `NSIRD_ibtool_${id}`)
     const looseSave = path.join(saves, `ted-${id}`)
     await mkdir(otherSave, { recursive: true })
-    await mkdir(interfaceSave, { recursive: true })
     const result = await inSandbox(
       [
         tryWrite(path.join(worktree, 'a.txt')),
@@ -131,7 +130,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         `mkdir '${assetHelperSave}' && ${tryWrite(path.join(assetHelperSave, 'x'))}`,
         `mkdir '${swiftSave}' && ${tryWrite(path.join(swiftSave, 'x'))}`,
         tryWrite(path.join(otherSave, 'x')),
-        tryWrite(path.join(interfaceSave, 'x')),
+        `mkdir '${interfaceSave}' && ${tryWrite(path.join(interfaceSave, 'x'))}`,
         tryWrite(looseSave),
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
@@ -148,7 +147,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       'wrote',
       'wrote',
       'refused',
-      'refused',
+      'wrote',
       'refused',
       'read',
     ])
@@ -198,6 +197,73 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     ])
     for (const dir of [longer, shorter, swbuildLonger, swbuildShorter, loose])
       await rm(dir, { recursive: true, force: true })
+  })
+
+  test('a sandboxed command writes actool’s temp items in the per-user temp folder, but no near-miss names, links or other kinds of file', async () => {
+    const id = randomUUID().toUpperCase()
+    const linkId = randomUUID().toUpperCase()
+    const hardLinkId = randomUUID().toUpperCase()
+    const pid = 900000 + Math.floor(Math.random() * 90000)
+    const at = (name: string) => path.join(userTemp, name)
+    const helper = at(`ibtoold-${pid}`)
+    const linkedHelper = at(`ibtoold-${pid + 1}`)
+    const catalog = at(`Untitled-${id.slice(0, 8)}.uicatalog`)
+    const shortCatalog = at(`Untitled-${id.slice(0, 7)}.uicatalog`)
+    const png = at(
+      `.expo1024x1024_UIAppearanceAny_${id}-${pid}-${id.slice(0, 8)}${id.slice(-8)}.png-a1B2c3`,
+    )
+    const scratch = at(`actool-sprite-atlas-scratch-${id}`)
+    const attempt = (command: string) => `(${command}) 2>/dev/null && echo wrote || echo refused`
+    const result = await inSandbox(
+      [
+        tryWrite(path.join(worktree, 'source.txt')),
+        attempt(
+          `mkdir '${at(id)}' && echo x > '${at(id)}/expo.png' && mkdir '${at(id)}/expo.icon.xcassets'`,
+        ),
+        attempt(`mkdir '${scratch}'`),
+        attempt(`mkdir -p '${helper}/IB' && mkfifo '${helper}/IB/${id}.HostToRemote'`),
+        attempt(`echo x > '${catalog}' && echo x > '${catalog}-journal'`),
+        attempt(`echo x > '${png}'`),
+        attempt(`mkdir '${helper}-x'`),
+        attempt(`mkdir '${helper}/other'`),
+        tryWrite(`${helper}/IB/x`),
+        attempt(`ln -s '${outside}' '${linkedHelper}'`),
+        attempt(`ln -s '${outside}' '${at(linkId)}'`),
+        attempt(`ln '${path.join(worktree, 'source.txt')}' '${at(hardLinkId)}'`),
+        tryWrite(shortCatalog),
+        attempt(`mkfifo '${at(linkId)}'`),
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+      'refused',
+    ])
+    for (const item of [
+      at(id),
+      scratch,
+      helper,
+      `${helper}-x`,
+      linkedHelper,
+      catalog,
+      `${catalog}-journal`,
+      png,
+      at(linkId),
+      at(hardLinkId),
+      shortCatalog,
+    ])
+      await rm(item, { recursive: true, force: true })
   })
 
   test('a sandboxed command can’t list the per-user temp folder or its TemporaryItems folder, but reaches its own folders there by name', async () => {
