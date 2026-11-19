@@ -26,7 +26,7 @@ export async function piHealth(options: {
   return { signedIn: true }
 }
 
-function agentDir(env: NodeJS.ProcessEnv): string {
+export function piAgentDir(env: NodeJS.ProcessEnv): string {
   const home = env.HOME || homedir()
   const given = env.PI_CODING_AGENT_DIR
   if (!given) return path.join(home, '.pi', 'agent')
@@ -37,7 +37,7 @@ function agentDir(env: NodeJS.ProcessEnv): string {
 export function piSavedModel(env: NodeJS.ProcessEnv): string | undefined {
   let text: string
   try {
-    text = readFileSync(path.join(agentDir(env), 'settings.json'), 'utf8')
+    text = readFileSync(path.join(piAgentDir(env), 'settings.json'), 'utf8')
   } catch {
     return undefined
   }

@@ -277,9 +277,18 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (store.settings().piUnsandboxedAllowed) return undefined
       throw new RequestError(409, piSandboxQuestion(problem))
     }
+    const { scope, env } = await piSandboxScope({
+      home,
+      store,
+      runId,
+      taskId,
+      cwd,
+      env: environment(),
+    })
     return {
       tedHome: home,
-      scope: await piSandboxScope({ home, store, runId, taskId, cwd }),
+      scope,
+      env,
       ...(options.sandboxProgram !== undefined && { program: options.sandboxProgram }),
     }
   }

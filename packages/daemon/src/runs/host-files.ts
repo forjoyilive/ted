@@ -6,6 +6,7 @@ import type { LaunchAuthority } from './launch-authority.ts'
 export interface LaunchSandbox {
   tedHome: string
   scope: SandboxScope
+  env?: Record<string, string>
   program?: string
 }
 

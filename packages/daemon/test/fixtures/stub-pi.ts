@@ -75,6 +75,13 @@ const write = (file: string) => () => {
   return ''
 }
 
+function originalAgentDir(agentDir: string): string {
+  const settings = JSON.parse(readFileSync(path.join(agentDir, 'settings.json'), 'utf8')) as {
+    tedOriginal?: string
+  }
+  return settings.tedOriginal ?? agentDir
+}
+
 function probeSandbox() {
   const home = process.env.TED_HOME ?? ''
   const agentDir = process.env.PI_CODING_AGENT_DIR ?? ''
@@ -83,7 +90,8 @@ function probeSandbox() {
     outsideWrite: attempt(write(path.join(home, 'stub-pi-escaped'))),
     daemonInfo: attempt(() => readFileSync(path.join(home, 'daemon.json'), 'utf8')),
     piAgentRead: attempt(() => readFileSync(path.join(agentDir, 'settings.json'), 'utf8')),
-    piAgentWrite: attempt(write(path.join(agentDir, 'stub-pi-wrote'))),
+    piAgentCopyWrite: attempt(write(path.join(agentDir, 'stub-pi-wrote'))),
+    piAgentWrite: attempt(write(path.join(originalAgentDir(agentDir), 'stub-pi-wrote'))),
     ted: attempt(() =>
       execFileSync('ted', ['task', 'list'], { encoding: 'utf8', timeout: 60_000 }),
     ),

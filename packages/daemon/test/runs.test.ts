@@ -637,7 +637,7 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
   }
   const agentDir = path.join(cwd, 'pi-agent')
   await mkdir(agentDir, { recursive: true })
-  await writeFile(path.join(agentDir, 'settings.json'), '{}')
+  await writeFile(path.join(agentDir, 'settings.json'), JSON.stringify({ tedOriginal: agentDir }))
   process.env.PI_CODING_AGENT_DIR = agentDir
   if (realSandbox) process.env.TED_SANDBOX_BIN = '/usr/bin/sandbox-exec'
   try {
@@ -673,6 +673,7 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
           path.join(clone, '.git', 'refs', 'heads', refFolder),
           path.join(clone, '.git', 'logs', 'refs', 'heads', refFolder),
           path.join(runDir, 'pi-sessions'),
+          path.join(runDir, 'pi-agent'),
         ]),
       ),
     )
@@ -698,11 +699,14 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
     )
     expect(probe.insideWrite.ok).toBe(true)
     expect(probe.piAgentRead.ok).toBe(true)
+    expect(probe.piAgentCopyWrite.ok).toBe(true)
+    expect(launch.sandbox.env).toEqual({ PI_CODING_AGENT_DIR: path.join(runDir, 'pi-agent') })
     expect(probe.ted).toMatchObject({ ok: true, output: expect.stringContaining(task.displayId) })
     if (realSandbox) {
       expect(probe.outsideWrite.ok).toBe(false)
       expect(probe.daemonInfo.ok).toBe(false)
       expect(probe.piAgentWrite.ok).toBe(false)
+      await expect(readFile(path.join(agentDir, 'stub-pi-wrote'))).rejects.toThrow()
     }
   } finally {
     if (before.sandbox === undefined) delete process.env.TED_SANDBOX_BIN

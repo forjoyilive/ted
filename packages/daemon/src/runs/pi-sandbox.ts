@@ -1,7 +1,8 @@
-import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
+import { cp, lstat, mkdir, readFile, realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { tedPaths } from '@ted/protocol'
 import { piSessionFolder } from '../agents/pi.ts'
+import { piAgentDir } from '../agents/pi-health.ts'
 import { clonePath } from '../factories.ts'
 import type { SandboxScope } from '../sandbox.ts'
 import type { TedStore } from '../store/index.ts'
@@ -13,16 +14,26 @@ export interface PiScopeInput {
   runId: string
   taskId: string | undefined
   cwd: string
+  env: NodeJS.ProcessEnv
 }
 
-export async function piSandboxScope(input: PiScopeInput): Promise<SandboxScope> {
+export interface PiSandbox {
+  scope: SandboxScope
+  env: Record<string, string>
+}
+
+export const piAgentCopy = 'pi-agent'
+
+export async function piSandboxScope(input: PiScopeInput): Promise<PiSandbox> {
   const { home, store, runId, taskId, cwd } = input
   const paths = tedPaths(home)
   const runDir = path.join(paths.runs, runId)
   const sessions = path.join(runDir, piSessionFolder)
   await makeFolder(sessions)
   await makeFolder(paths.public)
-  const writable = new Set<string>([sessions])
+  const agent = await copyPiAgent(piAgentDir(input.env), path.join(runDir, piAgentCopy))
+  const env = { PI_CODING_AGENT_DIR: agent }
+  const writable = new Set<string>([sessions, agent])
   const readable = new Set<string>()
   for (const dir of [path.join(home, 'bin'), paths.public]) {
     if (await isFolder(dir)) readable.add(dir)
@@ -39,10 +50,13 @@ export async function piSandboxScope(input: PiScopeInput): Promise<SandboxScope>
       } else readable.add(cwd)
     }
     return {
-      writable: [...writable],
-      readable: [...readable],
-      tmp: runFiles(runDir).tmp,
-      cache: path.join(runDir, 'cache'),
+      scope: {
+        writable: [...writable],
+        readable: [...readable],
+        tmp: runFiles(runDir).tmp,
+        cache: path.join(runDir, 'cache'),
+      },
+      env,
     }
   }
 
@@ -76,11 +90,29 @@ export async function piSandboxScope(input: PiScopeInput): Promise<SandboxScope>
     }
   }
   return {
-    writable: [...writable],
-    readable: [...readable],
-    tmp: runFiles(runDir).tmp,
-    cache: path.join(paths.sandbox, task.displayId, 'cache'),
+    scope: {
+      writable: [...writable],
+      readable: [...readable],
+      tmp: runFiles(runDir).tmp,
+      cache: path.join(paths.sandbox, task.displayId, 'cache'),
+    },
+    env,
   }
+}
+
+// Pi takes lock files beside settings.json and auth.json even to read them, so a Run gets a
+// fresh copy it may write; the user's own folder stays read-only and unchanged.
+async function copyPiAgent(source: string, copy: string): Promise<string> {
+  await rm(copy, { recursive: true, force: true })
+  await makeFolder(copy)
+  if (!(await isFolder(source))) return copy
+  const sessions = path.join(source, 'sessions')
+  await cp(source, copy, {
+    recursive: true,
+    verbatimSymlinks: true,
+    filter: (file) => file !== sessions,
+  })
+  return copy
 }
 
 interface WorktreeGit {
