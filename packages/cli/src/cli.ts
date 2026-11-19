@@ -255,7 +255,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       }
       const count = notes === undefined ? undefined : Number(notes)
       if (count !== undefined && !(Number.isInteger(count) && count >= 0)) {
-        throw new UsageError(`--${name}-notes must be a whole number`)
+        throw new UsageError(
+          `--${name}-notes takes the number of notes, such as --${name}-notes 2, not their text`,
+        )
       }
       return { passed: result !== 'fail', ...(count !== undefined && { notes: count }) }
     }

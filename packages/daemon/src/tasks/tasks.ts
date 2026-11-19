@@ -2777,6 +2777,31 @@ export function createTasks(options: {
     background.add(done)
   }
 
+  function recoverTask(taskId: string, what: string, work: () => Promise<void>): void {
+    inBackground(what, async () => {
+      try {
+        await work()
+      } catch (error) {
+        if (stopping.signal.aborted) throw error
+        console.error(`couldn’t ${what}:`, error)
+        await recoveryFailed(taskId, what, error instanceof Error ? error.message : String(error))
+      }
+    })
+  }
+
+  async function recoveryFailed(taskId: string, what: string, problem: string): Promise<void> {
+    setChecking(taskId, false)
+    const task = store.getTask(taskId)
+    if (!task || task.archived) return
+    const text = `Ted couldn’t ${what}: ${redactSecrets(problem)}`
+    tedNote(taskId, text)
+    const message = `${text}\n\nTed didn’t carry this step out. Check where the Task stands and carry on with the Stage, or ask the human if you can’t.`
+    if (await deliver(find(taskId), message).catch(() => false)) return
+    store.holdLeadMessage(taskId, message)
+    await store.persisted()
+    if (!find(taskId).stopped) await resumeEnded(taskId)
+  }
+
   const commandLog = (task: Task, kind: 'setup' | 'teardown', name: string) =>
     path.join(logsDir, 'worktrees', `${task.displayId}-${name}-${kind}.log`)
 
@@ -5011,6 +5036,7 @@ export function createTasks(options: {
       void pump()
     },
     background: inBackground,
+    recover: recoverTask,
     hasAnswerText: (comment) => answerText(comment) !== undefined,
     refreshSteering: (id) => options.steering.refresh(id),
   })
@@ -6495,7 +6521,7 @@ export function createTasks(options: {
     )
       return
     setChecking(taskId, true)
-    inBackground(`revalidate ${task.displayId} after its repair`, async () => {
+    recoverTask(taskId, `revalidate ${task.displayId} after its repair`, async () => {
       try {
         await execution.local(taskId)
         if (!(await incorporateRepairs(find(taskId), mode))) return
@@ -11444,6 +11470,7 @@ export function createTasks(options: {
       checkBack(resolution.workflow, task.stage as AgentStageId, stageWith('handOff')),
     holding,
     background: inBackground,
+    recover: recoverTask,
   })
 
   leadLifecycle.restoreHealth()
@@ -11517,7 +11544,7 @@ export function createTasks(options: {
   for (const task of store.listTasks()) {
     if (task.archived || task.leadRunId === undefined) continue
     for (const step of interruptedSetups(find(task.id))) {
-      inBackground(`set up ${task.displayId}’s ${step.repo.name} worktree`, () =>
+      recoverTask(task.id, `set up ${task.displayId}’s ${step.repo.name} worktree`, () =>
         setUpAdded(task.id, step, true),
       )
     }
@@ -11556,7 +11583,7 @@ export function createTasks(options: {
     if (!isCleanup(task.stage) || find(task.id).stopped || task.archived) continue
     if (openCleanupFailure(task.id)) continue
     setChecking(task.id, true)
-    inBackground(`run ${task.displayId}’s Cleanup commands again`, async () => {
+    recoverTask(task.id, `run ${task.displayId}’s Cleanup commands again`, async () => {
       let workflow: ResolvedWorkflow
       try {
         workflow = (await taskWorkflow(find(task.id), { fetch: false })).workflow
@@ -11582,7 +11609,7 @@ export function createTasks(options: {
   }
   for (const task of interruptedHandOffs) {
     setChecking(task.id, true)
-    inBackground(`run ${task.displayId}’s checks again`, async () => {
+    recoverTask(task.id, `run ${task.displayId}’s checks again`, async () => {
       let message: string | undefined
       try {
         const { workflow } = await taskWorkflow(find(task.id), { fetch: false })
@@ -11594,7 +11621,9 @@ export function createTasks(options: {
     })
   }
   for (const task of handOffsLeftInWork) {
-    inBackground(`tell ${task.displayId}’s Task Lead to report again`, () => reportAgain(task))
+    recoverTask(task.id, `tell ${task.displayId}’s Task Lead to report again`, () =>
+      reportAgain(task),
+    )
   }
 
   for (const check of store.loopChecks().filter((c) => c.verdict === undefined)) {

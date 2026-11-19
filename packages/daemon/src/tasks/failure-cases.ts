@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type {
   AcceptRefusal,
   AssessFailureRequest,
+  CheckRun,
   Comment,
   FailureCase,
   FailureChoice,
@@ -283,6 +284,8 @@ export function createFailureCases(options: {
       throw new RequestError(400, 'tested context must belong to this Task')
     return found
   }
+  const fixesFirst = (run: CheckRun) =>
+    run.checks.some((c) => c.fix === true && c.instruction !== undefined)
   const sourceContext = (
     source: FailureSource,
     context?: Pick<FailureContext, 'capturedAt' | 'ciFailures'>,
@@ -300,7 +303,7 @@ export function createFailureCases(options: {
       )
     }
     const run = store.getCheckRun(source.checkRunId)
-    return !!run && context.capturedAt <= run.startedAt
+    return !!run && (context.capturedAt <= run.startedAt || fixesFirst(run))
   }
   const tiedContext = (task: Task, value: FailureCase, context?: FailureContext) => {
     const own = tested(task, value.contextId)
@@ -595,8 +598,7 @@ export function createFailureCases(options: {
         throw new RequestError(400, 'source must identify a failed or timed-out check on this Task')
       if ((run.trigger === 'merge') !== (source.kind === 'post-rebase-check'))
         throw new RequestError(400, 'Check source does not match its trigger')
-      const fixedFirst =
-        generated && run.checks.some((c) => c.fix === true && c.instruction !== undefined)
+      const fixedFirst = generated && fixesFirst(run)
       if (context && context.capturedAt > run.startedAt && !fixedFirst)
         throw new RequestError(
           409,

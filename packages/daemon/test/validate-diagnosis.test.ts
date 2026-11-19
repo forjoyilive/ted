@@ -1,11 +1,14 @@
 import { execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   CheckRun,
   Comment,
   FailureCase,
+  FailureContext,
   RunSummary,
+  RunWithConversation,
   SendBack,
   SubAgent,
   Task,
@@ -266,15 +269,20 @@ test(
 )
 
 test(
-  'restart reconstructs a persisted failed execution before its case was recorded, with ordinary and unsafe output',
+  'restart reconstructs a persisted failed execution before its case was recorded, with ordinary and unsafe output, and after a fix-first Check took a new context; a recovery that throws tells the Task and its Lead',
   async () => {
-    const kinds = ['ordinary', 'unsafe output']
+    const kinds = ['ordinary', 'unsafe output', 'fix-first', 'late context']
     const live = await boot()
     const scenes = await Promise.all(kinds.map(() => walk(live)))
     await ctx.daemon?.stop()
     ctx.daemon = undefined
     const store = await openStore({ directory: tedPaths(ctx.home).store })
-    const saved: { run: CheckRun; finished: CheckRun; recoveredLog: string }[] = []
+    const saved: {
+      run: CheckRun
+      finished: CheckRun
+      recoveredLog: string
+      contextId: string | undefined
+    }[] = []
     for (const [i, s] of scenes.entries()) {
       backInValidate(store, s.task.id)
       const progress = store.failures.progress(s.task.id)
@@ -284,8 +292,33 @@ test(
         taskId: s.task.id,
         trigger: 'validate',
         stage: 'validate',
-        checks: progress.checks.map((check) => ({ ...check, state: 'waiting' })),
+        checks: progress.checks.map((check, n) =>
+          kinds[i] === 'fix-first' && n === 1
+            ? {
+                name: 'Docs drift',
+                instruction: 'Fix docs that no longer match the code.',
+                fix: true,
+                timeout: check.timeout,
+                state: 'waiting' as const,
+              }
+            : { ...check, state: 'waiting' as const },
+        ),
       })
+      let contextId = progress.contextId
+      if (kinds[i] === 'fix-first' || kinds[i] === 'late context') {
+        const before = contextId ? store.failures.context(contextId) : undefined
+        const during: FailureContext = {
+          version: 2,
+          fingerprint: 'during the fix-first Check',
+          repos: [],
+          checks: '',
+          ...before,
+          taskId: s.task.id,
+          id: randomUUID(),
+          capturedAt: new Date(Date.parse(run.startedAt) + 1).toISOString(),
+        }
+        contextId = store.failures.capture(during).id
+      }
       const recoveredLog = path.join(
         tedPaths(ctx.home).logs,
         'checks',
@@ -304,16 +337,17 @@ test(
       const finished = store.finishChecks(run.id, 'failed')
       store.failures.saveProgress({
         ...progress,
+        ...(contextId && { contextId }),
         executions: [
           ...progress.executions,
-          { runId: run.id, start: 0, ...(progress.contextId && { contextId: progress.contextId }) },
+          { runId: run.id, start: 0, ...(contextId && { contextId }) },
         ],
         checks: finished.checks,
         next: 0,
         pending: true,
         failureId: undefined,
       })
-      saved.push({ run, finished, recoveredLog })
+      saved.push({ run, finished, recoveredLog, contextId })
     }
     await store.persisted()
     await store.close()
@@ -322,7 +356,28 @@ test(
       const s = scenes[i]
       const made = saved[i]
       if (!s || !made) throw new Error('missing scene')
-      const { run, finished, recoveredLog } = made
+      const { run, finished, recoveredLog, contextId } = made
+      if (kind === 'late context') {
+        const refusal = 'context must be captured before check execution'
+        const note = await waitUntil(
+          async () =>
+            (await client.read<Comment[]>(`${s.root}/comments`)).find(
+              (c) => c.author.kind === 'ted' && c.kind === 'note' && c.body.includes(refusal),
+            ),
+          'a note saying the recovery failed',
+        )
+        expect(note.body).toMatch(new RegExp(`^Ted couldn’t .*${s.task.displayId}’s`))
+        const current = async () =>
+          required((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id))
+        await waitUntil(async () => {
+          const { leadRunId } = await current()
+          if (!leadRunId) return false
+          const lead: RunWithConversation = await client.getRun(leadRunId)
+          return lead.conversation.some((entry) => entry.line.includes(refusal))
+        }, 'the Task Lead to hear about the failed recovery')
+        expect((await current()).checksActive).toBeUndefined()
+        return
+      }
       const recovered = await waitUntil(async () => {
         const cases = await client.read<FailureCase[]>(`${s.root}/failures`)
         return cases.find(
@@ -354,6 +409,7 @@ test(
         expect(recovered.evidence).toContain(recoveredLog)
         expect(recovered.evidence).not.toContain('token=fixture')
       }
+      if (kind === 'fix-first') expect(recovered.contextId).toBe(contextId)
       expect(obligations.progress?.pending).toBe(false)
       expect(obligations.progress?.failureId).toBe(recovered.id)
       expect(obligations.progress?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
