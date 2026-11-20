@@ -53,6 +53,17 @@ export const appsEvents = {
       at: Schema.String,
     }),
   }),
+  appStoppedV2: Events.synced({
+    name: 'v2.AppStopped',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      name: Schema.String,
+      by: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   appExited: Events.synced({
     name: 'v1.AppExited',
     schema: Schema.Struct({
@@ -137,6 +148,7 @@ export const appsEvents = {
 export const appsMaterializers = State.SQLite.materializers(appsEvents, {
   'v1.AppStarted': () => [],
   'v1.AppStopped': () => [],
+  'v2.AppStopped': () => [],
   'v1.AppExited': () => [],
   'v1.AppStartFailed': () => [],
   'v1.SimulatorShutDown': () => [],

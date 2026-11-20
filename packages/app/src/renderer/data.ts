@@ -378,7 +378,7 @@ export function useTasks(): Task[] {
 }
 
 export function useTaskList() {
-  const { items, loaded } = useLiveList(ted.listTasks, taskFrom, byCreatedAt, deletedTask)
+  const { items, loaded } = useLiveList(ted.listTasks, taskFrom, byCreatedAt, deletedTask, 2_000)
   return { tasks: items, loaded }
 }
 

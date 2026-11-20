@@ -22,7 +22,7 @@ export interface PhoneNotifierStore {
 
 export interface PhoneNotifierOptions {
   store: PhoneNotifierStore
-  presence: Pick<Presence, 'away' | 'subscribe'>
+  presence: Pick<Presence, 'away' | 'leftAt' | 'subscribe'>
   push: PushService
   problems?: PhoneProblemSource
   now?: () => number
@@ -80,6 +80,7 @@ export function problemPushText(banner: Banner, factoryName: string | undefined)
 interface Due {
   phoneId: string
   token: string
+  pairedAt: string
   request: WaitingRequest
   waitingSince: string
 }
@@ -87,6 +88,7 @@ interface Due {
 interface DueProblem {
   phoneId: string
   token: string
+  pairedAt: string
   banner: Banner
 }
 
@@ -98,8 +100,8 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
   const inFlight = new Set<string>()
   let closed = false
 
-  const keyOf = (item: Pick<Due, 'phoneId' | 'request' | 'waitingSince'>) =>
-    JSON.stringify([item.phoneId, item.request.id, item.waitingSince])
+  const keyOf = (item: Pick<Due, 'phoneId' | 'request'>) =>
+    JSON.stringify([item.phoneId, item.request.id])
 
   const problems = options.problems
   const away = () => !closed && presence.away()
@@ -109,8 +111,15 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
   const phonesWithTokens = () =>
     store.phones.list().flatMap((phone) => {
       const token = store.phones.pushToken(phone.id)
-      return token === undefined ? [] : [{ phoneId: phone.id, token }]
+      return token === undefined ? [] : [{ phoneId: phone.id, token, pairedAt: phone.pairedAt }]
     })
+
+  const startedWhileAway = (phone: { pairedAt: string }, startedAt: string) => {
+    const left = presence.leftAt()
+    if (left === undefined) return false
+    const since = new Date(left).toISOString()
+    return startedAt >= since && startedAt >= phone.pairedAt
+  }
 
   const problemKeyOf = (item: Pick<DueProblem, 'phoneId' | 'banner'>) =>
     JSON.stringify([item.phoneId, problemNotificationKey(item.banner), item.banner.raisedAt])
@@ -122,7 +131,8 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
     return stopsWork(problems).flatMap((banner) =>
       phones.flatMap((phone) => {
         const item = { ...phone, banner }
-        return inFlight.has(problemKeyOf(item)) ||
+        return !startedWhileAway(phone, banner.raisedAt) ||
+          inFlight.has(problemKeyOf(item)) ||
           store.phones.notified(phone.phoneId, problemNotificationKey(banner), banner.raisedAt)
           ? []
           : [item]
@@ -139,8 +149,9 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
       const waitingSince = store.phones.waitingSince(request)
       return phones.flatMap((phone) => {
         const item = { ...phone, request, waitingSince }
-        return inFlight.has(keyOf(item)) ||
-          store.phones.notified(phone.phoneId, request.id, waitingSince)
+        return !startedWhileAway(phone, waitingSince) ||
+          inFlight.has(keyOf(item)) ||
+          store.phones.everNotified(phone.phoneId, request.id)
           ? []
           : [item]
       })
@@ -149,7 +160,8 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
 
   const stillDue = (item: Due): WaitingRequest | undefined => {
     if (!open() || store.phones.pushToken(item.phoneId) !== item.token) return undefined
-    if (store.phones.notified(item.phoneId, item.request.id, item.waitingSince)) return undefined
+    if (!startedWhileAway(item, item.waitingSince)) return undefined
+    if (store.phones.everNotified(item.phoneId, item.request.id)) return undefined
     const request = store.waiting().find((r) => r.id === item.request.id)
     if (request === undefined || request.uncounted) return undefined
     return store.phones.waitingSince(request) === item.waitingSince ? request : undefined
@@ -158,6 +170,7 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
   const problemStillDue = (item: DueProblem): Banner | undefined => {
     if (problems === undefined || !problemsOpen()) return undefined
     if (store.phones.pushToken(item.phoneId) !== item.token) return undefined
+    if (!startedWhileAway(item, item.banner.raisedAt)) return undefined
     const key = problemNotificationKey(item.banner)
     if (store.phones.notified(item.phoneId, key, item.banner.raisedAt)) return undefined
     return stopsWork(problems).find(

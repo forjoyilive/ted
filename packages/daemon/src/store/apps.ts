@@ -19,7 +19,13 @@ export interface AppsArea {
     runId?: string
     restart: boolean
   }): void
-  appStopped(input: { taskId: string; repo: string; name: string }): void
+  appStopped(input: {
+    taskId: string
+    repo: string
+    name: string
+    by: 'human' | 'task-lead'
+    runId?: string
+  }): void
   appExited(input: {
     taskId: string
     repo: string
@@ -101,8 +107,17 @@ export function appsArea(ctx: StoreContext): AppsArea {
       )
       updatedTask(taskId)
     },
-    appStopped({ taskId, repo, name }) {
-      commit(events.appStopped({ taskId, repo, name, at: new Date().toISOString() }))
+    appStopped({ taskId, repo, name, by, runId }) {
+      commit(
+        events.appStoppedV2({
+          taskId,
+          repo,
+          name,
+          by,
+          runId: runId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
       updatedTask(taskId)
     },
     appExited({ taskId, repo, name, code, signal }) {
