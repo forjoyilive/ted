@@ -34,7 +34,7 @@ import {
   proposalRows,
   roundAnswerMessage,
 } from '../chats/requests.ts'
-import { RequestError } from '../errors.ts'
+import { AnswerSavedError, RequestError } from '../errors.ts'
 import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -1035,8 +1035,7 @@ export function createPlans(options: PlansOptions): Plans {
   async function resumeAfterAnswer(plan: StoredPlan): Promise<void> {
     if (plan.state !== 'ended' || retrying.has(plan.id)) return
     await resume(plan).catch((error: unknown) => {
-      throw new RequestError(
-        409,
+      throw new AnswerSavedError(
         `Your answer is saved, but the planner couldn’t resume: ${messageOf(error)}`,
       )
     })

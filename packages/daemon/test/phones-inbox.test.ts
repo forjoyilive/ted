@@ -569,3 +569,50 @@ test('a planning chat’s round and an Automation’s question are answered from
   expect(automationAnswer(pocketQuestion.id)).toBe('No\n\nNot today')
   expect(automationAnswer(pocketQuestion.id)).toBe(automationAnswer(deskQuestion.id))
 }, 120_000)
+
+test('a planning chat that saves a phone answer but can’t resume says the answer was saved', async () => {
+  const roundFile = path.join(scratch, 'saved-round.json')
+  await writeFile(
+    roundFile,
+    JSON.stringify({
+      title: 'Who can export',
+      questions: [{ question: 'Who can export a notebook?', recommended: 'The owner only' }],
+    }),
+  )
+  const plan = await ok<Plan>('POST', '/plans', {
+    factory: 'NB',
+    message: `Plan exports\n${steps({ run: ['ted', 'ask', '--round', roundFile] }, { endTurn: true })}`,
+  })
+  const asked = await waitUntil(
+    async () =>
+      (await ok<PlanDetail>('GET', `/plans/${plan.id}`)).requests.find(
+        (r) => r.kind === 'round' && r.answer === undefined,
+      ),
+    'the plan’s round',
+    30_000,
+  )
+  expect(await ok<Plan>('POST', `/plans/${plan.id}/stop`)).toMatchObject({ canResume: true })
+  store.holdNewWork('test disk full')
+  try {
+    const reply = await phone.answer(asked.id, {
+      action: 'answer-round',
+      answers: [{ answer: 'Anyone' }],
+    })
+    expect(reply).toMatchObject({
+      ok: false,
+      error: {
+        code: 'refused',
+        message: expect.stringContaining('Your answer is saved, but the planner couldn’t resume'),
+      },
+    })
+  } finally {
+    store.holdNewWork(undefined)
+  }
+  const saved = (await ok<PlanDetail>('GET', `/plans/${plan.id}`)).requests.find(
+    (r) => r.id === asked.id,
+  )
+  expect(saved?.answer).toMatchObject({ kind: 'answered' })
+  expect(failure(await phone.answer(asked.id, { action: 'answer-round', answers: [] }))).toBe(
+    'gone',
+  )
+}, 90_000)
