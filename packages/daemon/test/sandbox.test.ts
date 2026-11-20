@@ -1264,6 +1264,10 @@ createServer((socket) => socket.end('sibling')).listen(Number(process.argv[2]), 
     return new Promise((resolve) => {
       let data = ''
       const socket = connect({ host: '127.0.0.1', port })
+      socket.setTimeout(3000, () => {
+        socket.destroy()
+        resolve(false)
+      })
       socket.on('data', (chunk: Buffer) => {
         data += chunk.toString('utf8')
       })
@@ -1362,6 +1366,34 @@ createServer((socket) => socket.end('sibling')).listen(Number(process.argv[2]), 
       'Ted couldn’t forward the App’s ports into its sandbox: no namespace for you',
     )
     await new Promise((resolve) => setTimeout(resolve, 1000))
+    await expect(stat(path.join(worktree, 'ran'))).rejects.toThrow()
+  })
+
+  test('an App stopped before its ports are forwarded never runs its command', async () => {
+    const pasta = path.join(outside, 'pasta')
+    await writeFile(pasta, "#!/bin/sh\ntrap '' TERM\nsleep 3\n", { mode: 0o755 })
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ ...process.env, HOME: userHome }),
+      pasta,
+    })
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      serves: { own: 4100, reach: [] },
+    })
+    const [command, ...args] = wrapped.argv
+    const child = spawn(command, [...args, `touch ${path.join(worktree, 'ran')}`], {
+      cwd: worktree,
+      detached: true,
+      env: withSandboxEnv(process.env, wrapped.env),
+      stdio: ['ignore', 'ignore', 'ignore', ...wrapped.fds],
+    })
+    const exited = new Promise((resolve) => child.once('close', resolve))
+    await wrapped.close()
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    if (child.pid !== undefined) process.kill(-child.pid, 'SIGTERM')
+    await exited
+    await new Promise((resolve) => setTimeout(resolve, 3500))
     await expect(stat(path.join(worktree, 'ran'))).rejects.toThrow()
   })
 })

@@ -49,11 +49,6 @@ child.once('error', (error) => {
   console.error(`Ted couldn’t start the App’s sandbox: ${error.message}`)
   process.exit(1)
 })
-child.once('exit', (code, signal) => {
-  stopSandbox()
-  process.exit(code ?? (signal === null ? 1 : 128 + constants.signals[signal]))
-})
-
 const status = child.stdio[statusFd]
 const block = child.stdio[blockFd]
 if (!(status instanceof Readable) || !(block instanceof Writable)) {
@@ -61,7 +56,7 @@ if (!(status instanceof Readable) || !(block instanceof Writable)) {
   throw new Error('bwrap’s status and block pipes didn’t open')
 }
 
-const started = await new Promise<boolean>((resolve) => {
+const started = new Promise<boolean>((resolve) => {
   const lines = createInterface({ input: status })
   lines.on('line', (line) => {
     const found = /"child-pid"\s*:\s*(\d+)/.exec(line)
@@ -72,8 +67,15 @@ const started = await new Promise<boolean>((resolve) => {
   })
   lines.once('close', () => resolve(false))
 })
+child.once('exit', async (code, signal) => {
+  if (!released) {
+    await Promise.race([started, new Promise((resolve) => setTimeout(resolve, 1000))])
+  }
+  stopSandbox()
+  process.exit(code ?? (signal === null ? 1 : 128 + constants.signals[signal]))
+})
 status.resume()
-if (!started || child.pid === undefined) {
+if (!(await started) || child.pid === undefined) {
   console.error('bwrap stopped before it set up the App’s network namespace')
   stopSandbox()
 } else {
