@@ -53,7 +53,7 @@ export const phoneErrorCodes = [
 ] as const
 export type PhoneErrorCode = (typeof phoneErrorCodes)[number]
 
-export const phoneRouteNames = ['status', 'requests', 'request', 'answer'] as const
+export const phoneRouteNames = ['status', 'requests', 'request', 'answer', 'push-token'] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
 export interface PairingLink {
@@ -95,6 +95,7 @@ export type PhoneRequest =
       route: string
       requestId?: string
       answer?: PhoneAnswer
+      token?: string
     })
 
 export interface PhoneReplyError {
@@ -120,6 +121,10 @@ export interface PhoneStatusBody {
   protocol: number
 }
 
+export type PhonePushTokenBody = Record<never, never>
+
+export const pushTokenPattern = /^Expo(nent)?PushToken\[[A-Za-z0-9_-]{1,200}\]$/
+
 export type PhoneReplyBody =
   | PairReplyBody
   | PairStatusBody
@@ -127,6 +132,7 @@ export type PhoneReplyBody =
   | PhoneRequestsBody
   | PhoneRequestBody
   | PhoneAnsweredBody
+  | PhonePushTokenBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
     | { ok: true; body: PhoneReplyBody }
@@ -311,7 +317,16 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       answer: parsePhoneAnswer(object.answer),
     }
   }
+  if (route === 'push-token') return { ...header, type, route, token: pushToken(object) }
   return { ...header, type, route }
+}
+
+function pushToken(object: JsonObject): string {
+  const token = read.string(object, 'token')
+  if (!pushTokenPattern.test(token)) {
+    throw new ParseError('token', 'token must be an Expo push token')
+  }
+  return token
 }
 
 function requestId(object: JsonObject): string {

@@ -879,6 +879,7 @@ export {
   parseResumePlanRequest,
   parseStartPlanRequest,
 } from './plan-parsers.ts'
+export * from './presence.ts'
 export {
   type PreviewPreset,
   type PreviewSize,

@@ -12,6 +12,7 @@ export interface PhoneRouteContext {
   edition: Edition
   version: string
   requests: PhoneRequests
+  setPushToken(phoneId: string, token: string): boolean
 }
 
 export interface PhoneRoute {
@@ -49,6 +50,14 @@ export const phoneRoutes: readonly PhoneRoute[] = [
       if (request.requestId === undefined || request.answer === undefined)
         return { code: 'bad-request' }
       return requests.answer(request.requestId, request.answer)
+    },
+  },
+  {
+    name: 'push-token',
+    async handle({ phoneId }, request, { setPushToken }) {
+      if (request.token === undefined) return { code: 'bad-request' }
+      if (!setPushToken(phoneId, request.token)) return { code: 'not-paired' }
+      return { body: {} }
     },
   },
 ]

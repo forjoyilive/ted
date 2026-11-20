@@ -61,6 +61,7 @@ import {
   nativeTheme,
   net,
   type OpenDialogOptions,
+  powerMonitor,
   session,
   shell,
   Tray,
@@ -112,6 +113,7 @@ import {
   recordingNotifier,
   silentNotifier,
 } from './notifications.ts'
+import { type PresenceReporter, startPresenceReporter } from './presence.ts'
 import { type ReportSources, reportText, sendProblemReport } from './problem-report.ts'
 import {
   isFigmaLink,
@@ -497,6 +499,7 @@ function workerRequest(name: unknown, args: unknown[]) {
 
 let supervisor: DaemonSupervisor | undefined
 let client: DaemonClient | undefined
+let presenceReporter: PresenceReporter | undefined
 let taskBrowsers: ReturnType<typeof createTaskBrowsers> | undefined
 let window: BrowserWindow | undefined
 let tray: Tray | undefined
@@ -1150,6 +1153,7 @@ function onConnection(connection: DaemonConnection): void {
   if (connection.state === 'connected') {
     notifications.forget()
     client = supervisor?.client
+    presenceReporter?.reportNow()
     loadStateWhenReady().catch((error: unknown) => console.error('loading state failed:', error))
   } else if (connection.state === 'stopped' && !hiddenWindow && mayNotify()) {
     new Notification({ title: appName, body: keepsStopping }).show()
@@ -1224,6 +1228,10 @@ async function start(): Promise<void> {
   traceStartup('daemon-connected')
   supervisor = supervised
   client = supervised.client
+  presenceReporter = startPresenceReporter({
+    monitor: powerMonitor,
+    client: () => (supervised.connection.state === 'connected' ? supervised.client : undefined),
+  })
   taskBrowsers = createTaskBrowsers(
     () => window,
     () => supervised.client,

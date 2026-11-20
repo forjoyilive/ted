@@ -4,7 +4,13 @@ import path from 'node:path'
 import { readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { holdAwakeWithOs, stayAwakeCommand } from '../src/stay-awake.ts'
+import {
+  holdAwakeWithOs,
+  stayAwakeCommand,
+  stayAwakeForPhones,
+  stayAwakeOnPowerCommand,
+} from '../src/stay-awake.ts'
+import { openStore } from '../src/store/index.ts'
 import { api, appClient, isAlive, killRunHosts, makeTempHome, stubClaudePath } from './helpers.ts'
 
 let home: string
@@ -106,6 +112,89 @@ describe('Stay Awake', () => {
     daemon = undefined
 
     expect(calls).toEqual(['hold', 'release'])
+  })
+})
+
+describe('Stay Awake for paired phones', () => {
+  test('holds on power while a phone is paired and a counted request waits, and lets go when that ends', async () => {
+    const store = await openStore({ directory: path.join(home, 'phone-store') })
+    try {
+      const factoryId = store.addFactory({
+        key: 'NB',
+        name: 'Notebooks',
+        repo: 'acme/notes',
+        cloneUrl: path.join(home, 'notes.git'),
+        defaultBranch: 'main',
+      }).id
+      const awake = stayAwakeForPhones(store, () => {
+        calls.push('hold')
+        return { release: () => calls.push('release') }
+      })
+      const settled = () => new Promise((resolve) => setImmediate(resolve))
+      const ask = async (title: string) => {
+        const task = await store.createTask({ title, factoryId })
+        return store.postComment({
+          taskId: task.id,
+          author: { kind: 'ted' },
+          kind: 'question',
+          body: `${title}?`,
+        }).id
+      }
+
+      const first = await ask('No phone yet')
+      await settled()
+      expect(calls).toEqual([])
+
+      const phone = store.phones.pair({
+        name: 'iPhone',
+        publicKey: 'phone-key',
+        edition: 'dev',
+        pairedAt: new Date().toISOString(),
+      })
+      expect(calls).toEqual(['hold'])
+
+      store.answerComment(first, { kind: 'answered', at: new Date().toISOString(), text: 'Yes' })
+      await settled()
+      expect(calls).toEqual(['hold', 'release'])
+
+      const second = await ask('Phone paired')
+      await settled()
+      expect(calls).toEqual(['hold', 'release', 'hold'])
+
+      store.phones.remove(phone.id, new Date().toISOString())
+      expect(calls).toEqual(['hold', 'release', 'hold', 'release'])
+
+      store.phones.pair({
+        name: 'iPhone again',
+        publicKey: 'phone-key-2',
+        edition: 'dev',
+        pairedAt: new Date().toISOString(),
+      })
+      expect(calls.at(-1)).toBe('hold')
+      store.updateSettings({ stayAwake: false })
+      expect(calls.at(-1)).toBe('release')
+      store.updateSettings({ stayAwake: true })
+      expect(calls.at(-1)).toBe('hold')
+
+      store.updateSettings({
+        factoryNotifications: { [factoryId]: { inboxItems: false, taskMerged: false } },
+      })
+      await settled()
+      expect(calls.at(-1)).toBe('release')
+      expect(store.waiting().map((request) => request.id)).toEqual([second])
+
+      awake.close()
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('on macOS the on-power hold is caffeinate -s, and other platforms get none', () => {
+    expect(stayAwakeOnPowerCommand('darwin', 4242)).toEqual({
+      command: '/usr/bin/caffeinate',
+      args: ['-s', '-w', '4242'],
+    })
+    expect(stayAwakeOnPowerCommand('linux', 4242)).toBeUndefined()
   })
 })
 

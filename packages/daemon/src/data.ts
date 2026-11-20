@@ -27,6 +27,7 @@ import type { Integrations } from './integrations.ts'
 import type { LibrarySettings } from './library-settings.ts'
 import type { Phones } from './phones/phones.ts'
 import type { Plans } from './plans/plans.ts'
+import type { Presence } from './presence.ts'
 import { redactSecrets } from './redact.ts'
 import type { Conversations } from './runs/conversations.ts'
 import type { RunManager } from './runs/run-manager.ts'
@@ -66,6 +67,7 @@ export interface Services {
   busy: Busy
   execution: ExecutionController
   phones: Phones
+  presence: Presence
   sideChats: SideChats
   store: TedStore
   automations: Automations
