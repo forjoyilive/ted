@@ -177,7 +177,7 @@ test('the Task header counts returns to Work from the first one, with the limit 
     appLog: () => ({ text: '', truncated: false }),
   })
   const props = { factories: [], backLink: undefined, shownRun: undefined, ...callbacks }
-  const meta = () => screen.getByText(/Back to Work/).textContent
+  const meta = () => screen.getByText(/Back to Work/).parentElement?.textContent
   const view = render(<TaskThread {...props} task={task({ stage: 'review' })} />)
   expect(screen.queryByText(/Back to Work/)).toBeNull()
   view.rerender(
@@ -207,7 +207,7 @@ test('the Task header names the Task’s Factory before its ID', () => {
       {...callbacks}
     />,
   )
-  expect(screen.getByText(/Back to Work/).textContent).toBe(
+  expect(screen.getByText(/Back to Work/).parentElement?.textContent).toBe(
     'Ted & Bill  ·  NB-1  ·  Back to Work 1',
   )
 })

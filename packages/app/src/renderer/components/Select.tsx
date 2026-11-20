@@ -1,5 +1,6 @@
 import {
   type FocusEvent,
+  Fragment,
   type KeyboardEvent,
   type MouseEvent,
   type SelectHTMLAttributes,
@@ -36,7 +37,7 @@ export function Select({ className, controlClassName, fullWidth, ...props }: Sel
 
 interface Shown {
   label: string
-  options: (ListOption & { value: string })[]
+  options: (ListOption & { value: string; dividerBefore: boolean })[]
   chosen: number
   active: number
 }
@@ -53,6 +54,7 @@ function readOptions(element: HTMLSelectElement) {
     value: option.value,
     label: option.label,
     disabled: option.disabled,
+    dividerBefore: option.hasAttribute('data-divider-before'),
   }))
 }
 
@@ -104,7 +106,7 @@ export function useOptionList(handlers: Handlers = {}) {
       childList: true,
       subtree: true,
       characterData: true,
-      attributeFilter: ['value', 'label', 'disabled'],
+      attributeFilter: ['value', 'label', 'disabled', 'data-divider-before'],
     })
     window.addEventListener('pointerdown', outside, true)
     window.addEventListener('scroll', outside, true)
@@ -195,40 +197,42 @@ export function useOptionList(handlers: Handlers = {}) {
       onMouseDown={(event) => event.preventDefault()}
     >
       {shown.options.map((option, index) => (
-        <button
-          type="button"
-          tabIndex={-1}
-          key={option.value}
-          id={`${listId}-${index}`}
-          role="option"
-          aria-selected={index === shown.chosen}
-          disabled={option.disabled}
-          className={[styles.option, index === shown.active && styles.active]
-            .filter(Boolean)
-            .join(' ')}
-          onPointerMove={() => {
-            if (!option.disabled && index !== shown.active) setShown({ ...shown, active: index })
-          }}
-          onClick={() => choose(index)}
-        >
-          <span className={styles.optionLabel}>{option.label}</span>
-          <svg
-            className={styles.check}
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
-            aria-hidden="true"
+        <Fragment key={option.value}>
+          {option.dividerBefore && index > 0 && <hr className={styles.divider} />}
+          <button
+            type="button"
+            tabIndex={-1}
+            id={`${listId}-${index}`}
+            role="option"
+            aria-selected={index === shown.chosen}
+            disabled={option.disabled}
+            className={[styles.option, index === shown.active && styles.active]
+              .filter(Boolean)
+              .join(' ')}
+            onPointerMove={() => {
+              if (!option.disabled && index !== shown.active) setShown({ ...shown, active: index })
+            }}
+            onClick={() => choose(index)}
           >
-            <path
-              d="M2.5 6.5 5 9l4.5-6"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+            <span className={styles.optionLabel}>{option.label}</span>
+            <svg
+              className={styles.check}
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M2.5 6.5 5 9l4.5-6"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </Fragment>
       ))}
     </div>
   )
