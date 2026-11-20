@@ -9,7 +9,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/app/tsconfig.json",
+    "typecheck": "node scripts/net-probe.mjs && tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/app/tsconfig.json",
     "lint": "biome check . && oxlint && ! git grep --untracked -nE '(oxlint|eslint)-(disable|enable)' -- '*.ts' '*.tsx' ':!tools/oxlint/anti-slop'",
     "format": "oxlint --fix && biome check --write .",
     "test": "vitest run",
