@@ -57,7 +57,7 @@ const header = { protocol: 1, id: b(16), at: 1795135669031 }
 test('versions and relay addresses', () => {
   expect(phoneProtocolVersion).toBe(3)
   expect(minPhoneProtocolVersion).toBe(3)
-  expect(defaultRelayUrl).toBe('https://ted-relay.invalid')
+  expect(defaultRelayUrl).toBe('https://ted-relay.forjoyilive.workers.dev')
   expect(relayUrl({}, 'dev')).toBe(devRelayUrl)
   expect(relayUrl({}, 'release')).toBe(defaultRelayUrl)
   expect(relayUrl({ TED_RELAY_URL: 'http://127.0.0.1:9999' }, 'dev')).toBe('http://127.0.0.1:9999')
