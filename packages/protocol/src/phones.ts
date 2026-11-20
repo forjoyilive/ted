@@ -125,7 +125,7 @@ export type RelayToPhone = { t: 'msg'; data: string } | { t: 'mac-online' } | { 
 
 export type PhonePairingState =
   | { state: 'none' }
-  | { state: 'live'; pairing: string; link: string; expiresAt: number }
+  | { state: 'live'; pairing: string; link: string; expiresAt: number; edition: Edition }
   | {
       state: 'waiting'
       pairing: string
@@ -142,6 +142,7 @@ export interface PhonePairingOffer {
   pairing: string
   link: string
   expiresAt: number
+  edition: Edition
 }
 
 export interface PhonePairingDecision {

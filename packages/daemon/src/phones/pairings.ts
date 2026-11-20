@@ -87,7 +87,7 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
         expiresAt,
       })
       current = { id, secret, expiresAt, link, state: 'live' }
-      return { pairing: id, link, expiresAt }
+      return { pairing: id, link, expiresAt, edition: ourEdition }
     },
     cancel() {
       current = undefined
@@ -104,6 +104,7 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
           pairing: pairing.id,
           link: pairing.link,
           expiresAt: pairing.expiresAt,
+          edition: ourEdition,
         }
       }
       const phoneName = pairing.phone?.name ?? ''

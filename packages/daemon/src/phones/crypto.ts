@@ -26,8 +26,8 @@ export function seal(
   message: MacReplyMessage | PhoneRequest,
   recipient: Uint8Array,
   sender: BoxKeys,
+  nonce: Uint8Array = nacl.randomBytes(nacl.box.nonceLength),
 ): string {
-  const nonce = nacl.randomBytes(nacl.box.nonceLength)
   const box = nacl.box(
     new TextEncoder().encode(JSON.stringify(message)),
     nonce,

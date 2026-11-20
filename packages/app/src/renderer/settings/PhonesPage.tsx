@@ -118,6 +118,9 @@ function PairDialog({
             )
           )}
           <div className={dialogStyles.buttons}>
+            {!expired && state.state === 'live' && state.edition === 'dev' && (
+              <Button onClick={() => void ted.copyText(state.link)}>Copy code</Button>
+            )}
             <Button onClick={onClose}>Cancel</Button>
             {expired && (
               <Button primary disabled={busy} onClick={onRenew}>
