@@ -25,6 +25,7 @@ export interface BusyState {
 export interface CpuSample {
   busy: number
   total: number
+  cores: number
 }
 
 interface CpuTimes extends CpuSample {
@@ -34,12 +35,13 @@ interface CpuTimes extends CpuSample {
 function cpuTimes(): CpuSample {
   let busy = 0
   let total = 0
-  for (const { times } of os.cpus()) {
+  const cpus = os.cpus()
+  for (const { times } of cpus) {
     const all = times.user + times.nice + times.sys + times.idle + times.irq
     total += all
     busy += all - times.idle
   }
-  return { busy, total }
+  return { busy, total, cores: cpus.length }
 }
 
 export interface CpuReaderOptions {
@@ -48,45 +50,87 @@ export interface CpuReaderOptions {
   wait?: (ms: number) => Promise<void>
 }
 
-const cpuSettleMs = 1_000
-const cpuSampleFreshMs = 60_000
-
-function busyShare(since: CpuTimes, current: CpuTimes): number {
-  if (current.total <= since.total) return Number.NaN
-  return (current.busy - since.busy) / (current.total - since.total)
+export interface CpuWindow {
+  elapsedMs: number
+  cores: number
+  busyMs: number
+  countedMs: number
+  share: number
 }
 
-export function createCpuReader(options: CpuReaderOptions = {}): () => Promise<number> {
-  const now = options.now ?? Date.now
+export interface CpuReader {
+  read(): Promise<number>
+  last(): CpuWindow | undefined
+}
+
+const cpuSettleMs = 1_000
+const cpuSampleFreshMs = 60_000
+const leastCountedShare = 0.5
+
+function cpuWindow(since: CpuTimes, current: CpuTimes): CpuWindow {
+  const elapsedMs = current.at - since.at
+  const busyMs = current.busy - since.busy
+  const countedMs = current.total - since.total
+  const trusted =
+    current.cores > 0 &&
+    current.cores === since.cores &&
+    elapsedMs > 0 &&
+    busyMs >= 0 &&
+    countedMs > 0 &&
+    busyMs <= countedMs &&
+    countedMs >= elapsedMs * current.cores * leastCountedShare
+  return {
+    elapsedMs,
+    cores: current.cores,
+    busyMs,
+    countedMs,
+    share: trusted ? busyMs / countedMs : Number.NaN,
+  }
+}
+
+export function createCpuReader(options: CpuReaderOptions = {}): CpuReader {
+  const now = options.now ?? (() => performance.now())
   const sample = options.sample ?? cpuTimes
   const wait = options.wait ?? ((ms: number) => sleep(ms))
   const take = (): CpuTimes => ({ ...sample(), at: now() })
   let previous: CpuTimes | undefined
-  let last = Number.NaN
+  let last: CpuWindow | undefined
   let settling: Promise<number> | undefined
-  return async () => {
-    const fake = options.sample === undefined ? tedEnv('TED_LOAD_FILE') : undefined
-    if (fake) return Number(readFileSync(fake, 'utf8'))
-    if (settling) return settling
-    const current = take()
-    const since = previous
-    if (since && current.at - since.at < cpuSettleMs) return last
-    if (since && current.at - since.at <= cpuSampleFreshMs) {
-      previous = current
-      last = busyShare(since, current)
-      return last
-    }
-    settling = (async () => {
-      await wait(cpuSettleMs)
-      const after = take()
-      previous = after
-      last = busyShare(current, after)
-      return last
-    })().finally(() => {
-      settling = undefined
-    })
-    return settling
+  const measure = (since: CpuTimes, current: CpuTimes) => {
+    previous = current
+    last = cpuWindow(since, current)
+    return last.share
   }
+  return {
+    last: () => last,
+    async read() {
+      const fake = options.sample === undefined ? tedEnv('TED_LOAD_FILE') : undefined
+      if (fake) return Number(readFileSync(fake, 'utf8'))
+      if (settling) return settling
+      const current = take()
+      const since = previous
+      const elapsed = since ? current.at - since.at : Number.NaN
+      if (since && elapsed >= 0 && elapsed < cpuSettleMs) return last?.share ?? Number.NaN
+      if (since && elapsed >= cpuSettleMs && elapsed <= cpuSampleFreshMs) {
+        return measure(since, current)
+      }
+      settling = (async () => {
+        await wait(cpuSettleMs)
+        return measure(current, take())
+      })().finally(() => {
+        settling = undefined
+      })
+      return settling
+    },
+  }
+}
+
+export function describeCpuWindow(window: CpuWindow | undefined): string {
+  if (!window) return 'CPU: not sampled yet'
+  const counted = `${Math.round(window.busyMs)} ms busy of ${Math.round(window.countedMs)} ms counted on ${window.cores} cores over ${Math.round(window.elapsedMs)} ms`
+  return Number.isFinite(window.share)
+    ? `CPU: ${Math.round(window.share * 100)}% (${counted})`
+    : `CPU: last sample refused (${counted})`
 }
 
 function fakeMemory(): { totalBytes: number; availableBytes: number } | undefined {
@@ -187,11 +231,13 @@ export interface Busy {
   pending(): boolean
   memory(): Promise<number>
   reading(): Promise<MachineUsage>
+  cpuSample(): string
 }
 
 export function createBusyHold(options: BusyHoldOptions): Busy {
   const now = options.now ?? Date.now
-  const cpuInUse = options.loadRatio ?? createCpuReader({ now })
+  const reader = createCpuReader()
+  const cpuInUse = options.loadRatio ?? reader.read
   const readMemory = options.memoryAvailable ?? memoryAvailableShare
   const cacheMs =
     options.memoryCacheMs ??
@@ -235,5 +281,6 @@ export function createBusyHold(options: BusyHoldOptions): Busy {
         memoryInUse: Number.isFinite(memoryAvailable) ? rounded(1 - memoryAvailable) : null,
       }
     },
+    cpuSample: () => describeCpuWindow(reader.last()),
   }
 }
