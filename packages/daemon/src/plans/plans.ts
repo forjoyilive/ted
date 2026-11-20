@@ -44,6 +44,7 @@ import type { StoredPlan } from '../store/plans.ts'
 import { approvedShape, createProposalTasks, highestPriority } from '../tasks/proposal-tasks.ts'
 import {
   afterProcessEnded,
+  automaticResumes,
   queuedRunStatus,
   queuedRuns,
   type RunQueue,
@@ -143,6 +144,7 @@ export function createPlans(options: PlansOptions): Plans {
     })
   const saved = store.plans
   const retrying = new Set<string>()
+  const messageResumes = new Map<string, { count: number; waiting: Set<string> }>()
   const stopping = new Map<string, Promise<void>>()
   let closed = false
   const limits = runLimits({
@@ -288,6 +290,7 @@ export function createPlans(options: PlansOptions): Plans {
   const cleaning = new Map<string, Promise<void>>()
 
   function cleanUp(id: string): void {
+    messageResumes.delete(id)
     options.commands.stop(id)
     const plan = saved.get(id)
     const before = cleaning.get(id) ?? Promise.resolve()
@@ -429,15 +432,32 @@ export function createPlans(options: PlansOptions): Plans {
     }
   }
 
+  function resumeForMessage(planId: string, run: Run | undefined): boolean {
+    const waiting = store
+      .runMessages(planId)
+      .filter((m) => m.queued === true)
+      .map((m) => m.id)
+    const previous = messageResumes.get(planId)
+    const count = previous && waiting.some((id) => previous.waiting.has(id)) ? previous.count : 0
+    if (waiting.length === 0 || run?.sessionId === undefined || count >= automaticResumes) {
+      messageResumes.delete(planId)
+      return false
+    }
+    messageResumes.set(planId, { count: count + 1, waiting: new Set(waiting) })
+    return true
+  }
+
   function ended(runId: string, stopped: boolean, lastLines: readonly string[]): void {
     if (closed) return
     limits.clear(runId)
     const plan = saved.get(runId)
     if (plan?.state !== 'started') return
+    const run = store.getRun(runId)
+    const forMessage = !stopped && resumeForMessage(plan.id, run)
     const next = afterProcessEnded({
       stopped,
-      run: store.getRun(runId),
-      resumedBefore: plan.resume !== undefined,
+      run,
+      resumedBefore: plan.resume !== undefined && !forMessage,
       lastLines,
     })
     if ('stopped' in next) {

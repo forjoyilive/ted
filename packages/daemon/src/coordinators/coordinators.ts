@@ -116,7 +116,7 @@ import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import { approvedShape, createProposalTasks, highestPriority } from '../tasks/proposal-tasks.ts'
 import type { QueueSource } from '../tasks/queue.ts'
-import { startGuard } from '../tasks/queued-runs.ts'
+import { automaticResumes, startGuard } from '../tasks/queued-runs.ts'
 import { factoryRepos } from '../tasks/repos.ts'
 import { roundAnswers } from '../tasks/rounds.ts'
 import type { Caller, Tasks } from '../tasks/tasks.ts'
@@ -135,7 +135,6 @@ export const continueAfterPause =
   'Continue the interrupted response using fresh facts. Do not repeat completed actions.'
 export const continueAfterRetry =
   'Please continue the interrupted response. Check fresh facts and recorded action results; do not repeat completed actions.'
-const automaticResumes = 3
 export const coordinatorLine = 'Sent through the Coordinator on the human’s instruction.'
 const manageTasksCommands = `- ted coordinator tasks [--stage <Stage>]… [--status <status>]… [--waiting] [--search <text>] [--all] [--offset <n>]: current Tasks, 100 per page, each with its status and up to 5 open requests (ID, kind, who asked, question text, choices, when it was asked, and whether you may answer it). Done and archived Tasks are left out unless you add --all. --stage and --status can repeat and match any of their values; --waiting keeps Tasks with open requests; --search matches title text or a Task ID. Filters combine. matching is how many Tasks match, stageCounts counts the Factory’s Tasks per Stage whatever the filters, and now is the current time. Ask with filters rather than paging through every Task.
 - ted coordinator task <id> [--offset <n>]: current Task, latest brief, its open requests, paged comments and a version.
