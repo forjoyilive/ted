@@ -6,12 +6,10 @@ export const pushAttempts = 3
 export const pushTimeoutMs = 10_000
 export const pushBackoffMs = 1_000
 
-export interface PushMessage {
-  to: string
-  title: string
-  body: string
-  requestId: string
-}
+export type PushMessage = { to: string; title: string; body: string } & (
+  | { requestId: string; opens?: never }
+  | { opens: 'problems'; requestId?: never }
+)
 
 export type PushResult =
   | { kind: 'sent' }
@@ -105,7 +103,10 @@ export function createExpoPush(options: ExpoPushOptions = {}): PushService {
           to: message.to,
           title: message.title,
           body: message.body,
-          data: { requestId: message.requestId },
+          data:
+            message.requestId === undefined
+              ? { opens: message.opens }
+              : { requestId: message.requestId },
           sound: 'default',
         },
       ])

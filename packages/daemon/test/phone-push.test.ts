@@ -58,6 +58,20 @@ test('sends one message to Expo with the request ID as its only data', async () 
   ])
 })
 
+test('a problem notification carries only the Problems target as its data', async () => {
+  const { push, calls } = client([ok])
+  await push.send({ to: token, title: 'Work stopped · Ted', body: 'Disk full', opens: 'problems' })
+  expect(JSON.parse(calls[0]?.init.body ?? '')).toEqual([
+    {
+      to: token,
+      title: 'Work stopped · Ted',
+      body: 'Disk full',
+      data: { opens: 'problems' },
+      sound: 'default',
+    },
+  ])
+})
+
 test('retries network errors, 429 and 5xx with growing waits, at most three attempts', async () => {
   const recovered = client([new Error('socket hang up'), { status: 503, body: {} }, ok])
   expect(await recovered.push.send(message)).toEqual({ kind: 'sent' })

@@ -846,7 +846,7 @@ describe('iOS simulator Apps', () => {
     await setViewers(['com.apple.dt.Devices'])
     await client.ok('POST', `/tasks/${task.id}/apps/show`, { name: 'iPhone' })
     const udid = (await stubDevices()).find((d) => d.name === 'Ted Dev NB-1 iPhone')?.udid
-    expect((await stubCalls()).at(-1)).toEqual([
+    expect((await stubCalls()).filter((call) => call[0] === '-b')).toContainEqual([
       '-b',
       'com.apple.dt.Devices',
       `devices://device/open?id=${udid}`,

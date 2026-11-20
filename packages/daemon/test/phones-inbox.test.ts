@@ -5,18 +5,24 @@ import {
   type AnswerRequest,
   type Automation,
   type AutomationDetail,
+  type Banner,
   type Comment,
   type DaemonClient,
   encodePairingLink,
   type Factory,
   type MacReply,
   type PhoneAnswer,
+  type PhoneProblemsBody,
   type PhoneRequestDetail,
   type PhoneRequestSummary,
   type Plan,
   type PlanDetail,
+  parsePhoneProblemsBody,
   parsePhoneRequestBody,
   parsePhoneRequestsBody,
+  phoneProblemFactoryMax,
+  phoneProblemsMax,
+  phoneProblemTextMax,
   phoneReplyBodyMax,
   readDaemonInfo,
   type Task,
@@ -24,6 +30,7 @@ import {
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { phoneProblems } from '../src/phones/problems.ts'
 import type { PushMessage } from '../src/phones/push.ts'
 import type { NewComment, TedStore } from '../src/store/index.ts'
 import {
@@ -673,3 +680,76 @@ test('a planning chat that saves a phone answer but can’t resume says the answ
     'gone',
   )
 }, 90_000)
+
+test('the phone lists current stops-work problems, redacted, and never warnings', async () => {
+  const problems = async () => {
+    const reply = await phone.send({ type: 'request', route: 'problems' })
+    if (!reply.ok) throw new Error(`problems failed: ${reply.error.code}`)
+    return parsePhoneProblemsBody(reply.body).problems
+  }
+  const stops = store.raiseBanner({
+    id: `phone-test-clone:${factory.id}`,
+    problem: 'phone-test-clone',
+    severity: 'stops-work',
+    factoryId: factory.id,
+    text: 'Couldn’t clone https://user:hunter2@example.com/acme/notes.git',
+  })
+  const disk = store.raiseBanner({
+    id: 'phone-test-stop:app',
+    problem: 'phone-test-stop',
+    severity: 'stops-work',
+    text: 'Disk full · new work held',
+  })
+  store.raiseBanner({
+    id: 'phone-test-warning:app',
+    problem: 'phone-test-warning',
+    severity: 'warning',
+    text: 'Disk almost full',
+  })
+
+  const listedProblems = await problems()
+  expect(listedProblems.map((problem) => problem.id).sort()).toEqual([disk.id, stops.id].sort())
+  expect(listedProblems.find((problem) => problem.id === disk.id)).toEqual({
+    id: disk.id,
+    text: 'Disk full · new work held',
+    raisedAt: disk.raisedAt,
+  })
+  const clone = listedProblems.find((problem) => problem.id === stops.id)
+  expect(clone?.factory).toBe(factory.name)
+  expect(clone?.text).toContain('https://[redacted]@example.com')
+  expect(clone?.text).not.toContain('hunter2')
+
+  store.clearBanner(stops.id)
+  store.clearBanner(disk.id)
+  store.clearBanner('phone-test-warning:app')
+  expect(await problems()).toEqual([])
+})
+
+test('the phone problems reply fits the reply size limit and keeps the first problems', () => {
+  const wide = '\u{1d11e}'.repeat(phoneProblemTextMax + 10)
+  const banners: Banner[] = Array.from({ length: phoneProblemsMax }, (_, index) => ({
+    id: `wide-${index}:factory`,
+    problem: 'phone-test-wide',
+    severity: 'stops-work',
+    factoryId: 'factory',
+    text: wide,
+    raisedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, phoneProblemsMax - index)).toISOString(),
+  }))
+  const body = phoneProblems({
+    banners: () => [...banners].reverse(),
+    factoryName: () => 'F'.repeat(phoneProblemFactoryMax * 2),
+  })
+  const bytes = (problems: PhoneProblemsBody['problems']) =>
+    Buffer.byteLength(JSON.stringify({ problems }), 'utf8')
+  expect(bytes(body.problems)).toBeLessThanOrEqual(phoneReplyBodyMax)
+  expect(body.problems.length).toBeGreaterThan(0)
+  expect(body.problems.length).toBeLessThan(banners.length)
+  expect(body.problems.map((problem) => problem.id)).toEqual(
+    banners.slice(0, body.problems.length).map((banner) => banner.id),
+  )
+  const [first] = body.problems
+  if (first === undefined) throw new Error('no problems listed')
+  const next = { ...first, id: `wide-${body.problems.length}:factory` }
+  expect(bytes([...body.problems, next])).toBeGreaterThan(phoneReplyBodyMax)
+  expect([...(first.factory ?? '')]).toHaveLength(phoneProblemFactoryMax)
+})
