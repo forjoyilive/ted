@@ -16,6 +16,7 @@ import {
   type PlanDetail,
   parsePhoneRequestBody,
   parsePhoneRequestsBody,
+  phoneReplyBodyMax,
   readDaemonInfo,
   type Task,
 } from '@ted/protocol'
@@ -394,6 +395,35 @@ test('a request answered on the Mac is gone for the phone, and a refused answer 
   })
   expect(store.getComment(other.id)?.answer).toBeUndefined()
   expect(failure(await phone.request('no-such-request'))).toBe('gone')
+})
+
+test('a proposal too long for the relay opens on the phone as Answer on your Mac', async () => {
+  const task = await newTask('A long split')
+  const summary = `${'Each notebook gets an owner who decides who can see it. '.repeat(1200)}End.`
+  const huge = ask(task.id, {
+    kind: 'proposal',
+    title: 'Sharing, in one Task',
+    body: summary,
+    proposal: {
+      rows: [
+        {
+          title: 'Notebook owners',
+          scope: 'Give every notebook an owner.',
+          priority: 'high',
+          blockedBy: [],
+        },
+      ],
+    },
+  })
+  expect(Buffer.byteLength(summary)).toBeGreaterThan(phoneReplyBodyMax)
+  const reply = await phone.request(huge.id)
+  expect(reply.ok).toBe(true)
+  expect(Buffer.byteLength(JSON.stringify(reply.ok && reply.body))).toBeLessThanOrEqual(
+    phoneReplyBodyMax,
+  )
+  expect(await opened(huge.id)).toMatchObject({
+    form: { type: 'mac', reason: expect.stringContaining('too long') },
+  })
 })
 
 test('a phone that isn’t approved still gets not-paired on the Inbox routes', async () => {

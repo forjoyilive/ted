@@ -364,7 +364,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
         : share(room, textBytes(found.body), textBytes(extra))
     const body = fitText(found.body, bodyRoom)
     const rest = fitText(extra, extraRoom)
-    return {
+    const fitted: PhoneRequestDetail = {
       ...whole,
       body: body.text,
       cut: body.cut,
@@ -375,6 +375,18 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
             ? { ...form, command: rest.text, cut: rest.cut }
             : form,
     }
+    if (jsonBytes({ request: fitted }) <= phoneReplyBodyMax) return fitted
+    const onMac: PhoneRequestDetail = {
+      ...whole,
+      body: '',
+      cut: false,
+      form: {
+        type: 'mac',
+        reason: 'This request is too long to answer on your phone. Answer it on your Mac.',
+      },
+    }
+    const left = fitText(found.body, Math.max(0, phoneReplyBodyMax - jsonBytes({ request: onMac })))
+    return { ...onMac, body: left.text, cut: left.cut }
   }
 
   function taskAnswer(comment: Comment, answer: PhoneAnswer): AnswerRequest {
