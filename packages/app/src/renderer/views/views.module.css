@@ -207,6 +207,10 @@
   margin-right: 0;
 }
 
+.titleRow {
+  flex-wrap: wrap;
+}
+
 .metaLink {
   padding: 0;
   border: none;
@@ -234,7 +238,7 @@
 }
 
 .taskTitle {
-  flex: 1;
+  flex: 1 1 16em;
   min-width: 0;
   margin: 0;
   font-size: var(--text-19);
@@ -242,7 +246,7 @@
   line-height: 1.45;
   max-height: calc(1.45em * 6);
   overflow-y: auto;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .stageName {

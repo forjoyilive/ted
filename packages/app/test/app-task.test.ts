@@ -56,6 +56,17 @@ describe('Ted app', () => {
     if (!headerBox || !stageBox) throw new Error('the header has no layout')
     expect(stageBox.x + stageBox.width).toBeLessThanOrEqual(headerBox.x + headerBox.width)
 
+    await client.editTask('NB-1', { title: 'Deny network by default, with grants' })
+    const title = header.getByRole('heading', { name: 'Deny network by default, with grants' })
+    await title.waitFor()
+    await window.setViewportSize({ width: 720, height: 800 })
+    const narrowHeader = await header.boundingBox()
+    const titleBox = await title.boundingBox()
+    if (!narrowHeader || !titleBox) throw new Error('the header has no layout')
+    expect(titleBox.width).toBeGreaterThanOrEqual(Math.min(250, narrowHeader.width - 44))
+    expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(narrowHeader.x + narrowHeader.width)
+    await window.setViewportSize({ width: 1280, height: 800 })
+
     await ted('task', 'start', 'NB-1')
 
     await header.getByText('Working', { exact: true }).waitFor()

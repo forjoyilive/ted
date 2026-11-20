@@ -923,7 +923,7 @@ export function TaskThread({
           className={styles.taskHeader}
           {...contextMenu((at) => openTaskActions(at, [task.id]))}
         >
-          <div className={styles.headerRow}>
+          <div className={`${styles.headerRow} ${styles.titleRow}`}>
             <h1 className={styles.taskTitle}>{task.title}</h1>
             <TaskStatusChips
               task={task}
