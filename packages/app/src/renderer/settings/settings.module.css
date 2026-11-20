@@ -276,7 +276,8 @@
   outline-offset: 1px;
 }
 
-.primary {
+.primary,
+.primary:hover:not(:disabled) {
   border-color: var(--accent-default);
   background: var(--accent-default);
   color: var(--text-on-accent);
