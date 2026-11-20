@@ -1,6 +1,6 @@
 import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import path from 'node:path'
-import { type Comment, DaemonClient, readDaemonInfo, tedEnv, tedVersion } from '@ted/protocol'
+import { type Comment, DaemonClient, readDaemonInfo, tedVersion } from '@ted/protocol'
 import { afterEach, expect, test } from 'vitest'
 import { askDemo } from '../src/dev/ask.ts'
 import { demoEnvironment, prepareDemo, until } from '../src/dev/demo.ts'
@@ -61,13 +61,10 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
   await markDemo(home, { version: demoVersion, complete: true })
   await expect(askDemo(home, 'question')).rejects.toThrow('Open the demo first')
 
-  const ghBin = tedEnv('TED_GH_BIN')
   daemon = await startDaemon({
     home,
     version: tedVersion,
-    checkAgentsOnStart: true,
     claudeBin: stubClaudePath,
-    integrations: { checkOnStart: true, loginShell: false, ...(ghBin && { ghBin }) },
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('The demo daemon did not publish its connection.')
