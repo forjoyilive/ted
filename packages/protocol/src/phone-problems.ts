@@ -2,6 +2,7 @@ import { reader, type Untyped } from './parse.ts'
 
 export const phoneProblemTextMax = 500
 export const phoneProblemsMax = 50
+export const phoneProblemFactoryMax = 200
 
 export interface PhoneProblem {
   id: string

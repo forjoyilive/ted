@@ -5,11 +5,13 @@ import {
   type AnswerRequest,
   type Automation,
   type AutomationDetail,
+  type Banner,
   type Comment,
   type DaemonClient,
   type Factory,
   type MacReply,
   type PhoneAnswer,
+  type PhoneProblemsBody,
   type PhoneRequestDetail,
   type PhoneRequestSummary,
   type Plan,
@@ -17,6 +19,9 @@ import {
   parsePhoneProblemsBody,
   parsePhoneRequestBody,
   parsePhoneRequestsBody,
+  phoneProblemFactoryMax,
+  phoneProblemsMax,
+  phoneProblemTextMax,
   phoneReplyBodyMax,
   readDaemonInfo,
   type Task,
@@ -24,6 +29,7 @@ import {
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { phoneProblems } from '../src/phones/problems.ts'
 import type { PushMessage } from '../src/phones/push.ts'
 import type { NewComment, TedStore } from '../src/store/index.ts'
 import {
@@ -715,4 +721,33 @@ test('the phone lists current stops-work problems, redacted, and never warnings'
   store.clearBanner(disk.id)
   store.clearBanner('phone-test-warning:app')
   expect(await problems()).toEqual([])
+})
+
+test('the phone problems reply fits the reply size limit and keeps the first problems', () => {
+  const wide = '\u{1d11e}'.repeat(phoneProblemTextMax + 10)
+  const banners: Banner[] = Array.from({ length: phoneProblemsMax }, (_, index) => ({
+    id: `wide-${index}:factory`,
+    problem: 'phone-test-wide',
+    severity: 'stops-work',
+    factoryId: 'factory',
+    text: wide,
+    raisedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, phoneProblemsMax - index)).toISOString(),
+  }))
+  const body = phoneProblems({
+    banners: () => [...banners].reverse(),
+    factoryName: () => 'F'.repeat(phoneProblemFactoryMax * 2),
+  })
+  const bytes = (problems: PhoneProblemsBody['problems']) =>
+    Buffer.byteLength(JSON.stringify({ problems }), 'utf8')
+  expect(bytes(body.problems)).toBeLessThanOrEqual(phoneReplyBodyMax)
+  expect(body.problems.length).toBeGreaterThan(0)
+  expect(body.problems.length).toBeLessThan(banners.length)
+  expect(body.problems.map((problem) => problem.id)).toEqual(
+    banners.slice(0, body.problems.length).map((banner) => banner.id),
+  )
+  const [first] = body.problems
+  if (first === undefined) throw new Error('no problems listed')
+  const next = { ...first, id: `wide-${body.problems.length}:factory` }
+  expect(bytes([...body.problems, next])).toBeGreaterThan(phoneReplyBodyMax)
+  expect([...(first.factory ?? '')]).toHaveLength(phoneProblemFactoryMax)
 })
