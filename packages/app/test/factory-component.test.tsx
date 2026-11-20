@@ -439,9 +439,10 @@ test('Apps, setup and Checks add and remove sandbox access groups, and the save 
   const setup = within(repos.getByRole('group', { name: 'Sandbox access for Setup command' }))
   expect(setup.getByText('ios-xcode')).toBeTruthy()
   await u.click(setup.getByRole('button', { name: 'Add group…' }))
-  expect(await screen.findAllByRole('menuitem')).toHaveLength(2)
-  expect(screen.getByRole('menuitem', { name: /^shared-tmp/ })).toBeTruthy()
-  expect(screen.getByRole('menuitem', { name: /^electron/ })).toBeTruthy()
+  expect(await screen.findAllByRole('menuitem')).toHaveLength(5)
+  for (const group of ['ios-simulator', 'android-emulator', 'shared-tmp', 'electron', 'network']) {
+    expect(screen.getByRole('menuitem', { name: new RegExp(`^${group}`) })).toBeTruthy()
+  }
   await u.keyboard('{Escape}')
   expect(screen.queryByRole('menuitem')).toBeNull()
   await u.click(setup.getByRole('button', { name: 'Remove ios-xcode' }))

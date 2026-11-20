@@ -367,7 +367,7 @@ rejects(
   P.parseFactorySettingsChanges,
   {
     ...settings,
-    checks: [{ name: 'Check', run: 'make', sandboxAccess: ['network'] }],
+    checks: [{ name: 'Check', run: 'make', sandboxAccess: ['android-gradle'] }],
   },
   'Check sandboxAccess has an unknown sandbox access group',
 )
