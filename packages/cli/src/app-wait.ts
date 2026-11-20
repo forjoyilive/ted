@@ -1,14 +1,10 @@
 import type { TaskApp } from '@ted/protocol'
-import { deviceBuilding } from '@ted/protocol/app'
 
 export function appWaitLine(
-  app: Pick<
-    TaskApp,
-    'name' | 'state' | 'kind' | 'waitingOn' | 'asking' | 'builtAt' | 'notReady' | 'simulator'
-  >,
+  app: Pick<TaskApp, 'name' | 'state' | 'kind' | 'waitingOn' | 'asking' | 'building' | 'simulator'>,
   automationRun: boolean,
 ): string | undefined {
-  if (deviceBuilding(app)) {
+  if (app.building === true) {
     const on = app.simulator === undefined ? '' : ` on ${app.simulator.device}`
     return `Waiting for ${app.name} to finish building and launch${on}…`
   }

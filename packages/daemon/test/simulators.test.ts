@@ -112,18 +112,13 @@ async function start(
   simulators: { supported?: boolean; idleMs?: number } = {},
   disk?: { freeBytes: () => Promise<number>; checkEveryMs: number },
   wrap?: DaemonWrappers,
-  buildTurnMs?: number,
+  appOptions: { buildTurnMs?: number } = {},
 ) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
-    apps: {
-      pollMs: 50,
-      readyTimeoutMs: 20_000,
-      stopGraceMs: 3_000,
-      ...(buildTurnMs !== undefined && { buildTurnMs }),
-    },
+    apps: { pollMs: 50, readyTimeoutMs: 20_000, stopGraceMs: 3_000, ...appOptions },
     simulators: { supported: true, pollMs: 100, ...simulators },
     ...(disk !== undefined && { disk }),
     ...(wrap !== undefined && { wrap }),
@@ -393,6 +388,26 @@ describe('iOS simulator Apps', () => {
     expect((await iPhone(client, task))?.state).toBe('running')
     expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toEqual([])
     expect(await cpusTold(1)).toEqual([String(checkCpus(os.availableParallelism(), 1, 50))])
+  })
+
+  test('a Task shows Starting app while its iPhone App builds, and stops once the build turn ends without a ready line', async () => {
+    const client = await start({}, undefined, undefined, { buildTurnMs: 8_000 })
+    await addFactory(client, 'exec sleep 600')
+    const task = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
+    await waitUntil(async () => {
+      const now = await taskNow(client, task)
+      return now.status?.kind === 'working' && now.status.app === 'iPhone' ? now : undefined
+    }, 'the Task to show Starting app')
+    expect((await taskNow(client, task)).activity).toBe('Starting iPhone')
+    expect((await iPhone(client, task))?.building).toBe(true)
+    await waitUntil(async () => {
+      const now = await taskNow(client, task)
+      return now.status?.kind !== 'working' && now.activity !== 'Starting iPhone' ? now : undefined
+    }, 'the Task to stop showing Starting app after the build turn ends')
+    const app = await iPhone(client, task)
+    expect(app?.state).toBe('running')
+    expect(app?.building).toBeUndefined()
   })
 
   test('a human-started App waiting for a build runs only if its declaration still matches what the human confirmed', async () => {
@@ -684,7 +699,7 @@ describe('iOS simulator Apps', () => {
   })
 
   test('ted run-app gives up when the App runs past the build limit without TED_APP_READY, and leaves it running', async () => {
-    const client = await start({}, undefined, undefined, 2_000)
+    const client = await start({}, undefined, undefined, { buildTurnMs: 2_000 })
     await addFactory(client, 'echo still compiling; exec sleep 600')
     const task = await taskWithWorktree(
       client,

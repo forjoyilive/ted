@@ -81,7 +81,6 @@ import {
   tedPaths,
   type ValidateJudgments,
 } from '@ted/protocol'
-import { deviceBuilding } from '@ted/protocol/app'
 import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
 import { type Json, parseJson } from '@ted/protocol/parse'
 import { matchReference, shortReference } from '@ted/protocol/reference'
@@ -673,7 +672,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const state =
         app.state === 'failed' && app.problem
           ? `failed: ${app.problem}`
-          : deviceBuilding(app)
+          : app.building === true
             ? 'building'
             : app.state === 'running' && app.notReady === true
               ? 'not ready'
@@ -717,7 +716,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         said = why
       }
       sayWhy()
-      while (app.state === 'starting' || app.state === 'waiting' || deviceBuilding(app)) {
+      while (app.state === 'starting' || app.state === 'waiting' || app.building === true) {
         await sleep(500)
         const current = app
         const found = (await owner.list(client)).find(

@@ -27,10 +27,9 @@ test('ted run-app waits for a phone App to finish building and launch', () => {
     kind: 'ios-simulator',
     simulator: { device: 'iPhone 17', booted: true },
   } as const
-  expect(appWaitLine(iPhone, false)).toBe(
+  expect(appWaitLine({ ...iPhone, building: true }, false)).toBe(
     'Waiting for iPhone to finish building and launch on iPhone 17…',
   )
-  expect(appWaitLine({ ...iPhone, builtAt: '2026-11-19T10:00:00.000Z' }, false)).toBeUndefined()
-  expect(appWaitLine({ ...iPhone, notReady: true }, false)).toBeUndefined()
+  expect(appWaitLine(iPhone, false)).toBeUndefined()
   expect(appWaitLine({ name: 'Site', state: 'running', kind: 'web' }, false)).toBeUndefined()
 })

@@ -141,6 +141,7 @@ import type {
 import {
   type AsanaStatus,
   agentShortNames,
+  appStarting,
   archiveChoice,
   asanaAddChoice,
   asanaSyncAllowable,
@@ -1212,6 +1213,13 @@ export function createTasks(options: {
       banners,
     },
     emit: (event) => {
+      if (event.type === 'apps-changed' && store.getTask(event.taskId) !== undefined) {
+        const taskId = event.taskId
+        void apps.list(taskId).then(
+          (list) => store.noteAppStarting(taskId, list.find(appStarting)?.name),
+          () => store.noteAppStarting(taskId, undefined),
+        )
+      }
       if (event.type === 'apps-changed' && runBrowsers.opened(event.taskId)) {
         const runId = event.taskId
         void apps.list(runId).then(

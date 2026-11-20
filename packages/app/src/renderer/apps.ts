@@ -1,5 +1,5 @@
 import type { PullRequestPreview, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
-import { deviceBuilding, isDeviceApp, isEmulatorApp } from '@ted/protocol/app'
+import { isDeviceApp, isEmulatorApp } from '@ted/protocol/app'
 import { age, ago } from './requests.ts'
 
 export interface HostedPreview {
@@ -66,7 +66,7 @@ function simulatorLine(app: TaskApp, now: number): string | undefined {
     return `Waiting for ${android ? 'an emulator' : 'a simulator'} · ${simulator.device}`
   }
   if (simulator.booted) {
-    if (deviceBuilding(app)) return `${simulator.device} · building`
+    if (app.building === true) return `${simulator.device} · building`
     if (app.state === 'running' && app.notReady === true) {
       return `${simulator.device} · didn’t print TED_APP_READY within 15 minutes`
     }

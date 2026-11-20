@@ -115,9 +115,9 @@ describe('iOS simulator Apps', () => {
 
   test('the row says whether its App is still building, its simulator is booted, or why it was shut down', () => {
     const booted17 = { device: 'iPhone 17', booted: true }
-    expect(appStatusLine(iPhone({ state: 'running', simulator: booted17 }), now)).toBe(
-      'iPhone 17 · building',
-    )
+    expect(
+      appStatusLine(iPhone({ state: 'running', simulator: booted17, building: true }), now),
+    ).toBe('iPhone 17 · building')
     expect(
       appStatusLine(
         iPhone({ state: 'running', simulator: booted17, builtAt: '2026-11-09T10:20:00Z' }),
@@ -219,7 +219,10 @@ describe('Android emulator Apps', () => {
     const device = 'Pixel_8_API_35'
     const builtAt = '2026-11-09T10:20:00Z'
     expect(
-      appStatusLine(phone({ state: 'running', simulator: { device, booted: true } }), now),
+      appStatusLine(
+        phone({ state: 'running', building: true, simulator: { device, booted: true } }),
+        now,
+      ),
     ).toBe('Pixel_8_API_35 · building')
     expect(
       appStatusLine(phone({ state: 'running', builtAt, simulator: { device, booted: true } }), now),
