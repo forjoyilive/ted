@@ -1,7 +1,10 @@
 export const presenceStaleMs = 90_000
+// The app reports away after this much idle time (awayAfterIdleSeconds in packages/app/src/presence.ts).
+export const idleBeforeAwayMs = 120_000
 
 export interface Presence {
   away(): boolean
+  leftAt(): number | undefined
   report(away: boolean): void
   subscribe(listener: (away: boolean) => void): () => void
   close(): void
@@ -18,6 +21,7 @@ export function createPresence(options: PresenceOptions = {}): Presence {
   const listeners = new Set<(away: boolean) => void>()
   let reported: { away: boolean; at: number } | undefined
   let current = true
+  let left = now()
   let timer: NodeJS.Timeout | undefined
 
   const compute = () => reported === undefined || reported.away || now() - reported.at >= staleMs
@@ -25,6 +29,7 @@ export function createPresence(options: PresenceOptions = {}): Presence {
     const next = compute()
     if (next === current) return
     current = next
+    if (current) left = reported?.away ? reported.at - idleBeforeAwayMs : (reported?.at ?? now())
     for (const listener of listeners) listener(current)
   }
   const watch = () => {
@@ -46,6 +51,10 @@ export function createPresence(options: PresenceOptions = {}): Presence {
     away: () => {
       update()
       return current
+    },
+    leftAt: () => {
+      update()
+      return current ? left : undefined
     },
     report(away) {
       reported = { away, at: now() }

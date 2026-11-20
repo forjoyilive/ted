@@ -14,7 +14,7 @@ The phone asks for Face ID when you open it, and again after it has been in the 
 
 ## Notifications
 
-When a request is waiting and you’ve been away from the Mac for 2 minutes, or have locked its screen, each paired phone gets one notification for it. Tapping it opens the request after Face ID. Nothing is sent while you’re using the Mac, for a request you’ve already answered or snoozed, or when Inbox notifications are off in Settings.
+When a request comes in while you’re away from the Mac (2 minutes idle, or its screen locked), each paired phone gets one notification for it. Tapping it opens the request after Face ID. Each request notifies a phone once, even after you snooze it. Nothing is sent for requests that came in while you were using the Mac or before you paired the phone, for a request you’ve already answered or snoozed, or when Inbox notifications are off in Settings.
 
 A notification shows only the request’s title and a short headline, because Apple and Expo deliver it. A permission request’s command is never in a notification.
 
