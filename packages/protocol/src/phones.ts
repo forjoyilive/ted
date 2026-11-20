@@ -12,9 +12,16 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import {
+  type PhoneAnswer,
+  type PhoneAnsweredBody,
+  type PhoneRequestBody,
+  type PhoneRequestsBody,
+  parsePhoneAnswer,
+} from './phone-requests.ts'
 import { RequestValidationError } from './validation.ts'
 
-export const phoneProtocolVersion = 1
+export const phoneProtocolVersion = 2
 export const minPhoneProtocolVersion = 1
 export const phoneEnvelopeVersion = 1
 export const pairingLinkVersion = 1
@@ -22,6 +29,7 @@ export const pairingLinkPrefix = 'ted-pair:'
 export const pairingLifetimeMs = 5 * 60_000
 export const phoneMessageWindowMs = 120_000
 export const phoneNameMax = 100
+export const phoneRequestIdMax = 200
 
 export const defaultRelayUrl = 'https://ted-relay.invalid'
 export const devRelayUrl = 'http://127.0.0.1:8787'
@@ -39,10 +47,13 @@ export const phoneErrorCodes = [
   'too-new',
   'bad-request',
   'unknown-route',
+  'gone',
+  'answer-on-mac',
+  'refused',
 ] as const
 export type PhoneErrorCode = (typeof phoneErrorCodes)[number]
 
-export const phoneRouteNames = ['status'] as const
+export const phoneRouteNames = ['status', 'requests', 'request', 'answer'] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
 export interface PairingLink {
@@ -79,7 +90,12 @@ export type PhoneRequest =
       edition: Edition
     })
   | (PhoneMessageHeader & { type: 'pair-status'; pairing: string })
-  | (PhoneMessageHeader & { type: 'request'; route: string })
+  | (PhoneMessageHeader & {
+      type: 'request'
+      route: string
+      requestId?: string
+      answer?: PhoneAnswer
+    })
 
 export interface PhoneReplyError {
   code: PhoneErrorCode
@@ -104,7 +120,13 @@ export interface PhoneStatusBody {
   protocol: number
 }
 
-export type PhoneReplyBody = PairReplyBody | PairStatusBody | PhoneStatusBody
+export type PhoneReplyBody =
+  | PairReplyBody
+  | PairStatusBody
+  | PhoneStatusBody
+  | PhoneRequestsBody
+  | PhoneRequestBody
+  | PhoneAnsweredBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
     | { ok: true; body: PhoneReplyBody }
@@ -278,7 +300,29 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
   if (type === 'pair-status') {
     return { ...header, type, pairing: base64Field(object, 'pairing', 16) }
   }
-  return { ...header, type, route: read.string(object, 'route') }
+  const route = read.string(object, 'route')
+  if (route === 'request') return { ...header, type, route, requestId: requestId(object) }
+  if (route === 'answer') {
+    return {
+      ...header,
+      type,
+      route,
+      requestId: requestId(object),
+      answer: parsePhoneAnswer(object.answer),
+    }
+  }
+  return { ...header, type, route }
+}
+
+function requestId(object: JsonObject): string {
+  const id = read.string(object, 'requestId')
+  if (!id || id.length > phoneRequestIdMax) {
+    throw new ParseError(
+      'requestId',
+      `requestId must be text of 1 to ${phoneRequestIdMax} characters`,
+    )
+  }
+  return id
 }
 
 export function parseMacReply(value: Untyped): MacReply {

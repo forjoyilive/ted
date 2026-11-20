@@ -95,7 +95,7 @@ Every message inside a box has:
 - `{"type":"pair","pairing":"<pairing ID>","secret":"<secret>","name":"iPhone 16","edition":"dev"}` sent from the phone’s new box key.
 - `{"type":"pair-status","pairing":"<pairing ID>"}` from the same key, polled every 2 seconds while waiting.
 - `{"type":"request","route":"status"}` from a paired phone’s key.
-- `{"type":"request","route":"requests"}`, `{"type":"request","route":"request","id":"<request ID>"}` and `{"type":"request","route":"answer","id":"<request ID>","answer":{…}}` from a paired phone’s key (protocol 2; see Inbox requests below).
+- `{"type":"request","route":"requests"}`, `{"type":"request","route":"request","requestId":"<request ID>"}` and `{"type":"request","route":"answer","requestId":"<request ID>","answer":{…}}` from a paired phone’s key (protocol 2; see Inbox requests below). The request ID goes in `requestId` because `id` is the message’s own ID.
 
 ### Mac → phone
 

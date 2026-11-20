@@ -853,6 +853,7 @@ export type {
   PeerSummary,
   SendPeerMessage,
 } from './peers.ts'
+export * from './phone-requests.ts'
 export * from './phones.ts'
 export type { PostPlanRequest, RenamePlanRequest, ResumePlanRequest } from './plan.ts'
 export {

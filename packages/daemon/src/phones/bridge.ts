@@ -27,6 +27,9 @@ export const phoneErrorMessages: Readonly<Record<PhoneErrorCode, string>> = {
   'too-new': 'Update Ted on your Mac.',
   'bad-request': 'Ted on your Mac couldn’t read this request.',
   'unknown-route': 'Ted on your Mac doesn’t know this request.',
+  gone: 'This request was answered or closed on your Mac.',
+  'answer-on-mac': 'Answer this request on your Mac.',
+  refused: 'Ted on your Mac couldn’t take this answer.',
 }
 
 export interface PhoneBridgeOptions {
@@ -74,7 +77,9 @@ export function createPhoneBridge(options: PhoneBridgeOptions): PhoneBridge {
       if (!replay.accept(opened.from, opened.nonce, header.at)) return
       const senderKey = fromBase64Url(opened.from, 32)
       if (!senderKey) return
-      const reply = (outcome: { body: PhoneReplyBody } | { code: PhoneErrorCode }) => {
+      const reply = (
+        outcome: { body: PhoneReplyBody } | { code: PhoneErrorCode; message?: string },
+      ) => {
         const common = {
           protocol: phoneProtocolVersion,
           id: header.id,
@@ -87,7 +92,10 @@ export function createPhoneBridge(options: PhoneBridgeOptions): PhoneBridge {
             : {
                 ...common,
                 ok: false,
-                error: { code: outcome.code, message: phoneErrorMessages[outcome.code] },
+                error: {
+                  code: outcome.code,
+                  message: outcome.message ?? phoneErrorMessages[outcome.code],
+                },
               }
         options.send(conn, seal(message, senderKey, keys.box))
       }
@@ -122,9 +130,7 @@ export function createPhoneBridge(options: PhoneBridgeOptions): PhoneBridge {
       const route = phoneRoutes.find((entry) => entry.name === asked.route)
       if (!route) return reply({ code: 'unknown-route' })
       options.reached(paired.id)
-      return reply({
-        body: await route.handle({ kind: 'phone', phoneId: paired.id }, options.routes),
-      })
+      return reply(await route.handle({ kind: 'phone', phoneId: paired.id }, asked, options.routes))
     },
   }
 }
