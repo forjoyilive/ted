@@ -68,6 +68,20 @@ export interface ProcessUsage {
   memory: MemoryUse
 }
 
+export interface MachineUsage {
+  cpuInUse: number | null
+  memoryInUse: number | null
+}
+
+export interface DiagnosticsUsage extends ProcessUsage {
+  machine: MachineUsage
+}
+
+export interface ResourceReading {
+  machine: MachineUsage
+  memory: MemoryUse
+}
+
 export interface LogText {
   text: string
   truncated: boolean

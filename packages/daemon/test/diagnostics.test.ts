@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type Diagnostics,
+  type DiagnosticsUsage,
   type LogText,
   type MemoryUse,
   type ProcessUsage,
@@ -183,8 +184,8 @@ describe('Diagnostics', () => {
     expect(diagnostics.memory.availableBytes).toBeGreaterThan(0)
     expect(diagnostics.memory.availableBytes).toBeLessThanOrEqual(diagnostics.memory.totalBytes)
 
-    const usage = (await client.call('GET', '/diagnostics/usage')).body as ProcessUsage
-    expect(Object.keys(usage).sort()).toEqual(['cpuPercent', 'memory', 'memoryBytes'])
+    const usage = (await client.call('GET', '/diagnostics/usage')).body as DiagnosticsUsage
+    expect(Object.keys(usage).sort()).toEqual(['cpuPercent', 'machine', 'memory', 'memoryBytes'])
     expect(usage.memory.agents.count).toBe(1)
     expect(usage.cpuPercent).toBeGreaterThanOrEqual(0)
     expect(usage.memoryBytes).toBeGreaterThan(owned.reduce((sum, p) => sum + p.memoryBytes, 0) / 2)
@@ -292,6 +293,30 @@ describe('Diagnostics', () => {
     expect(short).toContain('Daemon log and process command lines left out')
     expect(short).not.toContain('opened <Ted home>/store')
     expect(short).not.toMatch(/^\d+ \(parent \d+\) (?!·)/m)
+  })
+
+  test('the usage reading shows the whole machine’s CPU and memory, as the busy hold sees them', async () => {
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      load: { ratio: () => 0.7912, memoryAvailable: () => 0.4 },
+    })
+    const client = api(daemon.port, { appKey: daemon.appToken })
+    const usage = (await client.call('GET', '/diagnostics/usage')).body as DiagnosticsUsage
+    expect(usage.machine).toEqual({ cpuInUse: 0.79, memoryInUse: 0.6 })
+  })
+
+  test('the usage reading leaves out a figure the machine can’t report', async () => {
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      load: { ratio: () => Number.NaN, memoryAvailable: () => 0.25 },
+    })
+    const client = api(daemon.port, { appKey: daemon.appToken })
+    const usage = (await client.call('GET', '/diagnostics/usage')).body as DiagnosticsUsage
+    expect(usage.machine).toEqual({ cpuInUse: null, memoryInUse: 0.75 })
   })
 
   test('Runs can’t read Diagnostics, logs or the report', async () => {

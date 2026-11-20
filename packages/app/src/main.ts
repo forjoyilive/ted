@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile, rm, writeFile } from 'node:fs/promises'
-import { availableParallelism, homedir } from 'node:os'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { crashReporter, type ReportCrash } from '@ted/daemon/crash-report'
 import { executionHome } from '@ted/daemon/execution'
@@ -278,8 +278,7 @@ const requests = {
   resourceUsage: async (client) => {
     const [usage, own] = await Promise.all([client.getProcessUsage(), appUsage()])
     return {
-      cpuPercent: (usage.cpuPercent + own.cpuPercent) / availableParallelism(),
-      memoryBytes: usage.memoryBytes + own.memoryBytes,
+      machine: usage.machine,
       memory: { ...usage.memory, app: { count: own.count, bytes: own.memoryBytes } },
     }
   },
