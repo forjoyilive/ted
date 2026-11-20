@@ -3,8 +3,7 @@ import path from 'node:path'
 import type { WorkflowProblem } from '@ted/protocol'
 import { type Fail, isObject, isString, parseJson, reader, type Untyped } from '@ted/protocol/parse'
 import { plural } from '../text.ts'
-import { checkWorkflowPath } from '../workflow/check-path.ts'
-import { readLayerDirectory } from '../workflow/layers.ts'
+import { checkWorkflowPath, libraryNames } from '../workflow/check-path.ts'
 import type { CommandResult } from './worktree.ts'
 
 export const settingsCheckEntry = 'packages/daemon/src/workflow/check-entry.ts'
@@ -136,11 +135,13 @@ async function runBranch(
   await mkdir(cache, { recursive: true })
   const scratch = await mkdtemp(path.join(cache, 'ted-settings-'))
   try {
-    const library = path.join(scratch, 'library')
-    await copyLayer(libraryDir, library)
+    const library = path.join(scratch, 'library-names.json')
+    await writeFile(library, `${JSON.stringify((await libraryNames(libraryDir)) ?? null)}\n`, {
+      mode: 0o600,
+    })
     const out = path.join(scratch, 'result.json')
     const rel = (file: string) => path.relative(worktree, file)
-    const command = `node ${settingsCheckEntry} --target .ted --library ${rel(library)} --out ${rel(out)}`
+    const command = `node ${settingsCheckEntry} --target .ted --library-names ${rel(library)} --out ${rel(out)}`
     const result = await run(command)
     if (result.outcome === 'interrupted') return { kind: 'interrupted' }
     const output = async () => {
@@ -171,16 +172,5 @@ async function runBranch(
     }
   } finally {
     await rm(scratch, { recursive: true, force: true })
-  }
-}
-
-async function copyLayer(from: string, to: string): Promise<void> {
-  await mkdir(to, { recursive: true, mode: 0o700 })
-  const files = (await readLayerDirectory(from).catch(() => undefined)) ?? {}
-  for (const [name, text] of Object.entries(files)) {
-    if (text === null) continue
-    const file = path.join(to, name)
-    await mkdir(path.dirname(file), { recursive: true, mode: 0o700 })
-    await writeFile(file, text, { mode: 0o600 })
   }
 }

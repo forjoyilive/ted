@@ -10,6 +10,7 @@ import {
   settingsCheckEntry,
 } from '../src/tasks/settings-check.ts'
 import type { CommandResult } from '../src/tasks/worktree.ts'
+import { parseLibraryNames } from '../src/workflow/check-path.ts'
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..')
 
@@ -108,25 +109,36 @@ describe('the Ted settings Check', () => {
   test('in Ted’s own source the branch’s checker decides, and the installed checker’s errors become warnings', async () => {
     await makeTedSource('')
     await useWorkflow(workflowWithGroup('network'))
-    await writeFile(path.join(library, 'workflow.yaml'), 'version: 1\n')
-    let copied: string | undefined
+    await writeFile(
+      path.join(library, 'workflow.yaml'),
+      'version: 1\nsandbox_sockets: { docker: /private/sockets/docker.sock }\n',
+    )
+    await writeFile(path.join(library, 'notes.md'), 'private library notes\n')
+    let handed: string | undefined
     const runner = writesResult(clean)
     const result = await checkSettings({
       worktree,
       log,
       libraryDir: library,
       runBranchChecker: async (command) => {
-        const dir = /--library (\S+)/.exec(command)?.[1] ?? ''
-        copied = await readFile(path.join(worktree, dir, 'workflow.yaml'), 'utf8')
+        const file = /--library-names (\S+)/.exec(command)?.[1] ?? ''
+        handed = await readFile(path.join(worktree, file), 'utf8')
         return runner(command)
       },
     })
 
     expect(result).toEqual({ outcome: 'passed', exitCode: 0 })
     expect(runner.commands[0]).toMatch(
-      /^node packages\/daemon\/src\/workflow\/check-entry\.ts --target \.ted --library node_modules\/\.cache\/ted-settings-\w+\/library --out node_modules\/\.cache\/ted-settings-\w+\/result\.json$/,
+      /^node packages\/daemon\/src\/workflow\/check-entry\.ts --target \.ted --library-names node_modules\/\.cache\/ted-settings-\w+\/library-names\.json --out node_modules\/\.cache\/ted-settings-\w+\/result\.json$/,
     )
-    expect(copied).toBe('version: 1\n')
+    expect(JSON.parse(handed ?? '')).toEqual({
+      stageFiles: [],
+      agentsDefined: [],
+      agentsInstructed: [],
+      sockets: ['docker'],
+    })
+    expect(handed).not.toContain('/private/sockets')
+    expect(handed).not.toContain('private library notes')
     const text = await readFile(log, 'utf8')
     expect(text).toContain('Checked with this branch’s own Ted settings checker.')
     expect(text).toContain('No problems in .ted')
@@ -169,6 +181,7 @@ describe('the Ted settings Check', () => {
       log,
       libraryDir: library,
       runBranchChecker: async () => {
+        await mkdir(path.dirname(log), { recursive: true })
         await writeFile(log, 'Cannot find package @ted/protocol\n')
         return { outcome: 'failed', exitCode: 1 }
       },
@@ -271,5 +284,27 @@ describe('parseSettingsResult', () => {
         problems: [{ severity: 'error', file: 'a', line: 1.5, column: 1, message: 'm', path: 'a' }],
       }),
     ).toThrow('line must be a whole number')
+  })
+})
+
+describe('parseLibraryNames', () => {
+  test('reads every field, and null means no valid Library', () => {
+    const names = {
+      stageFiles: ['qa'],
+      order: ['intake', 'qa'],
+      agentsDefined: ['helper'],
+      agentsInstructed: ['helper'],
+      sockets: ['docker'],
+    }
+    expect(parseLibraryNames(names)).toEqual(names)
+    expect(parseLibraryNames({ ...names, order: undefined })).not.toHaveProperty('order')
+    expect(parseLibraryNames(null)).toBeUndefined()
+  })
+
+  test('refuses names that aren’t text', () => {
+    expect(() =>
+      parseLibraryNames({ stageFiles: [1], agentsDefined: [], agentsInstructed: [], sockets: [] }),
+    ).toThrow('stageFiles[0] must be text')
+    expect(() => parseLibraryNames({ stageFiles: [] })).toThrow('agentsDefined must be a list')
   })
 })
