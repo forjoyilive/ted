@@ -163,6 +163,11 @@ function socketsView(
     : { sandboxSockets: [] }
 }
 
+function networkView(base: Base): Pick<FactorySettingsView, 'sandboxNetworkFrom'> {
+  const layer = [...base.inherited, base.own].findLast((l) => l.settings.sandbox_network)
+  return layer?.settings.sandbox_network === 'outbound' ? { sandboxNetworkFrom: layer.kind } : {}
+}
+
 function ignoredStageFiles(files: readonly string[], base: Base): string[] {
   const { order } = resolveWorkflow([...base.inherited, base.own])
   return files.filter((name) => {
@@ -736,6 +741,14 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             .filter((app) => app.electron === true)
             .map((app) => ({ repo: repos[i]?.name ?? '', name: app.name })),
         ),
+        deviceApps: (base.settings?.repos ?? []).flatMap((entry, i) =>
+          appDeclarations(entry.apps).flatMap((app) =>
+            app.kind === 'ios-simulator' || app.kind === 'android-emulator'
+              ? [{ repo: repos[i]?.name ?? '', name: app.name, group: app.kind }]
+              : [],
+          ),
+        ),
+        ...networkView(base),
         notes: typeof notes === 'string' ? notes : '',
         ...(problem && { invalid: problem }),
       }

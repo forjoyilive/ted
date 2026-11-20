@@ -59,3 +59,4 @@ stages:
       - name: File follow-ups
         instruction: >-
           File a Task with `ted task create` only for a real bug or missing behaviour this Task found and didn’t fix. Don’t file reviewer nits, design details, extra tests or docs wording. Before filing a test that failed on the base branch, check that it still fails on current `origin/main`; it is often fixed already. Skip anything a Task already covers (`ted peers`). Name each Task you filed in your final note. Report skipped when there is nothing to file.
+sandbox_network: outbound

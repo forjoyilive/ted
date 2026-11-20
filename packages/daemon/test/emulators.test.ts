@@ -106,7 +106,7 @@ const workflow = [
   '      - name: android',
   '        kind: android-emulator',
   '        device: Pixel_8_API_35',
-  '        run: "echo serial $ANDROID_SERIAL $TED_EMULATOR_SERIAL $GRADLE_USER_HOME; exec sleep 600"',
+  '        run: "echo serial $ANDROID_SERIAL $TED_EMULATOR_SERIAL $GRADLE_USER_HOME; echo TED_APP_READY; exec sleep 600"',
 ].join('\n')
 
 async function addFactory(client: Client) {

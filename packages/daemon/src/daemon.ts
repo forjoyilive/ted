@@ -126,6 +126,7 @@ export interface DaemonOptions {
   apps?: {
     pollMs?: number
     readyTimeoutMs?: number
+    buildTurnMs?: number
     hostStartMs?: number
     stopGraceMs?: number
     logBytes?: number
@@ -972,6 +973,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       const services = {
+        busy,
         execution,
         phones,
         sideChats,

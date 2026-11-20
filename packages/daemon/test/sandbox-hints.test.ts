@@ -41,6 +41,53 @@ test('the hint names the group and who lacks it, once, and not when the command 
   expect(refusalHints(nsird, ['ios-xcode'], 'the App “iOS simulator”')).toEqual([])
 })
 
+test('a refused connect or a failed lookup names network, and the hint says what it allows', () => {
+  expect(refusedGroups('Error: connect EPERM 192.0.2.1:443 - Local (0.0.0.0:0)')).toEqual([
+    'network',
+  ])
+  expect(
+    refusedGroups(
+      'npm error request to https://registry.npmjs.org/x failed, reason: getaddrinfo ENOTFOUND registry.npmjs.org',
+    ),
+  ).toEqual(['network'])
+  expect(refusedGroups('curl: (6) Could not resolve host: example.com')).toEqual(['network'])
+  expect(refusedGroups('connect ECONNREFUSED 127.0.0.1:5432')).toEqual([])
+  expect(
+    refusalHints('getaddrinfo ENOTFOUND registry.npmjs.org', [], 'the worktree setup'),
+  ).toEqual([
+    'Ted: the sandbox refused a connection or lookup outside this machine. The network access group allows it, and the worktree setup doesn’t have it. Propose sandbox_access: [network] for it in .ted/workflow.yaml instead of working around the refusal; it takes effect once the user merges or approves it.',
+  ])
+  expect(refusalHints('connect EPERM 192.0.2.1:443', ['network'], 'the App “Web”')).toEqual([])
+})
+
+test('a lost CoreSimulator connection or a refused device folder names ios-simulator, on macOS only', () => {
+  const lost =
+    'An error was encountered processing the command: CoreSimulatorService connection became invalid.'
+  const devices =
+    'open /Users/someone/Library/Developer/CoreSimulator/Devices/device_set.plist: Operation not permitted'
+  expect(refusedGroups(lost, 'darwin')).toEqual(['ios-simulator'])
+  expect(refusedGroups(devices, 'darwin')).toEqual(['ios-simulator'])
+  expect(refusedGroups(devices, 'linux')).toEqual([])
+  expect(refusedGroups('/Users/someone/Library/Developer/CoreSimulator/Devices', 'darwin')).toEqual(
+    [],
+  )
+  expect(refusalHints(lost, ['ios-simulator'], 'the App “iOS”', [], 'darwin')).toEqual([])
+})
+
+test('adb unable to reach its server or a refused SDK path names android-emulator, not network', () => {
+  const adb = '* cannot connect to daemon at tcp:5037: Operation not permitted'
+  const connect = 'Error: connect EPERM 127.0.0.1:5037 - Local (0.0.0.0:0)'
+  const sdk =
+    'cat: /Users/someone/Library/Android/sdk/platform-tools/source.properties: Operation not permitted'
+  for (const line of [adb, connect, sdk])
+    expect(refusedGroups(line, 'linux')).toEqual(['android-emulator'])
+  expect(refusedGroups('connect ECONNREFUSED 127.0.0.1:5037')).toEqual([])
+  expect(refusalHints(adb, [], 'the Check “Android build”')).toEqual([
+    'Ted: the sandbox refused something in the android-emulator access group, which the Check “Android build” doesn’t have. Propose sandbox_access: [android-emulator] for it in .ted/workflow.yaml instead of working around the refusal; it takes effect once the user merges or approves it.',
+  ])
+  expect(refusalHints(adb, ['android-emulator'], 'the App “Android”')).toEqual([])
+})
+
 test('a refused Electron service names the electron group, and a socket the Library lacks gets its own line', () => {
   const lookup =
     'Check in with com.apple.coreservices.launchservicesd failed: Operation not permitted'

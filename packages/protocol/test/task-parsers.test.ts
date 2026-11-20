@@ -357,7 +357,7 @@ for (const [proposal, message] of [
   ],
   [
     { ...setup, checks: [{ ...setup.checks[0], sandboxAccess: 'ios-xcode' }] },
-    'Typecheck’s sandboxAccess must be a list of access groups: ios-xcode',
+    'Typecheck’s sandboxAccess must be a list of access groups: ios-xcode, network',
   ],
   [{ ...setup, worktree: [{ step: 'build', sandboxAccess: [] }] }, 'setup or teardown'],
   [{ ...setup, worktree: [{ step: 'setup' }] }, 'the worktree setup lists its sandboxAccess'],

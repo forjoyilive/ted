@@ -7,7 +7,7 @@ const uuid = '[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}'
 const xcodeSavers =
   'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtool|ibtoold|swift-build|swift-run|swift-test'
 
-const groupPaths: Record<SandboxGroup, RegExp> = {
+const groupPaths: Record<Exclude<SandboxGroup, 'network' | 'android-emulator'>, RegExp> = {
   'ios-xcode': new RegExp(
     [
       `${perUserTemp}(?:TemporaryItems/NSIRD_(?:${xcodeSavers})_|TemporaryDirectory\\.[A-Za-z0-9]{6}|swbuild\\.tmp\\.[A-Za-z0-9]{8}|actool-sprite-atlas-scratch-|ibtoold-[0-9]+|Untitled-[A-Za-z0-9]{8}\\.uicatalog|${uuid}|\\.?[^/\\s]+_${uuid}-[0-9]+-[0-9A-F]{16}\\.png)`,
@@ -17,22 +17,55 @@ const groupPaths: Record<SandboxGroup, RegExp> = {
   ),
   'shared-tmp': /(?<![\w./~-])\/(?:private\/)?tmp(?:\/|$|[\s'"`:,)])/m,
   electron: /com\.apple\.(?:coreservices\.launchservicesd|windowserver\.active)/i,
+  'ios-simulator':
+    /com\.apple\.CoreSimulator\.|\/Library\/Developer\/CoreSimulator(?:\/|$|[\s'"`:,)])/i,
 }
+
+const androidSdkPath = /\/Library\/Android\/sdk(?:\/|$|[\s'"`:,)])/i
+
+// simctl and xcodebuild report a refused CoreSimulator lookup as a lost or missing service connection.
+const simulatorRefused =
+  /CoreSimulatorService.*(?:invalid|interrupted|unable|failed|couldn[’']t|could not)|(?:unable|failed) to (?:connect|initialize|locate).*CoreSimulator/i
+
+// adb can't reach its server, or a connect to the server or an emulator port is refused.
+const adbRefused =
+  /cannot connect to daemon|could not connect to tcp:5037|(?:127\.0\.0\.1|localhost|::1)[:.](?:5037|555[4-9]|55[67][0-9]|558[0-5])\b.*EPERM|EPERM.*(?:127\.0\.0\.1|localhost|::1)[:.](?:5037|555[4-9]|55[67][0-9]|558[0-5])\b/i
 
 const refused =
   /operation not permitted|permission denied|(?:don[’']t|do not) have permission|not allowed to|sandbox(?:-exec)?:.*deny/i
 
-const macOnly: readonly SandboxGroup[] = ['shared-tmp']
+// Without the network group, connects outside loopback get EPERM and macOS lookups fail, because mDNSResponder is closed.
+const networkRefused =
+  /connect EPERM|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)|could not resolve host|nodename nor servname provided|temporary failure in name resolution/i
+
+const groupRefusals: Record<SandboxGroup, (line: string) => boolean> = {
+  'ios-xcode': (line) => refused.test(line) && groupPaths['ios-xcode'].test(line),
+  'shared-tmp': (line) => refused.test(line) && groupPaths['shared-tmp'].test(line),
+  electron: (line) => refused.test(line) && groupPaths.electron.test(line),
+  'ios-simulator': (line) =>
+    simulatorRefused.test(line) || (refused.test(line) && groupPaths['ios-simulator'].test(line)),
+  'android-emulator': (line) =>
+    adbRefused.test(line) || (refused.test(line) && androidSdkPath.test(line)),
+  network: (line) => networkRefused.test(line) && !adbRefused.test(line),
+}
+
+function refusedWhat(group: SandboxGroup, who: string): string {
+  return group === 'network'
+    ? `a connection or lookup outside this machine. The network access group allows it, and ${who} doesn’t have it`
+    : `something in the ${group} access group, which ${who} doesn’t have`
+}
+
+const macOnly: readonly SandboxGroup[] = ['shared-tmp', 'ios-simulator']
 
 export function refusedGroups(
   output: string,
   platform: NodeJS.Platform = process.platform,
 ): SandboxGroup[] {
-  const lines = output.split('\n').filter((line) => refused.test(line))
+  const lines = output.split('\n')
   return sandboxGroupNames.filter(
     (group) =>
       (platform === 'darwin' || !macOnly.includes(group)) &&
-      lines.some((line) => groupPaths[group].test(line)),
+      lines.some((line) => groupRefusals[group](line)),
   )
 }
 
@@ -48,7 +81,7 @@ export function refusalHints(
       .filter((group) => !held.includes(group))
       .map(
         (group) =>
-          `Ted: the sandbox refused something in the ${group} access group, which ${who} doesn’t have. Propose sandbox_access: [${group}] for it in .ted/workflow.yaml instead of working around the refusal; it takes effect once the user merges or approves it.`,
+          `Ted: the sandbox refused ${refusedWhat(group, who)}. Propose sandbox_access: [${group}] for it in .ted/workflow.yaml instead of working around the refusal; it takes effect once the user merges or approves it.`,
       ),
     ...missingSockets.map(
       (name) =>

@@ -71,7 +71,7 @@ export function SandboxAccessField({
 }
 
 export const sandboxAccessHelp =
-  'Named groups of extra access Ted’s sandbox gives this command. ios-xcode lets Xcode, SwiftPM, actool and ibtool write in shared folders on your Mac that your other apps also use. shared-tmp lets it read and write /tmp, which your other apps also use. electron lets Electron start and open windows. socket:<name> connects to a socket your Library names. Takes effect once the change merges.'
+  'Named groups of extra access Ted’s sandbox gives this command. ios-xcode lets Xcode, SwiftPM, actool and ibtool write in shared folders on your Mac that your other apps also use. ios-simulator lets it reach the iOS Simulator; ios-simulator Apps get it automatically. android-emulator lets it reach adb and the emulator, and read the Android SDK; android-emulator Apps get it automatically. shared-tmp lets it read and write /tmp, which your other apps also use. electron lets Electron start and open windows. socket:<name> connects to a socket your Library names. Takes effect once the change merges.'
 
 function groupLabel(group: SandboxAccess): string {
   const socket = socketOf(group)

@@ -45,6 +45,7 @@ test('the sandbox may write only the chat’s worktrees and its own tmp and cach
       grants: {
         sockets: [{ name: 'db', path: '/ted/sockets/db.sock' }],
         reads: ['/ted/shared/registry'],
+        network: 'outbound',
       },
     }),
   ).toEqual({
@@ -54,6 +55,7 @@ test('the sandbox may write only the chat’s worktrees and its own tmp and cach
       cache: '/ted/sandbox/chat-c1/cache',
       sockets: [{ name: 'db', path: '/ted/sockets/db.sock' }],
       reads: ['/ted/shared/registry'],
+      network: 'outbound',
     },
     tmpRoot: '/ted/sandbox/chat-c1/tmp',
   })

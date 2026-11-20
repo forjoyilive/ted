@@ -998,7 +998,10 @@ export function createTasks(options: {
   memory?: MemoryWatch
   appsDir?: string
   wrapApps?: (apps: Apps) => Apps
-  apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'hostStartMs' | 'stopGraceMs' | 'logBytes'>
+  apps?: Pick<
+    AppsOptions,
+    'pollMs' | 'readyTimeoutMs' | 'hostStartMs' | 'buildTurnMs' | 'stopGraceMs' | 'logBytes'
+  >
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
   emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
@@ -1216,7 +1219,7 @@ export function createTasks(options: {
     emit: (event) => {
       if (event.type === 'apps-changed' && store.getTask(event.taskId) !== undefined) {
         const taskId = event.taskId
-        void apps.list(taskId).then(
+        void createdApps.list(taskId).then(
           (list) => store.noteAppStarting(taskId, list.find(appStarting)?.name),
           () => store.noteAppStarting(taskId, undefined),
         )
@@ -3373,9 +3376,9 @@ export function createTasks(options: {
 
   async function leaveWork(
     task: StoredTask,
-    why: 'diagnose' | 'accept',
+    why: 'diagnose' | 'accept' | 'rerun',
   ): Promise<(message: string, carried?: ValidationProgress) => Promise<Task>> {
-    const accepting = why === 'accept'
+    const accepting = why !== 'diagnose'
     const refuseHalted = (now: StoredTask) => {
       if (leftWork(now)) throw new RequestError(409, `${task.displayId} has left Work`)
       if (now.stopped || now.status?.kind === 'failed') {
@@ -7003,7 +7006,12 @@ export function createTasks(options: {
         untilChecksReported,
         find,
         holding,
-        failures: { findDecision: failures.findDecision, resolve: validation.resolve },
+        failures: {
+          findDecision: failures.findDecision,
+          resolve: validation.resolve,
+          refreshStale: (task) =>
+            failures.refreshStale(task, () => inFlight.is(task.id, 'transition')),
+        },
         waitForRepair: async (taskId, failureId, input) => {
           await untilChecksReported(taskId)
           return holdingSignoff(find(taskId), () => waitForRepair(find(taskId), failureId, input))
@@ -7029,6 +7037,7 @@ export function createTasks(options: {
           move(task, resolution, next, message, { ...options, waitForSlot: 'answer' }),
         backMessage,
         leaveWorkToDiagnose,
+        leaveWorkToRerun: (task) => leaveWork(task, 'rerun'),
         diagnoseInValidate,
         stop: stopByHand,
         settleDependents,
@@ -7702,6 +7711,7 @@ export function createTasks(options: {
         : undefined
     const chosen = mergesHere(next) ? await mergeCommits(task, signedOff) : []
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+    if (handsOff(next)) refreshFailureCards(task.id)
     if (carried) validation.carryOver(find(task.id), carried)
     for (const { name, commit } of chosen) store.mergeCommitChosen(task.id, name, commit)
     const waitingLead = liveLead(find(task.id))
@@ -11416,6 +11426,22 @@ export function createTasks(options: {
     finished: (run) => retryAfterHandOff(run, undefined),
   })
 
+  function refreshFailureCards(taskId: string): void {
+    const task = store.getTask(taskId)
+    if (!task || task.archived || !handsOff(task.stage)) return
+    inBackground(`refresh ${task.displayId}’s failure questions`, async () => {
+      await untilFree(taskId)
+      await failures.refreshStale(find(taskId), () => inFlight.is(taskId, 'transition'))
+    })
+  }
+
+  function leadEnded(run: Run): void {
+    if (run.taskId === undefined || run.parentRunId !== undefined) return
+    if (store.getTask(run.taskId)?.leadRunId === run.id) refreshFailureCards(run.taskId)
+  }
+
+  runs.observe({ turnEnded: leadEnded, finished: leadEnded })
+
   health.onReady((agent) => {
     leadLifecycle.ready(agent)
     for (const run of store.liveRuns()) {
@@ -12326,6 +12352,7 @@ export function createTasks(options: {
         }
         await failures.obligations(find(task.id))
         incorporated = true
+        refreshFailureCards(task.id)
       } catch (error) {
         const current = store.getTask(task.id)
         if (!current || current.archived || stopping.signal.aborted) return false

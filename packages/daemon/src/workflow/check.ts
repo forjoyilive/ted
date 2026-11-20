@@ -11,6 +11,8 @@ import {
   type LayerKind,
   maxCleanupStepName,
   type NamedSocket,
+  type NetworkLevel,
+  networkLevels,
   type PullRequestCiMode,
   previewPresets,
   pullRequestCiModes,
@@ -153,6 +155,7 @@ export interface WorkflowSettings {
   max_working_runs?: number
   sandbox_sockets?: NamedSocket[]
   sandbox_reads?: string[]
+  sandbox_network?: NetworkLevel
   repos?: RepoSettings[]
   order?: AgentStageId[]
   stages: Partial<Record<StageId, StageSettings>>
@@ -417,6 +420,13 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       case 'sandbox_reads': {
         const reads = checkSandboxPaths(value, 'sandbox_reads', 'files or folders')
         if (reads) settings.sandbox_reads = reads
+        break
+      }
+      case 'sandbox_network': {
+        const network = networkLevels.find((l) => l === scalar(value))
+        if (network === undefined)
+          error(value, '`sandbox_network` must be none, localhost or outbound')
+        else settings.sandbox_network = network
         break
       }
       case 'repos':

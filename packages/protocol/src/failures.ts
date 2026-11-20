@@ -110,6 +110,7 @@ export interface FailureDecision {
   contextId?: string
   repairTask?: { id: string; displayId: string; title: string }
   acceptRefused?: AcceptRefusal
+  rerun?: true
 }
 
 export interface FailureCase {
@@ -174,6 +175,8 @@ export const validateFailureChoices = {
   accepted: 'Accept this failure',
   repair: 'Wait for a repair Task',
 } as const
+
+export const rerunFailureChoice = 'Run the checks again on the new code'
 
 export const failureChoiceLabels: Readonly<Record<FailureChoice, string>> = {
   ...failureChoices,

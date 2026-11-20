@@ -2,7 +2,7 @@ import type { AgentFileChange, AgentFileRow } from './agent-files.ts'
 import type { PreviewPreset } from './preview-size.ts'
 import type { PermissionMode } from './run.ts'
 import type { NamedSocket, SandboxAccess } from './sandbox-groups.ts'
-import type { ElectronApp } from './sandbox-openings.ts'
+import type { DeviceApp, ElectronApp } from './sandbox-openings.ts'
 import type {
   AgentStageId,
   CiSignal,
@@ -333,6 +333,8 @@ export interface FactorySettingsView {
   sandboxSockets: NamedSocket[]
   sandboxSocketsFrom?: LayerKind
   electronApps: ElectronApp[]
+  deviceApps?: DeviceApp[]
+  sandboxNetworkFrom?: LayerKind
   notes: string
   invalid?: InvalidSettings
 }
