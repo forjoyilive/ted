@@ -84,7 +84,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: var(--qr-size);
+  min-height: calc(var(--qr-size) + 34px);
   padding: 16px;
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
