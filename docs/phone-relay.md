@@ -13,7 +13,9 @@ All binary values are base64url without padding. All frames are UTF-8 JSON text 
 | Mac box key | X25519 key pair | Daemon, in the OS Keychain (keyring accounts `phone-relay-box-key`). Never in `TED_HOME`. |
 | Mac relay key | Ed25519 key pair | Daemon, in the OS Keychain (`phone-relay-sign-key`). Used only to log in to the relay. |
 | Phone box key | X25519 key pair | Made on the phone, kept in `expo-secure-store` (`WHEN_UNLOCKED_THIS_DEVICE_ONLY`). Never leaves the phone. |
+| Phone relay key | Ed25519 key pair | Made on the phone with the box key, kept the same way. Used only to log in to the relay. The Mac stores its public key with the pairing. |
 | Pairing secret | 32 random bytes | Daemon memory only, and the QR code. Never written to disk or logs. |
+| Pairing ticket | 32 bytes | `HMAC-SHA256(key = pairing secret, "ted-relay-pairing:v1:<channel>:<pairing ID>")`, worked out by both sides. Lets a pairing phone reach the relay. The relay stores only `SHA-256(ticket)`, the **ticket hash**. |
 
 The **channel** is `base64url(SHA-256(Mac relay public key))`. It names the Mac at the relay.
 
@@ -43,32 +45,62 @@ Routes:
 - `GET /health` answers `{"ok":true}`.
 - `GET /v1/mac/<channel>`: WebSocket for the daemon.
 - `GET /v1/phone/<channel>`: WebSocket for a phone.
+- `GET /v1/phone/<channel>/check`: tells a phone whether it would be let in, without opening a socket.
 
-Everything else is 404. One Durable Object per channel holds the sockets. The relay never parses `data`.
+Everything else is 404, and a socket route without `Upgrade: websocket` is 426. One Durable Object per channel holds the sockets and the channel’s stored state. The relay never parses `data`, and logs no headers, frames, keys, tickets or hashes.
+
+### Login
+
+Every request to a socket route or `/check` carries a `Ted-Relay-Auth` header, checked before any socket opens. Credentials never go in the URL. The header is `base64url(JSON)`, at most 1,024 characters:
+
+```json
+{ "v": 2, "mode": "phone", "key": "<32 bytes>", "at": 1795135669031, "nonce": "<16 random bytes>", "sig": "<64 bytes>", "ticket": "<32 bytes, pairing mode only>" }
+```
+
+- `mode` is `mac` (the daemon, on the `mac` route), `phone` (a paired phone) or `pairing` (a phone that holds a pairing ticket); `phone` and `pairing` use the `phone` and `check` routes.
+- `key` is the Mac relay public key or the phone relay public key. `at` is the sender’s clock in milliseconds; the relay refuses one more than 60 seconds from its own. Every request uses a new `nonce`.
+- `sig` is an Ed25519 signature by `key` over the UTF-8 bytes of `ted-relay-login:v2:<mode>:<route>:<host>:<channel>:<at>:<nonce>:<ticket hash or ->`. `route` is `mac`, `phone` or `check`; `host` is the request URL’s host (with its port, if any).
+
+The Worker refuses a missing or malformed header, a field of the wrong size, a `mode` that doesn’t match the route, a stale `at`, a bad signature, and in `mac` mode a key whose `SHA-256` isn’t the channel, with HTTP 401. The Durable Object then decides, in one step with no wait between the decision and opening the socket:
+
+| Mode | Let in when | Otherwise |
+| - | - | - |
+| `mac` | always | — |
+| `phone` | the channel has a stored phone list and `key` is on it | 503 with no stored list; 403 when `key` isn’t on it |
+| `pairing` | the ticket hash is a live ticket: before a candidate is set, until the ticket’s `expiresAt` and while it has fewer than 2 sockets; after, only for the candidate’s `key`, and never later than two minutes after `expiresAt` | 403 |
+
+Only a request it lets in has its `(key, nonce)` recorded, for 3 minutes; the same pair again is 401. When the paired-phone sockets are full, a new `phone` request gets 429. `/check` follows the same rules but answers 200 instead of opening a socket.
 
 ### Mac socket
 
-1. Relay → Mac: `{"t":"challenge","nonce":"<32 random bytes>"}`.
-2. Mac → relay: `{"t":"login","key":"<Mac relay public key>","sig":"<Ed25519 signature>"}`, signing the UTF-8 bytes of `ted-relay-login:v1:<channel>:<nonce>`.
-3. The relay checks `SHA-256(key) == channel` and the signature (WebCrypto Ed25519). Good: `{"t":"ready"}`, and every phone socket on the channel gets `{"t":"mac-online"}`. Bad, or no login within 10 seconds: close with code 4401.
-
-A new logged-in Mac socket replaces the old one, which is closed with code 4409. When the Mac socket closes, every phone socket gets `{"t":"mac-offline"}`.
-
-After login:
+On open the relay sends `{"t":"ready"}`, and every phone socket on the channel gets `{"t":"mac-online"}`. A new Mac socket replaces the old one, which is closed with code 4409; frames still arriving on the old one are ignored. When the Mac socket closes, every phone socket gets `{"t":"mac-offline"}`.
 
 - Relay → Mac: `{"t":"msg","conn":<number>,"data":"<envelope>"}` for each phone frame, where `conn` numbers phone sockets on this channel. `{"t":"closed","conn":<number>}` when a phone socket closes.
 - Mac → relay: `{"t":"msg","conn":<number>,"data":"<envelope>"}`. The relay sends `{"t":"msg","data":"<envelope>"}` to that phone socket, or drops it if that socket is gone.
 
+The Mac also keeps the relay’s phone list and pairing tickets current. Each frame below gets an answer, and the daemon sends it again after a reconnect until it does:
+
+| Mac → relay | Relay → Mac |
+| - | - |
+| `{"t":"phones","rev":<number>,"keys":["<phone relay key>", …],"base":"<list hash or null>"}`, at most 64 keys | `{"t":"phones-ok","rev":<n>}` when the list equals the stored one (same `rev` and keys), or when `rev` is above the stored one and `base` is the stored list’s hash (the list is stored). With no stored list, any `base` is accepted. `{"t":"phones-stale","rev":<stored>}` when `rev` is below the stored one. `{"t":"phones-conflict","rev":<n>}` otherwise: an equal `rev` with different keys, or a `base` that isn’t the stored list’s hash. |
+| `{"t":"pairing","hash":"<ticket hash>","expiresAt":<ms>}` | `{"t":"pairing-ok","hash":"…"}` |
+| `{"t":"pairing-candidate","hash":"…","key":"<phone relay key>"}` | `{"t":"pairing-candidate-ok","hash":"…"}`, or `{"t":"pairing-gone","hash":"…"}` when the ticket has ended |
+| `{"t":"pairing-end","hash":"…"}` | `{"t":"pairing-end-ok","hash":"…"}` |
+
+The daemon sends the full list right after `ready` and after every change. `rev` only grows on a Mac: it goes up with every phone paired or removed. A **list hash** is `base64url(SHA-256("<rev>:" + the keys sorted and joined with ","))`. `base` is the hash of the last list the relay acknowledged to this Mac, which the daemon records as `v1.PhoneRelayListAcked`, or `null` before the first. A restored copy of Ted’s data holds an older acknowledged hash, so the relay answers `phones-conflict` even when the restored `rev` has grown past the stored one. The daemon records each list before sending it, and after a reconnect or restart it sends an unacknowledged one again exactly (same `rev`, keys and `base`) before anything newer, which the relay acknowledges as an equal list. The daemon forwards no phone messages on a new Mac socket until its first list is acknowledged, and stops forwarding at once on `phones-stale` or `phones-conflict`. When a stored list drops a key, the relay closes that key’s `phone` socket with code 4403 at once. Setting a candidate closes the ticket’s other sockets with 4403. Ending a ticket deletes it and closes its sockets with 4403. The relay keeps at most 4 tickets per channel, dropping the oldest, and deletes a ticket by itself two minutes after its `expiresAt`.
+
 ### Phone socket
 
-On open the relay sends `{"t":"mac-online"}` or `{"t":"mac-offline"}`.
+On open the relay sends `{"t":"mac-online"}` or `{"t":"mac-offline"}`. A phone relay key has one `phone` socket at a time: a new one closes the old one with 4409.
 
 - Phone → relay: `{"t":"msg","data":"<envelope>"}`. With the Mac online the relay forwards it; otherwise it answers `{"t":"mac-offline"}`.
 - Relay → phone: `{"t":"msg","data":"<envelope>"}`, `{"t":"mac-online"}`, `{"t":"mac-offline"}`.
 
+When a socket fails to open, the phone asks `/check` with a fresh header. 403 means the Mac no longer recognises this phone: the phone says so and keeps its pairing, and the user can unpair in Settings. A 4403 close on an open `phone` socket means the same. Anything else is treated as the Mac being offline, and the phone retries.
+
 ### Limits
 
-A frame over 65,536 bytes, a frame that isn’t JSON of the shapes above, or `data` that isn’t a string closes the socket with code 4400. At most 16 phone sockets per channel; the 17th is closed with code 4429.
+A frame over 65,536 bytes, a frame that isn’t JSON of the shapes above, or `data` that isn’t a string closes the socket with code 4400. At most 16 `phone` sockets per channel, and 2 per pairing ticket on top.
 
 ## Envelope
 
@@ -85,14 +117,14 @@ The `data` string is JSON:
 Every message inside a box has:
 
 ```json
-{ "protocol": 2, "id": "<16 random bytes>", "at": 1795135669031, "type": "…" }
+{ "protocol": 3, "id": "<16 random bytes>", "at": 1795135669031, "type": "…" }
 ```
 
 `at` is the sender’s clock in milliseconds. The daemon drops a message whose `at` is more than 120 seconds from its own clock, or whose envelope `nonce` it has already seen from that sender in the last 120 seconds. A reply carries the request’s `id`; the phone ignores a reply whose `id` it isn’t waiting for.
 
 ### Phone → Mac
 
-- `{"type":"pair","pairing":"<pairing ID>","secret":"<secret>","name":"iPhone 16","edition":"dev"}` sent from the phone’s new box key.
+- `{"type":"pair","pairing":"<pairing ID>","secret":"<secret>","name":"iPhone 16","edition":"dev","relayKey":"<phone relay public key>","relayProof":"<Ed25519 signature>"}` sent from the phone’s new box key, over a `pairing` socket. `relayProof` is signed by the relay key over the UTF-8 bytes of `ted-relay-key:v1:<pairing ID>:<phone box public key>` (protocol 3).
 - `{"type":"pair-status","pairing":"<pairing ID>"}` from the same key, polled every 2 seconds while waiting.
 - `{"type":"request","route":"status"}` from a paired phone’s key.
 - `{"type":"request","route":"requests"}`, `{"type":"request","route":"request","requestId":"<request ID>"}` and `{"type":"request","route":"answer","requestId":"<request ID>","answer":{…}}` from a paired phone’s key (protocol 2; see Inbox requests below). The request ID goes in `requestId` because `id` is the message’s own ID.
@@ -104,7 +136,7 @@ Every message inside a box has:
 
 - `pair` → `{"state":"waiting","code":"482913"}`.
 - `pair-status` → `{"state":"waiting"}`, `{"state":"approved","mac":"Studio Mac"}`, `{"state":"refused"}` or `{"state":"expired"}`.
-- `status` → `{"mac":"Studio Mac","edition":"dev","version":"1.4.0","protocol":2}`.
+- `status` → `{"mac":"Studio Mac","edition":"dev","version":"1.4.0","protocol":3}`.
 - `requests` → `{"requests":[<summary>, …],"more":0}`.
 - `request` → `{"request":<detail>}`.
 - `answer` → `{"answered":true}`.
@@ -200,14 +232,18 @@ The daemon answers through the same code as the desktop app, as the human. A “
 
 ## Pairing
 
-1. The app asks the daemon for a pairing link. The daemon makes a pairing ID and secret, keeps them in memory, and connects to the relay if it isn’t already. A new link cancels the previous one.
-2. The phone makes its box key pair, opens the phone socket, and sends `pair`.
-3. The daemon checks the pairing ID, expiry and secret (constant-time), then the edition and protocol. A correct secret uses up the pairing, whatever happens next. The daemon remembers the phone’s key and name and works out the short code.
+1. The app asks the daemon for a pairing link. The daemon makes a pairing ID and secret, keeps them in memory, connects to the relay if it isn’t already, and sends `pairing` with the ticket hash. It returns the link only after `pairing-ok`; with no answer in 5 seconds the app says Ted can’t reach the relay. A new link cancels the previous one.
+2. The phone makes its box and relay key pairs, works out the ticket, opens a `pairing` socket, and sends `pair`.
+3. The daemon checks the pairing ID, expiry and secret (constant-time), then the edition and protocol, then `relayProof`, and that no paired phone already has that relay key. A correct secret uses up the pairing, whatever happens next. The daemon remembers the phone’s keys and name, sends `pairing-candidate` for the phone’s relay key, and works out the short code. From then on it answers only `pair-status` from that phone until the pairing ends.
 4. Both screens show the **short code**: the first 4 bytes of `SHA-256(macKey ‖ phoneKey ‖ secret)` as a big-endian unsigned integer, modulo 1,000,000, zero-padded to six digits, shown as `482 913`.
-5. The user chooses Approve or Refuse on the Mac. Only the Ted app can. Approve records `v1.PhonePaired`; the phone sees `approved` on its next `pair-status`.
+5. The user chooses Approve or Refuse on the Mac. Only the Ted app can. Approve records `v2.PhonePaired` with the relay key and sends the new phone list; the phone sees `approved` on its next `pair-status` only after `phones-ok`. The phone then reconnects in `phone` mode.
+
+The daemon sends `pairing-end` right after it answers a `pair-status` with `approved`, `refused` or `expired`; two minutes after the pairing is approved, refused or expires; and at once when the link is cancelled or replaced before a phone used it.
 
 ## Paired phones
 
-The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer` and `push-token`. Removing a phone on the Mac records `v1.PhoneRemoved`; its next message gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there.
+The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer` and `push-token`. Removing a phone on the Mac records `v1.PhoneRemoved` and sends the new list; the relay then refuses that phone. A message that still reaches the daemon from a removed key gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there. Phones paired before protocol 3 have no relay key, so they aren’t on the relay’s list and must pair again.
 
-The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so a removed phone always gets `not-paired`, not `mac-offline`). It reconnects with backoff (1, 2, 5, 10, 30 seconds).
+The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so the relay’s list stays current). It reconnects with backoff (1, 2, 5, 10, 30 seconds).
+
+If the relay answers `phones-stale` or `phones-conflict`, Ted’s data was restored from an older copy and its phone list may include phones the user later removed. The daemon then disconnects, removes every phone and records `v1.PhoneRelayReset` with the old channel, makes a new Mac relay key (so a new channel), and Settings → Phones says “Pair your phones again.” If the key change didn’t happen (a crash, or a Keychain error), the daemon makes the new key before the next pairing, because the latest reset still names the current channel. No phone can reach the old channel’s Mac again.

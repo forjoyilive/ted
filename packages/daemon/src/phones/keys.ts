@@ -46,10 +46,21 @@ export async function loadPhoneKeys(keyrings: PhoneKeyrings): Promise<PhoneKeys>
   const sign = await stored(
     await keyrings(phoneSignKeyAccount),
     (seed) => (seed.length === nacl.sign.seedLength ? nacl.sign.keyPair.fromSeed(seed) : undefined),
-    () => {
-      const seed = nacl.randomBytes(nacl.sign.seedLength)
-      return { pair: nacl.sign.keyPair.fromSeed(seed), secret: seed }
-    },
+    newSignKey,
   )
   return { box, sign, channel: relayChannel(sign.publicKey) }
+}
+
+function newSignKey() {
+  const seed = nacl.randomBytes(nacl.sign.seedLength)
+  return { pair: nacl.sign.keyPair.fromSeed(seed), secret: seed }
+}
+
+export async function replaceRelayKey(
+  keyrings: PhoneKeyrings,
+  keys: PhoneKeys,
+): Promise<PhoneKeys> {
+  const made = newSignKey()
+  await (await keyrings(phoneSignKeyAccount)).set(toBase64Url(made.secret))
+  return { box: keys.box, sign: made.pair, channel: relayChannel(made.pair.publicKey) }
 }
