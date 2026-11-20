@@ -232,6 +232,7 @@ import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../
 import { maxTasksPerFiring } from '../automations/check-failures.ts'
 import type { Banners } from '../banners.ts'
 import { type Busy, busyCheckEveryMs, createBusyHold } from '../busy.ts'
+import { proposalRows } from '../chats/requests.ts'
 import type { InstructionTries } from '../check-tries.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
@@ -6901,13 +6902,11 @@ export function createTasks(options: {
         author: { kind: 'run' as const, runId },
         proposal: {
           firstPiece: { id: task.id, displayId: task.displayId },
-          rows: input.tasks.map((row) => ({
-            title: row.title,
-            scope: row.scope,
-            ...(row.description !== undefined && { description: row.description }),
-            priority: row.priority ?? task.priority,
-            blockedBy: row.blockedBy ?? [],
-          })),
+          rows: proposalRows(
+            input.tasks,
+            (store.getFactory(task.factoryId)?.repos ?? []).map((r) => r.name),
+            task.priority,
+          ),
         },
       }
       return old ? store.supersedeComment(old.id, comment) : store.postComment(comment)

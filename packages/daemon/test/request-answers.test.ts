@@ -992,9 +992,27 @@ const proposalQuestion = () =>
       proposal: {
         firstPiece: { id: taskId, displayId: port.find(taskId).displayId },
         rows: [
-          { title: 'Narrowed piece', scope: 'First scope', priority: 'high', blockedBy: [] },
-          { title: 'A dependent piece', scope: 'Second scope', priority: 'medium', blockedBy: [1] },
-          { title: 'An independent piece', scope: 'Third scope', priority: 'low', blockedBy: [] },
+          {
+            title: 'Narrowed piece',
+            scope: 'First scope',
+            files: ['src/row-1.ts'],
+            priority: 'high',
+            blockedBy: [],
+          },
+          {
+            title: 'A dependent piece',
+            scope: 'Second scope',
+            files: ['src/row-2.ts'],
+            priority: 'medium',
+            blockedBy: [1],
+          },
+          {
+            title: 'An independent piece',
+            scope: 'Third scope',
+            files: ['src/row-3.ts'],
+            priority: 'low',
+            blockedBy: [],
+          },
         ],
       },
     },

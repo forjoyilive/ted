@@ -642,7 +642,11 @@ export function createPlans(options: PlansOptions): Plans {
     const proposal = view(plan, request).proposal
     if (!proposal) throw new RequestError(409, 'this proposal has no rows')
     const task = proposal.firstPiece ? linkedTask(plan) : undefined
-    const { skip, shape } = approvedShape(proposal, answer.proposal?.skip)
+    const { skip, unlinked, shape } = approvedShape(
+      proposal,
+      answer.proposal?.skip,
+      answer.proposal?.unlink,
+    )
     const startUnblocked = answer.proposal?.startUnblocked === true
     const text = answer.text?.trim() ?? ''
     const lead = linkedTask(plan)?.lead
@@ -662,7 +666,12 @@ export function createPlans(options: PlansOptions): Plans {
       factoryId: plan.factoryId,
       fields: (row) => ({ ...(lead && { lead }), plan: { planId: plan.id, row } }),
     })
-    const outcome: ProposalCreated = { tasks: created, skipped: skip, startUnblocked }
+    const outcome: ProposalCreated = {
+      tasks: created,
+      skipped: skip,
+      ...(unlinked.length > 0 && { unlinked }),
+      startUnblocked,
+    }
     const answered = saved.answerRequest(request.id, {
       kind: 'approved',
       at: new Date().toISOString(),
@@ -940,7 +949,10 @@ export function createPlans(options: PlansOptions): Plans {
             body: proposal?.summary ?? '',
             proposal: {
               ...(task && { firstPiece: { id: task.id, displayId: task.displayId } }),
-              rows: proposalRows(proposal?.tasks ?? []),
+              rows: proposalRows(
+                proposal?.tasks ?? [],
+                (factoryOf(plan)?.repos ?? []).map((r) => r.name),
+              ),
             },
           })
       if (decided.supersedes !== undefined) {

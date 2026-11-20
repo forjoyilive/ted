@@ -24,8 +24,17 @@ const round = {
 const proposal = {
   title: 'Ship sharing in two Tasks',
   tasks: [
-    { title: 'Share a read-only link', scope: 'Publish one note with an expiring URL.' },
-    { title: 'Manage shared links', scope: 'List and revoke published links.', blockedBy: [1] },
+    {
+      title: 'Share a read-only link',
+      scope: 'Publish one note with an expiring URL.',
+      files: ['src/share/links.ts', 'src/share/ShareDialog.tsx'],
+    },
+    {
+      title: 'Manage shared links',
+      scope: 'List and revoke published links.',
+      blockedBy: [1],
+      files: ['src/share/links.ts', 'src/settings/SharedLinks.tsx'],
+    },
   ],
 }
 

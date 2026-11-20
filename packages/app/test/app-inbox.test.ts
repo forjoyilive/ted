@@ -239,27 +239,36 @@ describe('Inbox and Gates', () => {
           {
             title: 'Local note cache',
             scope: 'Notes save to a local cache first.',
+            files: ['src/row-1.ts'],
             priority: 'high',
           },
           {
             title: 'Sync queue with retry',
             scope: 'Queue offline edits and send them in order.',
+            files: ['src/row-2.ts'],
             priority: 'high',
             blockedBy: [1],
           },
           {
             title: 'Line-level merge',
             scope: 'Merge edits to different lines.',
+            files: ['src/row-3.ts'],
             priority: 'medium',
             blockedBy: [2],
           },
           {
             title: 'Conflict view',
             scope: 'Show both versions of a clashing line.',
+            files: ['src/row-4.ts'],
             priority: 'medium',
             blockedBy: [3],
           },
-          { title: 'Offline badge', scope: 'A badge while edits wait to sync.', priority: 'low' },
+          {
+            title: 'Offline badge',
+            scope: 'A badge while edits wait to sync.',
+            files: ['src/row-5.ts'],
+            priority: 'low',
+          },
         ],
       }),
     )

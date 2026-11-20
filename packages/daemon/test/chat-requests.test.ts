@@ -95,13 +95,30 @@ test('refuseWhileWaiting offers --supersedes only for the same kind', () => {
 
 test('proposalRows fills in priority none and no blockers, and keeps what was given', () => {
   expect(
-    proposalRows([
-      { title: 'A', scope: 'a' },
-      { title: 'B', scope: 'b', description: 'more', priority: 'high', blockedBy: [1] },
-    ]),
+    proposalRows(
+      [
+        { title: 'A', scope: 'a', files: ['src/row-1.ts'] },
+        {
+          title: 'B',
+          scope: 'b',
+          files: ['src/row-2.ts'],
+          description: 'more',
+          priority: 'high',
+          blockedBy: [1],
+        },
+      ],
+      ['ted'],
+    ),
   ).toEqual([
-    { title: 'A', scope: 'a', priority: 'none', blockedBy: [] },
-    { title: 'B', scope: 'b', description: 'more', priority: 'high', blockedBy: [1] },
+    { title: 'A', scope: 'a', files: ['src/row-1.ts'], priority: 'none', blockedBy: [] },
+    {
+      title: 'B',
+      scope: 'b',
+      files: ['src/row-2.ts'],
+      description: 'more',
+      priority: 'high',
+      blockedBy: [1],
+    },
   ])
 })
 

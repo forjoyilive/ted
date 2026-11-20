@@ -166,7 +166,10 @@ test('a chat runs a repo Agent with the powers it had when the chat started', as
       message: 'Go',
     }),
     await run.call('POST', '/coordinator/requests', {
-      proposal: { title: 'Pieces', tasks: [{ title: 'One', scope: 'One thing' }] },
+      proposal: {
+        title: 'Pieces',
+        tasks: [{ title: 'One', scope: 'One thing', files: ['src/row-1.ts'] }],
+      },
     }),
     await run.call('GET', '/coordinator/automations'),
     await run.call('GET', '/coordinator/automations/a1'),
@@ -218,7 +221,10 @@ test('a chat runs a repo Agent with the powers it had when the chat started', as
   )
   const planner = api(port, tokens.issue(plan.id))
   const proposed = await planner.call('POST', '/plan-runs/requests', {
-    proposal: { title: 'Pieces', tasks: [{ title: 'One', scope: 'One thing' }] },
+    proposal: {
+      title: 'Pieces',
+      tasks: [{ title: 'One', scope: 'One thing', files: ['src/row-2.ts'] }],
+    },
   })
   expect(proposed.status).toBe(403)
   expect(JSON.stringify(proposed.body)).toContain('Propose Tasks')

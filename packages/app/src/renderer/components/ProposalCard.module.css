@@ -115,7 +115,9 @@
 .blockers {
   display: inline-flex;
   flex-shrink: 0;
-  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
   min-width: 88px;
   color: var(--text-secondary);
 }
@@ -183,5 +185,85 @@
 .buttons > button {
   max-width: 100%;
   white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 18px;
+}
+
+.chip:has(.chipButton) {
+  padding-right: 2px;
+}
+
+.tedChip {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+}
+
+.removedChip {
+  color: var(--text-caption);
+  text-decoration: line-through;
+}
+
+.chipButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chipButton:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.chipButton:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.tedLinks {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+}
+
+.tedLinksIntro {
+  margin: 0;
+}
+
+.tedLinkList {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.removedLink {
+  color: var(--text-caption);
+  text-decoration: line-through;
+}
+
+.file {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
   overflow-wrap: anywhere;
 }

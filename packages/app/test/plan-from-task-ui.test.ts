@@ -65,9 +65,24 @@ describe('Plan in chat from a Task', () => {
       JSON.stringify({
         title: 'Offline editing, in three Tasks',
         tasks: [
-          { title: 'Local note cache', scope: 'Notes save locally first.', priority: 'high' },
-          { title: 'Sync queue', scope: 'Send offline edits in order.', blockedBy: [1] },
-          { title: 'Offline badge', scope: 'A badge while edits wait.', priority: 'low' },
+          {
+            title: 'Local note cache',
+            scope: 'Notes save locally first.',
+            files: ['src/row-1.ts'],
+            priority: 'high',
+          },
+          {
+            title: 'Sync queue',
+            scope: 'Send offline edits in order.',
+            files: ['src/row-2.ts'],
+            blockedBy: [1],
+          },
+          {
+            title: 'Offline badge',
+            scope: 'A badge while edits wait.',
+            files: ['src/row-3.ts'],
+            priority: 'low',
+          },
         ],
       }),
     )

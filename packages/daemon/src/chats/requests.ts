@@ -1,4 +1,6 @@
 import {
+  linkSharedFiles,
+  type Priority,
   type ProposalRow,
   type ProposalRowInput,
   planTitleLength,
@@ -54,14 +56,31 @@ export function planPost(
   }
 }
 
-export function proposalRows(tasks: readonly ProposalRowInput[]): ProposalRow[] {
-  return tasks.map((row) => ({
+export function proposalRows(
+  tasks: readonly ProposalRowInput[],
+  repos: readonly string[],
+  priority: Priority = 'none',
+): ProposalRow[] {
+  if (repos.length > 1) {
+    for (const [i, row] of tasks.entries()) {
+      const outside = row.files.find((path) => !repos.includes(path.split('/')[0] ?? ''))
+      if (outside !== undefined) {
+        throw new RequestError(
+          400,
+          `row ${i + 1}’s file "${outside}" must start with one of this Factory’s repos: ${repos.join(', ')}`,
+        )
+      }
+    }
+  }
+  const rows = tasks.map((row) => ({
     title: row.title,
     scope: row.scope,
     ...(row.description !== undefined && { description: row.description }),
-    priority: row.priority ?? 'none',
+    priority: row.priority ?? priority,
     blockedBy: row.blockedBy ?? [],
+    files: row.files,
   }))
+  return linkSharedFiles(rows, repos)
 }
 
 export function answerable(request: PostedRequest): void {
