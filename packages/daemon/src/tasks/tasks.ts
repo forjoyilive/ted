@@ -993,7 +993,7 @@ export function createTasks(options: {
   memory?: MemoryWatch
   appsDir?: string
   wrapApps?: (apps: Apps) => Apps
-  apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
+  apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'hostStartMs' | 'stopGraceMs' | 'logBytes'>
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
   emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>

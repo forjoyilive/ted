@@ -185,6 +185,7 @@ export interface AppsOptions {
   idle?: IdleTimer
   pollMs?: number
   readyTimeoutMs?: number
+  hostStartMs?: number
   buildTurnMs?: number
   stopGraceMs?: number
   logBytes?: number
@@ -257,11 +258,14 @@ interface Runner {
     shell?: string[]
     fds?: readonly number[]
     lowPriority: boolean
+    startMs: number
   }): Promise<void>
 }
 
+class HostDidNotStart extends Error {}
+
 const processRunner: Runner = {
-  async launch({ dir, run, cwd, env, logBytes, shell, fds = [], authority, lowPriority }) {
+  async launch({ dir, run, cwd, env, logBytes, shell, fds = [], authority, lowPriority, startMs }) {
     const files = appFiles(dir)
     const launch: AppLaunchFile = {
       run,
@@ -286,9 +290,9 @@ const processRunner: Runner = {
     for (let waited = 0; ; waited += 25) {
       const records = parseAppRecords(await readFile(files.records, 'utf8').catch(() => ''))
       if (records.some((record) => record.t === 'start')) break
-      if (waited >= 10_000) {
+      if (waited >= startMs) {
         child.kill('SIGKILL')
-        throw new RequestError(409, 'The App did not start; Ted stopped its host')
+        throw new HostDidNotStart(`Ted’s App host didn’t start within ${minutes(startMs)}`)
       }
       await sleep(25)
     }
@@ -320,6 +324,7 @@ export function createApps(options: AppsOptions): Apps {
   const { appsDir, store } = options
   const pollMs = options.pollMs ?? 250
   const readyTimeoutMs = options.readyTimeoutMs ?? 5 * 60_000
+  const hostStartMs = options.hostStartMs ?? 30_000
   const stopGraceMs = options.stopGraceMs ?? 10_000
   const watching = new Map<string, Promise<void>>()
   const stopping = new Set<string>()
@@ -874,10 +879,16 @@ export function createApps(options: AppsOptions): Apps {
           logBytes: options.logBytes ?? appLogBytes,
           authority: launchAuthority(store),
           lowPriority: by !== 'human' && store.settings().lowPriorityWork,
+          startMs: hostStartMs,
           ...(sandboxed.shell !== undefined && { shell: sandboxed.shell, fds: sandboxed.fds }),
         })
       } catch (error) {
         pool.endTurn(key)
+        const problem = error instanceof Error ? error.message : String(error)
+        await failStart(taskId, dir, repo.name, app, problem, port)
+        if (error instanceof HostDidNotStart) {
+          throw new RequestError(409, `Ted couldn’t start ${app.name}: ${problem}`)
+        }
         throw error
       } finally {
         await sandboxed.close?.()
@@ -957,7 +968,7 @@ export function createApps(options: AppsOptions): Apps {
   async function stopHost(key: string, dir: string): Promise<void> {
     stopping.add(key)
     try {
-      const started = Date.now() + 10_000
+      const started = Date.now() + hostStartMs
       let pid = await hostPid(dir)
       while (pid === undefined && Date.now() < started) {
         if ((await records(dir)).some((r) => r.t === 'exit')) break
@@ -1173,7 +1184,7 @@ export function createApps(options: AppsOptions): Apps {
         return
       }
       const started = found.some((r) => r.t === 'start')
-      if (!(await hostAlive(dir)) && (started || Date.now() - launchedAt > 10_000)) {
+      if (!(await hostAlive(dir)) && (started || Date.now() - launchedAt > hostStartMs)) {
         const late = (await records(dir)).find((r) => r.t === 'exit')
         await settle(
           taskId,

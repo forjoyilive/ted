@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./demo": "./src/dev/demo.ts",
+    "./local-factory": "./src/dev/local-factory.ts",
     "./launch": "./src/launch.ts",
     "./workflow": "./src/workflow/index.ts",
     "./execution": "./src/execution/service.ts",

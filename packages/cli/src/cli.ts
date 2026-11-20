@@ -1888,6 +1888,18 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     sandboxGroups: async () => {
       console.log(sandboxGroupsText())
     },
+    addLocalFactory: async () => {
+      const { addLocalFactory } = await import('@ted/daemon/local-factory')
+      const { factory, added } = await addLocalFactory(home, {
+        folder: args[0] ?? '',
+        key: options.key ?? '',
+      })
+      console.log(
+        added
+          ? `Added Factory ${factory.key} (${factory.repo}) to ${home}`
+          : `Updated ${factory.key}’s copy of ${factory.repo} in ${home}`,
+      )
+    },
     seedDemo: async () => {
       if (
         tedEnv('TED_RUN', env) ||

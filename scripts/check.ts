@@ -7,6 +7,7 @@ import {
   smallRunFiles,
   waitingMessage,
 } from '../packages/daemon/test/support/suite-lock.ts'
+import { isObject, isString } from '../packages/protocol/src/parse.ts'
 import { recordFailureRun } from './check-history.ts'
 import { type CheckMeasurement, measureCheck } from './check-measurement.ts'
 import {
@@ -157,15 +158,32 @@ type JsonReport = {
     startTime?: number
     endTime?: number
     passed?: boolean
-    assertionResults?: { fullName: string; status: string }[]
+    assertionResults?: Assertion[]
   }[]
 }
 
+type Assertion = { fullName: string; status: string; sandboxSkipped?: string }
+
 export function passedFiles(report: JsonReport, retried: readonly string[]): string[] {
+  const skipped = sandboxSkipped(report)
   return (report.testResults ?? [])
     .filter((result) => result.passed === true)
     .map((result) => path.relative(root, result.name))
+    .filter((file) => !skipped.has(file))
     .filter((file) => !retried.some((name) => name.startsWith(`${file} > `)))
+}
+
+export function sandboxSkipped(report: JsonReport): Map<string, string[]> {
+  const files = new Map<string, string[]>()
+  for (const result of report.testResults ?? []) {
+    const reasons = new Set(
+      (result.assertionResults ?? []).flatMap((test) =>
+        test.sandboxSkipped === undefined ? [] : [test.sandboxSkipped],
+      ),
+    )
+    if (reasons.size > 0) files.set(path.relative(root, result.name), [...reasons])
+  }
+  return files
 }
 
 export function failedTests(report: JsonReport): string[] {
@@ -232,6 +250,13 @@ export function passedInRun(results: readonly ProjectResult[]): Set<string> {
   return passed
 }
 
+export function sandboxSkippedInRun(results: readonly ProjectResult[]): Map<string, string[]> {
+  const files = new Map<string, string[]>()
+  for (const { result } of results)
+    for (const [file, reasons] of sandboxSkipped(result.report)) files.set(file, reasons)
+  return files
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -278,7 +303,7 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
       problem('invalid test file result')
       continue
     }
-    const results: { fullName: string; status: string }[] = []
+    const results: Assertion[] = []
     let clean = file.status === 'passed'
     for (const test of file.assertionResults) {
       if (
@@ -292,7 +317,15 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
         continue
       }
       const status = test.status
-      results.push({ fullName: test.fullName, status })
+      const skippedFor =
+        status === 'skipped' && isObject(test.meta) && isString(test.meta.tedSandboxSkipped)
+          ? test.meta.tedSandboxSkipped
+          : undefined
+      results.push({
+        fullName: test.fullName,
+        status,
+        ...(skippedFor !== undefined && { sandboxSkipped: skippedFor }),
+      })
       assertions++
       if (status === 'failed') failures++
       if (status === 'passed') passed++
@@ -646,6 +679,8 @@ export async function checkAffected({
   const base = affected.defaultBranch(root)
   let files: TestFiles | undefined
   let commit: string | undefined
+  let leftOutWith = (skipped: ReadonlyMap<string, readonly string[]>) =>
+    affected.leftOutText([], new Set(), undefined, skipped)
   try {
     commit = affected.cleanCommit(root)
     const changed = affected.changedSince(root, base)
@@ -655,13 +690,10 @@ export async function checkAffected({
     const chosen = affected.chooseTests(selection, repo.tests, repo.electron)
     console.log(`\n${affected.selectionText(selection, chosen, base, repo.electron, list)}`)
     const sandbox = affected.electronSandbox()
-    const leftOut = sandbox && affected.leftOutText(chosen.run, repo.electron, sandbox)
+    leftOutWith = (skipped) => affected.leftOutText(chosen.run, repo.electron, sandbox, skipped)
+    const leftOut = leftOutWith(new Map())
     if (leftOut) console.log(`\n${leftOut}`)
-    if (!list) {
-      mkdirSync(cacheDir, { recursive: true })
-      if (leftOut) writeFileSync(leftOutFile, `${leftOut}\n`)
-      else rmSync(leftOutFile, { force: true })
-    }
+    if (!list) writeLeftOut(leftOut)
     const passes = noSkip ? new Map() : readPasses(affected)
     const rerunFor = (passedOn: string) => {
       if (!affected.commitExists(root, passedOn)) return undefined
@@ -702,6 +734,12 @@ export async function checkAffected({
       results = found
     },
   })
+  const skipped = results === undefined ? new Map() : sandboxSkippedInRun(results)
+  if (skipped.size > 0) {
+    const leftOut = leftOutWith(skipped)
+    console.log(`\n${leftOut}`)
+    writeLeftOut(leftOut)
+  }
   if (files && commit !== undefined && results !== undefined) {
     try {
       recordPasses(affected, files, commit, passedInRun(results))
@@ -717,6 +755,12 @@ export async function checkAffected({
 }
 
 type Affected = typeof import('./affected.ts')
+
+function writeLeftOut(text: string | undefined): void {
+  mkdirSync(cacheDir, { recursive: true })
+  if (text) writeFileSync(leftOutFile, `${text}\n`)
+  else rmSync(leftOutFile, { force: true })
+}
 
 function readPasses(affected: Affected): ReturnType<Affected['parsePasses']> {
   try {
