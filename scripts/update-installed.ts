@@ -101,16 +101,26 @@ export function otherWorkingTasks(holders: readonly SlotHolder[], ownTask?: stri
 export type QuitDecision = { action: 'quit' | 'ask' } | { refusal: string }
 
 export function quitDecision(facts: {
-  working: number
+  working: number | undefined
   yes: boolean
   terminal: boolean
 }): QuitDecision {
-  if (facts.working === 0 || facts.yes) return { action: 'quit' }
+  if (facts.yes || facts.working === 0) return { action: 'quit' }
+  if (facts.working === undefined) {
+    return {
+      refusal:
+        'Ted is running, but its working Tasks couldn’t be counted. Run again with --yes to quit it anyway.',
+    }
+  }
   if (facts.terminal) return { action: 'ask' }
   const tasks = facts.working === 1 ? '1 other Task is' : `${facts.working} other Tasks are`
   return {
     refusal: `${tasks} working, and quitting Ted stops them. Run again with --yes to quit anyway.`,
   }
+}
+
+export function installFailedMessage(built: string, error: string, log: string): string {
+  return `The install failed (${error}), so ${installedApp} may be missing or incomplete. Run pnpm update-installed again, or copy this build yourself: ditto '${built}' ${installedApp}. See ${log}`
 }
 
 export function notificationScript(title: string, message: string): string {
@@ -191,14 +201,14 @@ function buildEnv() {
   return { env, signed: true }
 }
 
-async function workingTasks(): Promise<string[]> {
+async function workingTasks(): Promise<string[] | undefined> {
   const info = await readDaemonInfo(installedHome).catch(() => undefined)
-  if (info === undefined) return []
+  if (info === undefined) return undefined
   try {
     const slots = await new DaemonClient(info).getSlots()
     return otherWorkingTasks(slots.holders, process.env.TED_TASK)
   } catch {
-    return []
+    return undefined
   }
 }
 
@@ -206,10 +216,12 @@ async function confirmQuit(yes: boolean): Promise<void> {
   if (!installedRunning()) return
   const working = await workingTasks()
   const terminal = Boolean(process.stdin.isTTY && process.stdout.isTTY)
-  const decision = quitDecision({ working: working.length, yes, terminal })
-  if ('refusal' in decision) fail(`${decision.refusal} Working: ${working.join(', ')}`)
+  const decision = quitDecision({ working: working?.length, yes, terminal })
+  const names = working?.join(', ') ?? ''
+  if ('refusal' in decision)
+    fail(names ? `${decision.refusal} Working: ${names}` : decision.refusal)
   if (decision.action === 'quit') return
-  console.log(`\nWorking now: ${working.join(', ')}. Quitting Ted stops them.`)
+  console.log(`\nWorking now: ${names}. Quitting Ted stops them.`)
   const prompt = createInterface({ input: process.stdin, output: process.stdout })
   const answer = await prompt.question('Quit Ted anyway? [y/N] ')
   prompt.close()
@@ -288,8 +300,9 @@ async function quitInstalled(): Promise<void> {
     ])
   }
   await stopTedProcesses(installedHome)
-  spawnSync('osascript', ['-e', `tell application id "${bundleId}" to quit`])
-  if (await waitFor(() => !installedRunning(), 15_000)) return
+  const deadline = Date.now() + 15_000
+  spawnSync('osascript', ['-e', `tell application id "${bundleId}" to quit`], { timeout: 10_000 })
+  if (await waitFor(() => !installedRunning(), Math.max(0, deadline - Date.now()))) return
   console.log('Ted didn’t quit by itself; stopping it')
   spawnSync('pkill', ['-KILL', '-f', `${installedApp}/Contents/MacOS/`])
   if (!(await waitFor(() => !installedRunning(), 10_000))) throw new Error('Ted didn’t quit')
@@ -310,10 +323,7 @@ async function finish({ built, commit, log }: Finish): Promise<void> {
     console.log(`\n== Install into ${installedApp}`)
     copyIntoApplications(stepIn(os.homedir()), built)
   } catch (error) {
-    const state = existsSync(installedApp)
-      ? `Open ${installedApp} to start Ted again.`
-      : `${installedApp} is gone; run pnpm release --install or pnpm update-installed again.`
-    notify('Ted didn’t update', `The install failed (${String(error)}). ${state} See ${log}`)
+    notify('Ted didn’t update', installFailedMessage(built, String(error), log))
     process.exit(1)
   }
   console.log('\n== Open Ted')

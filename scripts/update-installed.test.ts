@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import type { SlotHolder } from '../packages/protocol/src/slots.ts'
 import {
   checksPlan,
+  installFailedMessage,
   notificationScript,
   otherWorkingTasks,
   quitDecision,
@@ -77,6 +78,17 @@ describe('quitting Ted', () => {
   test('quits at once with nothing working or with --yes', () => {
     expect(quitDecision({ working: 0, yes: false, terminal: false })).toEqual({ action: 'quit' })
     expect(quitDecision({ working: 2, yes: true, terminal: false })).toEqual({ action: 'quit' })
+    expect(quitDecision({ working: undefined, yes: true, terminal: false })).toEqual({
+      action: 'quit',
+    })
+  })
+
+  test('refuses without --yes when the working Tasks can’t be counted, even in a terminal', () => {
+    for (const terminal of [true, false]) {
+      expect(quitDecision({ working: undefined, yes: false, terminal })).toEqual({
+        refusal: expect.stringMatching(/couldn’t be counted.*--yes/),
+      })
+    }
   })
 
   test('asks in a terminal, and refuses without one', () => {
@@ -87,6 +99,20 @@ describe('quitting Ted', () => {
     expect(quitDecision({ working: 3, yes: false, terminal: false })).toEqual({
       refusal: expect.stringMatching(/^3 other Tasks are working/),
     })
+  })
+})
+
+describe('a failed install', () => {
+  test('never says to open Ted, and gives the commands that install the build again', () => {
+    const message = installFailedMessage(
+      '/x/ted-update/Ted.app',
+      'Copy failed',
+      '/x/ted-update.log',
+    )
+    expect(message).not.toMatch(/Open /)
+    expect(message).toContain('pnpm update-installed again')
+    expect(message).toContain("ditto '/x/ted-update/Ted.app' /Applications/Ted.app")
+    expect(message).toContain('/x/ted-update.log')
   })
 })
 
