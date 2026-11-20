@@ -17,6 +17,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_REAL_ANTIGRAVITY_BIN: false,
   TED_PI_BIN: false,
   TED_REAL_PI_BIN: false,
+  TED_RELAY_URL: false,
   TED_DEMO: false,
   TED_DEMO_STARTED: false,
   TED_DERIVED_DATA: 'Task Xcode DerivedData folder supplied to Apps, checks and worktree commands.',

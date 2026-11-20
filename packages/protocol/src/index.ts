@@ -848,6 +848,7 @@ export type {
   PeerSummary,
   SendPeerMessage,
 } from './peers.ts'
+export * from './phones.ts'
 export type { PostPlanRequest, RenamePlanRequest, ResumePlanRequest } from './plan.ts'
 export {
   type ChatArchiveExpiry,
