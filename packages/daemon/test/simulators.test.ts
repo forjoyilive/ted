@@ -263,7 +263,10 @@ describe('iOS simulator Apps', () => {
     expect((await stubCalls()).some((c) => c[0] === 'simctl' && c[1] === 'clone')).toBe(true)
     expect(
       (await stubCalls()).some(
-        (c) => c.includes('-g') && c.includes('Simulator') && c.includes(clone?.udid ?? ''),
+        (c) =>
+          c.includes('-g') &&
+          c.includes('com.apple.iphonesimulator') &&
+          c.includes(clone?.udid ?? ''),
       ),
     ).toBe(true)
     const line = await waitUntil(
@@ -286,7 +289,8 @@ describe('iOS simulator Apps', () => {
     await client.ok('POST', `/tasks/${task.id}/apps/show`, { name: 'iPhone' })
     expect(
       (await stubCalls()).some(
-        (c) => c[0] === '-a' && c.includes(clone?.udid ?? '') && !c.includes('-g'),
+        (c) =>
+          c[0] === '-b' && c[1] === 'com.apple.iphonesimulator' && c.includes(clone?.udid ?? ''),
       ),
     ).toBe(true)
 
@@ -818,6 +822,28 @@ describe('iOS simulator Apps', () => {
     expect(idle.simulator?.shutDown?.for).toBeUndefined()
     await eventText(client, task, 'Ted shut down iPhone’s simulator because it was idle')
     expect((await client.ok<SimulatorSlots>('GET', '/simulators')).booted).toEqual([])
+  })
+
+  test('Show falls back to Xcode’s DeviceHub when Simulator isn’t installed, and says so when neither opens', async () => {
+    const client = await start()
+    await addFactory(client)
+    const task = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
+    const setViewers = async (viewers: string[]) => {
+      const state = JSON.parse(await readFile(stubState, 'utf8')) as { viewers?: string[] }
+      await writeFile(stubState, JSON.stringify({ ...state, viewers }))
+    }
+
+    await setViewers(['com.apple.dt.Devices'])
+    await client.ok('POST', `/tasks/${task.id}/apps/show`, { name: 'iPhone' })
+    expect((await stubCalls()).at(-1)).toEqual(['-b', 'com.apple.dt.Devices'])
+
+    await setViewers([])
+    const refused = await client.call('POST', `/tasks/${task.id}/apps/show`, { name: 'iPhone' })
+    expect(refused.status).toBe(409)
+    expect((refused.body as { error: string }).error).toBe(
+      'Ted couldn’t open Simulator or Xcode’s DeviceHub: Unable to find application with identifier com.apple.iphonesimulator; Unable to find application with identifier com.apple.dt.Devices',
+    )
   })
 
   test('ted app screenshot and record save files to the Task', async () => {

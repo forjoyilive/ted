@@ -30,6 +30,7 @@ interface StubState {
   runtimes?: StubRuntime[]
   devices?: Record<string, StubDevice[]>
   deviceTypes?: { name: string; identifier: string; createFails?: boolean }[]
+  viewers?: string[]
 }
 
 const file = process.env.TED_STUB_XCRUN
@@ -95,9 +96,14 @@ function device(state: StubState, udid: string): StubDevice {
 
 if (file) appendFileSync(`${file}.calls`, `${JSON.stringify(args)}\n`)
 
-if (args.includes('-a')) process.exit(0)
-
 const state = read()
+
+const bundle = args.indexOf('-b')
+if (bundle !== -1) {
+  const id = args[bundle + 1] ?? ''
+  if ((state.viewers ?? ['com.apple.iphonesimulator']).includes(id)) process.exit(0)
+  fail(`Unable to find application with identifier ${id}`)
+}
 if (state.xcode === false || args[0] !== 'simctl') {
   fail('xcrun: error: unable to find utility "simctl", not a developer tool or in PATH', 72)
 }
