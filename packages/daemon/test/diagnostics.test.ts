@@ -188,6 +188,7 @@ describe('Diagnostics', () => {
     expect(Object.keys(usage).sort()).toEqual(['cpuPercent', 'machine', 'memory', 'memoryBytes'])
     expect(usage.memory.agents.count).toBe(1)
     expect(usage.cpuPercent).toBeGreaterThanOrEqual(0)
+    expect(usage.machine).toEqual({ cpuInUse: 0, memoryInUse: 0 })
     expect(usage.memoryBytes).toBeGreaterThan(owned.reduce((sum, p) => sum + p.memoryBytes, 0) / 2)
 
     const memory = (await client.call('GET', '/diagnostics/memory')).body as MemoryUse
@@ -293,30 +294,6 @@ describe('Diagnostics', () => {
     expect(short).toContain('Daemon log and process command lines left out')
     expect(short).not.toContain('opened <Ted home>/store')
     expect(short).not.toMatch(/^\d+ \(parent \d+\) (?!·)/m)
-  })
-
-  test('the usage reading shows the whole machine’s CPU and memory, as the busy hold sees them', async () => {
-    daemon = await startDaemon({
-      home,
-      version: '9.9.9',
-      claudeBin: stubClaudePath,
-      load: { ratio: () => 0.7912, memoryAvailable: () => 0.4 },
-    })
-    const client = api(daemon.port, { appKey: daemon.appToken })
-    const usage = (await client.call('GET', '/diagnostics/usage')).body as DiagnosticsUsage
-    expect(usage.machine).toEqual({ cpuInUse: 0.79, memoryInUse: 0.6 })
-  })
-
-  test('the usage reading leaves out a figure the machine can’t report', async () => {
-    daemon = await startDaemon({
-      home,
-      version: '9.9.9',
-      claudeBin: stubClaudePath,
-      load: { ratio: () => Number.NaN, memoryAvailable: () => 0.25 },
-    })
-    const client = api(daemon.port, { appKey: daemon.appToken })
-    const usage = (await client.call('GET', '/diagnostics/usage')).body as DiagnosticsUsage
-    expect(usage.machine).toEqual({ cpuInUse: null, memoryInUse: 0.75 })
   })
 
   test('Runs can’t read Diagnostics, logs or the report', async () => {

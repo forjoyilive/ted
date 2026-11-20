@@ -442,6 +442,36 @@ describe('nextBusy', () => {
 })
 
 describe('createBusyHold', () => {
+  test('the usage reading reports the same CPU and memory in use that a hold carries, even with waiting off', async () => {
+    let on = true
+    const busy = createBusyHold({
+      on: () => on,
+      loadRatio: () => 0.9512,
+      memoryAvailable: () => 0.08,
+      confirmMs,
+      now: () => 0,
+    })
+    const held = await busy.check()
+    expect(held).toMatchObject({ cpuInUse: 0.95, memoryInUse: 0.92, memoryHeld: true })
+    expect(await busy.reading()).toEqual({
+      cpuInUse: held?.cpuInUse,
+      memoryInUse: held?.memoryInUse,
+    })
+    on = false
+    expect(await busy.check()).toBeUndefined()
+    expect(await busy.reading()).toEqual({ cpuInUse: 0.95, memoryInUse: 0.92 })
+  })
+
+  test('the usage reading leaves out a figure the machine can’t report', async () => {
+    const busy = createBusyHold({
+      on: () => true,
+      loadRatio: () => Number.NaN,
+      memoryAvailable: () => Promise.reject(new Error('no memory figure')),
+      confirmMs,
+    })
+    expect(await busy.reading()).toEqual({ cpuInUse: null, memoryInUse: null })
+  })
+
   test('a check within a second of the last reading returns the same hold without reading again', async () => {
     let clock = 0
     let reads = 0
