@@ -84,11 +84,12 @@ async function stopTed() {
 const steps = (...list: unknown[]) => JSON.stringify({ steps: list })
 const advance = { run: ['ted', 'outcome', 'advance'] }
 
-const workflow = (checks: string, extra: Record<string, string> = {}) =>
+const workflow = (checks: string, extra: Record<string, string> = {}, settings: string[] = []) =>
   commitToOrigin(scratch, {
     '.gitignore': 'stub-*\n',
     '.ted/workflow.yaml': [
       'version: 1',
+      ...settings,
       'order: [intake, work, validate]',
       'stages:',
       '  validate:',
@@ -1362,11 +1363,12 @@ describe('the Checks’ environment', () => {
   }, 90_000)
 
   test('Checks run in the login shell and environment Ted read at start, not the daemon’s own, and a fresh read doesn’t make their coverage stale', async () => {
-    const loginBin = path.join(scratch, 'login-bin')
-    await mkdir(loginBin)
+    const login = path.join(scratch, 'login')
+    const loginBin = path.join(login, 'bin')
+    await mkdir(loginBin, { recursive: true })
     await writeFile(path.join(loginBin, 'login-tool'), '#!/bin/sh\nprintf %s "$1"\n')
     await chmod(path.join(loginBin, 'login-tool'), 0o755)
-    const shell = path.join(scratch, 'fake-login-shell')
+    const shell = path.join(login, 'fake-login-shell')
     await writeFile(
       shell,
       [
@@ -1380,7 +1382,9 @@ describe('the Checks’ environment', () => {
       ].join('\n'),
     )
     await chmod(shell, 0o755)
-    await workflow('      - { name: Tool, run: "login-tool ran" }')
+    await workflow('      - { name: Tool, run: "login-tool ran" }', {}, [
+      `sandbox_reads: [${JSON.stringify(login)}]`,
+    ])
     const realShell = process.env.SHELL
     process.env.SHELL = shell
     daemon = await startDaemon({
