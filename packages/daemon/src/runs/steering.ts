@@ -31,7 +31,9 @@ export interface Steering {
 }
 
 const turnEndMs = 10_000
-const acceptMs = 10_000
+// Claude Code reads stdin only after its tool-call hook returns, so the boundary hook
+// waits just long enough for the Run host to forward the message.
+const handOverMs = 1_000
 const pollMs = 50
 
 export function isHeld(
@@ -132,6 +134,7 @@ export function createSteering(options: {
     )
   }
 
+  const boundaryOpen = new Set<string>()
   const hasPending = (runId: string) =>
     deliverable(runId).length > 0 || pendingSources(runId).length > 0
 
@@ -157,7 +160,7 @@ export function createSteering(options: {
     const waiting = texts.map((text) => text.trim())
     return new Promise<void>((resolve) => {
       const waiter = { runId, texts: waiting, done: () => {} }
-      const timer = setTimeout(() => waiter.done(), acceptMs)
+      const timer = setTimeout(() => waiter.done(), handOverMs)
       waiter.done = () => {
         clearTimeout(timer)
         waiters.delete(waiter)
@@ -170,7 +173,12 @@ export function createSteering(options: {
   async function deliver(
     run: Run,
     messages: readonly RunMessage[],
-    delivery: { admitted?: boolean; includeHeld?: boolean; first?: string } = {},
+    delivery: {
+      admitted?: boolean
+      includeHeld?: boolean
+      first?: string
+      forwarded?: () => void
+    } = {},
   ): Promise<number> {
     const { admitted = false, includeHeld = false } = delivery
     const first = delivery.first ?? releaseState(run.id)?.first
@@ -195,6 +203,7 @@ export function createSteering(options: {
           {
             revocable: source.revocable === true,
             ...(source.signal !== undefined && { signal: source.signal }),
+            ...(delivery.forwarded && { forwarded: delivery.forwarded }),
           },
         )
       ) {
@@ -237,6 +246,7 @@ export function createSteering(options: {
               options.canDeliver(run.id, admitted) &&
               (messageId === undefined ||
                 queued(run.id).some((message) => message.id === messageId)),
+            { revocable: false, ...(delivery.forwarded && { forwarded: delivery.forwarded }) },
           ))
         )
           return 0
@@ -428,7 +438,14 @@ export function createSteering(options: {
         syncFlag(runId)
         return { delivered: 0 }
       }
-      return serially(runId, async () => {
+      if (boundaryOpen.has(runId)) return { delivered: 0 }
+      boundaryOpen.add(runId)
+      let handOver: (result: { delivered: number }) => void = () => {}
+      const handed = new Promise<{ delivered: number }>((resolve) => {
+        handOver = resolve
+      })
+      let early = false
+      const work = serially(runId, async () => {
         const run = store.getRun(runId)
         if (!run || run.state === 'finished') return { delivered: 0 }
         const messages = deliverable(runId)
@@ -443,10 +460,21 @@ export function createSteering(options: {
               runId,
               [...messages, ...extra].map((m) => m.text),
             )
-        const delivered = await deliver(run, messages)
+        const delivered = await deliver(run, messages, {
+          forwarded: () => {
+            early = true
+            handOver({ delivered: messages.length + extra.length })
+          },
+        })
         if (delivered > 0) await seen
         return { delivered }
       })
+      work
+        .catch((error: Error) => {
+          if (early) logFailure(runId)(error)
+        })
+        .finally(() => boundaryOpen.delete(runId))
+      return Promise.race([work, handed])
     },
   }
 }

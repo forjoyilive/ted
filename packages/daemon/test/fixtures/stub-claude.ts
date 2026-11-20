@@ -47,6 +47,7 @@ type Step =
   | { cancelPermission: true }
   | { emit: Record<string, unknown> }
   | { tool: string; failed?: true }
+  | { exitOnInput: true }
 
 const argv = process.argv.slice(2)
 
@@ -203,8 +204,9 @@ let inputGate =
 if (inputGate !== undefined) emit({ type: 'system', subtype: 'init', cwd: process.cwd() })
 let interrupted = false
 let gating = false
+let exitOnInput = false
 let gate: ReturnType<typeof spawn> | undefined
-const readDuringGate: string[] = []
+const readDuringGate: { content: string }[] = []
 let nextTool = 0
 let nextRequest = 0
 let lastRequest: string | undefined
@@ -266,6 +268,7 @@ async function runStep(step: Step): Promise<void> {
     }
   } else if ('everyMessage' in step) everyMessage = step.everyMessage
   else if ('emit' in step) emit(step.emit)
+  else if ('exitOnInput' in step) exitOnInput = true
   else if ('tool' in step) {
     const id = `tool-${++nextTool}`
     hook('PreToolUse')
@@ -295,7 +298,10 @@ async function runStep(step: Step): Promise<void> {
     }
     gate = undefined
     gating = false
-    for (const text of readDuringGate.splice(0)) say(`Read: ${text}`)
+    for (const message of readDuringGate.splice(0)) {
+      emit({ type: 'user', message })
+      say(`Read: ${message.content}`)
+    }
   } else if ('authError' in step) {
     emit({
       type: 'assistant',
@@ -404,9 +410,9 @@ createInterface({ input: process.stdin })
       }
       return
     }
+    if (exitOnInput && parsed.type === 'user') process.exit(1)
     if (gating && parsed.type === 'user' && parsed.message) {
-      emit({ type: 'user', message: parsed.message })
-      readDuringGate.push(parsed.message.content)
+      readDuringGate.push(parsed.message)
       return
     }
     if (parsed.type === 'control_response') {

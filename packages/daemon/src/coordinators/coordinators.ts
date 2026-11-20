@@ -109,7 +109,7 @@ import type { MakeDirectory } from '../files.ts'
 import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
-import type { RunManager } from '../runs/run-manager.ts'
+import { RunEndedBeforeInput, type RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import type { StoredChatAgent } from '../store/chats.ts'
 import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
@@ -135,6 +135,7 @@ export const continueAfterPause =
   'Continue the interrupted response using fresh facts. Do not repeat completed actions.'
 export const continueAfterRetry =
   'Please continue the interrupted response. Check fresh facts and recorded action results; do not repeat completed actions.'
+const automaticResumes = 3
 export const coordinatorLine = 'Sent through the Coordinator on the human’s instruction.'
 const manageTasksCommands = `- ted coordinator tasks [--stage <Stage>]… [--status <status>]… [--waiting] [--search <text>] [--all] [--offset <n>]: current Tasks, 100 per page, each with its status and up to 5 open requests (ID, kind, who asked, question text, choices, when it was asked, and whether you may answer it). Done and archived Tasks are left out unless you add --all. --stage and --status can repeat and match any of their values; --waiting keeps Tasks with open requests; --search matches title text or a Task ID. Filters combine. matching is how many Tasks match, stageCounts counts the Factory’s Tasks per Stage whatever the filters, and now is the current time. Ask with filters rather than paging through every Task.
 - ted coordinator task <id> [--offset <n>]: current Task, latest brief, its open requests, paged comments and a version.
@@ -545,6 +546,26 @@ export function createCoordinators(options: {
       chatAgent: chatAgentView(agentOf(c), current),
     }
   }
+  const resumes = new Map<string, number>()
+  const resuming = new Set<string>()
+  const resumedAfterEnd = (c: StoredCoordinator) =>
+    resuming.has(c.id) || (c.phase === 'queued' && resumes.has(c.id))
+  const resumeAfterEnd = (c: StoredCoordinator): boolean => {
+    const count = resumes.get(c.id) ?? 0
+    if (store.getRun(c.runId)?.state !== 'finished' || count >= automaticResumes) return false
+    resumes.set(c.id, count + 1)
+    resuming.add(c.id)
+    const work = carryOn(c)
+      .catch((failure: Error) => {
+        if (!closed) fail(c.id, failure)
+      })
+      .finally(() => {
+        resuming.delete(c.id)
+        background.delete(work)
+      })
+    background.add(work)
+    return true
+  }
   const fail = (id: string, error: unknown) => {
     if (closed) return
     const c = saved.get(id)
@@ -575,6 +596,29 @@ export function createCoordinators(options: {
         })
       background.add(work)
     }
+  }
+  async function carryOn(c: StoredCoordinator): Promise<void> {
+    const reconciled = reconcileInput(c)
+    if (
+      reconciled > 0 &&
+      pending(c.runId).length === 0 &&
+      store.getRun(c.runId)?.state === 'idle' &&
+      !c.launch
+    ) {
+      save({ ...c, phase: 'ready', error: undefined })
+      await store.persisted()
+      pump()
+      return
+    }
+    if (store.getRun(c.runId) && pending(c.runId).length === 0 && !c.launch)
+      store.queueRunMessage({
+        runId: c.runId,
+        text: continueAfterRetry,
+        from: 'ted',
+      })
+    save({ ...c, phase: 'queued', error: undefined })
+    await store.persisted()
+    pump()
   }
   function reconcileInput(c: StoredCoordinator): number {
     const accepted = new Set(runs.acceptedInputs(c.runId))
@@ -619,7 +663,15 @@ export function createCoordinators(options: {
             const current = saved.get(id)
             if (current?.phase === 'working' && !store.getRun(current.runId))
               save({ ...current, phase: 'queued' })
-          } else fail(id, error)
+          } else {
+            const current = saved.get(id)
+            if (
+              !(error instanceof RunEndedBeforeInput) ||
+              !current ||
+              !(resumedAfterEnd(current) || resumeAfterEnd(current))
+            )
+              fail(id, error)
+          }
         },
         done() {
           if (!closed) {
@@ -901,12 +953,13 @@ export function createCoordinators(options: {
       if (closed) return
       const c = saved.forRun(run.id)
       if (!c || c.runId !== run.id || stopping.has(c.id) || closed) return
-      if (c.phase === 'failed') {
+      if (c.phase === 'failed' || resumedAfterEnd(c)) {
         pump()
         return
       }
       if (ending.stopped) save({ ...c, phase: 'ready' })
-      else fail(c.id, 'The Coordinator stopped before the conversation ended. Retry to continue.')
+      else if (pending(run.id).length === 0 || !resumeAfterEnd(c))
+        fail(c.id, 'The Coordinator stopped before the conversation ended. Retry to continue.')
       pump()
     },
   })
@@ -1711,9 +1764,16 @@ export function createCoordinators(options: {
       if (closed) return
       const c = saved.forRun(runId)
       if (!c || c.runId !== runId || stopping.has(c.id) || held(c.id)) return
+      if (error && (resumedAfterEnd(c) || resumeAfterEnd(c))) {
+        pump()
+        return
+      }
       if (error) fail(c.id, error)
-      else if (c.phase === 'working' && store.getRun(runId)?.state === 'idle')
-        save({ ...c, phase: pending(runId).length > 0 ? 'queued' : 'ready' })
+      else {
+        resumes.delete(c.id)
+        if (c.phase === 'working' && store.getRun(runId)?.state === 'idle')
+          save({ ...c, phase: pending(runId).length > 0 ? 'queued' : 'ready' })
+      }
       pump()
     },
     messageRemoved(runId) {
@@ -1764,27 +1824,7 @@ export function createCoordinators(options: {
       if (stopping.has(id)) throw new RequestError(409, 'The Coordinator is stopping')
       if (c.phase !== 'failed' && store.getRun(c.runId)?.state !== 'finished')
         throw new RequestError(409, 'The Coordinator has not failed')
-      const reconciled = reconcileInput(c)
-      if (
-        reconciled > 0 &&
-        pending(c.runId).length === 0 &&
-        store.getRun(c.runId)?.state === 'idle' &&
-        !c.launch
-      ) {
-        save({ ...c, phase: 'ready', error: undefined })
-        await store.persisted()
-        pump()
-        return publicChat(requireChat(id))
-      }
-      if (store.getRun(c.runId) && pending(c.runId).length === 0 && !c.launch)
-        store.queueRunMessage({
-          runId: c.runId,
-          text: continueAfterRetry,
-          from: 'ted',
-        })
-      save({ ...c, phase: 'queued', error: undefined })
-      await store.persisted()
-      pump()
+      await carryOn(c)
       return publicChat(requireChat(id))
     },
     async list(caller, query) {

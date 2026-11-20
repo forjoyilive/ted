@@ -1514,7 +1514,7 @@ test('a human message queued after Retry is delivered with Ted’s continuation 
   expect((await s.chat()).unsentMessages).toEqual([])
 })
 
-test('two human messages delivered as one resumed turn show as two sent bubbles', async () => {
+test('two human messages waiting when the Run ends resume as one turn with two sent bubbles', async () => {
   const s = await setup()
   const { c } = await s.start([
     { say: 'Saved advice' },
@@ -1526,9 +1526,8 @@ test('two human messages delivered as one resumed turn show as two sent bubbles'
   await s.message({ text: first })
   await s.message({ text: second })
   await writeFile(path.join(scratch, 'fail'), '')
-  await waitUntil(async () => (await s.chat()).status === 'failed', 'the failure')
-  await s.ok('POST', `${s.base}/retry`)
   const chat = await waitUntil(async () => {
+    if ((await s.chat()).status === 'failed') throw new Error('the chat failed instead of resuming')
     const chat = await s.ok<RunChat>('GET', `${s.base}/chat`)
     return chat.items.some((i) => i.kind === 'agent' && i.text === 'Resumed reply')
       ? chat
@@ -1688,6 +1687,12 @@ test('working Coordinator messages share steering’s boundary gate and serializ
     const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
     return chat.items.some((i) => i.kind === 'agent' && i.text === 'After boundary')
   }, 'boundary completed')
+  await waitUntil(async () => {
+    const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
+    return messages.every((message) =>
+      chat.items.some((i) => i.id === message.id && i.kind === 'human' && i.sent === true),
+    )
+  }, 'messages marked sent after the agent read them')
   const delivered = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
   const agents = delivered.items.filter((i) => i.kind === 'agent').map((i) => i.text)
   for (const message of messages) {
