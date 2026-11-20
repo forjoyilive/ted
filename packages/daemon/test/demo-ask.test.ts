@@ -6,7 +6,7 @@ import { askDemo } from '../src/dev/ask.ts'
 import { demoEnvironment, prepareDemo, until } from '../src/dev/demo.ts'
 import { demoVersion, markDemo } from '../src/dev/home.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { killRunHosts, stopDaemonIn } from './helpers.ts'
+import { killRunHosts, stopDaemonIn, stubClaudePath } from './helpers.ts'
 
 const original = { ...process.env }
 let home: string | undefined
@@ -61,13 +61,12 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
   await markDemo(home, { version: demoVersion, complete: true })
   await expect(askDemo(home, 'question')).rejects.toThrow('Open the demo first')
 
-  const claudeBin = tedEnv('TED_CLAUDE_BIN')
   const ghBin = tedEnv('TED_GH_BIN')
   daemon = await startDaemon({
     home,
     version: tedVersion,
     checkAgentsOnStart: true,
-    ...(claudeBin && { claudeBin }),
+    claudeBin: stubClaudePath,
     integrations: { checkOnStart: true, loginShell: false, ...(ghBin && { ghBin }) },
   })
   const info = await readDaemonInfo(home)
