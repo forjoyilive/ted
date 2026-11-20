@@ -693,6 +693,27 @@
   min-height: min(50vh, 320px);
 }
 
+.statusRow {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
 .statusRow > :first-child {
   margin-right: 0;
+}
+
+.statusRow > .taskMeta {
+  white-space: pre-wrap;
+}
+
+.metaItem {
+  white-space: nowrap;
+}
+
+.stageGroup {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
