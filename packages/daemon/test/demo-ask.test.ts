@@ -1,15 +1,16 @@
 import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import path from 'node:path'
-import type { Comment, DaemonClient } from '@ted/protocol'
+import { type Comment, DaemonClient, readDaemonInfo, tedEnv, tedVersion } from '@ted/protocol'
 import { afterEach, expect, test } from 'vitest'
 import { askDemo } from '../src/dev/ask.ts'
 import { demoEnvironment, prepareDemo, until } from '../src/dev/demo.ts'
 import { demoVersion, markDemo } from '../src/dev/home.ts'
-import { superviseDaemon } from '../src/launch.ts'
+import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { killRunHosts, stopDaemonIn } from './helpers.ts'
 
 const original = { ...process.env }
 let home: string | undefined
+let daemon: RunningDaemon | undefined
 
 afterEach(async ({ task }) => {
   if (home) {
@@ -18,6 +19,8 @@ afterEach(async ({ task }) => {
       await cp(path.join(home, 'logs'), kept, { recursive: true }).catch(() => undefined)
       console.error(`demo-ask kept the failed test home’s logs in ${kept}`)
     }
+    await daemon?.stop()
+    daemon = undefined
     await stopDaemonIn(home)
     await killRunHosts(home)
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
@@ -58,11 +61,18 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
   await markDemo(home, { version: demoVersion, complete: true })
   await expect(askDemo(home, 'question')).rejects.toThrow('Open the demo first')
 
-  const { client } = await superviseDaemon(home, {
-    app: true,
-    onEvent: () => {},
-    onConnection: () => {},
+  const claudeBin = tedEnv('TED_CLAUDE_BIN')
+  const ghBin = tedEnv('TED_GH_BIN')
+  daemon = await startDaemon({
+    home,
+    version: tedVersion,
+    checkAgentsOnStart: true,
+    ...(claudeBin && { claudeBin }),
+    integrations: { checkOnStart: true, loginShell: false, ...(ghBin && { ghBin }) },
   })
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('The demo daemon did not publish its connection.')
+  const client = new DaemonClient(info, '', { appKey: daemon.appToken })
   await client.addFactory({ repo: path.join(home, 'origins', 'journal.git'), key: 'FN' })
   await until(async () => (await client.listFactories()).every((f) => f.cloned), 'Factory clone')
   const task = await client.createTask({
@@ -73,15 +83,18 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
   const { revision } = await client.taskGates(task.id)
   await client.setTaskGates(task.id, { overrides: { clarify: true }, revision })
   await client.startTask(task.id)
-  const leadWaiting = () =>
-    until(
-      async () => {
-        const lead = (await client.listTasks()).find((t) => t.id === task.id)?.leadRunId
-        return lead !== undefined && (await client.getRun(lead)).run.state === 'idle'
-      },
-      'a waiting Task Lead',
-      60_000,
-    )
+  const leadWaiting = async () => {
+    const lead = async () => {
+      const current = (await client.listTasks()).find((t) => t.id === task.id)
+      const run = current?.leadRunId ? (await client.getRun(current.leadRunId)).run : undefined
+      return { stage: current?.stage, status: current?.status, run: run?.state }
+    }
+    try {
+      await until(async () => (await lead()).run === 'idle', 'a waiting Task Lead', 60_000)
+    } catch {
+      throw new Error(`No waiting Task Lead. Last seen: ${JSON.stringify(await lead())}`)
+    }
+  }
   await leadWaiting()
 
   const asked = { timeoutMs: 120_000, task: task.displayId }
