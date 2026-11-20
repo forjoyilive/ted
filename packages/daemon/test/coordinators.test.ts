@@ -1688,6 +1688,12 @@ test('working Coordinator messages share steering’s boundary gate and serializ
     const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
     return chat.items.some((i) => i.kind === 'agent' && i.text === 'After boundary')
   }, 'boundary completed')
+  await waitUntil(async () => {
+    const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
+    return messages.every((message) =>
+      chat.items.some((i) => i.id === message.id && i.kind === 'human' && i.sent === true),
+    )
+  }, 'messages marked sent after the agent read them')
   const delivered = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
   const agents = delivered.items.filter((i) => i.kind === 'agent').map((i) => i.text)
   for (const message of messages) {

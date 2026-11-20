@@ -547,8 +547,25 @@ export function createCoordinators(options: {
     }
   }
   const resumes = new Map<string, number>()
-  const resumable = (c: StoredCoordinator, runId: string) =>
-    store.getRun(runId)?.state === 'finished' && (resumes.get(c.id) ?? 0) < automaticResumes
+  const resuming = new Set<string>()
+  const resumedAfterEnd = (c: StoredCoordinator) =>
+    resuming.has(c.id) || (c.phase === 'queued' && resumes.has(c.id))
+  const resumeAfterEnd = (c: StoredCoordinator): boolean => {
+    const count = resumes.get(c.id) ?? 0
+    if (store.getRun(c.runId)?.state !== 'finished' || count >= automaticResumes) return false
+    resumes.set(c.id, count + 1)
+    resuming.add(c.id)
+    const work = carryOn(c)
+      .catch((failure: Error) => {
+        if (!closed) fail(c.id, failure)
+      })
+      .finally(() => {
+        resuming.delete(c.id)
+        background.delete(work)
+      })
+    background.add(work)
+    return true
+  }
   const fail = (id: string, error: unknown) => {
     if (closed) return
     const c = saved.get(id)
@@ -928,12 +945,13 @@ export function createCoordinators(options: {
       if (closed) return
       const c = saved.forRun(run.id)
       if (!c || c.runId !== run.id || stopping.has(c.id) || closed) return
-      if (c.phase === 'failed') {
+      if (c.phase === 'failed' || resumedAfterEnd(c)) {
         pump()
         return
       }
       if (ending.stopped) save({ ...c, phase: 'ready' })
-      else fail(c.id, 'The Coordinator stopped before the conversation ended. Retry to continue.')
+      else if (pending(run.id).length === 0 || !resumeAfterEnd(c))
+        fail(c.id, 'The Coordinator stopped before the conversation ended. Retry to continue.')
       pump()
     },
   })
@@ -1738,14 +1756,8 @@ export function createCoordinators(options: {
       if (closed) return
       const c = saved.forRun(runId)
       if (!c || c.runId !== runId || stopping.has(c.id) || held(c.id)) return
-      if (error && resumable(c, runId)) {
-        resumes.set(c.id, (resumes.get(c.id) ?? 0) + 1)
-        const work = carryOn(c)
-          .catch((failure: Error) => {
-            if (!closed) fail(c.id, failure)
-          })
-          .finally(() => background.delete(work))
-        background.add(work)
+      if (error && (resumedAfterEnd(c) || resumeAfterEnd(c))) {
+        pump()
         return
       }
       if (error) fail(c.id, error)
