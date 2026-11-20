@@ -275,6 +275,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       restart: args.restart,
     }),
   'v1.AppStopped': (args) => task(args, { repo: args.repo, name: args.name }),
+  'v2.AppStopped': (args) =>
+    task(args, { repo: args.repo, name: args.name, by: args.by, runId: args.runId }),
   'v1.AppExited': (args) =>
     task(args, { repo: args.repo, name: args.name, code: args.code, signal: args.signal }),
   'v1.AppStartFailed': (args) =>

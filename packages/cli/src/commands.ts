@@ -771,6 +771,15 @@ export const commands = [
     options: options('task', 'repo'),
   },
   {
+    name: 'app stop',
+    handler: 'appStop',
+    min: 1,
+    max: 1,
+    help: '  ted app stop <App> [--repo <name>]         Stop one of this Task’s Apps, such as before a fresh build',
+    callers: 'Terminal or Task Lead',
+    options: options('task', 'repo'),
+  },
+  {
     name: 'app screenshot',
     handler: 'screenshot',
     min: 1,
