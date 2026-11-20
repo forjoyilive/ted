@@ -63,11 +63,7 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
     onEvent: () => {},
     onConnection: () => {},
   })
-  await client.createFactory({
-    name: 'Field Notes',
-    key: 'FN',
-    repos: [{ name: 'journal', source: { remote: 'https://github.com/demo/journal' } }],
-  })
+  await client.addFactory({ repo: path.join(home, 'origins', 'journal.git'), key: 'FN' })
   await until(async () => (await client.listFactories()).every((f) => f.cloned), 'Factory clone')
   const task = await client.createTask({
     factory: 'FN',
