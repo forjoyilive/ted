@@ -665,6 +665,7 @@ export {
   failureChoiceLabels,
   failureChoices,
   namedRepairChoice,
+  rerunFailureChoice,
   validateFailureChoices,
   validationExecution,
 } from './failures.ts'

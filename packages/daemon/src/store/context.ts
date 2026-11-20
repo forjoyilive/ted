@@ -91,7 +91,7 @@ import {
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { isInteger, isOneOf, type Untyped } from '@ted/protocol/parse'
+import { isInteger, isObject, isOneOf, parseJson, type Untyped } from '@ted/protocol/parse'
 import { planTitle as titleFromMessage } from '@ted/protocol/plan'
 import {
   compareStages,
@@ -361,6 +361,11 @@ interface LiveState {
   queueActivity: QueueActivity
   shellsRunning: number
   scheduledChecks: { running: number; waiting: number }
+}
+
+function failurePurpose(purpose: string): boolean {
+  const parsed = parseJson(purpose)
+  return isObject(parsed) && parsed.kind === 'failure'
 }
 
 export async function openContext({
@@ -1138,17 +1143,24 @@ export async function openContext({
     const pausedReason = pausedRuns[0]?.reason
     const leadLive =
       lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
-    const leadStopped =
-      lead?.state === 'finished' &&
-      lead.ended !== null &&
-      (JSON.parse(lead.ended) as RunEnding).how === 'stopped'
-    const lastFailure = leadStopped
-      ? reads
-          .log(row.id)
-          .filter((entry) => entry.name === 'v1.TaskLeadFailed')
-          .toSorted((a, b) => sequence(a.id) - sequence(b.id))
-          .at(-1)
-      : undefined
+    const leadEnding =
+      lead?.state === 'finished' && lead.ended !== null
+        ? (JSON.parse(lead.ended) as RunEnding).how
+        : undefined
+    const leadStopped = leadEnding === 'stopped'
+    const requests = taskComments.filter((row) => isOpenRequest(row) && row.heldFor === null)
+    const exitedOnFailure =
+      leadEnding !== undefined &&
+      !leadStopped &&
+      requests.some((r) => r.purpose !== null && failurePurpose(r.purpose))
+    const lastFailure =
+      leadStopped || exitedOnFailure
+        ? reads
+            .log(row.id)
+            .filter((entry) => entry.name === 'v1.TaskLeadFailed')
+            .toSorted((a, b) => sequence(a.id) - sequence(b.id))
+            .at(-1)
+        : undefined
     const failure = lastFailure && (JSON.parse(lastFailure.data) as Record<string, unknown>)
     const recovering =
       lastFailure !== undefined &&
@@ -1162,7 +1174,6 @@ export async function openContext({
       partlyMergedAt !== null && mergedRepos.length > 0 && openRepos.length > 0
         ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
         : undefined
-    const requests = taskComments.filter((row) => isOpenRequest(row) && row.heldFor === null)
     const facts: TaskFacts = {
       ...(preparation === 'preparing' && { preparing: true }),
       ...(snoozedUntil !== null && { snoozedUntil }),
@@ -1192,6 +1203,11 @@ export async function openContext({
         !recovering &&
         !waitsForBlockers &&
         repos.some((r) => !r.removed) && { interrupted: true }),
+      ...(exitedOnFailure &&
+        !held &&
+        !recovering &&
+        !waitsForBlockers &&
+        repos.some((r) => !r.removed) && { leadExitedOnFailure: true }),
       ...((place > 0 || held) && {
         queue:
           (leadAgent ?? held?.agent) &&

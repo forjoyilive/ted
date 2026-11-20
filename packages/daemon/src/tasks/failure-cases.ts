@@ -17,6 +17,7 @@ import {
   ciFailureLabel,
   failureChoiceLabels,
   failureChoices,
+  rerunFailureChoice,
   validateFailureChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
@@ -458,6 +459,73 @@ export function createFailureCases(options: {
         cancelled: true,
       })
   }
+  function decisionCurrent(
+    task: Task,
+    value: FailureCase,
+    current: FailureContext | null | undefined,
+    requestId?: string,
+  ): boolean {
+    const decision =
+      requestId === undefined
+        ? value.decisions.at(-1)
+        : value.decisions.find((d) => d.commentId === requestId)
+    const id = decision?.contextId ?? value.contextId
+    const bound = id === undefined ? undefined : store.failures.context(id)
+    const now = verifiedContext(task, current)
+    return (
+      !!bound &&
+      !!now &&
+      sameTestedFor(value.source, bound, now) &&
+      localInputs(bound) === localInputs(now)
+    )
+  }
+  const staleCards = (task: Task) =>
+    handsOff(task.stage)
+      ? store.failures.list(task.id).filter((value) => {
+          const comment = decisionComment(value)
+          return (
+            value.validation === true &&
+            value.source.kind === 'factory-check' &&
+            value.decisions.at(-1)?.rerun !== true &&
+            !!comment &&
+            !comment.answer &&
+            !comment.held
+          )
+        })
+      : []
+  const refreshing = new Map<string, Promise<number>>()
+  async function replaceStale(task: Task): Promise<number> {
+    if (staleCards(task).length === 0) return 0
+    const current = await snapshot(task).catch(() => null)
+    let replaced = 0
+    for (const value of staleCards(task)) {
+      if (decisionCurrent(task, value, current)) continue
+      withdraw(value)
+      store.postFailureDecision(
+        value,
+        [
+          whatFailed(value),
+          'The Task’s code changed after the Task Lead asked about this failure, so it can’t be accepted: Accept would apply to code that no longer exists.',
+          `${rerunFailureChoice} moves the Task to Validate, where Ted runs the checks on the code as it is now. A check that fails there comes back to Work with its output. To have it handled another way, write to the Task Lead.`,
+          `Failure ${shortReference(value.id)}`,
+        ].join('\n\n'),
+        'changed',
+        undefined,
+        false,
+        true,
+      )
+      replaced += 1
+    }
+    if (replaced > 0) await store.persisted()
+    return replaced
+  }
+  function refreshStale(task: Task): Promise<number> {
+    const running = refreshing.get(task.id)
+    if (running) return running
+    const work = replaceStale(task).finally(() => refreshing.delete(task.id))
+    refreshing.set(task.id, work)
+    return work
+  }
   function verify(
     task: Task,
     current: FailureContext | null | undefined,
@@ -707,6 +775,8 @@ export function createFailureCases(options: {
   return {
     pendingDecision,
     verifyResult,
+    decisionCurrent,
+    refreshStale,
     replaceOlder(task: Task, value: FailureCase, checkRunId: string) {
       const current = tested(task, value.contextId) ?? null
       const values = store.failures.list(task.id)
@@ -924,7 +994,10 @@ export function createFailureCases(options: {
         )
       const bound = tested(task, assessment.contextId)
       const current = verifiedContext(task, observed)
-      const stale = !!bound && !!current && !sameTestedFor(value.source, bound, current)
+      const unreadable =
+        !current && value.validation === true && handsOff(task.stage) && checkCase(value)
+      const stale =
+        (!!bound && !!current && !sameTestedFor(value.source, bound, current)) || unreadable
       const unknown = !bound || !tiedContext(task, value, bound)
       const checkFailure =
         value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
@@ -936,7 +1009,7 @@ export function createFailureCases(options: {
           409,
           `failure ${shortReference(replaced.id)} replaced this case: it failed the same check later. Assess and ask about that one`,
         )
-      if (!untied && stale && attachable(task, value, current))
+      if (!untied && stale && bound && attachable(task, value, current))
         throw new RequestError(
           409,
           `The Task’s code, checks or CI changed since tested context ${shortReference(bound.id)}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,

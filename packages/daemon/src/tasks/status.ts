@@ -57,6 +57,7 @@ export interface TaskFacts {
   waitingOnEmulator?: boolean
   retrying?: boolean
   interrupted?: boolean
+  leadExitedOnFailure?: boolean
   mergeLeadWorks?: boolean
 }
 
@@ -87,7 +88,10 @@ export function taskCanResume(facts: TaskFacts): boolean {
 
 export function taskWakesOnComment(facts: TaskFacts): boolean {
   const { openRequests: _, ...withoutRequests } = facts
-  return taskCanResume(withoutRequests)
+  return taskCanResume({
+    ...withoutRequests,
+    interrupted: facts.interrupted === true || facts.leadExitedOnFailure === true,
+  })
 }
 
 export function commentDelivery(facts: TaskFacts): CommentDelivery | undefined {

@@ -62,6 +62,16 @@ describe('a Comment on a Task whose Task Lead ended', () => {
     expect(taskWakesOnComment(at({ openRequests: 1 }))).toBe(false)
   })
 
+  test('wakes a Task Lead that exited while a failure question waits, without offering Resume', () => {
+    const facts = at({ leadExitedOnFailure: true, openRequests: 1 })
+    expect(taskWakesOnComment(facts)).toBe(true)
+    expect(taskCanResume(facts)).toBe(false)
+    expect(taskWakesOnComment(at({ ...facts, leadLive: true }))).toBe(false)
+    expect(taskWakesOnComment(at({ ...facts, queue: { place: 1 } }))).toBe(false)
+    expect(taskWakesOnComment(at({ ...facts, stage: 'merge' }))).toBe(false)
+    expect(taskWakesOnComment(at({ ...facts, stage: 'merge', mergeLeadWorks: true }))).toBe(true)
+  })
+
   test.each<Partial<TaskFacts>>([
     { stage: 'backlog' },
     { stage: 'done' },
