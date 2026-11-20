@@ -33,7 +33,7 @@ For these the phone says why and asks you to answer on your Mac. Answers you giv
 
 The phone reaches Ted only through your Mac, so the Mac must be awake, online and running Ted. If it isn’t, the phone says “Can’t reach your Mac” and keeps showing the last list it had, without letting you send answers.
 
-While a phone is paired and a request is waiting, Ted keeps the Mac from sleeping on its own when it’s on power. It can’t stop the Mac sleeping on battery or when you close the lid, so leave it plugged in and open if you want to answer from your phone.
+With **Stay awake while Runs are working** on in Settings → General, Ted also keeps the Mac from sleeping on its own while a phone is paired and a request is waiting, as long as the Mac is on power. With it off, the Mac sleeps on its usual schedule. It can’t stop the Mac sleeping on battery or when you close the lid, so leave it plugged in and open if you want to answer from your phone.
 
 ## Remove a lost phone
 
