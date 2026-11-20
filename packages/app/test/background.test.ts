@@ -10,6 +10,7 @@ import {
   quitAnswer,
   quitDialog,
   quitPlan,
+  showsTray,
   statusMenu,
   trayLabel,
   trayToolTip,
@@ -159,6 +160,14 @@ describe('menu-bar icon and window title', () => {
     expect(trayLabel(0)).toBe('')
     expect(trayWarning([banner({ factoryId: 'nb' })], now)).toBe(false)
     expect(trayWarning([banner({})], now)).toBe(true)
+  })
+
+  test('the icon follows the setting on macOS and Linux and never shows on Windows', () => {
+    expect(showsTray('darwin', true)).toBe(true)
+    expect(showsTray('darwin', false)).toBe(false)
+    expect(showsTray('linux', true)).toBe(true)
+    expect(showsTray('linux', false)).toBe(false)
+    expect(showsTray('win32', true)).toBe(false)
   })
 
   test('the window title names Ted Dev and carries the count only on Linux', () => {
