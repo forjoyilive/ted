@@ -56,17 +56,6 @@ describe('Ted app', () => {
     if (!headerBox || !stageBox) throw new Error('the header has no layout')
     expect(stageBox.x + stageBox.width).toBeLessThanOrEqual(headerBox.x + headerBox.width)
 
-    await client.editTask('NB-1', { title: 'Deny network by default, with grants' })
-    const title = header.getByRole('heading', { name: 'Deny network by default, with grants' })
-    await title.waitFor()
-    await window.setViewportSize({ width: 720, height: 800 })
-    const narrowHeader = await header.boundingBox()
-    const titleBox = await title.boundingBox()
-    if (!narrowHeader || !titleBox) throw new Error('the header has no layout')
-    expect(titleBox.width).toBeGreaterThanOrEqual(Math.min(250, narrowHeader.width - 44))
-    expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(narrowHeader.x + narrowHeader.width)
-    await window.setViewportSize({ width: 1280, height: 800 })
-
     await ted('task', 'start', 'NB-1')
 
     await header.getByText('Working', { exact: true }).waitFor()
@@ -99,6 +88,30 @@ describe('Ted app', () => {
     expect(
       await header.getByRole('button', { name: 'Design, not yet' }).getAttribute('aria-pressed'),
     ).toBeNull()
+
+    await client.editTask('NB-1', { title: 'Deny network by default, with grants' })
+    await header.getByRole('heading', { name: 'Deny network by default, with grants' }).waitFor()
+    await window.setViewportSize({ width: 720, height: 800 })
+    const layout = () =>
+      header.evaluate((el) => {
+        const title = el.querySelector('h1')
+        const controls = title?.nextElementSibling
+        const row = title?.parentElement
+        if (!title || !controls || !row) throw new Error('the header has no title row')
+        const titleBox = title.getBoundingClientRect()
+        return {
+          titleWidth: titleBox.width,
+          rowWidth: row.getBoundingClientRect().width,
+          titleBottom: titleBox.bottom,
+          controlsTop: controls.getBoundingClientRect().top,
+          menuInControls: controls.querySelector('[aria-label="Task actions"]') !== null,
+        }
+      })
+    await expect.poll(async () => (await layout()).rowWidth).toBeLessThan(400)
+    const narrow = await layout()
+    expect(narrow.menuInControls).toBe(true)
+    expect(narrow.controlsTop).toBeGreaterThanOrEqual(narrow.titleBottom)
+    expect(narrow.titleWidth).toBeCloseTo(narrow.rowWidth, 0)
   })
 
   test('the Review sign-off card starts with the confirmation row, Review notes included', async () => {

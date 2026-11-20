@@ -211,6 +211,14 @@
   flex-wrap: wrap;
 }
 
+.titleControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .metaLink {
   padding: 0;
   border: none;

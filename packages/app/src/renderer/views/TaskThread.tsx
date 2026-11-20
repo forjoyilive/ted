@@ -925,50 +925,52 @@ export function TaskThread({
         >
           <div className={`${styles.headerRow} ${styles.titleRow}`}>
             <h1 className={styles.taskTitle}>{task.title}</h1>
-            <TaskStatusChips
-              task={task}
-              onOpenTask={onOpenTask}
-              detailed
-              tall
-              hideWaiting={openJumps.length > 0}
-              startsAutomatically={startsOnItsOwn(task)}
-            />
-            <AnswerPill requests={openJumps} onJump={jumpToRequest} />
-            {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
-              <Button
-                variant="primary"
-                onClick={() =>
-                  runStatusAction(headerAction.kind, task).catch((error: unknown) =>
-                    console.error(error),
-                  )
-                }
-              >
-                {headerAction.label}
-              </Button>
-            )}
-            <TaskActionsMenu
-              task={task}
-              onFollowedUp={onFollowedUp}
-              history={{
-                earlier: [...earlier].reverse(),
-                finished: runs
-                  .filter((run) => run.role === 'sub-agent' && run.state === 'finished')
-                  .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
-                loading: runList.value === undefined && !runList.error,
-                error: runList.error,
-                retry: runList.retry,
-                onOpen: openConversation,
-              }}
-              sideChat={{
-                available: sideChatRun !== undefined,
-                onOpen: () => {
-                  if (sideChatRun === undefined) return
-                  if (showingSubAgent) onShowRun(undefined)
-                  if (shownApp !== undefined) onCloseApp?.()
-                  setSideChatAsk({ taskId: task.id, runId: sideChatRun })
-                },
-              }}
-            />
+            <div className={styles.titleControls}>
+              <TaskStatusChips
+                task={task}
+                onOpenTask={onOpenTask}
+                detailed
+                tall
+                hideWaiting={openJumps.length > 0}
+                startsAutomatically={startsOnItsOwn(task)}
+              />
+              <AnswerPill requests={openJumps} onJump={jumpToRequest} />
+              {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
+                <Button
+                  variant="primary"
+                  onClick={() =>
+                    runStatusAction(headerAction.kind, task).catch((error: unknown) =>
+                      console.error(error),
+                    )
+                  }
+                >
+                  {headerAction.label}
+                </Button>
+              )}
+              <TaskActionsMenu
+                task={task}
+                onFollowedUp={onFollowedUp}
+                history={{
+                  earlier: [...earlier].reverse(),
+                  finished: runs
+                    .filter((run) => run.role === 'sub-agent' && run.state === 'finished')
+                    .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+                  loading: runList.value === undefined && !runList.error,
+                  error: runList.error,
+                  retry: runList.retry,
+                  onOpen: openConversation,
+                }}
+                sideChat={{
+                  available: sideChatRun !== undefined,
+                  onOpen: () => {
+                    if (sideChatRun === undefined) return
+                    if (showingSubAgent) onShowRun(undefined)
+                    if (shownApp !== undefined) onCloseApp?.()
+                    setSideChatAsk({ taskId: task.id, runId: sideChatRun })
+                  },
+                }}
+              />
+            </div>
           </div>
           <TaskDescription task={task} />
           <div className={`${styles.headerRow} ${styles.statusRow}`}>
