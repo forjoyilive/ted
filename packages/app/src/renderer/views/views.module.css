@@ -717,3 +717,8 @@
   gap: 8px;
   min-width: 0;
 }
+
+.stageGroup > .activity {
+  overflow: visible;
+  white-space: normal;
+}
