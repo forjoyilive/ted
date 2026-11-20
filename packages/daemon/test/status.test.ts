@@ -158,7 +158,7 @@ describe('taskStatus', () => {
       [waitingForTests, 'Waiting for checks'],
     ] as const) {
       expect(taskStatus(facts)).toBeUndefined()
-      expect(taskStatuses(facts)).toEqual([])
+      expect(taskStatuses(facts)).toEqual(label === 'Running checks' ? ['working'] : [])
       expect(taskCanResume({ ...facts, interrupted: true })).toBe(false)
       expect(taskMarkers(facts, undefined)).toMatchObject([{ kind: 'test-activity', label }])
     }
@@ -322,6 +322,53 @@ describe('taskStatus', () => {
     const facts = at({ blockedBy: ['NB-46'] })
     expect(taskMarkers(facts, taskStatus(facts))).toEqual([])
   })
+})
+
+describe('an App starting for a Task', () => {
+  test('with no agent mid-turn, the Task shows Starting app and names the App', () => {
+    const facts = at({ runs: ['idle'], appStarting: 'Ted iPhone', agentActivity: 'Old line' })
+    expect(taskStatus(facts)).toEqual({ kind: 'working', app: 'Ted iPhone' })
+    expect(taskStatuses(facts)).toEqual(['working'])
+    expect(taskActivity(facts)).toBe('Starting Ted iPhone')
+    expect(taskStatus(at({ appStarting: 'Ted iPhone' }))).toEqual({
+      kind: 'working',
+      app: 'Ted iPhone',
+    })
+  })
+
+  test('an agent mid-turn keeps the Working status and its own line', () => {
+    const facts = at({ runs: ['working'], appStarting: 'Ted iPhone', agentActivity: 'Reading' })
+    expect(taskStatus(facts)).toEqual({ kind: 'working' })
+    expect(taskActivity(facts)).toBe('Reading')
+  })
+
+  test('a request or pause still wins over the App', () => {
+    expect(taskStatus(at({ appStarting: 'Ted iPhone', openRequests: 1 }))).toEqual({
+      kind: 'waiting-on-you',
+    })
+    expect(taskStatus(at({ appStarting: 'Ted iPhone', paused: 'Offline' }))).toEqual({
+      kind: 'paused',
+      reason: 'Offline',
+    })
+  })
+
+  test('once no App is starting, the Task goes back to its usual status', () => {
+    const facts = at({ runs: ['idle'], agentActivity: 'Old line' })
+    expect(taskStatus(facts)).toBeUndefined()
+    expect(taskStatuses(facts)).toEqual([])
+    expect(taskActivity(facts)).toBe('Old line')
+  })
+})
+
+test('test commands running count as working in the status list but add no Working status', () => {
+  const facts = at({
+    runs: ['idle'],
+    testActivity: { running: 1, waiting: 0, checksWaiting: false },
+  })
+  expect(taskStatus(facts)).toBeUndefined()
+  expect(taskStatuses(facts)).toEqual(['working'])
+  const waiting = at({ testActivity: { running: 0, waiting: 1, checksWaiting: false } })
+  expect(taskStatuses(waiting)).toEqual([])
 })
 
 describe('taskActivity', () => {

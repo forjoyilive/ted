@@ -33,6 +33,7 @@ export interface TaskFacts {
   movingAfterChecks?: boolean
   checksWaiting?: { place: number }
   testActivity?: ActiveTestInvocations
+  appStarting?: string
   stopped?: {
     at: string
     runs: number
@@ -134,6 +135,7 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   }
   if (facts.paused !== undefined) return { kind: 'paused', reason: facts.paused }
   if (working(facts)) return { kind: 'working' }
+  if (facts.appStarting !== undefined) return { kind: 'working', app: facts.appStarting }
   if (facts.stopped)
     return {
       kind: 'stopped',
@@ -161,6 +163,13 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
 
 const subAgentSlot = 'Waiting for a Run slot'
 
+function testsRunning(facts: TaskFacts): boolean {
+  return (
+    (facts.checking !== undefined && facts.testActivity?.checksWaiting !== true) ||
+    (facts.testActivity?.running ?? 0) > 0
+  )
+}
+
 function working(facts: TaskFacts): boolean {
   return (
     facts.settingUp === true ||
@@ -185,7 +194,7 @@ export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
     'partly-merged': facts.partlyMerged !== undefined,
     'waiting-on-you': (facts.openRequests ?? 0) > 0 || facts.runs.includes('waiting'),
     paused: facts.paused !== undefined,
-    working: working(facts),
+    working: working(facts) || facts.appStarting !== undefined || testsRunning(facts),
     stopped: facts.stopped !== undefined,
     blocked: (facts.blockedBy?.length ?? 0) > 0,
     queued: facts.queue !== undefined || (facts.queuedSubAgents?.length ?? 0) > 0,
@@ -298,6 +307,9 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   }
   if (facts.retrying && facts.paused === undefined) return 'Retrying (rate limited)'
   if (facts.planningInChat) return 'Planning in chat'
+  if (facts.appStarting !== undefined && !facts.runs.includes('working')) {
+    return `Starting ${facts.appStarting}`
+  }
   if (facts.agentActivity !== undefined) return facts.agentActivity
   if (facts.partlyMerged) {
     const { merged, open } = facts.partlyMerged

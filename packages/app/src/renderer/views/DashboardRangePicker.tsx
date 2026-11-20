@@ -47,8 +47,14 @@ export function DashboardRangePicker({
             {rangeLabels[preset]}
           </option>
         ))}
-        {!isPreset(range) && <option value={customValue}>{rangeLabel(range)}</option>}
-        <option value={editValue}>Custom range…</option>
+        {!isPreset(range) && (
+          <option value={customValue} data-divider-before>
+            {rangeLabel(range)}
+          </option>
+        )}
+        <option value={editValue} data-divider-before={isPreset(range) || undefined}>
+          Custom range…
+        </option>
       </Select>
       {editing && (
         <CustomRangeBox

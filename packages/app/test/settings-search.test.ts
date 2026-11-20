@@ -26,6 +26,7 @@ test('a setting is found by its name, group, page and description, with its page
     'app.general.startup',
     'app.general.startup.login',
     'app.general.startup.quit',
+    'app.general.startup.menu-bar',
     'app.general.startup.stay-awake',
   ])
   expect(find('notifications inbox')).toMatchObject([
@@ -155,7 +156,9 @@ test('Factory settings carry the Factory’s name and are left out without a Fac
 
 test('a setting that shows on one platform is found only there', () => {
   expect(find('tray', { platform: 'linux' }).map((hit) => hit.name)).toEqual(['Show tray icon'])
-  expect(find('tray', { platform: 'mac' })).toEqual([])
+  expect(find('tray', { platform: 'mac' }).map((hit) => hit.name)).toEqual(['Show menu bar icon'])
+  expect(find('menu bar icon', { platform: 'linux' })).toEqual([])
+  expect(find('tray', { platform: 'other' })).toEqual([])
   expect(find('simulators and emulators at once', { platform: 'linux' })[0]?.id).toBe(
     'app.limits.devices',
   )

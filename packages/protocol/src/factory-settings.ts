@@ -333,6 +333,7 @@ export interface FactorySettingsView {
   sandboxSockets: NamedSocket[]
   sandboxSocketsFrom?: LayerKind
   electronApps: ElectronApp[]
+  sandboxNetworkFrom?: LayerKind
   notes: string
   invalid?: InvalidSettings
 }

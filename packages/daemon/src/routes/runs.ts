@@ -93,7 +93,10 @@ const routes: Route[] = [
   {
     method: 'GET',
     path: /^\/diagnostics\/usage$/,
-    handle: async (_, options) => [200, await currentUsage(options)],
+    handle: async (_, options) => {
+      const [usage, machine] = await Promise.all([currentUsage(options), options.busy.reading()])
+      return [200, { ...usage, machine }]
+    },
   },
   {
     method: 'GET',

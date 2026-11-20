@@ -41,6 +41,25 @@ test('the hint names the group and who lacks it, once, and not when the command 
   expect(refusalHints(nsird, ['ios-xcode'], 'the App “iOS simulator”')).toEqual([])
 })
 
+test('a refused connect or a failed lookup names network, and the hint says what it allows', () => {
+  expect(refusedGroups('Error: connect EPERM 192.0.2.1:443 - Local (0.0.0.0:0)')).toEqual([
+    'network',
+  ])
+  expect(
+    refusedGroups(
+      'npm error request to https://registry.npmjs.org/x failed, reason: getaddrinfo ENOTFOUND registry.npmjs.org',
+    ),
+  ).toEqual(['network'])
+  expect(refusedGroups('curl: (6) Could not resolve host: example.com')).toEqual(['network'])
+  expect(refusedGroups('connect ECONNREFUSED 127.0.0.1:5432')).toEqual([])
+  expect(
+    refusalHints('getaddrinfo ENOTFOUND registry.npmjs.org', [], 'the worktree setup'),
+  ).toEqual([
+    'Ted: the sandbox refused a connection or lookup outside this machine. The network access group allows it, and the worktree setup doesn’t have it. Propose sandbox_access: [network] for it in .ted/workflow.yaml instead of working around the refusal; it takes effect once the user merges or approves it.',
+  ])
+  expect(refusalHints('connect EPERM 192.0.2.1:443', ['network'], 'the App “Web”')).toEqual([])
+})
+
 test('a refused Electron service names the electron group, and a socket the Library lacks gets its own line', () => {
   const lookup =
     'Check in with com.apple.coreservices.launchservicesd failed: Operation not permitted'

@@ -85,3 +85,14 @@ test('each access group an App, Check or setup has is its own row, and widens th
   ])
   expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
 })
+
+test('outbound network for the whole Factory widens the sandbox, before the access groups', () => {
+  const openings = sandboxOpenings({
+    ...none,
+    networkFrom: 'library',
+    access: [{ kind: 'check', name: 'E2E', groups: ['network'] }],
+  })
+  expect(openings.map((o) => o.kind)).toEqual(['network', 'access-group'])
+  expect(openings[0]).toEqual({ kind: 'network', unsandboxed: false, from: 'library' })
+  expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
+})

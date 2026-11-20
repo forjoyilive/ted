@@ -113,7 +113,7 @@ import type {
   ShutdownRequest,
 } from './data.ts'
 import type { DeviceRequest, DeviceResult } from './device.ts'
-import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
+import type { Diagnostics, DiagnosticsUsage, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type {
   ApproveExecution,
@@ -1570,7 +1570,7 @@ export class DaemonClient {
     return this.#request('GET', '/diagnostics')
   }
 
-  getProcessUsage(): Promise<ProcessUsage> {
+  getProcessUsage(): Promise<DiagnosticsUsage> {
     return this.#request('GET', '/diagnostics/usage')
   }
 

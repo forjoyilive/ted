@@ -923,52 +923,54 @@ export function TaskThread({
           className={styles.taskHeader}
           {...contextMenu((at) => openTaskActions(at, [task.id]))}
         >
-          <div className={styles.headerRow}>
+          <div className={`${styles.headerRow} ${styles.titleRow}`}>
             <h1 className={styles.taskTitle}>{task.title}</h1>
-            <TaskStatusChips
-              task={task}
-              onOpenTask={onOpenTask}
-              detailed
-              tall
-              hideWaiting={openJumps.length > 0}
-              startsAutomatically={startsOnItsOwn(task)}
-            />
-            <AnswerPill requests={openJumps} onJump={jumpToRequest} />
-            {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
-              <Button
-                variant="primary"
-                onClick={() =>
-                  runStatusAction(headerAction.kind, task).catch((error: unknown) =>
-                    console.error(error),
-                  )
-                }
-              >
-                {headerAction.label}
-              </Button>
-            )}
-            <TaskActionsMenu
-              task={task}
-              onFollowedUp={onFollowedUp}
-              history={{
-                earlier: [...earlier].reverse(),
-                finished: runs
-                  .filter((run) => run.role === 'sub-agent' && run.state === 'finished')
-                  .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
-                loading: runList.value === undefined && !runList.error,
-                error: runList.error,
-                retry: runList.retry,
-                onOpen: openConversation,
-              }}
-              sideChat={{
-                available: sideChatRun !== undefined,
-                onOpen: () => {
-                  if (sideChatRun === undefined) return
-                  if (showingSubAgent) onShowRun(undefined)
-                  if (shownApp !== undefined) onCloseApp?.()
-                  setSideChatAsk({ taskId: task.id, runId: sideChatRun })
-                },
-              }}
-            />
+            <div className={styles.titleControls}>
+              <TaskStatusChips
+                task={task}
+                onOpenTask={onOpenTask}
+                detailed
+                tall
+                hideWaiting={openJumps.length > 0}
+                startsAutomatically={startsOnItsOwn(task)}
+              />
+              <AnswerPill requests={openJumps} onJump={jumpToRequest} />
+              {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
+                <Button
+                  variant="primary"
+                  onClick={() =>
+                    runStatusAction(headerAction.kind, task).catch((error: unknown) =>
+                      console.error(error),
+                    )
+                  }
+                >
+                  {headerAction.label}
+                </Button>
+              )}
+              <TaskActionsMenu
+                task={task}
+                onFollowedUp={onFollowedUp}
+                history={{
+                  earlier: [...earlier].reverse(),
+                  finished: runs
+                    .filter((run) => run.role === 'sub-agent' && run.state === 'finished')
+                    .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+                  loading: runList.value === undefined && !runList.error,
+                  error: runList.error,
+                  retry: runList.retry,
+                  onOpen: openConversation,
+                }}
+                sideChat={{
+                  available: sideChatRun !== undefined,
+                  onOpen: () => {
+                    if (sideChatRun === undefined) return
+                    if (showingSubAgent) onShowRun(undefined)
+                    if (shownApp !== undefined) onCloseApp?.()
+                    setSideChatAsk({ taskId: task.id, runId: sideChatRun })
+                  },
+                }}
+              />
+            </div>
           </div>
           <TaskDescription task={task} />
           <div className={`${styles.headerRow} ${styles.statusRow}`}>
@@ -981,7 +983,7 @@ export function TaskThread({
                   {'  ·  '}
                 </>
               )}
-              {task.displayId}
+              <span className={styles.metaItem}>{task.displayId}</span>
               {onOpenBrief && (
                 <>
                   {'  ·  '}
@@ -990,34 +992,52 @@ export function TaskThread({
                   </ActionButton>
                 </>
               )}
-              {task.backToWork &&
-                `  ·  Back to Work ${task.backToWork.count}${task.backToWork.limit === undefined ? '' : ` of ${task.backToWork.limit}`}`}
+              {task.backToWork && (
+                <>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>
+                    {`Back to Work ${task.backToWork.count}${task.backToWork.limit === undefined ? '' : ` of ${task.backToWork.limit}`}`}
+                  </span>
+                </>
+              )}
               {task.followUpOf ? (
                 <>
-                  {'  ·  Follow-up to '}
-                  <ActionButton
-                    type="button"
-                    className={styles.metaLink}
-                    onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
-                  >
-                    {task.followUpOf.displayId}
-                  </ActionButton>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>
+                    {'Follow-up to '}
+                    <ActionButton
+                      type="button"
+                      className={styles.metaLink}
+                      onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
+                    >
+                      {task.followUpOf.displayId}
+                    </ActionButton>
+                  </span>
                 </>
               ) : task.setup ? (
-                '  ·  Created by Ted'
+                <>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>Created by Ted</span>
+                </>
               ) : task.splitFrom ? (
                 <>
-                  {'  ·  Split from '}
-                  <ActionButton
-                    type="button"
-                    className={styles.metaLink}
-                    onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
-                  >
-                    {task.splitFrom.displayId}
-                  </ActionButton>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>
+                    {'Split from '}
+                    <ActionButton
+                      type="button"
+                      className={styles.metaLink}
+                      onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
+                    >
+                      {task.splitFrom.displayId}
+                    </ActionButton>
+                  </span>
                 </>
               ) : task.fromPlan?.deleted ? (
-                '  ·  From a deleted planning chat'
+                <>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>From a deleted planning chat</span>
+                </>
               ) : task.fromPlan ? (
                 <>
                   {'  ·  From planning chat '}
@@ -1032,25 +1052,27 @@ export function TaskThread({
               ) : null}
             </span>
             {task.setup && <span className={styles.setupTag}>Setup</span>}
-            <StageTrack
-              track={task.track}
-              factoryId={task.factoryId}
-              selected={stage}
-              onSelect={(chosen) => setFilter(chosen && { taskId: task.id, stage: chosen })}
-            />
-            <span className={styles.stageName}>{stages.name(task.stage, task.factoryId)}</span>
-            {task.archived ? (
-              <span className={styles.activity}>
-                · {archivedFrom(task.archived.ended, (id) => stages.name(id, task.factoryId))}
-              </span>
-            ) : (
-              activity !== undefined && (
+            <span className={styles.stageGroup}>
+              <StageTrack
+                track={task.track}
+                factoryId={task.factoryId}
+                selected={stage}
+                onSelect={(chosen) => setFilter(chosen && { taskId: task.id, stage: chosen })}
+              />
+              <span className={styles.stageName}>{stages.name(task.stage, task.factoryId)}</span>
+              {task.archived ? (
                 <span className={styles.activity}>
-                  · {withoutStageName(activity, stages.name(task.stage, task.factoryId))}
+                  · {archivedFrom(task.archived.ended, (id) => stages.name(id, task.factoryId))}
                 </span>
-              )
-            )}
-            <RunIcons runs={task.runs} />
+              ) : (
+                activity !== undefined && (
+                  <span className={styles.activity}>
+                    · {withoutStageName(activity, stages.name(task.stage, task.factoryId))}
+                  </span>
+                )
+              )}
+              <RunIcons runs={task.runs} />
+            </span>
           </div>
         </header>
         <TaskConversationTabs

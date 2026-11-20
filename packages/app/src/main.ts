@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile, rm, writeFile } from 'node:fs/promises'
-import { availableParallelism, homedir } from 'node:os'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { crashReporter, type ReportCrash } from '@ted/daemon/crash-report'
 import { executionHome } from '@ted/daemon/execution'
@@ -81,6 +81,7 @@ import {
   quitAnswer,
   quitDialog,
   quitPlan,
+  showsTray,
   statusMenu,
   trayLabel,
   trayToolTip,
@@ -278,8 +279,7 @@ const requests = {
   resourceUsage: async (client) => {
     const [usage, own] = await Promise.all([client.getProcessUsage(), appUsage()])
     return {
-      cpuPercent: (usage.cpuPercent + own.cpuPercent) / availableParallelism(),
-      memoryBytes: usage.memoryBytes + own.memoryBytes,
+      machine: usage.machine,
       memory: { ...usage.memory, app: { count: own.count, bytes: own.memoryBytes } },
     }
   },
@@ -516,6 +516,9 @@ const sendToRenderer = (event: unknown) => window?.webContents.send('ted:event',
 function applySettings(next: MachineSettings): void {
   settings = next
   nativeTheme.themeSource = next.appearance
+  if (platform === 'darwin' && !hiddenWindow && !wantsTray() && app.dock?.isVisible() === false) {
+    void app.dock.show()
+  }
   if (next.firstLaunchDone && next.startAtLogin !== loginItemApplied) {
     void applyLoginItem(next.startAtLogin)
   }
@@ -783,8 +786,11 @@ function image(png: Buffer): Electron.NativeImage {
 }
 
 function wantsTray(): boolean {
-  if (hiddenWindow) return false
-  return platform === 'darwin' || (platform === 'linux' && settings.showTrayIcon)
+  return !hiddenWindow && showsTray(platform, settings.showTrayIcon)
+}
+
+function hideDock(): void {
+  if (platform === 'darwin' && wantsTray()) app.dock?.hide()
 }
 
 function refresh(): void {
@@ -842,7 +848,7 @@ async function closeToBackground(): Promise<void> {
 
 function keepRunningInBackground(): void {
   window?.hide()
-  if (platform === 'darwin') app.dock?.hide()
+  hideDock()
 }
 
 const backgroundMarker = () => path.join(app.getPath('userData'), 'start-in-background')
@@ -1200,7 +1206,7 @@ async function start(): Promise<void> {
     startsInBackground(process.argv) || (await takeFile(backgroundMarker())) !== undefined
   startedInBackground = background
   traceStartup(background ? 'background-mode' : 'window-mode')
-  if (background) app.dock?.hide()
+  if (background) hideDock()
   if (tedEnv('TED_DEMO') === '1' && edition === 'dev') {
     const { checkDemoHome } = await import('@ted/daemon/demo')
     if (!(await checkDemoHome(tedHome()))?.complete)

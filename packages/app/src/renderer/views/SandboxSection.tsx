@@ -33,6 +33,7 @@ export function SandboxSection({
     | 'sandboxSockets'
     | 'sandboxSocketsFrom'
     | 'electronApps'
+    | 'sandboxNetworkFrom'
     | 'repos'
     | 'checks'
   >
@@ -51,6 +52,7 @@ export function SandboxSection({
     sockets: view.sandboxSockets,
     ...(view.sandboxSocketsFrom && { socketsFrom: view.sandboxSocketsFrom }),
     electronApps: view.electronApps,
+    ...(view.sandboxNetworkFrom && { networkFrom: view.sandboxNetworkFrom }),
     access: settingsAccessHolders(view),
   })
 
@@ -110,6 +112,7 @@ export function SandboxSection({
           </Button>
         )
       case 'socket':
+      case 'network':
         return null
     }
   }
@@ -263,6 +266,12 @@ function describe(opening: SandboxOpening): OpeningText {
           </>
         ),
       }
+    case 'network':
+      return {
+        name: 'Network for every sandboxed command',
+        what: 'Checks, Apps and setup commands can connect to any host on the internet.',
+        where: <NetworkSource from={opening.from} />,
+      }
     case 'access-group':
       return {
         name: (
@@ -287,6 +296,26 @@ function describe(opening: SandboxOpening): OpeningText {
   }
 }
 
+function NetworkSource({ from }: { from: LayerKind }) {
+  const key = <code className={styles.code}>sandbox_network: outbound</code>
+  const file = <code className={styles.code}>.ted/workflow.yaml</code>
+  if (from === 'factory') {
+    return (
+      <>
+        From {key} in {file}. Remove it in a Task to turn it off.
+      </>
+    )
+  }
+  return (
+    <>
+      From {key} in {from === 'library' ? 'the Library’s' : 'Ted’s default'}{' '}
+      <code className={styles.code}>workflow.yaml</code>. Set{' '}
+      <code className={styles.code}>sandbox_network: localhost</code> in this Factory’s {file} in a
+      Task to turn it off.
+    </>
+  )
+}
+
 function accessWhat(group: SandboxAccess): string {
   if (group === 'ios-xcode')
     return 'Its commands can write where Xcode, SwiftPM, actool and ibtool keep temp files. These folders are shared with your other apps on this Mac.'
@@ -294,6 +323,8 @@ function accessWhat(group: SandboxAccess): string {
     return 'Its commands can read and write /tmp. This folder is shared with your other apps on this Mac.'
   if (group === 'electron')
     return 'Its commands can reach launchservicesd and the window server, so Electron can start and open windows.'
+  if (group === 'network')
+    return 'Its commands can connect to any host, for example to install packages or call an outside service.'
   const socket = socketOf(group)
   if (socket !== undefined)
     return `Its commands can connect to the socket your Library names ${socket}.`

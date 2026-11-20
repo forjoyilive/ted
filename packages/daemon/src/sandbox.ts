@@ -6,7 +6,9 @@ import path from 'node:path'
 import {
   accessGroups,
   accessSockets,
+  defaultNetwork,
   type NamedSocket,
+  type NetworkLevel,
   outsideTedEnv,
   type SandboxAccess,
 } from '@ted/protocol'
@@ -20,6 +22,8 @@ export interface SandboxScope {
   cache: string
   sockets?: readonly NamedSocket[]
   reads?: readonly string[]
+  network?: NetworkLevel
+  serves?: boolean
   ownTempOnly?: boolean
   hideProtected?: boolean
   groups?: readonly SandboxAccess[]
@@ -38,13 +42,19 @@ export const firstBindFd = 3
 export interface SandboxGrants {
   sockets: readonly NamedSocket[]
   reads: readonly string[]
+  network: NetworkLevel
 }
 
 export function sandboxGrants(settings: {
   sandbox_sockets?: readonly NamedSocket[]
   sandbox_reads?: readonly string[]
+  sandbox_network?: NetworkLevel
 }): SandboxGrants {
-  return { sockets: settings.sandbox_sockets ?? [], reads: settings.sandbox_reads ?? [] }
+  return {
+    sockets: settings.sandbox_sockets ?? [],
+    reads: settings.sandbox_reads ?? [],
+    network: settings.sandbox_network ?? defaultNetwork,
+  }
 }
 
 export interface Sandbox {
@@ -246,6 +256,7 @@ export function createSandbox(options: {
               electron,
               await personalFolders(env),
               pipeMode,
+              networkOf(scope),
             ),
             ...(pipeMode === undefined
               ? []
@@ -280,7 +291,7 @@ export function createSandbox(options: {
       return {
         argv: [
           ready,
-          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, reads),
+          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, reads, ownNetwork(scope)),
           '--',
           ...argv,
         ],
@@ -616,6 +627,7 @@ function seatbeltArgs(
   electron: boolean,
   personal: readonly string[],
   pipeMode: number | undefined,
+  network: NetworkLevel,
 ): string[] {
   const params: string[] = []
   const param = (prefix: string, values: readonly string[]) =>
@@ -691,7 +703,9 @@ function seatbeltArgs(
     `(allow mach-lookup ${macServiceFilters(electron ? [...macServices, ...macElectronServices] : macServices)})`,
     '(deny user-preference-write)',
     '(deny network-outbound (remote unix-socket))',
-    `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets, ...sockets])})`,
+    `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets(network), ...sockets])})`,
+    ...(network === 'outbound' ? [] : ['(deny network-outbound (remote ip "*:*"))']),
+    ...(network === 'localhost' ? ['(allow network-outbound (remote ip "localhost:*"))'] : []),
   ].join('\n')
   return [...params, '-p', profile]
 }
@@ -722,6 +736,7 @@ function bwrapArgs(
   byFd: boolean,
   hidden: readonly string[],
   reads: LinuxReads,
+  ownNetwork: boolean,
 ): string[] {
   const runtime = runtimeDir(env)
   const bind = (b: Bind, i: number) =>
@@ -732,6 +747,7 @@ function bwrapArgs(
   return [
     '--die-with-parent',
     '--unshare-pid',
+    ...(ownNetwork ? ['--unshare-net'] : []),
     ...reads.binds.flatMap(([source, dest]) => ['--ro-bind', source, dest]),
     ...reads.links.flatMap(([target, dest]) => ['--symlink', target, dest]),
     '--dev',
@@ -755,7 +771,22 @@ function runtimeDir(env: NodeJS.ProcessEnv): string | undefined {
   return env.XDG_RUNTIME_DIR?.startsWith('/') ? env.XDG_RUNTIME_DIR : undefined
 }
 
-const macSystemSockets = ['/private/var/run/mDNSResponder', '/private/var/run/syslog']
+// mDNSResponder answers DNS lookups, which can carry data out; localhost still resolves without it.
+function macSystemSockets(network: NetworkLevel): string[] {
+  return network === 'outbound'
+    ? ['/private/var/run/mDNSResponder', '/private/var/run/syslog']
+    : ['/private/var/run/syslog']
+}
+
+function networkOf(scope: SandboxScope): NetworkLevel {
+  return scope.groups?.includes('network') === true ? 'outbound' : (scope.network ?? defaultNetwork)
+}
+
+// An App's port must stay reachable from the host, and bwrap can't share host loopback without host networking.
+function ownNetwork(scope: SandboxScope): boolean {
+  const network = networkOf(scope)
+  return network === 'none' || (network === 'localhost' && scope.serves !== true)
+}
 
 type MacService = { name: string } | { prefix: string } | { regex: string }
 

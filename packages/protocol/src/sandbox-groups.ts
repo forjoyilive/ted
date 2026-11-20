@@ -1,4 +1,4 @@
-export const sandboxGroupNames = ['ios-xcode', 'shared-tmp', 'electron'] as const
+export const sandboxGroupNames = ['ios-xcode', 'shared-tmp', 'electron', 'network'] as const
 
 export type SandboxGroup = (typeof sandboxGroupNames)[number]
 
@@ -40,6 +40,17 @@ export const sandboxGroups: readonly SandboxGroupInfo[] = [
       'macOS: com.apple.coreservices.launchservicesd, which Electron checks in with at launch',
       'macOS: com.apple.windowserver.active, without which no window opens',
       'Sets TED_SANDBOX_ELECTRON=1, so tools know Electron can start in this sandbox',
+    ],
+  },
+  {
+    name: 'network',
+    label: 'Network access',
+    summary:
+      'Connections to any host, for package installs and Apps that call outside services. Without it a command reaches only loopback, or nothing when the Factory sets sandbox_network: none.',
+    opens: [
+      'Outbound connections to any IP address',
+      'DNS lookups through mDNSResponder (macOS)',
+      'Host networking (Linux)',
     ],
   },
 ]
