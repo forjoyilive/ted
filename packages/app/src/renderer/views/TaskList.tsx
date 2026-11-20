@@ -15,6 +15,7 @@ import type {
 } from '@ted/protocol'
 import { archivedFilters, listColumns, listGroups, listSorts } from '@ted/protocol/list-view'
 import { createdByKinds, priorities } from '@ted/protocol/task'
+import { ordinal } from '@ted/protocol/task-status'
 import {
   type DragEvent,
   type KeyboardEvent,
@@ -47,7 +48,6 @@ import { tokenAmount } from '../components/RunChat.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
-import { ordinal } from '../components/TaskStatus.tsx'
 import { emptyLayout, groups as factoryGroups } from '../factory-layout.ts'
 import { childProgress, parentOf, progressText } from '../hierarchy.ts'
 import { useListCollapsed } from '../list-collapse.ts'

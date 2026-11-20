@@ -855,6 +855,7 @@ export type {
 } from './peers.ts'
 export * from './phone-problems.ts'
 export * from './phone-requests.ts'
+export * from './phone-tasks.ts'
 export * from './phones.ts'
 export type { PostPlanRequest, RenamePlanRequest, ResumePlanRequest } from './plan.ts'
 export {

@@ -28,6 +28,7 @@ import { AnswerSavedError, RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
+import { cutChars, fitText, jsonBytes, textBytes } from './fit.ts'
 
 export interface PhoneAutomationQuestion {
   body: string
@@ -88,37 +89,6 @@ export type PhoneOutcome = { body: PhoneReplyBody } | { code: PhoneErrorCode; me
 
 const unproposed = { skip: [], startUnblocked: false }
 
-function cutChars(text: string, max: number): string {
-  const chars = [...text]
-  return chars.length <= max ? text : chars.slice(0, max).join('')
-}
-
-function jsonBytes(value: PhoneReplyBody | PhoneRequestSummary | string): number {
-  return Buffer.byteLength(JSON.stringify(value), 'utf8')
-}
-
-function textBytes(text: string): number {
-  return jsonBytes(text) - 2
-}
-
-interface Fitted {
-  text: string
-  cut: boolean
-}
-
-function fitText(text: string, room: number): Fitted {
-  if (textBytes(text) <= room) return { text, cut: false }
-  const chars = [...text]
-  let low = 0
-  let high = chars.length
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2)
-    if (textBytes(chars.slice(0, middle).join('')) <= room) low = middle
-    else high = middle - 1
-  }
-  return { text: chars.slice(0, low).join(''), cut: true }
-}
-
 function share(room: number, first: number, second: number): [number, number] {
   if (first + second <= room) return [first, second]
   const half = Math.floor(room / 2)
@@ -139,6 +109,12 @@ function wireKind(kind: string): PhoneRequestKind {
     default:
       return 'request'
   }
+}
+
+export function commentRequestKind(comment: Pick<Comment, 'kind' | 'gate'>): PhoneRequestKind {
+  return comment.gate !== undefined && comment.kind !== 'review'
+    ? 'signoff'
+    : wireKind(comment.kind)
 }
 
 function openPullRequests(task: Task | undefined): number {
@@ -232,7 +208,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
         summary: {
           ...common,
           source: 'task',
-          kind: signoff ? 'signoff' : wireKind(comment.kind),
+          kind: commentRequestKind(comment),
           title: waiting.taskTitle,
           ref: waiting.displayId,
           ...(waiting.failed && { failed: true as const }),

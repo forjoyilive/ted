@@ -12,6 +12,7 @@ import type {
   TaskLead,
 } from '@ted/protocol'
 import { efforts } from '@ted/protocol/task'
+import { statusLabel } from '@ted/protocol/task-status'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { type ChatState, planChatState } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
@@ -44,7 +45,6 @@ import {
 import { agentNames } from '../components/RunIcon.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
-import { statusLabel } from '../components/TaskStatus.tsx'
 import grow from '../components/TextGrow.module.css'
 import { sendOnEnter } from '../composer-keys.ts'
 import { usePlan, usePlanState, useRunChatState } from '../data.ts'
