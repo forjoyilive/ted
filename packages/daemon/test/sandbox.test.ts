@@ -12,7 +12,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises'
-import { type AddressInfo, createServer, type Server } from 'node:net'
+import { type AddressInfo, connect, createServer, type Server } from 'node:net'
 import { homedir, tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -1161,6 +1161,14 @@ const tcp = (host, port) => new Promise((resolve) => {
   socket.once('connect', () => { socket.destroy(); resolve('open') })
   socket.once('error', (error) => resolve(error.code))
 })
+const greeting = (host, port) => new Promise((resolve) => {
+  let data = ''
+  const socket = connect({ host, port })
+  socket.setTimeout(3000, () => { socket.destroy(); resolve('timeout') })
+  socket.on('data', (chunk) => { data += chunk })
+  socket.once('end', () => resolve(data === '' ? 'closed' : data))
+  socket.once('error', (error) => resolve(error.code))
+})
 const datagram = (port) => new Promise((resolve) => {
   const socket = createSocket('udp4')
   const done = (result) => { clearTimeout(timer); socket.close(); resolve(result) }
@@ -1171,58 +1179,58 @@ const datagram = (port) => new Promise((resolve) => {
 })
 const results = {
   outside: await tcp('192.0.2.1', 80),
-  sibling: await tcp('127.0.0.1', sibling),
+  sibling: await greeting('127.0.0.1', sibling),
   other: await tcp('127.0.0.1', other),
   udp: await datagram(udp),
 }
 createServer((_, response) => response.end(JSON.stringify(results))).listen(own, '127.0.0.1')
 `
 
+  const siblingApp = `
+import { createServer } from 'node:net'
+createServer((socket) => socket.end('sibling')).listen(Number(process.argv[2]), '127.0.0.1')
+`
+
+  async function freePort() {
+    const server = createServer()
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    await new Promise((resolve) => server.close(resolve))
+    return port
+  }
+
   async function hostPorts() {
-    const listen = async () => {
-      const server = createServer((socket) => socket.end())
-      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-      return server
-    }
-    const sibling = await listen()
-    const other = await listen()
-    const free = await listen()
-    const own = (free.address() as AddressInfo).port
-    await new Promise((resolve) => free.close(resolve))
+    const other = createServer((socket) => socket.end())
+    await new Promise<void>((resolve) => other.listen(0, '127.0.0.1', resolve))
     const udp = createDgram('udp4')
     udp.on('message', (message, from) => udp.send(message, from.port, from.address))
     await new Promise<void>((resolve) => udp.bind(0, '127.0.0.1', resolve))
-    const port = (server: Server) => (server.address() as AddressInfo).port
     return {
-      own,
-      sibling: port(sibling),
-      other: port(other),
+      own: await freePort(),
+      sibling: await freePort(),
+      other: (other.address() as AddressInfo).port,
       udp: udp.address().port,
       close: async () => {
         udp.close()
-        await Promise.all([sibling, other].map((s) => new Promise((r) => s.close(r))))
+        await new Promise((resolve) => other.close(resolve))
       },
     }
   }
 
-  async function runApp(
+  async function startApp(
     network: 'none' | 'localhost',
-    ports: Awaited<ReturnType<typeof hostPorts>>,
+    serves: ServedPorts,
+    file: string,
+    source: string,
+    args: number[],
   ) {
-    await writeFile(path.join(worktree, 'app.mjs'), probeApp)
+    await writeFile(path.join(worktree, file), source)
     const sandbox = createSandbox({ tedHome, env: () => ({ ...process.env, HOME: userHome }) })
-    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], {
-      ...scope(),
-      network,
-      serves: { own: ports.own, reach: [ports.sibling] },
-    })
-    const [command, ...args] = wrapped.argv
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), network, serves })
+    const [command, ...wrappedArgs] = wrapped.argv
     const child = spawn(
       command,
-      [
-        ...args,
-        `exec "${process.execPath}" app.mjs ${ports.own} ${ports.sibling} ${ports.other} ${ports.udp}`,
-      ],
+      [...wrappedArgs, `exec "${process.execPath}" ${file} ${args.join(' ')}`],
       {
         cwd: worktree,
         detached: true,
@@ -1232,19 +1240,68 @@ createServer((_, response) => response.end(JSON.stringify(results))).listen(own,
     )
     const exited = new Promise((resolve) => child.once('close', resolve))
     await wrapped.close()
+    return {
+      stop: async () => {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
+        await exited
+      },
+    }
+  }
+
+  async function answer(port: number): Promise<string> {
+    for (let waited = 0; waited < 30_000; waited += 200) {
+      const text = await fetch(`http://127.0.0.1:${port}/`).then(
+        (response) => response.text(),
+        () => undefined,
+      )
+      if (text !== undefined) return text
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    throw new Error(`nothing answered on port ${port}`)
+  }
+
+  async function greeted(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      let data = ''
+      const socket = connect({ host: '127.0.0.1', port })
+      socket.on('data', (chunk: Buffer) => {
+        data += chunk.toString('utf8')
+      })
+      socket.once('end', () => resolve(data === 'sibling'))
+      socket.once('error', () => resolve(false))
+    })
+  }
+
+  async function runApp(
+    network: 'none' | 'localhost',
+    ports: Awaited<ReturnType<typeof hostPorts>>,
+  ) {
+    const sibling = await startApp(
+      'localhost',
+      { own: ports.sibling, reach: [ports.own] },
+      'sibling.mjs',
+      siblingApp,
+      [ports.sibling],
+    )
     try {
-      for (let waited = 0; waited < 30_000; waited += 200) {
-        const answer = await fetch(`http://127.0.0.1:${ports.own}/`).then(
-          (response) => response.json() as Promise<Record<string, string>>,
-          () => undefined,
-        )
-        if (answer !== undefined) return answer
+      for (let waited = 0; !(await greeted(ports.sibling)); waited += 200) {
+        if (waited >= 30_000) throw new Error('the sibling App never answered on its port')
         await new Promise((resolve) => setTimeout(resolve, 200))
       }
-      throw new Error('the App never answered on its port')
+      const probe = await startApp(
+        network,
+        { own: ports.own, reach: [ports.sibling] },
+        'app.mjs',
+        probeApp,
+        [ports.own, ports.sibling, ports.other, ports.udp],
+      )
+      try {
+        return JSON.parse(await answer(ports.own)) as Record<string, string>
+      } finally {
+        await probe.stop()
+      }
     } finally {
-      if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
-      await exited
+      await sibling.stop()
     }
   }
 
@@ -1253,7 +1310,7 @@ createServer((_, response) => response.end(JSON.stringify(results))).listen(own,
     try {
       const results = await runApp('localhost', ports)
       expect(results.outside).toBe('ENETUNREACH')
-      expect(results.sibling).toBe('open')
+      expect(results.sibling).toBe('sibling')
       expect(results.other).toBe('ECONNREFUSED')
       expect(results.udp).not.toBe('reply')
     } finally {
@@ -1304,6 +1361,7 @@ createServer((_, response) => response.end(JSON.stringify(results))).listen(own,
     expect(result.stderr).toContain(
       'Ted couldn’t forward the App’s ports into its sandbox: no namespace for you',
     )
+    await new Promise((resolve) => setTimeout(resolve, 1000))
     await expect(stat(path.join(worktree, 'ran'))).rejects.toThrow()
   })
 })

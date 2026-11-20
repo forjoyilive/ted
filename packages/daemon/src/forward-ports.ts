@@ -33,26 +33,40 @@ const stdio: StdioOptions = [
   'pipe',
 ]
 const child = spawn(command, commandArgs, { stdio })
+let sandboxPid: number | undefined
+let released = false
+// Until bwrap's sandboxed child reads blockFd it has no die-with-parent, and closing blockFd releases it.
+const stopSandbox = () => {
+  if (!released && sandboxPid !== undefined) {
+    try {
+      process.kill(sandboxPid, 'SIGKILL')
+    } catch {}
+  }
+  child.kill('SIGKILL')
+}
 for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(signal, () => {})
 child.once('error', (error) => {
   console.error(`Ted couldn’t start the App’s sandbox: ${error.message}`)
   process.exit(1)
 })
 child.once('exit', (code, signal) => {
+  stopSandbox()
   process.exit(code ?? (signal === null ? 1 : 128 + constants.signals[signal]))
 })
 
 const status = child.stdio[statusFd]
 const block = child.stdio[blockFd]
 if (!(status instanceof Readable) || !(block instanceof Writable)) {
-  child.kill('SIGKILL')
+  stopSandbox()
   throw new Error('bwrap’s status and block pipes didn’t open')
 }
 
 const started = await new Promise<boolean>((resolve) => {
   const lines = createInterface({ input: status })
   lines.on('line', (line) => {
-    if (!/"child-pid"\s*:/.test(line)) return
+    const found = /"child-pid"\s*:\s*(\d+)/.exec(line)
+    if (found?.[1] === undefined) return
+    sandboxPid = Number(found[1])
     resolve(true)
     lines.close()
   })
@@ -61,14 +75,15 @@ const started = await new Promise<boolean>((resolve) => {
 status.resume()
 if (!started || child.pid === undefined) {
   console.error('bwrap stopped before it set up the App’s network namespace')
-  child.kill('SIGKILL')
+  stopSandbox()
 } else {
   const failure = await runPasta(pasta, [...pastaArgs, String(child.pid)])
   if (failure === undefined) {
+    released = true
     block.end('1')
   } else {
     console.error(`Ted couldn’t forward the App’s ports into its sandbox: ${failure}`)
-    child.kill('SIGKILL')
+    stopSandbox()
   }
 }
 
