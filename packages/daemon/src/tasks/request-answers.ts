@@ -893,7 +893,10 @@ export function createRequestAnswers(
       if (!failure) throw new RequestError(409, 'this failure decision can’t be answered')
       if (comment.answer)
         throw new RequestError(409, 'this failure decision is stale or already answered')
-      if (handsOff(task.stage)) await failures.refreshStale(task)
+      if (handsOff(task.stage)) {
+        await untilFree(task.id)
+        await failures.refreshStale(find(task.id))
+      }
       if (request.action === 'answer' && request.choice === undefined && request.text?.trim()) {
         await holding(task, () =>
           humanComment(find(task.id), failureText(request.text ?? ''), [], sendDrafts),

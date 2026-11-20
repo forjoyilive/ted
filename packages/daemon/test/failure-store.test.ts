@@ -470,9 +470,11 @@ test('a failure question in Work is replaced with Run the checks again once the 
     store.failures.save(assessed, 'assessed')
     const asked = store.postFailureDecision(assessed, 'Accept?').decisions[0]
     let current: FailureContext | undefined = tested('a')
+    let leaveWorkDuringRead = false
     const service = createFailureCases({
       store,
       snapshot: async () => {
+        if (leaveWorkDuringRead) store.changeStage(created.id, 'validate')
         if (!current) throw new Error('No worktree')
         return current
       },
@@ -491,6 +493,14 @@ test('a failure question in Work is replaced with Run the checks again once the 
     expect(store.getComment(asked?.commentId ?? '')?.answer).toBeUndefined()
 
     current = tested('b')
+    leaveWorkDuringRead = true
+    expect(await service.refreshStale(task())).toBe(0)
+    expect(store.getComment(asked?.commentId ?? '')?.answer).toBeUndefined()
+    leaveWorkDuringRead = false
+    store.changeStage(created.id, 'work')
+    expect(await service.refreshStale(task(), () => true)).toBe(0)
+    expect(store.getComment(asked?.commentId ?? '')?.answer).toBeUndefined()
+
     expect(await service.refreshStale(task())).toBe(1)
     expect(store.getComment(asked?.commentId ?? '')?.answer).toMatchObject({ kind: 'withdrawn' })
     const replaced = store.failures.get('case')?.decisions.at(-1)

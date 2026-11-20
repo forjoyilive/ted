@@ -6994,7 +6994,8 @@ export function createTasks(options: {
         failures: {
           findDecision: failures.findDecision,
           resolve: validation.resolve,
-          refreshStale: failures.refreshStale,
+          refreshStale: (task) =>
+            failures.refreshStale(task, () => inFlight.is(task.id, 'transition')),
         },
         waitForRepair: async (taskId, failureId, input) => {
           await untilChecksReported(taskId)
@@ -11414,7 +11415,8 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     if (!task || task.archived || !handsOff(task.stage)) return
     inBackground(`refresh ${task.displayId}’s failure questions`, async () => {
-      await failures.refreshStale(find(taskId))
+      await untilFree(taskId)
+      await failures.refreshStale(find(taskId), () => inFlight.is(taskId, 'transition'))
     })
   }
 

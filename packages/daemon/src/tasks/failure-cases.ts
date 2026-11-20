@@ -494,12 +494,14 @@ export function createFailureCases(options: {
         })
       : []
   const refreshing = new Map<string, Promise<number>>()
-  async function replaceStale(task: Task): Promise<number> {
+  async function replaceStale(task: Task, moving: () => boolean): Promise<number> {
     if (staleCards(task).length === 0) return 0
     const current = await snapshot(task).catch(() => null)
+    const now = store.getTask(task.id)
+    if (!now || now.archived || moving()) return 0
     let replaced = 0
-    for (const value of staleCards(task)) {
-      if (decisionCurrent(task, value, current)) continue
+    for (const value of staleCards(now)) {
+      if (decisionCurrent(now, value, current)) continue
       withdraw(value)
       store.postFailureDecision(
         value,
@@ -519,10 +521,10 @@ export function createFailureCases(options: {
     if (replaced > 0) await store.persisted()
     return replaced
   }
-  function refreshStale(task: Task): Promise<number> {
+  function refreshStale(task: Task, moving: () => boolean = () => false): Promise<number> {
     const running = refreshing.get(task.id)
     if (running) return running
-    const work = replaceStale(task).finally(() => refreshing.delete(task.id))
+    const work = replaceStale(task, moving).finally(() => refreshing.delete(task.id))
     refreshing.set(task.id, work)
     return work
   }
