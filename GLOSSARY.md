@@ -287,7 +287,7 @@ A message on a Task, or from an Automation’s or Planning Run, written by the h
 _Avoid_: Message, note
 
 **Line comment**:
-A note the human attaches to one line of a Task’s diff; it stays a draft until it is sent to the Task Lead with the human’s next comment on the Task. Approving doesn’t send it.
+A note the human attaches to one line of a Task’s diff; it stays a draft until it is sent to the Task Lead with the human’s next comment on the Task from the Mac. Approving, commenting or resuming from a paired phone leaves it unsent.
 _Avoid_: Inline comment, review comment, diff comment
 
 **Automation**:
