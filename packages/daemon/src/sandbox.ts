@@ -189,6 +189,9 @@ export function createSandbox(options: {
       const groups = accessGroups(scope.groups)
       const electron = groups.includes('electron')
       const xcode = scope.ownTempOnly !== true && groups.includes('ios-xcode')
+      const simulator = groups.includes('ios-simulator')
+      const android = groups.includes('android-emulator')
+      const sdk = await androidSdkFolders(env)
       const asked = accessSockets(scope.groups)
       const named = new Map((scope.sockets ?? []).map((socket) => [socket.name, socket.path]))
       const missingSockets = asked.filter((name) => !named.has(name))
@@ -206,7 +209,8 @@ export function createSandbox(options: {
               paths.userTemp = perUserTemp
           }
         }
-        if (xcode) paths.simulatorRuntimes = options.simulatorRuntimes ?? simulatorRuntimeMounts
+        if (xcode || simulator)
+          paths.simulatorRuntimes = options.simulatorRuntimes ?? simulatorRuntimeMounts
         const logs = xcode ? await manifestLogFolder(env) : undefined
         if (logs !== undefined && !inside(paths.tedHome, logs) && !inside(logs, paths.tedHome))
           paths.manifestLogs = logs
@@ -251,12 +255,19 @@ export function createSandbox(options: {
               sockets,
               [
                 ...(await baseReads(env, perUserTemp)),
+                ...(android ? sdk : []),
                 ...(await listedPaths('sandbox_reads', scope.reads ?? [], env)),
               ],
-              electron,
+              [...(android ? [] : sdk), ...(simulator ? [] : await simulatorFolders(env))],
+              [
+                ...macServices,
+                ...(electron ? macElectronServices : []),
+                ...(simulator ? macSimulatorServices : []),
+              ],
               await personalFolders(env),
               pipeMode,
               networkOf(scope),
+              android,
             ),
             ...(pipeMode === undefined
               ? []
@@ -275,7 +286,11 @@ export function createSandbox(options: {
       const personal = await personalFolders(env)
       const hidden = scope.hideProtected === true ? await existingFolders(personal) : []
       const listed = await listedPaths('sandbox_reads', scope.reads ?? [], env)
-      const reads = await linuxReads(env, listed, [...personal, paths.tedHome])
+      const reads = await linuxReads(
+        env,
+        [...(android ? sdk : []), ...listed],
+        [...personal, paths.tedHome, ...(android ? [] : sdk)],
+      )
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -291,7 +306,16 @@ export function createSandbox(options: {
       return {
         argv: [
           ready,
-          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, reads, ownNetwork(scope)),
+          ...bwrapArgs(
+            paths,
+            env,
+            linux,
+            binds,
+            bindFds,
+            hidden,
+            reads,
+            ownNetwork(scope, android),
+          ),
           '--',
           ...argv,
         ],
@@ -522,8 +546,34 @@ const toolchainReads = [
   '.bun/bin',
   'Library/pnpm',
   'Library/Developer',
-  'Library/Android/sdk',
 ]
+
+async function androidSdkFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
+  const home = await homeFolder(env)
+  const given = [
+    path.join(home, 'Library/Android/sdk'),
+    ...['ANDROID_HOME', 'ANDROID_SDK_ROOT'].flatMap((name) =>
+      env[name]?.startsWith('/') === true ? [env[name]] : [],
+    ),
+  ]
+  return existingReals(given, home)
+}
+
+async function simulatorFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
+  const home = await homeFolder(env)
+  return existingReals([path.join(home, 'Library/Developer/CoreSimulator')], home)
+}
+
+async function existingReals(candidates: readonly string[], home: string): Promise<string[]> {
+  const found = new Set<string>()
+  for (const candidate of candidates) {
+    if (/["\n\r\0]/.test(candidate)) continue
+    const resolved = await realpath(candidate).catch(() => undefined)
+    if (resolved === undefined || resolved === '/' || inside(resolved, home)) continue
+    found.add(resolved)
+  }
+  return [...found]
+}
 
 const linuxSystemReads = [
   '/usr',
@@ -552,8 +602,8 @@ async function readCandidates(
   userTemp: string | undefined,
 ): Promise<string[]> {
   const home = await homeFolder(env)
-  const fromEnv = ['DEVELOPER_DIR', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT'].flatMap(
-    (name) => (env[name]?.startsWith('/') === true ? [env[name]] : []),
+  const fromEnv = ['DEVELOPER_DIR', 'JAVA_HOME'].flatMap((name) =>
+    env[name]?.startsWith('/') === true ? [env[name]] : [],
   )
   const onPath = (env.PATH ?? '')
     .split(':')
@@ -624,10 +674,12 @@ function seatbeltArgs(
   paths: SandboxPaths,
   sockets: readonly string[],
   reads: readonly string[],
-  electron: boolean,
+  unread: readonly string[],
+  services: readonly MacService[],
   personal: readonly string[],
   pipeMode: number | undefined,
   network: NetworkLevel,
+  adb: boolean,
 ): string[] {
   const params: string[] = []
   const param = (prefix: string, values: readonly string[]) =>
@@ -659,6 +711,7 @@ function seatbeltArgs(
     '(deny file-write*)',
     '(deny file-read-data file-read-xattr)',
     `(allow file-read-data file-read-xattr (literal "/") ${param('B', reads)})`,
+    ...(unread.length === 0 ? [] : [`(deny file-read-data file-read-xattr ${param('X', unread)})`]),
     `(allow file-write* (literal "/dev/null") (literal "/dev/zero") (literal "/dev/ptmx") (literal "/dev/dtracehelper") (regex #"^/dev/tty") (regex #"^/dev/fd/") ${paths.sharedTmp === undefined ? '' : `(subpath "${paths.sharedTmp}")`})`,
     ...(paths.sharedTmp === undefined
       ? []
@@ -700,12 +753,15 @@ function seatbeltArgs(
     '(deny ipc-posix-shm* (ipc-posix-name-prefix "ib"))',
     '(deny appleevent-send)',
     '(deny mach-lookup)',
-    `(allow mach-lookup ${macServiceFilters(electron ? [...macServices, ...macElectronServices] : macServices)})`,
+    `(allow mach-lookup ${macServiceFilters(services)})`,
     '(deny user-preference-write)',
     '(deny network-outbound (remote unix-socket))',
     `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets(network), ...sockets])})`,
     ...(network === 'outbound' ? [] : ['(deny network-outbound (remote ip "*:*"))']),
     ...(network === 'localhost' ? ['(allow network-outbound (remote ip "localhost:*"))'] : []),
+    ...(adb || network === 'none'
+      ? []
+      : adbPorts.map((port) => `(deny network-outbound (remote ip "localhost:${port}"))`)),
   ].join('\n')
   return [...params, '-p', profile]
 }
@@ -783,9 +839,9 @@ function networkOf(scope: SandboxScope): NetworkLevel {
 }
 
 // An App's port must stay reachable from the host, and bwrap can't share host loopback without host networking.
-function ownNetwork(scope: SandboxScope): boolean {
+function ownNetwork(scope: SandboxScope, adb: boolean): boolean {
   const network = networkOf(scope)
-  return network === 'none' || (network === 'localhost' && scope.serves !== true)
+  return network === 'none' || (network === 'localhost' && scope.serves !== true && !adb)
 }
 
 type MacService = { name: string } | { prefix: string } | { regex: string }
@@ -803,9 +859,13 @@ const macServices: readonly MacService[] = [
   { name: 'com.apple.trustd.agent' },
   { name: 'com.apple.lsd.mapdb' },
   { name: 'com.apple.FSEvents' },
-  { prefix: 'com.apple.CoreSimulator.' },
   { regex: '\\.MachPortRendezvousServer\\.[0-9]+$' },
 ]
+
+const macSimulatorServices: readonly MacService[] = [{ prefix: 'com.apple.CoreSimulator.' }]
+
+// Seatbelt matches one port or every port, so each emulator port gets its own rule.
+const adbPorts = [5037, ...Array.from({ length: 32 }, (_, i) => 5554 + i)]
 
 const macElectronServices: readonly MacService[] = [
   { name: 'com.apple.coreservices.launchservicesd' },

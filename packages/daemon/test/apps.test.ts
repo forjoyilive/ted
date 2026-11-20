@@ -721,11 +721,23 @@ test('only a Run’s start of an Electron App gets a debugging port, hidden, wit
 })
 
 test('an Electron App gets the electron access group, once, beside the groups it lists', () => {
-  expect(appAccess({ electron: true })).toEqual(['electron'])
-  expect(appAccess({ electron: true, sandboxAccess: ['socket:db', 'electron'] })).toEqual([
-    'socket:db',
-    'electron',
+  expect(appAccess({ kind: 'command', electron: true })).toEqual(['electron'])
+  expect(
+    appAccess({ kind: 'command', electron: true, sandboxAccess: ['socket:db', 'electron'] }),
+  ).toEqual(['socket:db', 'electron'])
+  expect(appAccess({ kind: 'command', sandboxAccess: ['socket:db'] })).toEqual(['socket:db'])
+  expect(appAccess({ kind: 'web' })).toEqual([])
+})
+
+test('a simulator or emulator App gets its device’s access group, once, and no other App does', () => {
+  expect(appAccess({ kind: 'ios-simulator' })).toEqual(['ios-simulator'])
+  expect(
+    appAccess({ kind: 'ios-simulator', sandboxAccess: ['ios-xcode', 'ios-simulator'] }),
+  ).toEqual(['ios-xcode', 'ios-simulator'])
+  expect(appAccess({ kind: 'android-emulator', sandboxAccess: ['network'] })).toEqual([
+    'network',
+    'android-emulator',
   ])
-  expect(appAccess({ sandboxAccess: ['socket:db'] })).toEqual(['socket:db'])
-  expect(appAccess({})).toEqual([])
+  expect(appAccess({ kind: 'command' })).toEqual([])
+  expect(appAccess({ kind: 'web', sandboxAccess: ['ios-simulator'] })).toEqual(['ios-simulator'])
 })

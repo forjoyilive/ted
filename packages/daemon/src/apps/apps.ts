@@ -1665,10 +1665,14 @@ export async function portFree(port: number): Promise<boolean> {
 }
 
 export function appAccess(
-  app: Pick<AppDeclaration, 'electron' | 'sandboxAccess'>,
+  app: Pick<AppDeclaration, 'kind' | 'electron' | 'sandboxAccess'>,
 ): SandboxAccess[] {
+  const implied: SandboxAccess[] = [
+    ...(app.electron === true ? ['electron' as const] : []),
+    ...(app.kind === 'ios-simulator' || app.kind === 'android-emulator' ? [app.kind] : []),
+  ]
   const access = app.sandboxAccess ?? []
-  return app.electron === true && !access.includes('electron') ? [...access, 'electron'] : access
+  return [...access, ...implied.filter((group) => !access.includes(group))]
 }
 
 export function electronEnv(
