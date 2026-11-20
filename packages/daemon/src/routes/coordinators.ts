@@ -23,6 +23,7 @@ import {
 import type { AgentFilesForChat } from '../coordinators/coordinators.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
+import { messageWithFiles } from '../runs/message-files.ts'
 import { jsonRoute, type Route } from './route.ts'
 
 const offset = (raw: string | undefined) => Number(raw ?? 0)
@@ -69,6 +70,8 @@ export const coordinatorRoutes: Route[] = [
     method: 'POST',
     path: /^\/factories\/([^/]+)\/coordinator-chats$/,
     async handle({ params: [id = ''], body }, { coordinators }) {
+      if (body.attachments !== undefined)
+        throw new RequestError(400, 'Attach files after the chat has started')
       return [201, await coordinators.start(id, body)]
     },
   }),
@@ -93,8 +96,9 @@ export const coordinatorRoutes: Route[] = [
   jsonRoute(parseCoordinatorMessage, {
     method: 'POST',
     path: /^\/coordinator-chats\/([^/]+)\/messages$/,
-    async handle({ params: [id = ''], body }, { coordinators }) {
-      return [201, await coordinators.message(id, body)]
+    async handle({ params: [id = ''], body }, { coordinators, attachments }) {
+      const message = await messageWithFiles(body.text, body.attachments, attachments)
+      return [201, await coordinators.message(id, message)]
     },
   }),
   {

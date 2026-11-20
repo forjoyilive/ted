@@ -23,7 +23,11 @@ roundTrip(P.parseStartSubAgentRequest, {
   reviewer: true,
 })
 roundTrip(P.parseSendSubAgentRequest, { text: 'Follow up' })
-roundTrip(P.parseSendRunMessageRequest, { text: 'Continue', interrupt: true })
+roundTrip(P.parseSendRunMessageRequest, {
+  text: 'Continue',
+  interrupt: true,
+  attachments: [{ hash: 'a'.repeat(64), name: 'screen.png', mediaType: 'image/png' }],
+})
 roundTrip(P.parseStartDevRunRequest, { prompt: 'Work', cwd: '/tmp/work', agent: 'codex' })
 roundTrip(P.parseStartPlanRequest, {
   factory: 'Ted',
@@ -36,7 +40,10 @@ roundTrip(P.parseStartPlanRequest, {
 })
 roundTrip(P.parseRenamePlanRequest, { title: 'New title' })
 roundTrip(P.parseRenameCoordinatorChatRequest, { title: 'Release review' })
-roundTrip(P.parseResumePlanRequest, { message: 'Carry on' })
+roundTrip(P.parseResumePlanRequest, {
+  message: 'Carry on',
+  attachments: [{ hash: 'a'.repeat(64), name: 'screen.png', mediaType: 'image/png' }],
+})
 const round = {
   title: 'Choices',
   summary: 'Pick',
@@ -59,6 +66,7 @@ roundTrip(P.parsePostPlanRequest, { round, proposal, supersedes: 'old' })
 roundTrip(P.parseSendPeerMessage, { operation: 'unique', text: 'Coordinate' })
 roundTrip(P.parseCoordinatorMessage, {
   text: 'Coordinate',
+  attachments: [{ hash: 'a'.repeat(64), name: 'screen.png', mediaType: 'image/png' }],
   agentId: 'release-scout',
   agent: 'codex',
   model: 'gpt-5.5',
@@ -389,6 +397,12 @@ rejects(P.parseRecordAppRequest, { name: 'Dev', action: 'other' }, 'action must 
 rejects(P.parseStartSubAgentRequest, { prompt: '' }, 'prompt file is empty')
 rejects(P.parseSendSubAgentRequest, { text: ' ' }, 'text is required')
 rejects(P.parseSendRunMessageRequest, { text: 'Hi', interrupt: 1 }, 'interrupt must be')
+rejects(P.parseSendRunMessageRequest, { text: ' ', attachments: [] }, 'text is required')
+rejects(
+  P.parseSendRunMessageRequest,
+  { text: 'Hi', attachments: [{ name: 'a' }] },
+  'hash and a name',
+)
 rejects(P.parseStartDevRunRequest, { prompt: 'Work', cwd: 'relative' }, 'absolute path')
 rejects(P.parseStartPlanRequest, { factory: '', message: 'Plan' }, 'name the Factory')
 rejects(P.parseRenamePlanRequest, { title: 2 }, 'title must be text')
@@ -537,6 +551,13 @@ test('permissive optional bodies retain defaults', () => {
   expect(P.parseProfileRequest(null)).toEqual({ seconds: 30 })
   expect(P.parseOpenInEditorRequest(null)).toEqual({})
   expect(P.parseSendRunMessageRequest({ text: ' Hi ' })).toEqual({ text: 'Hi', interrupt: false })
+  expect(
+    P.parseSendRunMessageRequest({ attachments: [{ hash: 'b'.repeat(64), name: 'log.txt' }] }),
+  ).toEqual({
+    text: '',
+    interrupt: false,
+    attachments: [{ hash: 'b'.repeat(64), name: 'log.txt', mediaType: '' }],
+  })
   expect(P.parseStartAppRequest({ name: ' Dev ', reason: 'x'.repeat(501) }).reason).toHaveLength(
     500,
   )

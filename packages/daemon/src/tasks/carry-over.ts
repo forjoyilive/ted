@@ -4,8 +4,13 @@ export const carryOverLimit = 60_000
 
 function block(item: ChatItem): string | undefined {
   switch (item.kind) {
-    case 'human':
-      return item.sent ? `The user: ${item.text.trim()}` : undefined
+    case 'human': {
+      if (!item.sent) return undefined
+      const files = item.attachments?.map((a) => a.name).join(', ')
+      return [`The user: ${item.text.trim()}`, files && `(Attached files: ${files})`]
+        .filter(Boolean)
+        .join('\n')
+    }
     case 'agent':
       return item.text.trim() === '' ? undefined : `Task Lead: ${item.text.trim()}`
     case 'tool':

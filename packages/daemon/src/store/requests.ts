@@ -16,6 +16,7 @@ import {
   type WaitingRequest,
 } from '@ted/protocol'
 import type { StoreContext } from './context.ts'
+import { storedFiles } from './runs.ts'
 import {
   commentAttachments,
   comments,
@@ -244,6 +245,9 @@ export function requestsArea(ctx: StoreContext): RequestsArea {
         ...store.query(queryDb(taskBrowserCaptures)).map((a) => a.hash),
         ...store.query(queryDb(runBrowserCaptures)).map((a) => a.hash),
         ...store.query(queryDb(commentAttachments)).map((a) => a.hash),
+        ...store
+          .query(queryDb(runMessages.select('files').where({ files: { op: '!=', value: null } })))
+          .flatMap((files) => storedFiles(files).map((a) => a.hash)),
       ]),
     postComment(input) {
       const at = new Date().toISOString()

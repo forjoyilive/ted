@@ -4090,16 +4090,16 @@
   },
   "packages/protocol/src/run-parsers.ts": {
     "anti-slop/no-runtime-typeof": {
-      "count": 10
+      "count": 8
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 4
+      "count": 3
     },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 9
+      "count": 8
     }
   },
   "packages/protocol/src/schedule.ts": {

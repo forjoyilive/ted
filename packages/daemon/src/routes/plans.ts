@@ -7,6 +7,7 @@ import {
   parseStartPlanRequest,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
+import { messageWithFiles } from '../runs/message-files.ts'
 import { jsonRoute, type Route } from './route.ts'
 
 const ref = '([^/?]+)'
@@ -67,8 +68,9 @@ export const planRoutes: Route[] = [
   jsonRoute(parseResumePlanRequest, {
     method: 'POST',
     path: path(`/plans/${ref}/resume`),
-    async handle({ body, caller, params: [id = ''] }, { plans }) {
-      return [200, await plans.resume(id, caller, body.message)]
+    async handle({ body, caller, params: [id = ''] }, { plans, attachments }) {
+      const message = await messageWithFiles(body.message ?? '', body.attachments, attachments)
+      return [200, await plans.resume(id, caller, message)]
     },
   }),
   {

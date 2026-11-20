@@ -9,6 +9,7 @@ import {
   type RunChat,
   type RunMessage,
   type RunSlots,
+  readDaemonInfo,
   type Task,
   type ThreadEvent,
   tedPaths,
@@ -18,6 +19,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
+  appClient,
   assistantTexts,
   commitToOrigin,
   killRunHosts,
@@ -115,6 +117,7 @@ describe('Steering a working Run', () => {
       { tool: 'Bash' },
       { say: 'after the tool' },
       { waitFor: file('b') },
+      { tool: 'Bash' },
       { endTurn: true },
     ])
 
@@ -141,7 +144,47 @@ describe('Steering a working Run', () => {
     expect((await client.call('DELETE', `/runs/${runId}/messages/${queued.id}`)).body).toEqual({
       error: 'The agent has already read this message',
     })
+
+    const info = await readDaemonInfo(home)
+    if (!info || !daemon) throw new Error('no daemon.json')
+    const notes = await appClient(info, daemon.appToken).uploadAttachment(
+      { name: 'notes.txt', mediaType: 'text/plain' },
+      new TextEncoder().encode('pinned first'),
+    )
+    const ref = { hash: notes.hash, name: notes.name, mediaType: notes.mediaType }
+    const block = `Attached files:\n- notes.txt: ${path.join(home, 'attachments', `${notes.hash}.txt`)}`
+    expect(
+      (
+        await client.call('POST', `/runs/${runId}/messages`, {
+          text: 'Look',
+          attachments: [{ ...ref, hash: 'f'.repeat(64) }],
+        })
+      ).status,
+    ).toBe(400)
+    const withFile = await client.ok<RunMessage>('POST', `/runs/${runId}/messages`, {
+      text: 'Read the notes.',
+      attachments: [ref],
+    })
+    const onlyFile = await client.ok<RunMessage>('POST', `/runs/${runId}/messages`, {
+      text: '',
+      attachments: [ref],
+    })
+    expect(withFile).toMatchObject({ text: 'Read the notes.', attachments: [notes], queued: true })
+    expect(onlyFile).toMatchObject({ text: '', attachments: [notes], queued: true })
+    expect(humans(await chatOf(client, runId)).slice(1)).toEqual([
+      expect.objectContaining({ id: withFile.id, text: 'Read the notes.', attachments: [notes] }),
+      expect.objectContaining({ id: onlyFile.id, text: '', attachments: [notes], queued: true }),
+    ])
+
     await writeFile(file('b'), '')
+    const read = await said(client, runId, `Read: Read the notes.\n\n${block}`)
+    expect(read).toContain(`Read: ${block}`)
+    const delivered = humans(await chatOf(client, runId)).slice(1)
+    expect(delivered).toEqual([
+      expect.objectContaining({ id: withFile.id, text: 'Read the notes.', sent: true }),
+      expect.objectContaining({ id: onlyFile.id, text: '', sent: true }),
+    ])
+    expect(delivered.map((item) => item.attachments)).toEqual([[notes], [notes]])
   })
 
   test('Claude Code: a failed tool call is a boundary too', async () => {

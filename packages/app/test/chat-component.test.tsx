@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { PlanDetail, RunChat, RunSummary } from '@ted/protocol'
+import type { MessageDraft, PlanDetail, RunChat, RunSummary } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { ChatBody, RunChat as Conversation } from '../src/renderer/components/RunChat.tsx'
@@ -94,6 +94,83 @@ test('Run chat queues ordinary messages, deletes a queued message and interrupts
   })
   expect(screen.getByText('Redirected.')).toBeTruthy()
   expect(screen.getByText(/Interrupted by you/)).toBeTruthy()
+})
+
+test('Run chat attaches files, removes one, sends a file-only message and keeps files in the draft', async () => {
+  const note = { hash: 'note-hash', name: 'note.txt', mediaType: 'text/plain', size: 5 }
+  const shot = { hash: 'shot-hash', name: 'shot.png', mediaType: 'image/png', size: 9 }
+  let kept: MessageDraft | null = null
+  const api = bridge({
+    getRunChat: (): RunChat => ({ run: { ...lead, state: 'idle' }, items: [] }),
+    uploadAttachment: (file) => ((file as { name: string }).name === 'note.txt' ? note : shot),
+    sendRunMessage: (_id, text) => ({ id: 'm1', runId: 'r1', text, at: createdAt }),
+    messageDraft: () => ({ draft: kept }),
+    saveMessageDraft: (_box, draft) => {
+      const saved = draft as MessageDraft
+      kept = saved.text === '' && saved.attachments.length === 0 ? null : saved
+      return { draft: kept }
+    },
+  })
+  const first = render(<Conversation runId="r1" />)
+  const send = await screen.findByRole('button', { name: /^Send/ })
+  expect(send).toHaveProperty('disabled', true)
+  await user().upload(screen.getByLabelText('Choose files to attach'), [
+    new File(['hello'], 'note.txt', { type: 'text/plain' }),
+    new File(['not a png'], 'shot.png', { type: 'image/png' }),
+  ])
+  await screen.findByRole('button', { name: 'Remove shot.png' })
+  await user().click(screen.getByRole('button', { name: 'Remove shot.png' }))
+  expect(screen.queryByRole('button', { name: 'Remove shot.png' })).toBeNull()
+  await vi.waitFor(() => expect(kept).toMatchObject({ text: '', attachments: [note] }))
+  first.unmount()
+
+  render(<Conversation runId="r1" />)
+  await screen.findByRole('button', { name: 'Remove note.txt' })
+  await user().click(screen.getByRole('button', { name: /^Send/ }))
+  expect(api.request).toHaveBeenCalledWith('sendRunMessage', 'r1', '', {
+    interrupt: false,
+    attachments: [{ hash: 'note-hash', name: 'note.txt', mediaType: 'text/plain' }],
+  })
+  await vi.waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Remove note.txt' })).toBeNull(),
+  )
+  await vi.waitFor(() => expect(kept).toBeNull())
+})
+
+test('a human message shows its files under the text, queued or sent', async () => {
+  const report = { hash: 'r-hash', name: 'report.pdf', mediaType: 'application/pdf', size: 20 }
+  bridge({
+    getRunChat: (): RunChat => ({
+      run: lead,
+      items: [
+        {
+          kind: 'human',
+          id: 'm1',
+          text: 'Read the report.',
+          attachments: [report],
+          at: createdAt,
+          sent: true,
+        },
+        {
+          kind: 'human',
+          id: 'm2',
+          text: '',
+          attachments: [report],
+          at: createdAt,
+          sent: false,
+          queued: true,
+        },
+      ],
+    }),
+  })
+  const view = render(<Conversation runId="r1" />)
+  await screen.findByText('Read the report.')
+  const chips = [...view.container.querySelectorAll('li')].filter((chip) =>
+    chip.textContent?.startsWith('report.pdf'),
+  )
+  expect(chips).toHaveLength(2)
+  expect(screen.getByText('Queued')).toBeTruthy()
+  expect(view.container.querySelectorAll('[data-queued="true"]')).toHaveLength(1)
 })
 
 test('Run chat of a finished Run whose output was deleted shows the “Output no longer kept” note', async () => {

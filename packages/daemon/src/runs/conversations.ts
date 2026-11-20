@@ -1,4 +1,5 @@
 import {
+  type Attachment,
   type Billing,
   billingNames,
   type ChatItem,
@@ -26,6 +27,7 @@ import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
+import { shownMessage, shownText } from './message-files.ts'
 import { parsedOutput } from './parsed-output.ts'
 import type { RunManager } from './run-manager.ts'
 import type { OutputKept } from './run-output.ts'
@@ -35,7 +37,11 @@ export interface Conversations {
   chat(runId: string): Promise<RunChat>
   coordinatorChat(chatId: string): Promise<RunChat>
   taskRuns(ref: string): RunSummary[]
-  send(runId: string, text: string, options?: { interrupt?: boolean }): Promise<RunMessage>
+  send(
+    runId: string,
+    text: string,
+    options?: { interrupt?: boolean; files?: readonly Attachment[] },
+  ): Promise<RunMessage>
   stopTurn(runId: string): Promise<RunSummary>
   sendNow(runId: string, messageId: string): Promise<RunMessage>
   deleteMessage(runId: string, messageId: string): RunMessage
@@ -56,6 +62,21 @@ function asTedIfLegacy(item: ChatItem): ChatItem | undefined {
   if (item.kind !== 'human' || !tedTexts.has(item.text.trim())) return item
   if (item.queued === true || item.unsent === true) return undefined
   return { kind: 'ted', id: item.id, title: titleOf(item.text), text: item.text, at: item.at }
+}
+
+function humanItem(
+  message: Pick<RunMessage, 'id' | 'text' | 'at' | 'attachments'>,
+  state: { sent: boolean; queued?: true; unsent?: true },
+): Extract<ChatItem, { kind: 'human' }> {
+  const files = message.attachments ?? []
+  return {
+    kind: 'human',
+    id: message.id,
+    text: shownText(message),
+    ...(files.length > 0 && { attachments: files }),
+    at: message.at,
+    ...state,
+  }
 }
 
 const lineCount = (text: string) => (text === '' ? 0 : text.split('\n').length)
@@ -180,6 +201,7 @@ export function chatItems(input: {
   promptFromHuman?: boolean
   tedHeading?: string
   promptParts?: readonly PromptPart[] | undefined
+  partFiles?: ReadonlyMap<string, Attachment[]>
   bundle?: (messages: readonly RunMessage[]) => string
 }): ChatItem[] {
   const { run, prompt, entries, messages, interrupts = [], preamble } = input
@@ -212,7 +234,10 @@ export function chatItems(input: {
     items.push(
       part.from === 'ted'
         ? fromTedItem(part.id, text, run.startedAt)
-        : { kind: 'human', id: part.id, text, at: part.at, sent: true },
+        : humanItem(
+            { id: part.id, text, at: part.at, attachments: input.partFiles?.get(part.id) ?? [] },
+            { sent: true },
+          ),
     )
   }
   if (parts.length === 0 && rest !== '') {
@@ -241,13 +266,7 @@ export function chatItems(input: {
           items.push(fromTedItem(message.id, message.text, entry.at ?? message.at))
           continue
         }
-        const item: ChatItem = {
-          kind: 'human',
-          id: message.id,
-          text: message.text,
-          at: message.at,
-          sent: true,
-        }
+        const item = humanItem(message, { sent: true })
         items.push(item)
         if (entry.at !== undefined) deliveredAt.set(item, entry.at)
       }
@@ -290,7 +309,7 @@ export function chatItems(input: {
   }
   for (const message of unmatched) {
     if (message.from === 'ted') continue
-    items.push({ kind: 'human', id: message.id, text: message.text, at: message.at, sent: false })
+    items.push(humanItem(message, { sent: false }))
   }
   const lastAgent = items.at(-1)
   if (run.state === 'working' && lastAgent?.kind === 'agent') lastAgent.writing = true
@@ -300,14 +319,7 @@ export function chatItems(input: {
     (item) => deliveredAt.get(item) ?? ('at' in item ? item.at : undefined),
   )
   for (const message of waiting) {
-    merged.push({
-      kind: 'human',
-      id: message.id,
-      text: message.text,
-      at: message.at,
-      sent: false,
-      queued: true,
-    })
+    merged.push(humanItem(message, { sent: false, queued: true }))
   }
   return merged
 }
@@ -460,8 +472,7 @@ export function createConversations(options: {
       if (!started.includes(id)) {
         for (const message of store.runMessages(id)) {
           if (message.queued !== true || tedWritten(message)) continue
-          const { text, at } = message
-          items.push({ kind: 'human', id: message.id, text, at, sent: false, queued: true })
+          items.push(humanItem(message, { sent: false, queued: true }))
         }
         continue
       }
@@ -488,14 +499,7 @@ export function createConversations(options: {
       items,
       (c.unsentMessages ?? [])
         .filter((message) => !tedWritten(message))
-        .map(({ id, text, at }) => ({
-          kind: 'human',
-          id,
-          text,
-          at,
-          sent: false,
-          unsent: true,
-        })),
+        .map((message) => humanItem(message, { sent: false, unsent: true })),
     )
     return {
       run: run ?? {
@@ -551,6 +555,9 @@ export function createConversations(options: {
                 ...(coordinated && {
                   tedHeading: coordinatorFromTed,
                   promptParts: owner?.prompts?.[runId],
+                  partFiles: store.runMessageFiles(
+                    (owner?.prompts?.[runId] ?? []).map((part) => part.id),
+                  ),
                   bundle: coordinatorTurn,
                 }),
               }),
@@ -570,11 +577,11 @@ export function createConversations(options: {
       const task = requireTask(ref)
       return store.taskRunList(task.id).map((run) => summary(run, task.leadRunId ?? ''))
     },
-    async send(runId, text, { interrupt = false } = {}) {
+    async send(runId, text, { interrupt = false, files = [] } = {}) {
       if (store.sideChats.forRun(runId))
         throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       if (store.coordinators.forRun(runId) && options.coordinators)
-        return options.coordinators.send(runId, text)
+        return shownMessage(await options.coordinators.send(runId, text, files))
       const run = requireRun(runId)
       if (run.state === 'finished') {
         throw new RequestError(409, 'This Run has finished, so it can’t take messages')
@@ -582,7 +589,7 @@ export function createConversations(options: {
       if (restarting.has(runId)) {
         throw new RequestError(409, 'The Run is restarting. Send your message once it’s back.')
       }
-      return steering.send(runId, text, { interrupt })
+      return shownMessage(await steering.send(runId, text, { interrupt, files }))
     },
     async stopTurn(runId) {
       if (store.sideChats.forRun(runId))
@@ -602,7 +609,7 @@ export function createConversations(options: {
       if (store.coordinators.forRun(runId))
         throw new RequestError(409, 'Coordinator messages wait for their queued turn')
       requireRun(runId)
-      return steering.sendNow(runId, messageId)
+      return steering.sendNow(runId, messageId).then(shownMessage)
     },
     deleteMessage(runId, messageId) {
       if (store.sideChats.forRun(runId))
@@ -615,7 +622,7 @@ export function createConversations(options: {
         )
       const removed = steering.remove(runId, messageId)
       options.coordinators?.messageRemoved(runId)
-      return removed
+      return shownMessage(removed)
     },
     async boundary(runId, caller) {
       if (caller.kind !== 'run' || caller.runId !== runId) {

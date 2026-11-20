@@ -6,6 +6,7 @@ import type {
   AgentApiCost,
   AgentKind,
   ApiCostReport,
+  Attachment,
   Comment,
   CommentAnswer,
   Effort,
@@ -14,6 +15,7 @@ import type {
   RunMessage,
   Task,
 } from '@ted/protocol'
+import { isArray, isNumber, isObject, isString, parseJson } from '@ted/protocol/parse'
 import { runRows, type StoreContext, storedPermission } from './context.ts'
 import { joinPrompt, type PromptPart, splitPrompt } from './prompt-parts.ts'
 import {
@@ -103,14 +105,25 @@ export interface RunsArea {
   }): void
   apiCost(days: number, now?: Date): ApiCostReport
   taskRunList(taskId: string): Run[]
-  recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
-  queueRunMessage(input: { runId: string; text: string; from?: 'ted' }): RunMessage
+  recordRunMessage(input: {
+    runId: string
+    text: string
+    lead: boolean
+    files?: readonly Attachment[]
+  }): RunMessage
+  queueRunMessage(input: {
+    runId: string
+    text: string
+    from?: 'ted'
+    files?: readonly Attachment[]
+  }): RunMessage
   deliverRunMessages(runId: string, ids: readonly string[], lead: boolean): void
   deleteRunMessage(runId: string, id: string): RunMessage | undefined
   releaseRunSteering(runId: string, release: RunSteeringRelease): void
   runSteeringRelease(runId: string): RunSteeringRelease | undefined
   recordTurnInterrupted(runId: string, hold: boolean): RunInterrupt
   runMessages(runId: string): RunMessage[]
+  runMessageFiles(ids: readonly string[]): Map<string, Attachment[]>
   runInterrupts(runId: string): RunInterrupt[]
   openTab(taskId: string, runId: string): Task
   closeTab(taskId: string, runId: string): Task
@@ -651,24 +664,33 @@ export function runsArea(ctx: StoreContext): RunsArea {
       }
     },
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
-    recordRunMessage({ runId, text, lead }) {
+    recordRunMessage({ runId, text, lead, files = [] }) {
       const taskId = taskIdOfRun(runId) ?? null
       const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
-      commit(events.runMessageSent({ ...message, taskId, lead: lead && taskId !== null }))
+      commit(
+        events.runMessageSent({ ...message, taskId, lead: lead && taskId !== null }),
+        ...filesAttached(message.id, runId, files),
+      )
       emit({ type: 'run-output', runId })
       if (taskId !== null && lead) updatedTask(taskId)
-      return message
+      return { ...message, ...(files.length > 0 && { attachments: [...files] }) }
     },
-    queueRunMessage({ runId, text, from }) {
+    queueRunMessage({ runId, text, from, files = [] }) {
       const taskId = taskIdOfRun(runId) ?? null
       const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
       commit(
         from === 'ted'
           ? events.runMessageQueuedV2({ ...message, taskId, from })
           : events.runMessageQueued({ ...message, taskId }),
+        ...filesAttached(message.id, runId, files),
       )
       emit({ type: 'run-output', runId })
-      return { ...message, queued: true, ...(from && { from }) }
+      return {
+        ...message,
+        ...(files.length > 0 && { attachments: [...files] }),
+        queued: true,
+        ...(from && { from }),
+      }
     },
     deliverRunMessages(runId, ids, lead) {
       if (ids.length === 0) return
@@ -687,7 +709,14 @@ export function runsArea(ctx: StoreContext): RunsArea {
       if (!row?.queued) return undefined
       commit(events.runMessageDeleted({ id, runId, at: new Date().toISOString() }))
       emit({ type: 'run-output', runId })
-      return { id, runId, text: row.text, at: row.at }
+      const files = storedFiles(row.files)
+      return {
+        id,
+        runId,
+        text: row.text,
+        ...(files.length > 0 && { attachments: files }),
+        at: row.at,
+      }
     },
     releaseRunSteering(runId, release) {
       commit(events.runSteeringReleased({ runId, release: JSON.stringify(release) }))
@@ -706,14 +735,34 @@ export function runsArea(ctx: StoreContext): RunsArea {
     runMessages: (runId) =>
       store
         .query(queryDb(runMessages.where({ runId, deletedAt: null }).orderBy('at', 'asc')))
-        .map(({ id, text, at, queued, fromTed }) => ({
-          id,
-          runId,
-          text,
-          at,
-          ...(queued && { queued }),
-          ...(fromTed && { from: 'ted' as const }),
-        })),
+        .map(({ id, text, at, queued, fromTed, files }) => {
+          const attachments = storedFiles(files)
+          return {
+            id,
+            runId,
+            text,
+            ...(attachments.length > 0 && { attachments }),
+            at,
+            ...(queued && { queued }),
+            ...(fromTed && { from: 'ted' as const }),
+          }
+        }),
+    runMessageFiles(ids) {
+      const found = new Map<string, Attachment[]>()
+      if (ids.length === 0) return found
+      const rows = store.query(
+        queryDb(
+          runMessages
+            .select('id', 'files')
+            .where({ id: { op: 'IN', value: [...ids] }, files: { op: '!=', value: null } }),
+        ),
+      )
+      for (const row of rows) {
+        const files = storedFiles(row.files)
+        if (files.length > 0) found.set(row.id, files)
+      }
+      return found
+    },
     runInterrupts: (runId) =>
       store
         .query(queryDb(runInterrupts.where({ runId }).orderBy('at', 'asc')))
@@ -799,4 +848,23 @@ export function runsArea(ctx: StoreContext): RunsArea {
       store.query(queryDb(runRows.where({ agent }))).filter((r) => r.state !== 'finished').length +
       store.query(queryDb(heldRuns.where({ agent }))).length,
   }
+}
+
+function filesAttached(id: string, runId: string, files: readonly Attachment[]) {
+  return files.length > 0 ? [events.runMessageFilesAttached({ id, runId, files: [...files] })] : []
+}
+
+export function storedFiles(text: string | null): Attachment[] {
+  if (text === null) return []
+  const value = parseJson(text)
+  if (!isArray(value)) return []
+  return value.flatMap((item) =>
+    isObject(item) &&
+    isString(item.hash) &&
+    isString(item.name) &&
+    isNumber(item.size) &&
+    isString(item.mediaType)
+      ? [{ hash: item.hash, name: item.name, size: item.size, mediaType: item.mediaType }]
+      : [],
+  )
 }

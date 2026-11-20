@@ -1,6 +1,6 @@
 import type { LocalFolderState } from './local-folder.ts'
 import type { AgentKind, RunState } from './run.ts'
-import type { Comment, Effort } from './task.ts'
+import type { Attachment, AttachmentRef, Comment, Effort } from './task.ts'
 
 export type ChatToolStatus = 'running' | 'done' | 'failed' | 'stopped'
 
@@ -37,6 +37,7 @@ export type ChatItem =
       kind: 'human'
       id: string
       text: string
+      attachments?: Attachment[]
       at: string
       sent: boolean
       queued?: true
@@ -94,12 +95,14 @@ export interface ConversationTab {
 export interface SendRunMessageRequest {
   text: string
   interrupt?: boolean
+  attachments?: AttachmentRef[]
 }
 
 export interface RunMessage {
   id: string
   runId: string
   text: string
+  attachments?: Attachment[]
   at: string
   queued?: true
   from?: 'ted'
