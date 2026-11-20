@@ -6,6 +6,7 @@ export const settingsPageNames: Record<SettingsSectionId, string> = {
   general: 'General',
   notifications: 'Notifications',
   machines: 'Machines',
+  phones: 'Phones',
   agents: 'Providers',
   limits: 'Limits',
   integrations: 'Integrations',
@@ -188,6 +189,12 @@ const entries = {
   'app.machines.connect.address': { name: 'This Mac’s local address' },
   'app.machines.connect.port': { name: 'Port' },
   'app.machines.execution': { name: 'Execution Macs', heading: true },
+
+  'app.phones.paired': {
+    name: 'Paired phones',
+    keywords: 'iPhone phone pair relay QR code mobile',
+    heading: true,
+  },
 
   'app.agents.defaults': {
     name: 'Defaults for each role',
