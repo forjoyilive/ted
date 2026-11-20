@@ -5,6 +5,7 @@ import { afterEach, expect, test } from 'vitest'
 import { askDemo } from '../src/dev/ask.ts'
 import { demoEnvironment, prepareDemo, until } from '../src/dev/demo.ts'
 import { demoVersion, markDemo } from '../src/dev/home.ts'
+import { runCli } from '../src/health/cli.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { killRunHosts, stopDaemonIn, stubClaudePath } from './helpers.ts'
 
@@ -88,7 +89,14 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
     try {
       await until(async () => (await lead()).run === 'idle', 'a waiting Task Lead', 60_000)
     } catch {
-      throw new Error(`No waiting Task Lead. Last seen: ${JSON.stringify(await lead())}`)
+      const claude = (await client.agentHealth()).find((h) => h.agent === 'claude')
+      const auth = await runCli(stubClaudePath, ['auth', 'status'], {
+        env: { ...process.env, TED_HOME: home },
+        cwd: home ?? '',
+      })
+      throw new Error(
+        `No waiting Task Lead. Last seen: ${JSON.stringify(await lead())}; Claude health: ${JSON.stringify(claude)}; auth status from the test: ${JSON.stringify(auth)}`,
+      )
     }
   }
   await leadWaiting()
