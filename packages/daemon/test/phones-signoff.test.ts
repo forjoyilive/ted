@@ -66,6 +66,7 @@ test('a sign-off answered from the phone: the brief shows and is cut to fit, req
   await phone.online
   await phone.pair('Sign-off Phone')
   await app.approvePhonePairing({ pairing: phone.link.pairing })
+  await phone.approved()
 
   const { task, signoff } = await toSignoff(client)
   const first = detailOf(await phone.request(signoff.id))

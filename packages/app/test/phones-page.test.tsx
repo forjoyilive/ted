@@ -13,7 +13,7 @@ test('empty page, pair dialog with QR code and countdown, Copy code in Ted Dev, 
   let phones: PairedPhone[] = []
   const expiresAt = Date.now() + 272_000
   const a = bridge({
-    pairedPhones: () => ({ phones }),
+    pairedPhones: () => ({ phones, pairAgain: false }),
     createPhonePairing: () => {
       current = { state: 'live', pairing, link, expiresAt, edition: 'dev' }
       return { pairing, link, expiresAt, edition: 'dev' }
@@ -67,13 +67,14 @@ test('empty page, pair dialog with QR code and countdown, Copy code in Ted Dev, 
     ),
   ).toBeTruthy()
   expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.queryByText('Pair your phones again.')).toBeNull()
 })
 
-test('an expired code offers Make a new code, and Ted shows no Copy code outside Ted Dev', async () => {
+test('after a relay reset the page asks to pair again; an expired code offers Make a new code, and Ted shows no Copy code outside Ted Dev', async () => {
   let current: PhonePairingState = { state: 'expired', pairing }
   let made = 0
   bridge({
-    pairedPhones: () => ({ phones: [] }),
+    pairedPhones: () => ({ phones: [], pairAgain: true }),
     createPhonePairing: () => {
       made += 1
       const expiresAt = Date.now() + 300_000
@@ -84,6 +85,7 @@ test('an expired code offers Make a new code, and Ted shows no Copy code outside
     cancelPhonePairing: () => ({ state: 'none' }),
   })
   render(<PhonesPage />)
+  expect(await screen.findByText('Pair your phones again.')).toBeTruthy()
   await user().click(await screen.findByRole('button', { name: 'Pair a phone…' }))
   expect(
     within(await screen.findByRole('dialog')).queryByRole('button', { name: 'Copy code' }),
@@ -121,7 +123,7 @@ test('paired phones list when they were last reached, and Remove… asks first',
     },
   ]
   const a = bridge({
-    pairedPhones: () => ({ phones }),
+    pairedPhones: () => ({ phones, pairAgain: false }),
     removePhone: (id) => {
       phones = phones.filter((phone) => phone.id !== id)
       return { phones }

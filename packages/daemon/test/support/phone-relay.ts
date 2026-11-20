@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { Duplex } from 'node:stream'
 import {
   fromBase64Url,
   type MacReply,
+  type MacToRelay,
   type PairingLink,
   type PhoneAnswer,
   type PhoneRequest,
@@ -11,11 +13,20 @@ import {
   parseMacToRelay,
   parsePairingLink,
   parsePhoneEnvelope,
+  parseRelayAuth,
   parseRelayToPhone,
   phoneProtocolVersion,
+  type RelayLogin,
+  type RelayRoute,
   type RelayToMac,
   type RelayToPhone,
+  relayAuth,
+  relayAuthHeader,
+  relayKeyProofText,
+  relayListHash,
   relayLoginText,
+  relayTicket,
+  relayTicketHash,
   toBase64Url,
 } from '@ted/protocol'
 import { isObject, isString, parseJson } from '@ted/protocol/parse'
@@ -29,26 +40,78 @@ export interface RecordedFrame {
   text: string
 }
 
+export interface RecordedLogin {
+  mode: string
+  route: RelayRoute
+  status: number
+}
+
+export interface StoredList {
+  rev: number
+  keys: string[]
+}
+
+interface Ticket {
+  expiresAt: number
+  candidate?: string
+}
+
+interface PhoneSocket {
+  ws: RelaySocket
+  key: string
+  ticketHash?: string
+}
+
+interface Admission {
+  status: number
+  login?: RelayLogin
+  ticketHash?: string
+}
+
+interface Channel {
+  mac?: RelaySocket | undefined
+  macStream?: Duplex
+  phones: Map<number, PhoneSocket>
+  nextConn: number
+  list?: StoredList
+  tickets: Map<string, Ticket>
+}
+
 export interface RelayStub {
   url: string
   frames: RecordedFrame[]
+  logins: RecordedLogin[]
+  unanswered: Set<MacToRelay['t']>
+  lostAnswers: Set<MacToRelay['t']>
   macReady(): Promise<void>
+  macFrame(match: (frame: MacToRelay) => boolean): Promise<MacToRelay>
+  list(channel: string): StoredList | undefined
+  storeList(channel: string, list: StoredList): void
+  sendToMac(frame: RelayToMac): void
+  freezeMac(): void
+  dropMac(): void
   close(): Promise<void>
 }
 
+const loginWindowMs = 60_000
+
 export async function startRelayStub(): Promise<RelayStub> {
   const frames: RecordedFrame[] = []
-  const server = http.createServer((_, res) => res.writeHead(404).end())
-  const sockets = new WebSocketServer({ noServer: true })
-  const channels = new Map<
-    string,
-    { mac?: RelaySocket | undefined; phones: Map<number, RelaySocket>; nextConn: number }
-  >()
+  const logins: RecordedLogin[] = []
+  const unanswered = new Set<MacToRelay['t']>()
+  const lostAnswers = new Set<MacToRelay['t']>()
+  const seen = new Set<string>()
+  const macWaiters: { match: (frame: MacToRelay) => boolean; resolve(frame: MacToRelay): void }[] =
+    []
+  const channels = new Map<string, Channel>()
   let ready = Promise.withResolvers<void>()
+  const server = http.createServer()
+  const sockets = new WebSocketServer({ noServer: true })
+
   const channelOf = (name: string) => {
     let found = channels.get(name)
     if (!found) {
-      found = { phones: new Map(), nextConn: 1 }
+      found = { phones: new Map(), nextConn: 1, tickets: new Map() }
       channels.set(name, found)
     }
     return found
@@ -59,77 +122,231 @@ export async function startRelayStub(): Promise<RelayStub> {
     socket.send(text)
   }
 
+  const verified = (
+    req: http.IncomingMessage,
+    route: RelayRoute,
+    channel: string,
+  ): { login: RelayLogin; ticketHash?: string } | undefined => {
+    const header = req.headers[relayAuthHeader.toLowerCase()]
+    if (!isString(header)) return undefined
+    let login: RelayLogin
+    try {
+      login = parseRelayAuth(header)
+    } catch {
+      return undefined
+    }
+    if (login.v !== 2) return undefined
+    if ((login.mode === 'mac') !== (route === 'mac')) return undefined
+    if (Math.abs(Date.now() - login.at) > loginWindowMs) return undefined
+    const key = fromBase64Url(login.key, 32) ?? new Uint8Array()
+    const ticket = login.ticket === undefined ? undefined : fromBase64Url(login.ticket, 32)
+    const ticketHash = ticket && relayTicketHash(ticket)
+    const text = relayLoginText({
+      mode: login.mode,
+      route,
+      host: req.headers.host ?? '',
+      channel,
+      at: login.at,
+      nonce: login.nonce,
+      ...(ticketHash !== undefined && { ticketHash }),
+    })
+    const signed = nacl.sign.detached.verify(
+      new TextEncoder().encode(text),
+      fromBase64Url(login.sig, 64) ?? new Uint8Array(),
+      key,
+    )
+    if (!signed) return undefined
+    if (login.mode === 'mac' && toBase64Url(createHash('sha256').update(key).digest()) !== channel)
+      return undefined
+    return { login, ...(ticketHash !== undefined && { ticketHash }) }
+  }
+
+  const admit = (req: http.IncomingMessage, route: RelayRoute, name: string): Admission => {
+    const checked = verified(req, route, name)
+    if (!checked) return { status: 401 }
+    const { login, ticketHash } = checked
+    const channel = channelOf(name)
+    let status = 200
+    if (login.mode === 'phone') {
+      if (!channel.list) status = 503
+      else if (!channel.list.keys.includes(login.key)) status = 403
+    } else if (login.mode === 'pairing') {
+      const ticket = ticketHash === undefined ? undefined : channel.tickets.get(ticketHash)
+      const open = [...channel.phones.values()].filter((each) => each.ticketHash === ticketHash)
+      const allowed =
+        ticket !== undefined &&
+        (ticket.candidate === undefined
+          ? Date.now() < ticket.expiresAt && open.length < 2
+          : ticket.candidate === login.key)
+      if (!allowed) status = 403
+    }
+    if (status === 200) {
+      const used = `${login.key}.${login.nonce}`
+      if (seen.has(used)) status = 401
+      else seen.add(used)
+    }
+    logins.push({ mode: login.mode, route, status })
+    return { status, login, ...(ticketHash !== undefined && { ticketHash }) }
+  }
+
+  const refuse = (socket: Duplex, status: number) => {
+    socket.end(`HTTP/1.1 ${status} ${http.STATUS_CODES[status]}\r\nContent-Length: 0\r\n\r\n`)
+  }
+
+  const closeWhere = (channel: Channel, match: (phone: PhoneSocket) => boolean) => {
+    for (const phone of channel.phones.values()) if (match(phone)) phone.ws.close(4403)
+  }
+
+  const answerMac = (ws: RelaySocket, channel: Channel, frame: MacToRelay) => {
+    const answer = (reply: RelayToMac) => {
+      if (!lostAnswers.has(frame.t)) send(ws, reply)
+    }
+    if (frame.t === 'phones') {
+      const stored = channel.list
+      const same =
+        stored !== undefined &&
+        frame.rev === stored.rev &&
+        JSON.stringify([...stored.keys].sort()) === JSON.stringify([...frame.keys].sort())
+      if (same) return answer({ t: 'phones-ok', rev: frame.rev })
+      if (stored && frame.rev < stored.rev) return answer({ t: 'phones-stale', rev: stored.rev })
+      if (
+        stored &&
+        (frame.rev === stored.rev || frame.base !== relayListHash(stored.rev, stored.keys))
+      )
+        return answer({ t: 'phones-conflict', rev: frame.rev })
+      channel.list = { rev: frame.rev, keys: frame.keys }
+      closeWhere(
+        channel,
+        (phone) => phone.ticketHash === undefined && !frame.keys.includes(phone.key),
+      )
+      return answer({ t: 'phones-ok', rev: frame.rev })
+    }
+    if (frame.t === 'pairing') {
+      channel.tickets.set(frame.hash, { expiresAt: frame.expiresAt })
+      for (const hash of [...channel.tickets.keys()].slice(0, -4)) channel.tickets.delete(hash)
+      return answer({ t: 'pairing-ok', hash: frame.hash })
+    }
+    if (frame.t === 'pairing-candidate') {
+      const ticket = channel.tickets.get(frame.hash)
+      if (!ticket) return answer({ t: 'pairing-gone', hash: frame.hash })
+      ticket.candidate = frame.key
+      closeWhere(channel, (phone) => phone.ticketHash === frame.hash && phone.key !== frame.key)
+      return answer({ t: 'pairing-candidate-ok', hash: frame.hash })
+    }
+    if (frame.t === 'pairing-end') {
+      channel.tickets.delete(frame.hash)
+      closeWhere(channel, (phone) => phone.ticketHash === frame.hash)
+      return answer({ t: 'pairing-end-ok', hash: frame.hash })
+    }
+    const phone = channel.phones.get(frame.conn)
+    if (phone) send(phone.ws, { t: 'msg', data: frame.data })
+  }
+
+  const openMac = (ws: RelaySocket, channel: Channel) => {
+    channel.mac?.close(4409)
+    channel.mac = ws
+    send(ws, { t: 'ready' })
+    for (const phone of channel.phones.values()) send(phone.ws, { t: 'mac-online' })
+    ready.resolve()
+    ws.on('message', (raw) => {
+      if (channel.mac !== ws) return
+      const text = raw.toString()
+      frames.push({ from: 'mac', text })
+      const frame = parseMacToRelay(parseJson(text))
+      if (!frame) return ws.close(4400)
+      for (const waiter of macWaiters.splice(0)) {
+        if (waiter.match(frame)) waiter.resolve(frame)
+        else macWaiters.push(waiter)
+      }
+      if (!unanswered.has(frame.t)) answerMac(ws, channel, frame)
+    })
+    ws.on('close', () => {
+      if (channel.mac !== ws) return
+      channel.mac = undefined
+      ready = Promise.withResolvers<void>()
+      for (const phone of channel.phones.values()) send(phone.ws, { t: 'mac-offline' })
+    })
+  }
+
+  const openPhone = (ws: RelaySocket, channel: Channel, phone: PhoneSocket) => {
+    if (phone.ticketHash === undefined) {
+      closeWhere(channel, (other) => other.ticketHash === undefined && other.key === phone.key)
+    }
+    const conn = channel.nextConn++
+    channel.phones.set(conn, phone)
+    send(ws, { t: channel.mac ? 'mac-online' : 'mac-offline' })
+    ws.on('message', (raw) => {
+      const text = raw.toString()
+      frames.push({ from: 'phone', text })
+      const frame = parseJson(text)
+      if (!isObject(frame) || frame.t !== 'msg' || !isString(frame.data)) return ws.close(4400)
+      if (!channel.mac) return send(ws, { t: 'mac-offline' })
+      send(channel.mac, { t: 'msg', conn, data: frame.data })
+    })
+    ws.on('close', () => {
+      channel.phones.delete(conn)
+      if (channel.mac) send(channel.mac, { t: 'closed', conn })
+    })
+  }
+
+  server.on('request', (req, res) => {
+    const match = /^\/v1\/phone\/([A-Za-z0-9_-]{43})\/check$/.exec(req.url ?? '')
+    if (!match) return res.writeHead(404).end()
+    res.writeHead(admit(req, 'check', match[1] ?? '').status).end()
+  })
+
   server.on('upgrade', (req, socket, head) => {
     const match = /^\/v1\/(mac|phone)\/([A-Za-z0-9_-]{43})$/.exec(req.url ?? '')
-    if (!match) return socket.destroy()
-    const [, side, name = ''] = match
+    if (!match) return refuse(socket, 404)
+    const route = match[1] === 'mac' ? 'mac' : 'phone'
+    const name = match[2] ?? ''
+    const { status, login, ticketHash } = admit(req, route, name)
+    if (status !== 200 || !login) return refuse(socket, status)
     sockets.handleUpgrade(req, socket, head, (ws) => {
       const channel = channelOf(name)
-      if (side === 'mac') {
-        const nonce = toBase64Url(nacl.randomBytes(32))
-        let loggedIn = false
-        send(ws, { t: 'challenge', nonce })
-        ws.on('message', (raw) => {
-          const text = raw.toString()
-          frames.push({ from: 'mac', text })
-          const frame = parseMacToRelay(JSON.parse(text))
-          if (frame?.t === 'login' && !loggedIn) {
-            const key = fromBase64Url(frame.key, 32)
-            const sig = fromBase64Url(frame.sig, 64)
-            const good =
-              key !== undefined &&
-              sig !== undefined &&
-              toBase64Url(createHash('sha256').update(key).digest()) === name &&
-              nacl.sign.detached.verify(
-                new TextEncoder().encode(relayLoginText(name, nonce)),
-                sig,
-                key,
-              )
-            if (!good) return ws.close(4401)
-            loggedIn = true
-            channel.mac?.close(4409)
-            channel.mac = ws
-            send(ws, { t: 'ready' })
-            for (const phone of channel.phones.values()) send(phone, { t: 'mac-online' })
-            ready.resolve()
-          } else if (frame?.t === 'msg' && loggedIn) {
-            const phone = channel.phones.get(frame.conn)
-            if (phone) send(phone, { t: 'msg', data: frame.data })
-          } else {
-            ws.close(4400)
-          }
-        })
-        ws.on('close', () => {
-          if (channel.mac !== ws) return
-          channel.mac = undefined
-          ready = Promise.withResolvers<void>()
-          for (const phone of channel.phones.values()) send(phone, { t: 'mac-offline' })
-        })
-        return
+      if (route === 'mac') {
+        channel.macStream = socket
+        return openMac(ws, channel)
       }
-      const conn = channel.nextConn++
-      channel.phones.set(conn, ws)
-      send(ws, { t: channel.mac ? 'mac-online' : 'mac-offline' })
-      ws.on('message', (raw) => {
-        const text = raw.toString()
-        frames.push({ from: 'phone', text })
-        const frame = parseJson(text)
-        if (!isObject(frame) || frame.t !== 'msg' || !isString(frame.data)) return ws.close(4400)
-        if (!channel.mac) return send(ws, { t: 'mac-offline' })
-        send(channel.mac, { t: 'msg', conn, data: frame.data })
-      })
-      ws.on('close', () => {
-        channel.phones.delete(conn)
-        if (channel.mac) send(channel.mac, { t: 'closed', conn })
+      openPhone(ws, channel, {
+        ws,
+        key: login.key,
+        ...(ticketHash !== undefined && { ticketHash }),
       })
     })
   })
+
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const { port } = server.address() as AddressInfo
   return {
     url: `http://127.0.0.1:${port}`,
     frames,
+    logins,
+    unanswered,
+    lostAnswers,
     macReady: () => ready.promise,
+    macFrame(match) {
+      for (const { from, text } of frames) {
+        const frame = from === 'mac' ? parseMacToRelay(parseJson(text)) : undefined
+        if (frame && match(frame)) return Promise.resolve(frame)
+      }
+      const { promise, resolve } = Promise.withResolvers<MacToRelay>()
+      macWaiters.push({ match, resolve })
+      return promise
+    },
+    list: (channel) => channels.get(channel)?.list,
+    storeList(channel, list) {
+      channelOf(channel).list = list
+    },
+    sendToMac(frame) {
+      for (const channel of channels.values()) if (channel.mac) send(channel.mac, frame)
+    },
+    freezeMac() {
+      for (const channel of channels.values()) channel.macStream?.pause()
+    },
+    dropMac() {
+      for (const channel of channels.values()) channel.mac?.close(1012)
+    },
     async close() {
       for (const client of sockets.clients) client.terminate()
       sockets.close()
@@ -141,6 +358,7 @@ export async function startRelayStub(): Promise<RelayStub> {
 export interface MemoryKeyrings {
   keyrings: PhoneKeyrings
   secrets: Map<string, string>
+  failWrites: boolean
 }
 
 export function memoryKeyrings(): MemoryKeyrings {
@@ -151,13 +369,25 @@ export function memoryKeyrings(): MemoryKeyrings {
       return secrets.get(account)
     },
     async set(secret) {
+      if (memory.failWrites) throw new Error('the Keychain is locked')
       secrets.set(account, secret)
     },
     async delete() {
       secrets.delete(account)
     },
   })
-  return { keyrings: async (account) => keyring(account), secrets }
+  const memory: MemoryKeyrings = {
+    keyrings: async (account) => keyring(account),
+    secrets,
+    failWrites: false,
+  }
+  return memory
+}
+
+export function ticketHashOf(link: PairingLink): string {
+  return relayTicketHash(
+    relayTicket(fromBase64Url(link.secret, 32) ?? new Uint8Array(), link.channel, link.pairing),
+  )
 }
 
 export type PhoneBody = PhoneRequest extends infer R
@@ -171,43 +401,98 @@ export interface SealedMessage {
   envelope: string
 }
 
+export class RelayRefused extends Error {}
+
 export class TestPhone {
   readonly keys: nacl.BoxKeyPair
+  readonly relayKeys: nacl.SignKeyPair
   readonly link: PairingLink
   readonly replies: MacReply[] = []
-  readonly online: Promise<void>
-  #socket: WebSocket
+  readonly closes: number[] = []
+  readonly pairedCloses: number[] = []
+  #mode: 'pairing' | 'phone' = 'pairing'
+  #socket: WebSocket | undefined
+  #online: Promise<void> | undefined
+  #closed = false
   #now: () => number
-  #waiting = new Map<string, (reply: MacReply) => void>()
+  #listeners = new Set<(data: string) => void>()
+  #closeListeners = new Set<(code: number) => void>()
 
   constructor(
     linkText: string,
     {
       now = Date.now,
       keys = nacl.box.keyPair(),
-    }: { now?: () => number; keys?: nacl.BoxKeyPair } = {},
+      relayKeys = nacl.sign.keyPair(),
+    }: { now?: () => number; keys?: nacl.BoxKeyPair; relayKeys?: nacl.SignKeyPair } = {},
   ) {
     this.link = parsePairingLink(linkText)
     this.keys = keys
+    this.relayKeys = relayKeys
     this.#now = now
+  }
+
+  get online(): Promise<void> {
+    if (this.#closed) return Promise.reject(new RelayRefused('this phone was closed'))
+    if (this.#online) return this.#online
     const url = new URL(`/v1/phone/${this.link.channel}`, this.link.relay)
     url.protocol = 'ws:'
-    this.#socket = new WebSocket(url)
+    const ticket =
+      this.#mode === 'pairing'
+        ? relayTicket(
+            fromBase64Url(this.link.secret, 32) ?? new Uint8Array(),
+            this.link.channel,
+            this.link.pairing,
+          )
+        : undefined
+    const login = relayAuth({
+      mode: this.#mode,
+      route: 'phone',
+      host: url.host,
+      channel: this.link.channel,
+      at: Date.now(),
+      nonce: toBase64Url(nacl.randomBytes(16)),
+      key: this.relayKeys.publicKey,
+      sign: (text) => nacl.sign.detached(text, this.relayKeys.secretKey),
+      ...(ticket && { ticket }),
+    })
+    const mode = this.#mode
+    const socket = new WebSocket(url, { headers: { [relayAuthHeader]: login } })
+    this.#socket = socket
     const online = Promise.withResolvers<void>()
-    this.online = online.promise
-    this.#socket.addEventListener('message', (event) => {
+    online.promise.catch(() => undefined)
+    this.#online = online.promise
+    socket.addEventListener('message', (event) => {
       const frame = parseRelayToPhone(JSON.parse(String(event.data)))
       if (frame?.t === 'mac-online') online.resolve()
       if (frame?.t !== 'msg') return
+      for (const listener of this.#listeners) listener(frame.data)
       const reply = this.open(frame.data)
-      if (!reply) return
-      this.replies.push(reply)
-      this.#waiting.get(reply.id)?.(reply)
+      if (reply) this.replies.push(reply)
     })
+    socket.addEventListener('close', (event) => {
+      this.closes.push(event.code)
+      if (mode === 'phone') this.pairedCloses.push(event.code)
+      online.reject(new RelayRefused(`the relay closed the socket with ${event.code}`))
+      if (this.#socket !== socket) return
+      this.#socket = undefined
+      this.#online = undefined
+      for (const listener of this.#closeListeners) listener(event.code)
+    })
+    return online.promise
   }
 
   publicKey(): string {
     return toBase64Url(this.keys.publicKey)
+  }
+
+  relayKey(): string {
+    return toBase64Url(this.relayKeys.publicKey)
+  }
+
+  relayProof(): string {
+    const text = new TextEncoder().encode(relayKeyProofText(this.link.pairing, this.publicKey()))
+    return toBase64Url(nacl.sign.detached(text, this.relayKeys.secretKey))
   }
 
   open(data: string): MacReply | undefined {
@@ -245,47 +530,101 @@ export class TestPhone {
     return { id, envelope: this.seal(message) }
   }
 
-  sendRaw(envelope: string): void {
-    this.#socket.send(JSON.stringify({ t: 'msg', data: envelope }))
-  }
-
-  async ask(id: string, envelope: string): Promise<MacReply> {
+  async sendRaw(envelope: string): Promise<void> {
     await this.online
-    const { promise, resolve } = Promise.withResolvers<MacReply>()
-    this.#waiting.set(id, resolve)
-    this.sendRaw(envelope)
-    return promise.finally(() => this.#waiting.delete(id))
+    this.#socket?.send(JSON.stringify({ t: 'msg', data: envelope }))
   }
 
-  async send(body: PhoneBody, protocol = phoneProtocolVersion): Promise<MacReply> {
+  async ask(id: string, envelope: string, carrier: TestPhone = this): Promise<MacReply> {
+    const { promise, resolve, reject } = Promise.withResolvers<MacReply>()
+    promise.catch(() => undefined)
+    const listener = (data: string) => {
+      const reply = this.open(data)
+      if (reply?.id === id) resolve(reply)
+    }
+    const closed = (code: number) =>
+      reject(new RelayRefused(`the relay closed the socket with ${code}`))
+    carrier.#listeners.add(listener)
+    carrier.#closeListeners.add(closed)
+    try {
+      await carrier.sendRaw(envelope)
+      return await promise
+    } finally {
+      carrier.#listeners.delete(listener)
+      carrier.#closeListeners.delete(closed)
+    }
+  }
+
+  async send(
+    body: PhoneBody,
+    protocol = phoneProtocolVersion,
+    carrier: TestPhone = this,
+  ): Promise<MacReply> {
     const { id, envelope } = this.message(body, protocol)
-    return this.ask(id, envelope)
+    return this.ask(id, envelope, carrier)
   }
 
-  pair(name = 'Test Phone', edition: 'dev' | 'release' = 'dev', protocol = phoneProtocolVersion) {
+  pair(
+    name = 'Test Phone',
+    edition: 'dev' | 'release' = 'dev',
+    protocol = phoneProtocolVersion,
+    relay: { relayKey?: string; relayProof?: string } = {},
+  ) {
     return this.send(
-      { type: 'pair', pairing: this.link.pairing, secret: this.link.secret, name, edition },
+      {
+        type: 'pair',
+        pairing: this.link.pairing,
+        secret: this.link.secret,
+        name,
+        edition,
+        relayKey: relay.relayKey ?? this.relayKey(),
+        relayProof: relay.relayProof ?? this.relayProof(),
+      },
       protocol,
     )
+  }
+
+  pairStatus() {
+    return this.send({ type: 'pair-status', pairing: this.link.pairing })
+  }
+
+  async approved(): Promise<void> {
+    for (;;) {
+      const reply = await this.pairStatus()
+      if (!reply.ok) throw new Error(`pair-status failed: ${reply.error.code}`)
+      if (reply.body.state === 'approved') break
+      if (reply.body.state !== 'waiting') throw new Error(`pairing ${String(reply.body.state)}`)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    this.#mode = 'phone'
+    const socket = this.#socket
+    this.#socket = undefined
+    this.#online = undefined
+    socket?.close()
   }
 
   status(protocol = phoneProtocolVersion) {
     return this.send({ type: 'request', route: 'status' }, protocol)
   }
 
-  requests() {
-    return this.send({ type: 'request', route: 'requests' })
+  requests(carrier: TestPhone = this) {
+    return this.send({ type: 'request', route: 'requests' }, phoneProtocolVersion, carrier)
   }
 
   request(requestId: string) {
     return this.send({ type: 'request', route: 'request', requestId })
   }
 
-  answer(requestId: string, answer: PhoneAnswer) {
-    return this.send({ type: 'request', route: 'answer', requestId, answer })
+  answer(requestId: string, answer: PhoneAnswer, carrier: TestPhone = this) {
+    return this.send(
+      { type: 'request', route: 'answer', requestId, answer },
+      phoneProtocolVersion,
+      carrier,
+    )
   }
 
   close(): void {
-    this.#socket.close()
+    this.#closed = true
+    this.#socket?.close()
   }
 }
