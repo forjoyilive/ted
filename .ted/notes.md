@@ -4,12 +4,20 @@ Ted (“Totally Excellent Development”) is a desktop app for running software 
 
 ## Repos
 
-One repo, `forjoyilive/ted`: a pnpm workspace on Node 24.
+Two repos, both pnpm workspaces on Node 24. Each has its own `AGENTS.md`; read the one for each repo the Task touches.
+
+`ted` (`forjoyilive/ted`), the desktop app:
 
 - `packages/protocol`: paths, `daemon.json`, API types and `DaemonClient`.
 - `packages/daemon`: the daemon, its store, Runs, Tasks, Apps and GitHub work.
 - `packages/cli`: the `ted` command.
 - `packages/app`: the Electron app and its React renderer.
+
+`ted-mobile` (`forjoyilive/ted-mobile`), the iPhone app and the relay it talks to Ted through:
+
+- `app/`: the phone app, Expo (React Native), iPhone only.
+- `relay/`: the relay, a Cloudflare Worker.
+- `docs/phone-relay.md` is the wire protocol and has an identical copy in `ted`; change both together.
 
 ## Running it locally
 
@@ -19,6 +27,13 @@ One repo, `forjoyilive/ted`: a pnpm workspace on Node 24.
 - Ted Dev is an Electron App in `.ted/workflow.yaml` (`electron: true`), so `ted run-app "Ted Dev"` starts it hidden inside Ted’s sandbox. Plain `pnpm app` refuses in the sandbox, because Electron can’t open there. To drive the app from a script, use `withApp` from `packages/app/scripts/with-app.ts`, or extend an app test. The human can also start Ted Dev with ▶.
 - For isolated CLI trials, use `env -u TED_RUN_CAPABILITY -u TED_RUN_TOKEN -u TED_RUN -u TED_TASK -u TED_PLAN TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>`. Keep Ted’s Task-control commands in the normal Run environment.
 - In a Task, always set `TED_HOME` to the Task’s own folder, `node_modules/.cache/ted-home` in the worktree, which the Ted Dev App already uses. Never use `~/.ted` (the installed Ted that runs this Factory) or `~/.ted-dev`.
+
+## Running the iPhone app
+
+- In `ted-mobile`: `pnpm typecheck`, `pnpm lint` and `pnpm test`. Ted runs them as the Mobile Typecheck, Mobile Lint and Mobile Tests checks.
+- Start the phone app only with `ted run-app "Ted Dev iPhone"` (pairs with Ted Dev) or `ted run-app "Ted iPhone"` (pairs with release Ted), never `pnpm ios` yourself. Each runs in the Task’s own simulator; `ted app screenshot <App>` saves its screen.
+- `pnpm relay` starts a local relay at `http://127.0.0.1:8787` for pairing Ted Dev with Ted Dev iPhone. Stop it when you are done.
+- Agents never deploy the relay or change a Cloudflare account, and never build for TestFlight or the App Store (`eas build`, `eas submit`, `eas update`).
 
 ## Where things live
 
