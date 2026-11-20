@@ -13,7 +13,7 @@ repos:
   - name: ted-mobile
     remote: https://github.com/forjoyilive/ted-mobile.git
     worktree:
-      setup: {run: "[ -f package.json ] || exit 0; pnpm install --frozen-lockfile", sandbox_access: [ios-xcode]}
+      setup: { run: pnpm install --frozen-lockfile, sandbox_access: [ios-xcode] }
     apps:
       - name: Ted iPhone
         kind: ios-simulator
@@ -36,7 +36,7 @@ stages:
       - { name: Affected Tests, run: pnpm check --affected, timeout: 80m }
       - { name: Mobile Typecheck, run: pnpm typecheck, repo: ted-mobile }
       - { name: Mobile Lint, run: pnpm lint, repo: ted-mobile }
-      - { name: Mobile Tests, run: npm test, repo: ted-mobile, timeout: 15m }
+      - { name: Mobile Tests, run: pnpm test, repo: ted-mobile, timeout: 15m }
       - name: Docs drift
         fix: true
         instruction: >-
