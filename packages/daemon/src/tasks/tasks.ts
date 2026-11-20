@@ -1219,10 +1219,13 @@ export function createTasks(options: {
     emit: (event) => {
       if (event.type === 'apps-changed' && store.getTask(event.taskId) !== undefined) {
         const taskId = event.taskId
-        void createdApps.list(taskId).then(
-          (list) => store.noteAppStarting(taskId, list.find(appStarting)?.name),
-          () => store.noteAppStarting(taskId, undefined),
-        )
+        void createdApps
+          .list(taskId)
+          .then(
+            (list) => store.noteAppStarting(taskId, list.find(appStarting)?.name),
+            () => store.noteAppStarting(taskId, undefined),
+          )
+          .catch(() => undefined)
       }
       if (event.type === 'apps-changed' && runBrowsers.opened(event.taskId)) {
         const runId = event.taskId
