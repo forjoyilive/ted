@@ -351,7 +351,7 @@ describe('importable CLI execution', () => {
             body: {
               proposal: {
                 title: 'Split',
-                tasks: [{ title: 'One', scope: 'First', files: ['src/row-2.ts'] }],
+                tasks: [{ title: 'One', scope: 'First', files: ['src/row-1.ts'] }],
               },
             },
           }),
