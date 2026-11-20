@@ -275,7 +275,7 @@ Inside a section, rows follow the Mac’s All Tasks order: priority, then rank, 
 - `tone` is `working` (working, queued), `waiting` (waiting on you, blocked, paused, waiting for GitHub, snoozed), `failed` (failed, partly merged), `stopped`, `done` or `none` (no status).
 - `section` is the row’s section key in the grouping asked for.
 
-`sections` holds `{"key":"working","label":"Working","count":12}` for each section with at least one Task, in order, on every page; `count` counts the whole list, not the page. `at` is when the Mac made the page.
+`sections` holds `{"key":"working","label":"Working","count":12}` for each section with at least one Task, in order, on every page; `count` counts the whole list, not the page. `sections` never takes more than half of `phoneReplyBodyMax`, so at least one row always fits: when it would, the Mac cuts every label to 100 characters, then 50, then 20, then none, and as a last resort sends only the sections that fit, with empty labels. `at` is when the Mac made the page.
 
 **Paging.** A page holds as many rows as fit under the size limit. When rows are left, `cursor` is set; the phone sends it back to get the next page, with the same `group`. The last page has no `cursor`. A cursor is opaque base64url text of at most 512 characters, holding the last row’s place in the order (section, priority, rank, creation time, Task ID). The next page starts after that place in the current order, so it stays well defined when that Task has moved or gone. A Task that moves earlier between pages is skipped, and one that moves later can show again; the phone replaces a row whose Task ID it already holds. The Mac decodes a cursor strictly: one that doesn’t decode, or was made for another route, gets `bad-request`.
 

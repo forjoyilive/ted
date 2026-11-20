@@ -185,7 +185,7 @@ async function thread(taskId: string): Promise<PhoneCommentEntry[][]> {
 
 const make = (
   title: string,
-  factory: Factory = notebook,
+  factory: Pick<Factory, 'id'> = notebook,
   extra: { description?: string; priority?: Priority } = {},
 ) => store.createTask({ title, factoryId: factory.id, ...extra })
 
@@ -405,3 +405,32 @@ test('a bad cursor is bad-request and a key that isn’t paired gets not-paired'
     )
   }
 })
+
+test('with many Factories with long names, every page stays under the limit and paging still reaches every Task', async () => {
+  const letters = (n: number) =>
+    String.fromCharCode(65 + Math.floor(n / 26)) + String.fromCharCode(65 + (n % 26))
+  const many: { id: string; key: string }[] = []
+  for (let n = 0; n < 100; n++) {
+    many.push(
+      store.createFactory({
+        key: `Z${letters(n)}`,
+        name: `${n} ${'ßé漢😀'.repeat(60)}`,
+        repos: [],
+        defaultBranch: 'main',
+      }),
+    )
+  }
+  for (const factory of many) await make(`Task in ${factory.key}`, factory)
+  const expected = new Set(listedIds())
+
+  const all = await pages('factory')
+  const ids = all.flatMap((body) => body.rows).map((row) => row.id)
+  expect(new Set(ids).size).toBe(ids.length)
+  expect(new Set(ids)).toEqual(expected)
+  for (const body of all) {
+    expect(body.rows.length).toBeGreaterThan(0)
+    expect(Buffer.byteLength(JSON.stringify(body.sections))).toBeLessThanOrEqual(
+      phoneReplyBodyMax / 2,
+    )
+  }
+}, 90_000)

@@ -197,6 +197,27 @@ function authorOf(comment: Comment): string {
   }
 }
 
+const sectionLabelSteps = [100, 50, 20, 0]
+
+export function fitSections(sections: readonly PhoneTaskSection[]): PhoneTaskSection[] {
+  const room = phoneReplyBodyMax / 2
+  if (jsonBytes(sections) <= room) return [...sections]
+  for (const max of sectionLabelSteps) {
+    const cut = sections.map((section) => ({ ...section, label: cutChars(section.label, max) }))
+    if (jsonBytes(cut) <= room) return cut
+  }
+  const kept: PhoneTaskSection[] = []
+  let size = jsonBytes([])
+  for (const section of sections) {
+    const bare = { ...section, label: '' }
+    const next = jsonBytes(bare) + (kept.length > 0 ? 1 : 0)
+    if (size + next > room) break
+    kept.push(bare)
+    size += next
+  }
+  return kept
+}
+
 interface Placed {
   key: PhoneTasksCursor
   row: PhoneTaskRow
@@ -327,10 +348,12 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
         }
       })
       .toSorted((a, b) => compareKeys(a.key, b.key))
-    const sections: PhoneTaskSection[] = order.flatMap(({ key, label }) => {
-      const count = placed.filter((entry) => entry.row.section === key).length
-      return count === 0 ? [] : [{ key, label, count }]
-    })
+    const sections = fitSections(
+      order.flatMap(({ key, label }) => {
+        const count = placed.filter((entry) => entry.row.section === key).length
+        return count === 0 ? [] : [{ key, label, count }]
+      }),
+    )
     const remaining = after ? placed.filter((entry) => compareKeys(entry.key, after) > 0) : placed
     const stamp = new Date(at).toISOString()
     const rows: PhoneTaskRow[] = []

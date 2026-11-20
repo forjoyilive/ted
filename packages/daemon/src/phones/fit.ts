@@ -11,6 +11,7 @@ type Measured =
   | PhoneRequestSummary
   | PhoneTaskRow
   | PhoneTaskSection
+  | readonly PhoneTaskSection[]
   | PhoneCommentEntry
   | string
 
