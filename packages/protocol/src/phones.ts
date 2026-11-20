@@ -22,13 +22,17 @@ import {
   parsePhoneAnswer,
 } from './phone-requests.ts'
 import {
+  type PhoneFactoriesBody,
   type PhoneTaskBody,
   type PhoneTaskCommentsBody,
+  type PhoneTaskCreatedBody,
   type PhoneTaskGroup,
   type PhoneTasksBody,
   phoneCursorMax,
+  phoneNewTaskPriority,
   phoneTaskGroups,
   phoneTaskIdMax,
+  phoneTaskTitleMax,
 } from './phone-tasks.ts'
 import { type Priority, priorities } from './task.ts'
 import { RequestValidationError } from './validation.ts'
@@ -44,6 +48,7 @@ export const phoneNameMax = 100
 export const phoneRequestIdMax = 200
 export const phoneActionTextMax = 10_000
 export const phoneRevisionMax = 128
+export const phoneFactoryKeyMax = 200
 export const relayLoginVersion = 2
 export const relayAuthHeader = 'Ted-Relay-Auth'
 export const relayAuthMax = 1_024
@@ -88,6 +93,8 @@ export const phoneRouteNames = [
   'task-comment',
   'task-archive',
   'task-delete',
+  'factories',
+  'task-create',
 ] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
@@ -141,6 +148,11 @@ export type PhoneRequest =
       children?: 'archive' | 'detach' | 'delete' | 'unparent'
       closePullRequests?: boolean
       hierarchyRevision?: string
+      createId?: string
+      factory?: string
+      title?: string
+      description?: string
+      start?: boolean
     })
 
 export interface PhoneReplyError {
@@ -182,6 +194,8 @@ export type PhoneReplyBody =
   | PhoneTasksBody
   | PhoneTaskBody
   | PhoneTaskCommentsBody
+  | PhoneFactoriesBody
+  | PhoneTaskCreatedBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
     | { ok: true; body: PhoneReplyBody }
@@ -517,7 +531,40 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       ...(children !== undefined && { children }),
     }
   }
+  if (route === 'task-create') {
+    const title = read.optional(object, 'title', read.string)
+    if (title !== undefined && title.length > phoneTaskTitleMax) {
+      throw new ParseError('title', `title must be at most ${phoneTaskTitleMax} characters`)
+    }
+    const description = read.optional(object, 'description', read.string)
+    if (description !== undefined && description.length > phoneActionTextMax) {
+      throw new ParseError(
+        'description',
+        `description must be at most ${phoneActionTextMax} characters`,
+      )
+    }
+    const priority = read.optional(object, 'priority', (o, f) => read.oneOf(o, f, priorities))
+    return {
+      ...header,
+      type,
+      route,
+      createId: base64Field(object, 'createId', 16),
+      factory: factoryKey(object),
+      ...(title !== undefined && { title }),
+      ...(description !== undefined && { description }),
+      priority: priority ?? phoneNewTaskPriority,
+      start: read.boolean(object, 'start'),
+    }
+  }
   return { ...header, type, route }
+}
+
+function factoryKey(object: JsonObject): string {
+  const key = read.string(object, 'factory')
+  if (!key || key.length > phoneFactoryKeyMax) {
+    throw new ParseError('factory', `factory must be text of 1 to ${phoneFactoryKeyMax} characters`)
+  }
+  return key
 }
 
 function actionText(text: string, required: boolean): void {

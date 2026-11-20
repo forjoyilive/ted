@@ -2,6 +2,7 @@ import type { Edition, PhoneProblemsBody, PhoneRequest, PhoneRouteName } from '@
 import { phoneProtocolVersion } from '@ted/protocol'
 import type { Caller } from '../tasks/tasks.ts'
 import type { PhoneActions } from './actions.ts'
+import type { PhoneNewTask } from './new-task.ts'
 import type { PhoneOutcome, PhoneRequests } from './requests.ts'
 import type { PhoneTasks } from './tasks.ts'
 
@@ -16,6 +17,7 @@ export interface PhoneRouteContext {
   requests: PhoneRequests
   tasks: PhoneTasks
   actions: PhoneActions
+  newTask: PhoneNewTask
   problems(): PhoneProblemsBody
   setPushToken(phoneId: string, token: string): boolean
 }
@@ -156,6 +158,32 @@ export const phoneRoutes: readonly PhoneRoute[] = [
         return { code: 'bad-request' }
       return actions.delete(taskId, hierarchyRevision, {
         ...(children !== undefined && { children }),
+      })
+    },
+  },
+  {
+    name: 'factories',
+    async handle(_, __, { newTask }) {
+      return newTask.factories()
+    },
+  },
+  {
+    name: 'task-create',
+    async handle(caller, { createId, factory, title, description, priority, start }, { newTask }) {
+      if (
+        createId === undefined ||
+        factory === undefined ||
+        priority === undefined ||
+        start === undefined
+      )
+        return { code: 'bad-request' }
+      return newTask.create(caller, {
+        createId,
+        factory,
+        ...(title !== undefined && { title }),
+        ...(description !== undefined && { description }),
+        priority,
+        start,
       })
     },
   },

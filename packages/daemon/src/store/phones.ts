@@ -10,6 +10,8 @@ import {
   phoneRelayResets,
   phoneRelaySent,
   phones,
+  phoneTaskCreateId,
+  phoneTaskCreates,
   requestReturns,
 } from './schema.ts'
 
@@ -77,6 +79,9 @@ export interface PhoneStore {
     at: string
   }): boolean
   waitingSince(request: { id: string; createdAt: string }): string
+  createdTask(phoneId: string, createId: string): string | undefined
+  markTaskCreated(input: { phoneId: string; createId: string; taskId: string; at: string }): void
+  persisted(): Promise<void>
 }
 
 export interface PhonesArea {
@@ -84,7 +89,7 @@ export interface PhonesArea {
 }
 
 export function phonesArea(ctx: StoreContext): PhonesArea {
-  const { store, commit, emit } = ctx
+  const { store, commit, emit, persisted } = ctx
   const rows = () => store.query(queryDb(phones.orderBy('pairedAt', 'asc')))
   const live = () => rows().filter((row) => row.removedAt === null)
   const resets = () => store.query(queryDb(phoneRelayResets.orderBy('at', 'asc')))
@@ -202,6 +207,14 @@ export function phonesArea(ctx: StoreContext): PhonesArea {
           ? returned.at
           : request.createdAt
       },
+      createdTask: (phoneId, createId) =>
+        store.query(
+          queryDb(phoneTaskCreates.where({ id: phoneTaskCreateId(phoneId, createId) })),
+        )[0]?.taskId,
+      markTaskCreated(input) {
+        commit(events.phoneTaskCreated(input))
+      },
+      persisted,
     },
   }
 }

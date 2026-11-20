@@ -3,20 +3,26 @@ import type { Json } from '../src/parse.ts'
 import {
   encodeCommentsCursor,
   encodeTasksCursor,
+  type PhoneFactoriesBody,
   type PhoneTaskBody,
   type PhoneTaskCommentsBody,
+  type PhoneTaskCreatedBody,
   type PhoneTaskRow,
   type PhoneTasksBody,
   parseCommentsCursor,
+  parsePhoneFactoriesBody,
   parsePhoneTaskBody,
   parsePhoneTaskCommentsBody,
+  parsePhoneTaskCreatedBody,
   parsePhoneTasksBody,
   parseTasksCursor,
   phoneCursorMax,
+  phoneTaskTitleMax,
 } from '../src/phone-tasks.ts'
 import {
   parsePhoneRequest,
   phoneActionTextMax,
+  phoneFactoryKeyMax,
   phoneRevisionMax,
   toBase64Url,
 } from '../src/phones.ts'
@@ -298,4 +304,78 @@ test('parsePhoneRequest reads every field of the Task action routes and refuses 
   expect(() => parsePhoneRequest({ ...remove, hierarchyRevision: undefined })).toThrow(
     /hierarchyRevision/,
   )
+})
+
+test('parsePhoneFactoriesBody reads key, name, icon and default priority', () => {
+  const body: PhoneFactoriesBody = {
+    factories: [
+      {
+        key: 'TED',
+        name: 'Ted',
+        icon: { kind: 'symbol', symbol: 'code', color: 'blue' },
+        defaultPriority: 'none',
+      },
+      { key: 'NB', name: 'Notebook', defaultPriority: 'none' },
+    ],
+  }
+  expect(parsePhoneFactoriesBody(roundTrip(body))).toEqual(body)
+  expect(() => parsePhoneFactoriesBody({ factories: [{ key: 'NB', name: 'Notebook' }] })).toThrow(
+    /defaultPriority/,
+  )
+  expect(() =>
+    parsePhoneFactoriesBody({ factories: [{ name: 'Notebook', defaultPriority: 'none' }] }),
+  ).toThrow(/key/)
+})
+
+test('parsePhoneTaskCreatedBody reads the Task and an optional start refusal', () => {
+  const task = {
+    ...row,
+    description: '',
+    cut: false,
+    childTasks: 0,
+    openPullRequests: 0,
+    hierarchyRevision: 'abc123',
+  }
+  const plain: PhoneTaskCreatedBody = { task }
+  expect(parsePhoneTaskCreatedBody(roundTrip(plain))).toEqual(plain)
+  const refused: PhoneTaskCreatedBody = { task, startRefused: 'NB has no free slot' }
+  expect(parsePhoneTaskCreatedBody(roundTrip(refused))).toEqual(refused)
+  expect(() => parsePhoneTaskCreatedBody({ task, startRefused: 3 })).toThrow(/startRefused/)
+})
+
+test('parsePhoneRequest reads every field of task-create and refuses bad ones', () => {
+  const header = { protocol: 3, id: toBase64Url(new Uint8Array(16)), at: 1, type: 'request' }
+  const create = {
+    ...header,
+    route: 'task-create',
+    createId: toBase64Url(new Uint8Array(16).fill(7)),
+    factory: 'NB',
+    title: 'Fix the login page',
+    description: 'It loops.',
+    priority: 'high',
+    start: true,
+  }
+  expect(parsePhoneRequest(create)).toEqual(create)
+  const { title: _, description: __, priority: ___, ...bare } = create
+  expect(parsePhoneRequest(bare)).toEqual({ ...bare, priority: 'none' })
+  expect(parsePhoneRequest({ ...create, title: '' })).toEqual({ ...create, title: '' })
+  expect(() => parsePhoneRequest({ ...create, createId: 'short' })).toThrow(/createId/)
+  expect(() => parsePhoneRequest({ ...create, createId: undefined })).toThrow(/createId/)
+  expect(() => parsePhoneRequest({ ...create, factory: '' })).toThrow(/factory/)
+  expect(() =>
+    parsePhoneRequest({ ...create, factory: 'F'.repeat(phoneFactoryKeyMax + 1) }),
+  ).toThrow(/factory/)
+  expect(() => parsePhoneRequest({ ...create, title: 't'.repeat(phoneTaskTitleMax + 1) })).toThrow(
+    /title/,
+  )
+  expect(() => parsePhoneRequest({ ...create, title: 3 })).toThrow(/title/)
+  expect(() =>
+    parsePhoneRequest({ ...create, description: 'd'.repeat(phoneActionTextMax + 1) }),
+  ).toThrow(/description/)
+  expect(() => parsePhoneRequest({ ...create, priority: 'soon' })).toThrow(/priority/)
+  expect(() => parsePhoneRequest({ ...create, start: undefined })).toThrow(/start/)
+  expect(() => parsePhoneRequest({ ...create, start: 'yes' })).toThrow(/start/)
+
+  const factories = { ...header, route: 'factories' }
+  expect(parsePhoneRequest(factories)).toEqual(factories)
 })

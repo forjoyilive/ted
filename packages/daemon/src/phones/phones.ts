@@ -14,6 +14,7 @@ import { createPhoneActions, type PhoneTaskChanges } from './actions.ts'
 import { createPhoneBridge, type PhoneBridge } from './bridge.ts'
 import { loadPhoneKeys, type PhoneKeyrings, type PhoneKeys, replaceRelayKey } from './keys.ts'
 import { computerName } from './mac-name.ts'
+import { createPhoneNewTask, type PhoneTaskCreation } from './new-task.ts'
 import { createPairings } from './pairings.ts'
 import { type PhoneProblemSource, phoneProblems } from './problems.ts'
 import { createRelayClient, type RelayClient } from './relay-client.ts'
@@ -25,6 +26,7 @@ export interface PhonesOptions {
   inbox: PhoneInbox
   tasks: PhoneTaskSource
   taskChanges: PhoneTaskChanges
+  taskCreation: PhoneTaskCreation
   problems: Pick<PhoneProblemSource, 'banners' | 'factoryName'>
   keyrings: PhoneKeyrings
   version: string
@@ -68,6 +70,7 @@ export function createPhones(options: PhonesOptions): Phones {
   const requests = createPhoneRequests(options.inbox)
   const tasks = createPhoneTasks(options.tasks, now)
   const actions = createPhoneActions(options.taskChanges, tasks)
+  const newTask = createPhoneNewTask(options.taskCreation, options.phones, tasks, now)
   const tickets = new Map<string, Ticket>()
   const ending = new Map<string, number>()
   let keysLoaded: Promise<PhoneKeys> | undefined
@@ -204,6 +207,7 @@ export function createPhones(options: PhonesOptions): Phones {
         requests,
         tasks,
         actions,
+        newTask,
         problems: () => phoneProblems(options.problems),
         setPushToken: (phoneId, token) => options.phones.setPushToken(phoneId, token),
       },
