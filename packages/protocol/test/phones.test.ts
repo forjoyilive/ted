@@ -41,7 +41,7 @@ const link: PairingLink = {
 const header = { protocol: 1, id: b(16), at: 1795135669031 }
 
 test('versions and relay addresses', () => {
-  expect(phoneProtocolVersion).toBe(1)
+  expect(phoneProtocolVersion).toBe(2)
   expect(minPhoneProtocolVersion).toBe(1)
   expect(defaultRelayUrl).toBe('https://ted-relay.invalid')
   expect(relayUrl({}, 'dev')).toBe(devRelayUrl)
@@ -139,6 +139,26 @@ test('message headers and phone requests', () => {
   const request = { ...header, type: 'request', route: 'status' }
   expect(parsePhoneRequest(request)).toEqual(request)
   expect(() => parsePhoneRequest({ ...request, route: 1 })).toThrow()
+  const read = { ...header, type: 'request', route: 'request', requestId: 'c-1' }
+  expect(parsePhoneRequest(read)).toEqual(read)
+  expect(() => parsePhoneRequest({ ...read, requestId: undefined })).toThrow(/requestId/)
+  expect(() => parsePhoneRequest({ ...read, requestId: '' })).toThrow(/requestId/)
+  expect(() => parsePhoneRequest({ ...read, requestId: 'x'.repeat(201) })).toThrow(/requestId/)
+  const answer = {
+    ...header,
+    type: 'request',
+    route: 'answer',
+    requestId: 'c-1',
+    answer: { action: 'answer', choice: 'Yes', text: 'and soon' },
+  }
+  expect(parsePhoneRequest(answer)).toEqual(answer)
+  expect(() => parsePhoneRequest({ ...answer, answer: undefined })).toThrow()
+  expect(() => parsePhoneRequest({ ...answer, answer: { action: 'merge' } })).toThrow()
+  expect(() => parsePhoneRequest({ ...answer, requestId: 3 })).toThrow(/requestId/)
+  expect(parsePhoneRequest({ ...request, route: 'requests', requestId: 'ignored' })).toEqual({
+    ...request,
+    route: 'requests',
+  })
   expect(() => parsePhoneRequest({ ...header, type: 'reply' })).toThrow()
 })
 

@@ -1,4 +1,10 @@
-import { type DaemonClient, type MacReply, pairingLifetimeMs, readDaemonInfo } from '@ted/protocol'
+import {
+  type DaemonClient,
+  type MacReply,
+  pairingLifetimeMs,
+  phoneProtocolVersion,
+  readDaemonInfo,
+} from '@ted/protocol'
 import { afterAll, beforeAll, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import type { PhonesArea, TedStore } from '../src/store/index.ts'
@@ -79,14 +85,18 @@ test('a phone pairs, the user approves it, and it reads status', async () => {
   })
   expect(await phone.status()).toMatchObject({
     ok: true,
-    body: { mac: macName, edition: 'dev', version: '9.9.9', protocol: 1 },
+    body: { mac: macName, edition: 'dev', version: '9.9.9', protocol: phoneProtocolVersion },
+  })
+  expect(await phone.status(1)).toMatchObject({
+    ok: true,
+    body: { mac: macName, protocol: phoneProtocolVersion },
   })
   const { phones: listed } = await client.pairedPhones()
   expect(listed).toEqual([
     expect.objectContaining({ name: 'iPhone 16', lastReachedAt: expect.any(String) }),
   ])
   expect(failure(await phone.send({ type: 'request', route: 'tasks' }))).toBe('unknown-route')
-  expect(failure(await phone.status(2))).toBe('too-new')
+  expect(failure(await phone.status(phoneProtocolVersion + 1))).toBe('too-new')
   expect(failure(await phone.status(0))).toBe('too-old')
 })
 
@@ -124,7 +134,7 @@ test('a phone of the other edition or protocol is refused, and the code is used 
   for (const [edition, protocol, code] of [
     ['release', 1, 'wrong-edition'],
     ['dev', 0, 'too-old'],
-    ['dev', 2, 'too-new'],
+    ['dev', phoneProtocolVersion + 1, 'too-new'],
   ] as const) {
     const phone = await newPhone()
     expect(failure(await phone.pair('Other Phone', edition, protocol)), code).toBe(code)

@@ -847,6 +847,7 @@ export interface Tasks {
   setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: OutcomeInput): Promise<OutcomeResult>
   answer(commentId: string, answer: AnswerRequest): Promise<Comment>
+  answerFromPhone(commentId: string, answer: AnswerRequest): Promise<Comment>
   coordinatorTell(ref: string, body: string): Promise<Comment>
   coordinatorAnswer(commentId: string, answer: AnswerRequest, mark: string): Promise<Comment>
   coordinatorResume(ref: string, comment?: string): Promise<Task>
@@ -13588,6 +13589,7 @@ export function createTasks(options: {
 
     isFailureDecision: (id) => failures.findDecision(id) !== undefined,
     answer: (id, request) => answerAs(id, request, true),
+    answerFromPhone: (id, request) => answerAs(id, request, false),
 
     coordinatorAnswer: (id, request, mark) => answerAs(id, request, false, mark),
 

@@ -51,6 +51,7 @@ import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
 import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
 import { createPhones } from './phones/phones.ts'
+import { storeInbox } from './phones/requests.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
 import { redactSecrets } from './redact.ts'
@@ -863,8 +864,20 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
       })
       await execution.start()
+      const phonePlans = plans
       const phones = createPhones({
         phones: store.phones,
+        inbox: storeInbox(store, {
+          task: async (id, answer) => {
+            await tasks.answerFromPhone(id, answer)
+          },
+          plan: async (id, answer) => {
+            await phonePlans.answer(id, answer)
+          },
+          automation: async (id, answer) => {
+            await automations.answer(id, answer)
+          },
+        }),
         keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
         version: options.version,
         ...(options.phones?.relayUrl !== undefined && { relayUrl: options.phones.relayUrl }),

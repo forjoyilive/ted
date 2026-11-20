@@ -14,9 +14,11 @@ import { loadPhoneKeys, type PhoneKeyrings, type PhoneKeys } from './keys.ts'
 import { computerName } from './mac-name.ts'
 import { createPairings } from './pairings.ts'
 import { createRelayClient, type RelayClient } from './relay-client.ts'
+import { createPhoneRequests, type PhoneInbox } from './requests.ts'
 
 export interface PhonesOptions {
   phones: PhoneStore
+  inbox: PhoneInbox
   keyrings: PhoneKeyrings
   version: string
   relayUrl?: string
@@ -46,6 +48,7 @@ export function createPhones(options: PhonesOptions): Phones {
   const relay = options.relayUrl ?? relayUrl()
   const pairings = createPairings(now, edition)
   const reached = new Map<string, string>()
+  const requests = createPhoneRequests(options.inbox)
   let keysLoaded: Promise<PhoneKeys> | undefined
   let connection: { relay: RelayClient; bridge: PhoneBridge } | undefined
   let expiry: NodeJS.Timeout | undefined
@@ -85,7 +88,7 @@ export function createPhones(options: PhonesOptions): Phones {
       keys: loaded,
       phones: options.phones,
       pairings,
-      routes: { macName: nameOfMac, edition, version: options.version },
+      routes: { macName: nameOfMac, edition, version: options.version, requests },
       now,
       send: (conn, data) => relayClient?.send(conn, data),
       reached: (phoneId) => reached.set(phoneId, new Date(now()).toISOString()),
