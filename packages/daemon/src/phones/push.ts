@@ -22,6 +22,10 @@ export interface PushService {
   send(message: PushMessage): Promise<PushResult>
 }
 
+export const noPush: PushService = {
+  send: async () => ({ kind: 'failed', reason: 'push notifications are off' }),
+}
+
 export interface PushResponse {
   status: number
   text(): Promise<string>

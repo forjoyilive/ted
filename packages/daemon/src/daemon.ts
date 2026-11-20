@@ -52,7 +52,7 @@ import { createMemoryWatch } from './memory-kills.ts'
 import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
 import { createPhoneNotifier } from './phones/notifier.ts'
 import { createPhones } from './phones/phones.ts'
-import { createExpoPush, type PushService } from './phones/push.ts'
+import { noPush, type PushService } from './phones/push.ts'
 import { storeInbox } from './phones/requests.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
 import { createPresence } from './presence.ts'
@@ -896,7 +896,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const phoneNotifier = createPhoneNotifier({
         store,
         presence,
-        push: options.phones?.push ?? createExpoPush(),
+        push: options.phones?.push ?? noPush,
         ...(options.phones?.now && { now: options.phones.now }),
       })
       const factoryRemovals = createFactoryRemovals({

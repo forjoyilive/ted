@@ -8,6 +8,7 @@ import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './in
 import { closeInheritedFds } from './inherited-fds.ts'
 import { daemonAlreadyRunningExitCode, tedQuitExitCode } from './launch.ts'
 import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
+import { createExpoPush } from './phones/push.ts'
 import { QuitMarkedError } from './quit-mark.ts'
 import { redactSecrets } from './redact.ts'
 import { holdAwakeWithOs, holdOnPowerWithOs } from './stay-awake.ts'
@@ -112,6 +113,7 @@ try {
         simulators: { supported: true },
       }),
     onShutdown: () => void shutdown(),
+    phones: { push: createExpoPush() },
     stallProfiles: {},
     checkAgentsOnStart: true,
     ...(appToken !== undefined && { appToken }),
