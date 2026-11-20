@@ -41,7 +41,7 @@ export function statusLabel(status: TaskStatus): string {
     case 'paused':
       return `Paused · ${status.reason}`
     case 'working':
-      return 'Working'
+      return status.app === undefined ? 'Working' : 'Starting app'
     case 'stopped':
       return status.prepared ? 'Ready for Work' : 'Stopped'
     case 'blocked':
@@ -190,8 +190,12 @@ export function TaskStatusChips({
 }) {
   const now = useNow()
   const { markers } = task
+  const testsRunning = markers.some((m) => m.kind === 'test-activity' && m.phase === 'running')
   const status =
-    hideWaiting && task.status?.kind === 'waiting-on-you' && task.status.snoozedUntil === undefined
+    (hideWaiting &&
+      task.status?.kind === 'waiting-on-you' &&
+      task.status.snoozedUntil === undefined) ||
+    (testsRunning && task.status?.kind === 'working' && task.status.app === undefined)
       ? undefined
       : task.status
   if (!task.status && markers.length === 0 && startsAutomatically) {
