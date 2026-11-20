@@ -510,14 +510,26 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
   }
 
   function familyRevision(task: Task, descendants: readonly string[]): string {
-    const family = descendants.map((id) => {
-      const child = source.task(id)
-      return [id, child?.parentId ?? null, child?.archived !== undefined]
-    })
-    const prs = openPullRequests(task).map(({ repo, pr }) => [repo.name, pr.number])
-    return createHash('sha256')
-      .update(JSON.stringify([task.id, task.parentId ?? null, prs, family]))
-      .digest('hex')
+    const facts = (member: Task | undefined, id: string) =>
+      member
+        ? [
+            member.id,
+            member.parentId,
+            member.childIds,
+            member.stage,
+            member.archived,
+            member.blockedBy,
+            member.status,
+            member.runs,
+            member.updatedAt,
+            member.merged,
+            openPullRequests(member).map(({ repo, pr }) => [repo.name, pr.number]),
+          ]
+        : [id]
+    const family = [task.id, ...descendants].map((id, n) =>
+      facts(n === 0 ? task : source.task(id), id),
+    )
+    return createHash('sha256').update(JSON.stringify(family)).digest('hex')
   }
 
   function revision(taskId: string): string | undefined {

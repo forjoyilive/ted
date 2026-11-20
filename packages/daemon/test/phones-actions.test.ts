@@ -255,6 +255,24 @@ test('Priority and Comment from the phone change the Task, and a comment leaves 
 })
 
 test('Archive and Delete with child Tasks honour each choice and refuse a stale read', async () => {
+  const edited = await make('Edited on the Mac after the phone read it')
+  const readBeforeEdit = await opened(edited.id)
+  await ok('PUT', `/tasks/${edited.id}`, { description: 'Changed on the Mac' })
+  expect(
+    refusal(
+      await send({
+        type: 'request',
+        route: 'task-delete',
+        taskId: edited.id,
+        hierarchyRevision: readBeforeEdit.hierarchyRevision,
+      }),
+    ),
+  ).toEqual({
+    code: 'refused',
+    message: `${edited.displayId} or its child Tasks changed since your phone read it. Open it again and choose again.`,
+  })
+  expect(store.getTask(edited.id)).toBeDefined()
+
   const detached = await make('Parent to archive alone')
   const keptChild = await make('Child that stays', { parentId: detached.id })
   const read = await opened(detached.id)
@@ -408,32 +426,29 @@ async function toPullRequest(): Promise<Task> {
   return task
 }
 
-test('Archive from the phone closes the open pull request only when asked', async () => {
-  const kept = await toPullRequest()
-  const keptRead = await opened(kept.id)
-  expect(keptRead.openPullRequests).toBe(1)
-  expect(
-    await send({
+async function archiveFromPhone(taskId: string, closePullRequests: boolean): Promise<MacReply> {
+  return waitUntil(async () => {
+    const read = await opened(taskId)
+    expect(read.openPullRequests).toBe(1)
+    const reply = await send({
       type: 'request',
       route: 'task-archive',
-      taskId: kept.id,
-      hierarchyRevision: keptRead.hierarchyRevision,
-      closePullRequests: false,
-    }),
-  ).toMatchObject({ ok: true })
+      taskId,
+      hierarchyRevision: read.hierarchyRevision,
+      closePullRequests,
+    })
+    return refusal(reply)?.message.includes('changed since your phone read it') ? undefined : reply
+  }, 'an Archive from a fresh read')
+}
+
+test('Archive from the phone closes the open pull request only when asked', async () => {
+  const kept = await toPullRequest()
+  expect(await archiveFromPhone(kept.id, false)).toMatchObject({ ok: true })
   expect(store.getTask(kept.id)?.archived).toBeDefined()
   expect(await prCalls('close')).toEqual([])
 
   const closed = await toPullRequest()
-  expect(
-    await send({
-      type: 'request',
-      route: 'task-archive',
-      taskId: closed.id,
-      hierarchyRevision: (await opened(closed.id)).hierarchyRevision,
-      closePullRequests: true,
-    }),
-  ).toMatchObject({ ok: true })
+  expect(await archiveFromPhone(closed.id, true)).toMatchObject({ ok: true })
   await waitUntil(
     () => store.getTask(closed.id)?.repos[0]?.pullRequest?.state === 'closed' || undefined,
     'the pull request to close',
