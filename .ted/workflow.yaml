@@ -29,7 +29,7 @@ repos:
 order: [intake, clarify, design, work, validate, review, merge]
 stages:
   design: { gate: true, based_on: f7500a6 }
-  work: { based_on: d83680f }
+  work: { based_on: 31b5622 }
   validate:
     checks:
       - { name: Typecheck, run: pnpm typecheck }
