@@ -85,6 +85,13 @@ test('demo children receive only local fixtures and no inherited credentials or 
   expect(env.NODE_OPTIONS).toBeUndefined()
 })
 
+test('the demo keeps a phone relay override so a phone can pair with it', () => {
+  expect(demoEnvironment(folder, { TED_RELAY_URL: 'http://127.0.0.1:9999' }).TED_RELAY_URL).toBe(
+    'http://127.0.0.1:9999',
+  )
+  expect(demoEnvironment(folder, {}).TED_RELAY_URL).toBeUndefined()
+})
+
 test('refuses a demo daemon pointer linked to another home', async () => {
   await markDemo(folder, { version: demoVersion, complete: true })
   await symlink(path.join(homedir(), '.ted', 'daemon.json'), path.join(folder, 'daemon.json'))

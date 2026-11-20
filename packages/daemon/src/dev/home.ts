@@ -166,6 +166,7 @@ export function demoEnvironment(
     ...(tedEnv('TED_EXIT_WITH_PID', base) && {
       TED_EXIT_WITH_PID: tedEnv('TED_EXIT_WITH_PID', base),
     }),
+    ...(tedEnv('TED_RELAY_URL', base) && { TED_RELAY_URL: tedEnv('TED_RELAY_URL', base) }),
     ...(tedEnv('TED_HIDDEN_WINDOW', base) && {
       TED_HIDDEN_WINDOW: tedEnv('TED_HIDDEN_WINDOW', base),
     }),

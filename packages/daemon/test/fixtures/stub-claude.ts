@@ -327,7 +327,21 @@ async function runStep(step: Step): Promise<void> {
         }),
       },
     })
-    if (!step.noWait) say(JSON.stringify(await answered))
+    if (!step.noWait) {
+      const response = await answered
+      say(JSON.stringify(response))
+      if (demo && process.env.TED_TASK) {
+        const allowed = (response as { behavior?: string } | undefined)?.behavior === 'allow'
+        const what = step.permission.description ?? step.permission.tool
+        await runStep({
+          demoRequest: {
+            comment: {
+              body: `You ${allowed ? 'allowed' : 'denied'} “${what}”. Carrying on.`,
+            },
+          },
+        })
+      }
+    }
   } else if ('cancelPermission' in step) {
     if (lastRequest !== undefined) {
       emit({ type: 'control_cancel_request', request_id: lastRequest })
@@ -448,6 +462,9 @@ for (;;) {
     continue
   }
   let own = stepsIn(message.message.content)
+  const reply = demo && process.env.TED_TASK ? demoReply(message.message.content) : undefined
+  if (reply !== undefined && own.length === 0)
+    own = [{ demoRequest: { comment: { body: reply } } }, { endTurn: true }]
   if (
     firstDemoMessage &&
     process.env.TED_DEMO === '1' &&
@@ -496,6 +513,14 @@ async function runDemoScript(script: string, content: string) {
     interrupted = false
     emit({ type: 'result', subtype: 'error_during_execution', is_error: false })
   } else await runStep({ endTurn: true })
+}
+
+function demoReply(content: string): string | undefined {
+  const [first = '', ...rest] = content.split('\n\n')
+  const asked = /^(?:The user|Autopilot) replied to “(.*)”:$/s.exec(first)?.[1]
+  if (asked === undefined) return undefined
+  const answer = rest.slice(0, -1).join('\n\n').trim()
+  return `You answered “${asked}” with “${answer}”. Carrying on.`
 }
 
 function stepsIn(content: string): Step[] {

@@ -1,0 +1,114 @@
+import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import path from 'node:path'
+import type { Comment, DaemonClient } from '@ted/protocol'
+import { afterEach, expect, test } from 'vitest'
+import { askDemo } from '../src/dev/ask.ts'
+import { demoEnvironment, prepareDemo, until } from '../src/dev/demo.ts'
+import { demoVersion, markDemo } from '../src/dev/home.ts'
+import { superviseDaemon } from '../src/launch.ts'
+import { killRunHosts, stopDaemonIn } from './helpers.ts'
+
+const original = { ...process.env }
+let home: string | undefined
+
+afterEach(async ({ task }) => {
+  if (home) {
+    if (task.result?.state === 'fail') {
+      const kept = path.resolve('node_modules/.cache/ted-test-captures', path.basename(home))
+      await cp(path.join(home, 'logs'), kept, { recursive: true }).catch(() => undefined)
+      console.error(`demo-ask kept the failed test home’s logs in ${kept}`)
+    }
+    await stopDaemonIn(home)
+    await killRunHosts(home)
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
+  for (const key of Object.keys(process.env)) delete process.env[key]
+  Object.assign(process.env, original)
+})
+
+async function newDemoHome(): Promise<string> {
+  const parent = path.resolve('node_modules/.cache/ted-home')
+  await mkdir(parent, { recursive: true })
+  const folder = await mkdtemp(path.join(parent, 'demo-ask-'))
+  for (const key of Object.keys(process.env)) delete process.env[key]
+  Object.assign(process.env, demoEnvironment(folder))
+  return folder
+}
+
+async function openRequest(client: DaemonClient, taskId: string, kind: Comment['kind']) {
+  return until(
+    async () => (await client.listComments(taskId)).find((c) => c.kind === kind && !c.answer),
+    `an open ${kind}`,
+    60_000,
+  )
+}
+
+async function note(client: DaemonClient, taskId: string, text: string) {
+  return until(
+    async () =>
+      (await client.listComments(taskId)).find((c) => c.kind === 'note' && c.body.includes(text)),
+    `a note saying ${text}`,
+    60_000,
+  )
+}
+
+test('ted dev ask posts new demo requests and the Task Lead carries on after each answer', async () => {
+  home = await newDemoHome()
+  await prepareDemo(home)
+  await markDemo(home, { version: demoVersion, complete: true })
+  await expect(askDemo(home, 'question')).rejects.toThrow('Open the demo first')
+
+  const { client } = await superviseDaemon(home, {
+    app: true,
+    onEvent: () => {},
+    onConnection: () => {},
+  })
+  await client.createFactory({
+    name: 'Field Notes',
+    key: 'FN',
+    repos: [{ name: 'journal', source: { remote: 'https://github.com/demo/journal' } }],
+  })
+  await until(async () => (await client.listFactories()).every((f) => f.cloned), 'Factory clone')
+  const task = await client.createTask({
+    factory: 'FN',
+    title: 'Try the phone checklist',
+    start: false,
+  })
+  const { revision } = await client.taskGates(task.id)
+  await client.setTaskGates(task.id, { overrides: { clarify: true }, revision })
+  await client.startTask(task.id)
+  await until(async () => {
+    const current = (await client.listTasks()).find((t) => t.id === task.id)
+    if (!current?.leadRunId) return false
+    return (await client.getRun(current.leadRunId)).run.state === 'idle'
+  }, 'an idle Task Lead', 60_000)
+
+  const asked = { timeoutMs: 120_000, task: task.displayId }
+  expect((await askDemo(home, 'question', asked)).task.id).toBe(task.id)
+  const question = await openRequest(client, task.id, 'question')
+  const choice = question.choices?.[0] ?? ''
+  await client.answerRequest(question.id, { action: 'answer', choice })
+  await note(client, task.id, `with “${choice}”`)
+
+  await until(async () => {
+    const lead = (await client.listTasks()).find((t) => t.id === task.id)?.leadRunId
+    return lead !== undefined && (await client.getRun(lead)).run.state === 'idle'
+  }, 'the Task Lead to wait again', 60_000)
+  await askDemo(home, 'permission', asked)
+  const permission = await openRequest(client, task.id, 'permission')
+  await client.answerRequest(permission.id, { action: 'approve' })
+  await note(client, task.id, 'You allowed')
+
+  await until(async () => {
+    const lead = (await client.listTasks()).find((t) => t.id === task.id)?.leadRunId
+    return lead !== undefined && (await client.getRun(lead)).run.state === 'idle'
+  }, 'the Task Lead to wait again', 60_000)
+  await askDemo(home, 'sign-off', asked)
+  const signoff = await openRequest(client, task.id, 'signoff')
+  await client.answerRequest(signoff.id, { action: 'approve' })
+  await until(
+    async () => (await client.listTasks()).find((t) => t.id === task.id)?.stage === 'design',
+    'the Task to move to Design',
+    60_000,
+  )
+}, 300_000)

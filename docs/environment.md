@@ -20,7 +20,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_XCRUN_BIN`, `TED_IDB_BIN`, `TED_OPEN_BIN`, `TED_SANDBOX_BIN` | Substitute simulator, simulator input, launcher and sandbox programs. Release finds `idb` through the login-shell `PATH`. |
 | `TED_EMULATOR_BIN`, `TED_ADB_BIN`, `TED_AVDMANAGER_BIN` | Substitute the Android SDK’s `emulator`, `adb` and `avdmanager`. Release finds them in the SDK named by `ANDROID_HOME` or `ANDROID_SDK_ROOT`, or the standard SDK folder. |
 | `TED_KEYRING_MODULE` | Import a keyring implementation for tests. |
-| `TED_RELAY_URL` | Point Ted Dev at another phone relay, such as one started with `pnpm relay` in ted-mobile. Without it Ted Dev uses `http://127.0.0.1:8787`, the `wrangler dev` default. Ignored in release, which uses `defaultRelayUrl` in `packages/protocol/src/phones.ts`. |
+| `TED_RELAY_URL` | Point Ted Dev at another phone relay, such as one started with `pnpm relay` in ted-mobile. Without it Ted Dev uses `http://127.0.0.1:8787`, the `wrangler dev` default. The Ted Dev demo keeps it, so a phone can pair with the demo. Ignored in release, which uses `defaultRelayUrl` in `packages/protocol/src/phones.ts`. |
 | `TED_ASANA_API`, `TED_ASANA_CALLBACK_PORT` | Redirect Asana token/API requests to a loopback stub and isolate its temporary callback port. Ignored in release. |
 | `TED_LINEAR_API` | Redirect Linear requests to a stub. |
 | `TED_UPDATE_FEED`, `TED_UPDATE_LOG` | Use a loopback update server and record update installation. |

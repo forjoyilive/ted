@@ -1368,6 +1368,15 @@ export const commands = [
     options: options('key'),
   },
   {
+    name: 'dev ask',
+    handler: 'askDemo',
+    min: 1,
+    max: 1,
+    help: '  ted dev ask question|permission|sign-off  Have a waiting demo Task Lead post a new Inbox request; --task picks one',
+    callers: 'Terminal',
+    options: options('task'),
+  },
+  {
     name: 'dev stop',
     handler: 'stopDemo',
     min: 0,

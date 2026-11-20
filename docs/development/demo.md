@@ -12,6 +12,29 @@ The first seed prepares the data through real Ted workflows and can take a minut
 
 The demo uses local bare Git repos and the test stubs for agents, GitHub, the keyring and simulators. It needs no provider credentials or external services. Working examples wait for an explicit action; Automations are disabled after their sample history is collected. Quitting the demo preserves its detached stub Runs so reopening keeps the examples in place; `pnpm ted dev stop` ends them.
 
+## New Inbox requests on demand
+
+The seeded requests all exist before the app opens. To get a fresh one while the demo is open, run:
+
+```sh
+pnpm ted dev ask question      # or permission, or sign-off
+```
+
+It picks a demo Task whose Task Lead is waiting and has no open request, has that Task Lead post the request, waits until it reaches the Inbox and prints the Task. `--task <ID>` picks the Task. A sign-off goes only to a Task in Clarify or Design with its sign-off on. The command needs the demo app open and never starts a daemon itself.
+
+After you answer, the Task Lead posts a note naming your answer and carries on: a question or permission request continues its Stage, and an approved sign-off moves the Task to the next Stage. When no Task can take a request, answer an open one or rebuild the demo with `pnpm ted dev seed --reset`.
+
+## Pairing a phone with the demo
+
+The demo keeps `TED_RELAY_URL`, so the “Ted Dev” phone app can pair with it:
+
+1. Start a local relay, for example `pnpm relay` in ted-mobile.
+2. Quit the demo app if it is open, then run `TED_RELAY_URL=http://127.0.0.1:8787 pnpm app --demo` (use your relay’s URL).
+3. In the demo’s Settings, pair the “Ted Dev” phone app, and under Notifications turn on **Send a notification for: Inbox items**. The demo starts with it off.
+4. To check a notification that arrives while you are away, run `sleep 150; pnpm ted dev ask question` and leave the Mac alone. Ted counts you away after 2 minutes without keyboard or mouse input, so the question reaches the phone as a notification. Answer it there; the Task Lead’s note appears in the Task thread.
+
+## Screenshots
+
 To capture the Board, Inbox, a Task thread and Settings in both themes:
 
 ```sh
