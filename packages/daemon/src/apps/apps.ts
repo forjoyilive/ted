@@ -1162,6 +1162,7 @@ export function createApps(options: AppsOptions): Apps {
     onHost: (pid: number, name: string) => Promise<void>,
   ): Promise<void> {
     let launchedAt = Date.now()
+    let wasBuilding = pool.building(key)
     while (!closed) {
       const instance = await readInstance(dir)
       if (!instance || instance.ended) return
@@ -1199,8 +1200,12 @@ export function createApps(options: AppsOptions): Apps {
         pool.endTurn(key)
         instance.builtAt = new Date().toISOString()
         await writeInstance(dir, instance)
+        wasBuilding = false
         changed(taskId)
       }
+      const building = pool.building(key)
+      if (wasBuilding && !building) changed(taskId)
+      wasBuilding = building
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {
         const answer = await answers(readyUrl)
