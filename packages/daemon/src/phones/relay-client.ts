@@ -4,11 +4,11 @@ import {
   parseRelayToMac,
   relayAuth,
   relayAuthHeader,
+  relayListHash,
   toBase64Url,
 } from '@ted/protocol'
 import { isString, parseJson } from '@ted/protocol/parse'
 import nacl from 'tweetnacl'
-import { redactSecrets } from '../redact.ts'
 import type { PhoneKeys } from './keys.ts'
 
 export const relayDelaysMs = [1_000, 2_000, 5_000, 10_000, 30_000] as const
@@ -16,10 +16,17 @@ export const relayDelaysMs = [1_000, 2_000, 5_000, 10_000, 30_000] as const
 export type ListRefusal = 'phones-stale' | 'phones-conflict'
 export type CandidateAnswer = 'bound' | 'gone'
 
+export interface RelayListAck {
+  rev: number
+  hash: string
+}
+
 export interface RelayClientOptions {
   url: string
   keys: PhoneKeys
+  base: string | null
   onMessage(conn: number, data: string): void
+  onListAcked(ack: RelayListAck): void
   onListRefused(answer: ListRefusal, rev: number): void
   delaysMs?: readonly number[]
 }
@@ -42,6 +49,11 @@ interface Unanswered<T> {
   reject(error: Error): void
 }
 
+interface PhoneList {
+  rev: number
+  keys: string[]
+}
+
 export function macSocketUrl(relay: string, channel: string): string {
   const url = new URL(`/v1/mac/${channel}`, relay)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -59,9 +71,12 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
   let socket: WebSocket | undefined
   let running = false
   let loggedIn = false
+  let forwarding = false
   let attempt = 0
   let timer: NodeJS.Timeout | undefined
-  let list: Extract<MacToRelay, { t: 'phones' }> | undefined
+  let base = options.base
+  let desired: PhoneList | undefined
+  let inFlight: PhoneList | undefined
   let listWaiters: { rev: number; resolve(): void; reject(error: Error): void }[] = []
   const tickets = new Map<string, Unanswered<void>>()
   const candidates = new Map<string, Unanswered<CandidateAnswer>>()
@@ -71,11 +86,10 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame))
   }
 
-  const flush = () => {
-    if (list) write(list)
-    for (const waiting of [...tickets.values(), ...candidates.values(), ...ends.values()]) {
-      write(waiting.frame)
-    }
+  const sendDesired = () => {
+    if (!loggedIn || inFlight || !desired) return
+    inFlight = desired
+    write({ t: 'phones', rev: desired.rev, keys: desired.keys, base })
   }
 
   const ask = <T>(waiting: Map<string, Unanswered<T>>, hash: string, frame: MacToRelay) => {
@@ -97,15 +111,31 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
     waiting.delete(hash)
   }
 
-  const listAnswered = (rev: number) => {
-    for (const waiting of listWaiters) if (waiting.rev <= rev) waiting.resolve()
-    listWaiters = listWaiters.filter((waiting) => waiting.rev > rev)
+  const listAcked = (acked: PhoneList) => {
+    inFlight = undefined
+    forwarding = true
+    base = relayListHash(acked.rev, acked.keys)
+    options.onListAcked({ rev: acked.rev, hash: base })
+    for (const waiting of listWaiters) if (waiting.rev <= acked.rev) waiting.resolve()
+    listWaiters = listWaiters.filter((waiting) => waiting.rev > acked.rev)
+    if (desired && desired.rev !== acked.rev) sendDesired()
   }
 
-  const listRefused = (why: string) => {
+  const halt = (why: string) => {
+    running = false
+    loggedIn = false
+    forwarding = false
+    inFlight = undefined
+    if (timer) clearTimeout(timer)
+    timer = undefined
+    const open = socket
+    socket = undefined
+    open?.close()
     for (const waiting of listWaiters) waiting.reject(new Error(why))
     listWaiters = []
-    list = undefined
+    for (const hash of [...tickets.keys()]) abandon(tickets, hash, why)
+    for (const hash of [...candidates.keys()]) abandon(candidates, hash, why)
+    for (const hash of [...ends.keys()]) abandon(ends, hash, why)
   }
 
   const retry = () => {
@@ -122,6 +152,8 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
   const connect = () => {
     if (!running) return
     loggedIn = false
+    forwarding = false
+    inFlight = undefined
     const url = macSocketUrl(options.url, keys.channel)
     let opened: WebSocket
     try {
@@ -137,8 +169,8 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
       })
       // Node's WebSocket (undici) takes { headers }; the DOM typing in the app's tsconfig leaves it out.
       opened = Reflect.construct(WebSocket, [url, { headers: { [relayAuthHeader]: login } }])
-    } catch (error) {
-      console.error(redactSecrets(`couldn’t reach the phone relay: ${String(error)}`))
+    } catch {
+      console.error('Ted couldn’t open a connection to the phone relay.')
       retry()
       return
     }
@@ -150,14 +182,22 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
       if (frame.t === 'ready') {
         loggedIn = true
         attempt = 0
-        flush()
+        sendDesired()
+        for (const waiting of [...tickets.values(), ...candidates.values(), ...ends.values()]) {
+          write(waiting.frame)
+        }
         return
       }
       if (!loggedIn) return
-      if (frame.t === 'msg') options.onMessage(frame.conn, frame.data)
-      else if (frame.t === 'phones-ok') listAnswered(frame.rev)
-      else if (frame.t === 'phones-stale' || frame.t === 'phones-conflict') {
-        listRefused(`the phone relay answered ${frame.t}`)
+      if (frame.t === 'msg') {
+        if (forwarding) options.onMessage(frame.conn, frame.data)
+      } else if (frame.t === 'phones-ok') {
+        if (inFlight?.rev === frame.rev) listAcked(inFlight)
+      } else if (frame.t === 'phones-stale' || frame.t === 'phones-conflict') {
+        const solicited =
+          frame.t === 'phones-stale' ? inFlight !== undefined : inFlight?.rev === frame.rev
+        if (!solicited) return
+        halt(`the phone relay answered ${frame.t}`)
         options.onListRefused(frame.t, frame.rev)
       } else if (frame.t === 'pairing-ok') answer(tickets, frame.hash, undefined)
       else if (frame.t === 'pairing-candidate-ok') answer(candidates, frame.hash, 'bound')
@@ -168,6 +208,8 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
       if (socket !== opened) return
       socket = undefined
       loggedIn = false
+      forwarding = false
+      inFlight = undefined
       retry()
     })
     opened.addEventListener('error', () => {
@@ -183,18 +225,7 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
       connect()
     },
     stop() {
-      running = false
-      loggedIn = false
-      if (timer) clearTimeout(timer)
-      timer = undefined
-      const open = socket
-      socket = undefined
-      open?.close()
-      listRefused('the phone relay connection stopped')
-      const why = 'the phone relay connection stopped'
-      for (const hash of [...tickets.keys()]) abandon(tickets, hash, why)
-      for (const hash of [...candidates.keys()]) abandon(candidates, hash, why)
-      for (const hash of [...ends.keys()]) abandon(ends, hash, why)
+      halt('the phone relay connection stopped')
     },
     send(conn, data) {
       if (loggedIn) write({ t: 'msg', conn, data })
@@ -205,8 +236,8 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
     sendList(rev, phoneKeys) {
       const { promise, resolve, reject } = Promise.withResolvers<void>()
       listWaiters.push({ rev, resolve, reject })
-      list = { t: 'phones', rev, keys: phoneKeys }
-      if (loggedIn) write(list)
+      desired = { rev, keys: phoneKeys }
+      sendDesired()
       return promise
     },
     registerTicket(hash, expiresAt) {

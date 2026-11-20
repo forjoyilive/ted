@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import {
   type DaemonClient,
   encodePairingLink,
@@ -6,6 +7,8 @@ import {
   pairingLifetimeMs,
   phoneProtocolVersion,
   readDaemonInfo,
+  relayListHash,
+  toBase64Url,
 } from '@ted/protocol'
 import { afterAll, beforeAll, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
@@ -104,11 +107,18 @@ test('a phone pairs over a signed login, the user approves it, and it reads stat
   await client.approvePhonePairing({ pairing: phone.link.pairing })
   await phone.approved()
   expect(relay.list(phone.link.channel)).toEqual({ rev: 1, keys: [phone.relayKey()] })
+  expect(await relay.macFrame((frame) => frame.t === 'phones' && frame.rev === 1)).toMatchObject({
+    base: relayListHash(0, []),
+  })
+  expect(relay.frames.find(({ text }) => text.includes('"phones"'))?.text).toContain('"base":null')
   await relay.macFrame(ended(phone))
   expect(await phone.status()).toMatchObject({
     ok: true,
     body: { mac: macName, edition: 'dev', version: '9.9.9', protocol: phoneProtocolVersion },
   })
+  expect(
+    await phone.send({ type: 'pair-status', pairing: toBase64Url(randomBytes(16)) }),
+  ).toMatchObject({ ok: true, body: { state: 'expired' } })
   expect(relay.logins).toContainEqual({ mode: 'phone', route: 'phone', status: 200 })
   const { phones: listed, pairAgain } = await client.pairedPhones()
   expect(pairAgain).toBe(false)
@@ -159,6 +169,25 @@ test('a pair with a bad relay key proof, or a relay key another phone has, is re
   phones.push(copy)
   expect(failure(await copy.pair('Copy'))).toBe('bad-request')
   expect(await client.currentPhonePairing()).toMatchObject({ state: 'expired' })
+})
+
+test('the current pairing shows no link until the relay takes the ticket', async () => {
+  const pairingFrames = () =>
+    relay.frames.filter(({ from, text }) => from === 'mac' && text.startsWith('{"t":"pairing",'))
+      .length
+  const before = pairingFrames()
+  relay.unanswered.add('pairing')
+  const offered = client.createPhonePairing()
+  try {
+    await expect.poll(pairingFrames).toBe(before + 1)
+    expect(await client.currentPhonePairing()).toEqual({ state: 'none' })
+  } finally {
+    relay.unanswered.delete('pairing')
+  }
+  relay.dropMac()
+  const offer = await offered
+  expect(await client.currentPhonePairing()).toMatchObject({ state: 'live', link: offer.link })
+  await client.cancelPhonePairing()
 })
 
 test('a cancelled or replaced link ends its ticket at once', async () => {

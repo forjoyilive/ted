@@ -305,6 +305,10 @@ test('removing a phone clears its token', () => {
 test('the relay list holds paired phones’ relay keys, and its revision only grows', () => {
   expect(store.phones.relayList()).toEqual({ rev: 0, keys: [] })
   expect(store.phones.pairAgain()).toBe(false)
+  expect(store.phones.relayAcked()).toBeUndefined()
+  store.phones.markRelayAcked({ rev: 0, hash: 'hash-0' })
+  store.phones.markRelayAcked({ rev: 0, hash: 'hash-0' })
+  expect(store.phones.relayAcked()).toEqual({ rev: 0, hash: 'hash-0' })
   const pair = (name: string, pairedAt: string) =>
     store.phones.pair({
       name,
@@ -324,7 +328,11 @@ test('the relay list holds paired phones’ relay keys, and its revision only gr
 
   const kept = pair('Kept', '2026-11-19T10:03:00.000Z')
   store.phones.setPushToken(kept, otherToken)
-  store.phones.resetRelay('2026-11-19T10:04:00.000Z')
+  store.phones.resetRelay({ at: '2026-11-19T10:04:00.000Z', channel: 'old-channel' })
+  expect(store.phones.latestReset()).toEqual({
+    at: '2026-11-19T10:04:00.000Z',
+    channel: 'old-channel',
+  })
   expect(store.phones.list()).toEqual([])
   expect(store.phones.pushToken(kept)).toBeUndefined()
   expect(store.phones.relayList()).toEqual({ rev: 7, keys: [] })

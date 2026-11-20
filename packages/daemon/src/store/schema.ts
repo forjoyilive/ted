@@ -87,6 +87,7 @@ import {
 import { peerMessages, peersEvents, peersMaterializers } from './schema/peers.ts'
 import {
   phoneNotifications,
+  phoneRelayAck,
   phoneRelayResets,
   phones,
   phonesEvents,
@@ -297,6 +298,7 @@ const state = State.SQLite.makeState({
     phoneNotifications,
     requestReturns,
     phoneRelayResets,
+    phoneRelayAck,
   },
   materializers,
 })

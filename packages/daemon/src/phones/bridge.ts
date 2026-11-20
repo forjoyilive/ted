@@ -124,9 +124,8 @@ export function createPhoneBridge(options: PhoneBridgeOptions): PhoneBridge {
         if (problem) return reply({ code: problem })
         const status = request(opened.message)
         if (status?.type !== 'pair-status') return reply({ code: 'bad-request' })
-        const known = pairings.status(status.pairing, opened.from)?.state
-        const state =
-          known === undefined || known === 'approved' ? (paired ? 'approved' : 'expired') : known
+        const known = pairings.status(status.pairing, opened.from)?.state ?? 'expired'
+        const state = known === 'approved' && !paired ? 'expired' : known
         if (state === 'waiting') return reply({ body: { state } })
         reply({
           body: state === 'approved' ? { state, mac: await options.routes.macName() } : { state },

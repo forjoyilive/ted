@@ -67,7 +67,7 @@ The Worker refuses a missing or malformed header, a field of the wrong size, a `
 | - | - | - |
 | `mac` | always | — |
 | `phone` | the channel has a stored phone list and `key` is on it | 503 with no stored list; 403 when `key` isn’t on it |
-| `pairing` | the ticket hash is a live ticket: before a candidate is set, until the ticket’s `expiresAt` and while it has fewer than 2 sockets; after, only for the candidate’s `key` | 403 |
+| `pairing` | the ticket hash is a live ticket: before a candidate is set, until the ticket’s `expiresAt` and while it has fewer than 2 sockets; after, only for the candidate’s `key`, and never later than two minutes after `expiresAt` | 403 |
 
 Only a request it lets in has its `(key, nonce)` recorded, for 3 minutes; the same pair again is 401. When the paired-phone sockets are full, a new `phone` request gets 429. `/check` follows the same rules but answers 200 instead of opening a socket.
 
@@ -82,12 +82,12 @@ The Mac also keeps the relay’s phone list and pairing tickets current. Each fr
 
 | Mac → relay | Relay → Mac |
 | - | - |
-| `{"t":"phones","rev":<number>,"keys":["<phone relay key>", …]}`, at most 64 keys | `{"t":"phones-ok","rev":<n>}` when `rev` is above the stored one (the list is stored), or equal with the same keys. `{"t":"phones-stale","rev":<stored>}` when `rev` is below the stored one. `{"t":"phones-conflict","rev":<n>}` when equal with different keys. |
+| `{"t":"phones","rev":<number>,"keys":["<phone relay key>", …],"base":"<list hash or null>"}`, at most 64 keys | `{"t":"phones-ok","rev":<n>}` when the list equals the stored one (same `rev` and keys), or when `rev` is above the stored one and `base` is the stored list’s hash (the list is stored). With no stored list, any `base` is accepted. `{"t":"phones-stale","rev":<stored>}` when `rev` is below the stored one. `{"t":"phones-conflict","rev":<n>}` otherwise: an equal `rev` with different keys, or a `base` that isn’t the stored list’s hash. |
 | `{"t":"pairing","hash":"<ticket hash>","expiresAt":<ms>}` | `{"t":"pairing-ok","hash":"…"}` |
 | `{"t":"pairing-candidate","hash":"…","key":"<phone relay key>"}` | `{"t":"pairing-candidate-ok","hash":"…"}`, or `{"t":"pairing-gone","hash":"…"}` when the ticket has ended |
 | `{"t":"pairing-end","hash":"…"}` | `{"t":"pairing-end-ok","hash":"…"}` |
 
-The daemon sends the full list right after `ready` and after every change. `rev` only grows on a Mac: it goes up with every phone paired or removed. When a stored list drops a key, the relay closes that key’s `phone` socket with code 4403 at once. Setting a candidate closes the ticket’s other sockets with 4403. Ending a ticket deletes it and closes its sockets with 4403. The relay keeps at most 4 tickets per channel, dropping the oldest, and deletes a ticket by itself two minutes after its `expiresAt`.
+The daemon sends the full list right after `ready` and after every change. `rev` only grows on a Mac: it goes up with every phone paired or removed. A **list hash** is `base64url(SHA-256("<rev>:" + the keys sorted and joined with ","))`. `base` is the hash of the last list the relay acknowledged to this Mac, which the daemon records as `v1.PhoneRelayListAcked`, or `null` before the first. A restored copy of Ted’s data holds an older acknowledged hash, so the relay answers `phones-conflict` even when the restored `rev` has grown past the stored one. The daemon forwards no phone messages on a new Mac socket until its first list is acknowledged, and stops forwarding at once on `phones-stale` or `phones-conflict`. When a stored list drops a key, the relay closes that key’s `phone` socket with code 4403 at once. Setting a candidate closes the ticket’s other sockets with 4403. Ending a ticket deletes it and closes its sockets with 4403. The relay keeps at most 4 tickets per channel, dropping the oldest, and deletes a ticket by itself two minutes after its `expiresAt`.
 
 ### Phone socket
 
@@ -246,4 +246,4 @@ The daemon answers a paired phone only on routes marked for phones: `status`, `r
 
 The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so the relay’s list stays current). It reconnects with backoff (1, 2, 5, 10, 30 seconds).
 
-If the relay answers `phones-stale` or `phones-conflict`, Ted’s data was restored from an older copy and its phone list may include phones the user later removed. The daemon then makes a new Mac relay key (so a new channel), removes every phone and records `v1.PhoneRelayReset`, and Settings → Phones says “Pair your phones again.” No phone can reach the old channel’s Mac again.
+If the relay answers `phones-stale` or `phones-conflict`, Ted’s data was restored from an older copy and its phone list may include phones the user later removed. The daemon then disconnects, removes every phone and records `v1.PhoneRelayReset` with the old channel, makes a new Mac relay key (so a new channel), and Settings → Phones says “Pair your phones again.” If the key change didn’t happen (a crash, or a Keychain error), the daemon makes the new key before the next pairing, because the latest reset still names the current channel. No phone can reach the old channel’s Mac again.

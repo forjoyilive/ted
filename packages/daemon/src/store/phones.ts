@@ -6,6 +6,7 @@ import {
   events,
   phoneNotificationId,
   phoneNotifications,
+  phoneRelayAck,
   phoneRelayResets,
   phones,
   requestReturns,
@@ -25,6 +26,16 @@ export interface RelayPhoneList {
   keys: string[]
 }
 
+export interface RelayListAck {
+  rev: number
+  hash: string
+}
+
+export interface RelayReset {
+  at: string
+  channel: string
+}
+
 export interface PhoneStore {
   list(): StoredPhone[]
   everPaired(): boolean
@@ -40,7 +51,10 @@ export interface PhoneStore {
   }): StoredPhone
   remove(id: string, removedAt: string): boolean
   relayList(): RelayPhoneList
-  resetRelay(at: string): void
+  relayAcked(): RelayListAck | undefined
+  markRelayAcked(ack: RelayListAck): void
+  resetRelay(reset: RelayReset): void
+  latestReset(): RelayReset | undefined
   pairAgain(): boolean
   setPushToken(id: string, token: string): boolean
   clearPushToken(id: string): void
@@ -109,10 +123,23 @@ export function phonesArea(ctx: StoreContext): PhonesArea {
           keys: list().flatMap((phone) => (phone.relayKey === undefined ? [] : [phone.relayKey])),
         }
       },
-      resetRelay(at) {
+      relayAcked() {
+        const row = store.query(queryDb(phoneRelayAck.where({ id: 'relay' })))[0]
+        return row && { rev: row.rev, hash: row.hash }
+      },
+      markRelayAcked({ rev, hash }) {
+        const row = store.query(queryDb(phoneRelayAck.where({ id: 'relay' })))[0]
+        if (row?.rev === rev && row.hash === hash) return
+        commit(events.phoneRelayListAcked({ rev, hash }))
+      },
+      resetRelay({ at, channel }) {
         const ids = list().map((phone) => phone.id)
-        commit(...removals(ids, at), events.phoneRelayReset({ id: randomUUID(), at }))
+        commit(...removals(ids, at), events.phoneRelayReset({ id: randomUUID(), at, channel }))
         emit({ type: 'phones-changed' })
+      },
+      latestReset() {
+        const row = resets().at(-1)
+        return row && { at: row.at, channel: row.channel }
       },
       pairAgain() {
         const reset = resets().at(-1)

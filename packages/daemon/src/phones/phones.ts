@@ -62,11 +62,11 @@ export function createPhones(options: PhonesOptions): Phones {
   const tickets = new Map<string, Ticket>()
   const ending = new Map<string, number>()
   let keysLoaded: Promise<PhoneKeys> | undefined
-  let connection: { relay: RelayClient; bridge: PhoneBridge } | undefined
+  let connection: { relay: RelayClient; bridge: PhoneBridge; channel: string } | undefined
+  let rotation: Promise<PhoneKeys> | undefined
   let watcher: NodeJS.Timeout | undefined
   let holdUntil = 0
   let closed = false
-  let resetting = false
   let macName: Promise<string> | undefined
   const nameOfMac = () => {
     macName ??= (options.macName ?? computerName)()
@@ -79,6 +79,23 @@ export function createPhones(options: PhonesOptions): Phones {
       throw error
     })
     return keysLoaded
+  }
+
+  const rotate = () => {
+    rotation ??= (async () => {
+      const fresh = await replaceRelayKey(options.keyrings, await keys())
+      keysLoaded = Promise.resolve(fresh)
+      return fresh
+    })().finally(() => {
+      rotation = undefined
+    })
+    return rotation
+  }
+
+  const freshKeys = async () => {
+    if (rotation) return rotation
+    const loaded = await keys()
+    return options.phones.latestReset()?.channel === loaded.channel ? rotate() : loaded
   }
 
   const ticketOf = (pairing: string) =>
@@ -101,7 +118,7 @@ export function createPhones(options: PhonesOptions): Phones {
     const client = connection?.relay
     if (!client) return
     const { rev, keys: relayKeys } = options.phones.relayList()
-    client.sendList(rev, relayKeys.slice(0, relayPhonesMax)).then(
+    client.sendList(rev, [...new Set(relayKeys)].slice(0, relayPhonesMax)).then(
       () => pairings.listed(rev),
       () => undefined,
     )
@@ -144,31 +161,27 @@ export function createPhones(options: PhonesOptions): Phones {
     pairings.cancel()
   }
 
-  const reset = async () => {
-    if (resetting) return
-    resetting = true
-    try {
-      const fresh = await replaceRelayKey(options.keyrings, await keys())
-      keysLoaded = Promise.resolve(fresh)
-      options.phones.resetRelay(new Date(now()).toISOString())
-      reached.clear()
-      pairings.cancel()
-      for (const ticket of tickets.values()) if (ticket.endTimer) clearTimeout(ticket.endTimer)
-      tickets.clear()
-      holdUntil = 0
-      disconnect()
-      refresh()
-    } catch (error) {
-      console.error(redactSecrets(`couldn’t make a new phone relay key: ${String(error)}`))
-    } finally {
-      resetting = false
-    }
+  const reset = () => {
+    const channel = connection?.channel
+    disconnect()
+    if (channel === undefined) return
+    reached.clear()
+    pairings.cancel()
+    for (const ticket of tickets.values()) if (ticket.endTimer) clearTimeout(ticket.endTimer)
+    tickets.clear()
+    holdUntil = 0
+    options.phones.resetRelay({ at: new Date(now()).toISOString(), channel })
+    rotate().then(refresh, () =>
+      console.error(
+        'Ted couldn’t make a new phone relay key; it will try before the next pairing.',
+      ),
+    )
   }
 
   const update = async () => {
     if (!wanted()) return disconnect()
-    if (connection) return
-    const loaded = await keys()
+    const loaded = await freshKeys()
+    if (connection && connection.channel !== loaded.channel) disconnect()
     if (connection || !wanted()) return
     let relayClient: RelayClient | undefined
     const bridge = createPhoneBridge({
@@ -197,6 +210,8 @@ export function createPhones(options: PhonesOptions): Phones {
     relayClient = createRelayClient({
       url: relay,
       keys: loaded,
+      base: options.phones.relayAcked()?.hash ?? null,
+      onListAcked: (ack) => options.phones.markRelayAcked(ack),
       onMessage(conn, data) {
         bridge.handle(conn, data).catch((error: Error) => {
           console.error(redactSecrets(`a phone message failed: ${String(error)}`))
@@ -204,11 +219,11 @@ export function createPhones(options: PhonesOptions): Phones {
       },
       onListRefused(answer) {
         console.error(`the phone relay answered ${answer}; Ted is making a new relay key`)
-        void reset()
+        reset()
       },
       ...(options.relayDelaysMs && { delaysMs: options.relayDelaysMs }),
     })
-    connection = { relay: relayClient, bridge }
+    connection = { relay: relayClient, bridge, channel: loaded.channel }
     relayClient.start()
     pushList()
   }
@@ -262,10 +277,17 @@ export function createPhones(options: PhonesOptions): Phones {
 
   return {
     async start() {
+      if (options.phones.latestReset()) {
+        freshKeys().catch(() =>
+          console.error(
+            'Ted couldn’t make a new phone relay key; it will try before the next pairing.',
+          ),
+        )
+      }
       if (options.phones.everPaired() && !options.phones.pairAgain()) refresh()
     },
     async createPairing() {
-      const loaded = await keys().catch((error: Error) => {
+      const loaded = await freshKeys().catch((error: Error) => {
         throw new RequestError(
           503,
           `Ted couldn’t use the Keychain to keep this Mac’s phone keys: ${error.message}`,
@@ -284,6 +306,7 @@ export function createPhones(options: PhonesOptions): Phones {
       const timer = setTimeout(() => reject(unreachable), options.relayAnswerMs ?? relayAnswerMs)
       try {
         await Promise.race([client.registerTicket(ticketHash, offer.expiresAt), timedOut])
+        pairings.registered(offer.pairing)
       } catch {
         if (pairings.ticket()?.ticketHash === ticketHash) {
           stopPairing()

@@ -40,7 +40,10 @@ interface LivePairing {
   listRev?: number
   listed: boolean
   ended: boolean
+  registered: boolean
 }
+
+const pastKept = 4
 
 export interface PairAttempt {
   pairing: string
@@ -86,16 +89,22 @@ export interface Pairings {
   listed(rev: number): void
   refuse(pairing: string): void
   ended(pairing: string): void
+  registered(pairing: string): void
 }
 
 export function createPairings(now: () => number, ourEdition: Edition): Pairings {
   let current: LivePairing | undefined
+  let past: LivePairing[] = []
   const expired = (pairing: LivePairing) =>
     (pairing.state === 'live' || pairing.state === 'waiting') && now() >= pairing.expiresAt
-  const matching = (id: string) => {
-    const pairing = current
-    if (!pairing || pairing.id.length !== id.length) return undefined
-    return timingSafeEqual(Buffer.from(pairing.id), Buffer.from(id)) ? pairing : undefined
+  const same = (pairing: LivePairing | undefined, id: string) =>
+    pairing !== undefined &&
+    pairing.id.length === id.length &&
+    timingSafeEqual(Buffer.from(pairing.id), Buffer.from(id))
+  const matching = (id: string) => (same(current, id) ? current : undefined)
+  const retire = () => {
+    if (current?.phone) past = [current, ...past].slice(0, pastKept)
+    current = undefined
   }
   const decidable = (id: string): LivePairing & { phone: WaitingPhone } => {
     const pairing = matching(id)
@@ -120,6 +129,7 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
         secret: toBase64Url(secret),
         expiresAt,
       })
+      retire()
       current = {
         id,
         secret,
@@ -129,15 +139,16 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
         state: 'live',
         listed: false,
         ended: false,
+        registered: false,
       }
       return { offer: { pairing: id, link, expiresAt, edition: ourEdition }, ticketHash }
     },
     cancel() {
-      current = undefined
+      retire()
     },
     current() {
       const pairing = current
-      if (!pairing) return { state: 'none' }
+      if (!pairing || (pairing.state === 'live' && !pairing.registered)) return { state: 'none' }
       if (expired(pairing) || pairing.state === 'spent') {
         return { state: 'expired', pairing: pairing.id }
       }
@@ -215,7 +226,7 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
       return { ok: true, code: pairing.code, relayKey: attempt.relayKey }
     },
     status(id, phoneKey) {
-      const pairing = matching(id)
+      const pairing = [current, ...past].find((each) => same(each, id))
       if (!pairing || pairing.phone?.key !== phoneKey) return undefined
       if (expired(pairing)) return { state: 'expired' }
       if (pairing.state === 'refused') return { state: 'refused' }
@@ -235,7 +246,9 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
       return pairing.phone
     },
     listed(rev) {
-      if (current?.listRev !== undefined && current.listRev <= rev) current.listed = true
+      for (const pairing of [current, ...past]) {
+        if (pairing?.listRev !== undefined && pairing.listRev <= rev) pairing.listed = true
+      }
     },
     refuse(id) {
       decidable(id)
@@ -243,6 +256,9 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
     },
     ended(id) {
       if (current?.id === id) current.ended = true
+    },
+    registered(id) {
+      if (current?.id === id) current.registered = true
     },
   }
 }

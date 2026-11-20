@@ -1,4 +1,5 @@
-import { type DaemonClient, readDaemonInfo } from '@ted/protocol'
+import { type DaemonClient, readDaemonInfo, relayListHash, toBase64Url } from '@ted/protocol'
+import nacl from 'tweetnacl'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import { phoneSignKeyAccount } from '../src/phones/keys.ts'
@@ -95,20 +96,31 @@ test('a phone refused while no other phone is paired still hears it was refused,
   await expect.poll(() => phone.closes).toContain(4403)
 })
 
-test('a relay list newer than this Mac’s makes a new relay key, removes every phone and asks to pair again', async () => {
-  await start()
-  const first = await approvedPhone('First Phone')
-  await approvedPhone('Second Phone')
-  const oldChannel = first.link.channel
-  const oldKey = keychain.secrets.get(phoneSignKeyAccount)
-  relay.storeList(oldChannel, { rev: 50, keys: [first.relayKey()] })
+function otherRelayKey(): string {
+  return toBase64Url(nacl.randomBytes(32))
+}
+
+async function removeFirstPhone(): Promise<void> {
   const [removed] = (await client.pairedPhones()).phones
   if (!removed) throw new Error('phone not listed')
   await client.removePhone(removed.id)
+}
 
+test('a restored copy whose count passed the relay’s gets a conflict, then a new relay key, no phones and a request to pair again', async () => {
+  await start()
+  const first = await approvedPhone('First Phone')
+  const second = await approvedPhone('Second Phone')
+  const oldChannel = first.link.channel
+  const oldKey = keychain.secrets.get(phoneSignKeyAccount)
+  const acked = relayListHash(2, [first.relayKey(), second.relayKey()])
+  relay.storeList(oldChannel, { rev: 2, keys: [otherRelayKey()] })
+  await removeFirstPhone()
+
+  const sent = await relay.macFrame((frame) => frame.t === 'phones' && frame.rev === 3)
+  expect(sent).toMatchObject({ keys: [second.relayKey()], base: acked })
   await expect.poll(async () => (await client.pairedPhones()).pairAgain).toBe(true)
   expect((await client.pairedPhones()).phones).toEqual([])
-  expect(keychain.secrets.get(phoneSignKeyAccount)).not.toBe(oldKey)
+  await expect.poll(() => keychain.secrets.get(phoneSignKeyAccount)).not.toBe(oldKey)
 
   const again = await approvedPhone('Paired Again')
   expect(again.link.channel).not.toBe(oldChannel)
@@ -118,6 +130,66 @@ test('a relay list newer than this Mac’s makes a new relay key, removes every 
     phones: [expect.objectContaining({ name: 'Paired Again' })],
   })
   expect(await again.status()).toMatchObject({ ok: true })
+})
+
+test('if the new relay key isn’t made after a reset, it is made before the next pairing', async () => {
+  await start()
+  const phone = await approvedPhone('Only Phone')
+  const oldChannel = phone.link.channel
+  const oldKey = keychain.secrets.get(phoneSignKeyAccount)
+  keychain.failWrites = true
+  relay.storeList(oldChannel, { rev: 1, keys: [otherRelayKey()] })
+  await removeFirstPhone()
+  await expect.poll(async () => (await client.pairedPhones()).pairAgain).toBe(true)
+  expect(keychain.secrets.get(phoneSignKeyAccount)).toBe(oldKey)
+  await expect(client.createPhonePairing()).rejects.toThrow(/Keychain/)
+
+  await daemon?.stop()
+  keychain.failWrites = false
+  await start()
+  const offer = await client.createPhonePairing()
+  expect(new TestPhone(offer.link).link.channel).not.toBe(oldChannel)
+  expect(keychain.secrets.get(phoneSignKeyAccount)).not.toBe(oldKey)
+  await client.cancelPhonePairing()
+})
+
+test('an unsolicited phones-stale or phones-conflict changes nothing', async () => {
+  await start()
+  const phone = await approvedPhone('Steady Phone')
+  const key = keychain.secrets.get(phoneSignKeyAccount)
+  relay.sendToMac({ t: 'phones-stale', rev: 99 })
+  relay.sendToMac({ t: 'phones-conflict', rev: 1 })
+  expect(await phone.status()).toMatchObject({ ok: true })
+  expect(await client.pairedPhones()).toMatchObject({
+    pairAgain: false,
+    phones: [expect.objectContaining({ name: 'Steady Phone' })],
+  })
+  expect(keychain.secrets.get(phoneSignKeyAccount)).toBe(key)
+})
+
+test('phone messages on a new Mac socket wait for the relay to take the list', async () => {
+  await start()
+  const phone = await approvedPhone('Gated Phone')
+  const lists = () =>
+    relay.frames.filter(({ from, text }) => from === 'mac' && text.includes('"phones"')).length
+  const forwarded = () =>
+    relay.frames.filter(
+      ({ from, text }) => from === 'relay' && text.startsWith('{"t":"msg","conn"'),
+    ).length
+  relay.unanswered.add('phones')
+  const before = lists()
+  relay.dropMac()
+  await expect.poll(lists).toBe(before + 1)
+  const early = phone.message({ type: 'request', route: 'status' })
+  const sentBefore = forwarded()
+  await phone.sendRaw(early.envelope)
+  await expect.poll(forwarded).toBeGreaterThan(sentBefore)
+
+  relay.unanswered.delete('phones')
+  relay.dropMac()
+  await expect.poll(lists).toBe(before + 2)
+  expect(await phone.status()).toMatchObject({ ok: true })
+  expect(phone.replies.some((reply) => reply.id === early.id)).toBe(false)
 })
 
 test('creating a pairing fails when the relay doesn’t take the ticket in time', async () => {

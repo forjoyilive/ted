@@ -155,7 +155,7 @@ export type RelayToMac =
 
 export type MacToRelay =
   | { t: 'msg'; conn: number; data: string }
-  | { t: 'phones'; rev: number; keys: string[] }
+  | { t: 'phones'; rev: number; keys: string[]; base: string | null }
   | { t: 'pairing'; hash: string; expiresAt: number }
   | { t: 'pairing-candidate'; hash: string; key: string }
   | { t: 'pairing-end'; hash: string }
@@ -273,6 +273,11 @@ export function relayTicket(secret: Uint8Array, channel: string, pairing: string
 
 export function relayTicketHash(ticket: Uint8Array): string {
   return toBase64Url(createHash('sha256').update(ticket).digest())
+}
+
+export function relayListHash(rev: number, keys: readonly string[]): string {
+  const text = `${rev}:${[...keys].sort().join(',')}`
+  return toBase64Url(createHash('sha256').update(text, 'utf8').digest())
 }
 
 export function relayKeyProofText(pairing: string, phoneBoxKey: string): string {
@@ -470,7 +475,9 @@ export function parseMacToRelay(value: Untyped): MacToRelay | undefined {
   if (value.t === 'phones' && isInteger(value.rev) && value.rev >= 0 && isArray(value.keys)) {
     const keys = value.keys.filter((key): key is string => isRelayBytes(key, 32))
     if (keys.length !== value.keys.length || keys.length > relayPhonesMax) return undefined
-    return { t: 'phones', rev: value.rev, keys }
+    if (new Set(keys).size !== keys.length) return undefined
+    if (value.base !== null && !isRelayBytes(value.base, 32)) return undefined
+    return { t: 'phones', rev: value.rev, keys, base: value.base }
   }
   if (!isRelayBytes(value.hash, 32)) return undefined
   if (value.t === 'pairing' && isInteger(value.expiresAt)) {

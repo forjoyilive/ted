@@ -30,6 +30,7 @@ import {
   relayAuth,
   relayChannel,
   relayKeyProofText,
+  relayListHash,
   relayLoginText,
   relayTicket,
   relayTicketHash,
@@ -254,15 +255,17 @@ test('relay frames', () => {
     conn: 1,
     data: 'd',
   })
-  expect(parseMacToRelay({ t: 'phones', rev: 2, keys: [key] })).toEqual({
+  expect(parseMacToRelay({ t: 'phones', rev: 2, keys: [key], base: hash })).toEqual({
     t: 'phones',
     rev: 2,
     keys: [key],
+    base: hash,
   })
-  expect(parseMacToRelay({ t: 'phones', rev: 0, keys: [] })).toEqual({
+  expect(parseMacToRelay({ t: 'phones', rev: 0, keys: [], base: null })).toEqual({
     t: 'phones',
     rev: 0,
     keys: [],
+    base: null,
   })
   expect(parseMacToRelay({ t: 'pairing', hash, expiresAt: 1795135669031 })).toEqual({
     t: 'pairing',
@@ -277,10 +280,13 @@ test('relay frames', () => {
   expect(parseMacToRelay({ t: 'pairing-end', hash })).toEqual({ t: 'pairing-end', hash })
   for (const frame of [
     { t: 'login', key: 'k', sig: 's' },
-    { t: 'phones', rev: -1, keys: [] },
-    { t: 'phones', rev: 1, keys: ['short'] },
-    { t: 'phones', rev: 1, keys: Array.from({ length: 65 }, () => b(32)) },
-    { t: 'phones', rev: 1 },
+    { t: 'phones', rev: -1, keys: [], base: null },
+    { t: 'phones', rev: 1, keys: ['short'], base: null },
+    { t: 'phones', rev: 1, keys: Array.from({ length: 65 }, () => b(32)), base: null },
+    { t: 'phones', rev: 1, base: null },
+    { t: 'phones', rev: 1, keys: [] },
+    { t: 'phones', rev: 1, keys: [], base: 'short' },
+    { t: 'phones', rev: 1, keys: [key, key], base: null },
     { t: 'pairing', hash },
     { t: 'pairing', hash: 'x', expiresAt: 1 },
     { t: 'pairing-candidate', hash, key: b(16) },
@@ -395,6 +401,11 @@ test('the pairing ticket, its hash and the relay key proof text', () => {
   )
   expect(relayTicketHash(ticket)).toBe(toBase64Url(createHash('sha256').update(ticket).digest()))
   expect(relayKeyProofText('pair', 'box')).toBe('ted-relay-key:v1:pair:box')
+  expect(relayListHash(3, ['b', 'a'])).toBe(
+    toBase64Url(createHash('sha256').update('3:a,b').digest()),
+  )
+  expect(relayListHash(3, ['a', 'b'])).toBe(relayListHash(3, ['b', 'a']))
+  expect(relayListHash(0, [])).toBe(toBase64Url(createHash('sha256').update('0:').digest()))
 })
 
 test('channel, login text and short code', () => {

@@ -23,6 +23,7 @@ import {
   relayAuth,
   relayAuthHeader,
   relayKeyProofText,
+  relayListHash,
   relayLoginText,
   relayTicket,
   relayTicketHash,
@@ -84,6 +85,7 @@ export interface RelayStub {
   macFrame(match: (frame: MacToRelay) => boolean): Promise<MacToRelay>
   list(channel: string): StoredList | undefined
   storeList(channel: string, list: StoredList): void
+  sendToMac(frame: RelayToMac): void
   dropMac(): void
   close(): Promise<void>
 }
@@ -194,11 +196,17 @@ export async function startRelayStub(): Promise<RelayStub> {
   const answerMac = (ws: RelaySocket, channel: Channel, frame: MacToRelay) => {
     if (frame.t === 'phones') {
       const stored = channel.list
+      const same =
+        stored !== undefined &&
+        frame.rev === stored.rev &&
+        JSON.stringify([...stored.keys].sort()) === JSON.stringify([...frame.keys].sort())
+      if (same) return send(ws, { t: 'phones-ok', rev: frame.rev })
       if (stored && frame.rev < stored.rev) return send(ws, { t: 'phones-stale', rev: stored.rev })
-      if (stored && frame.rev === stored.rev) {
-        const same = JSON.stringify(stored.keys) === JSON.stringify(frame.keys)
-        return send(ws, { t: same ? 'phones-ok' : 'phones-conflict', rev: frame.rev })
-      }
+      if (
+        stored &&
+        (frame.rev === stored.rev || frame.base !== relayListHash(stored.rev, stored.keys))
+      )
+        return send(ws, { t: 'phones-conflict', rev: frame.rev })
       channel.list = { rev: frame.rev, keys: frame.keys }
       closeWhere(
         channel,
@@ -319,6 +327,9 @@ export async function startRelayStub(): Promise<RelayStub> {
     storeList(channel, list) {
       channelOf(channel).list = list
     },
+    sendToMac(frame) {
+      for (const channel of channels.values()) if (channel.mac) send(channel.mac, frame)
+    },
     dropMac() {
       for (const channel of channels.values()) channel.mac?.close(1012)
     },
@@ -333,6 +344,7 @@ export async function startRelayStub(): Promise<RelayStub> {
 export interface MemoryKeyrings {
   keyrings: PhoneKeyrings
   secrets: Map<string, string>
+  failWrites: boolean
 }
 
 export function memoryKeyrings(): MemoryKeyrings {
@@ -343,13 +355,19 @@ export function memoryKeyrings(): MemoryKeyrings {
       return secrets.get(account)
     },
     async set(secret) {
+      if (memory.failWrites) throw new Error('the Keychain is locked')
       secrets.set(account, secret)
     },
     async delete() {
       secrets.delete(account)
     },
   })
-  return { keyrings: async (account) => keyring(account), secrets }
+  const memory: MemoryKeyrings = {
+    keyrings: async (account) => keyring(account),
+    secrets,
+    failWrites: false,
+  }
+  return memory
 }
 
 export function ticketHashOf(link: PairingLink): string {
