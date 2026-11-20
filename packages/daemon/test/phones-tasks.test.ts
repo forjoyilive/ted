@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -68,7 +68,9 @@ async function origin(name: string): Promise<string> {
   await mkdir(parent)
   const repo = await makeOriginRepo(parent)
   await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\n' })
-  return repo
+  const renamed = path.join(parent, 'acme', `${name}.git`)
+  await rename(repo, renamed)
+  return renamed
 }
 
 beforeAll(async () => {
