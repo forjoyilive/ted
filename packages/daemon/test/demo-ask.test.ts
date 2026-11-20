@@ -77,11 +77,16 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
   const { revision } = await client.taskGates(task.id)
   await client.setTaskGates(task.id, { overrides: { clarify: true }, revision })
   await client.startTask(task.id)
-  await until(async () => {
-    const current = (await client.listTasks()).find((t) => t.id === task.id)
-    if (!current?.leadRunId) return false
-    return (await client.getRun(current.leadRunId)).run.state === 'idle'
-  }, 'an idle Task Lead', 60_000)
+  const leadWaiting = () =>
+    until(
+      async () => {
+        const lead = (await client.listTasks()).find((t) => t.id === task.id)?.leadRunId
+        return lead !== undefined && (await client.getRun(lead)).run.state === 'idle'
+      },
+      'a waiting Task Lead',
+      60_000,
+    )
+  await leadWaiting()
 
   const asked = { timeoutMs: 120_000, task: task.displayId }
   expect((await askDemo(home, 'question', asked)).task.id).toBe(task.id)
@@ -90,19 +95,13 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
   await client.answerRequest(question.id, { action: 'answer', choice })
   await note(client, task.id, `with “${choice}”`)
 
-  await until(async () => {
-    const lead = (await client.listTasks()).find((t) => t.id === task.id)?.leadRunId
-    return lead !== undefined && (await client.getRun(lead)).run.state === 'idle'
-  }, 'the Task Lead to wait again', 60_000)
+  await leadWaiting()
   await askDemo(home, 'permission', asked)
   const permission = await openRequest(client, task.id, 'permission')
   await client.answerRequest(permission.id, { action: 'approve' })
   await note(client, task.id, 'You allowed')
 
-  await until(async () => {
-    const lead = (await client.listTasks()).find((t) => t.id === task.id)?.leadRunId
-    return lead !== undefined && (await client.getRun(lead)).run.state === 'idle'
-  }, 'the Task Lead to wait again', 60_000)
+  await leadWaiting()
   await askDemo(home, 'sign-off', asked)
   const signoff = await openRequest(client, task.id, 'signoff')
   await client.answerRequest(signoff.id, { action: 'approve' })
