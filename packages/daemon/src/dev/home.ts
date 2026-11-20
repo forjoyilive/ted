@@ -146,6 +146,9 @@ export async function markDemo(home: string, manifest: DemoManifest): Promise<vo
   await rename(temporary, path.join(home, demoMarker))
 }
 
+// Without PATH, child processes search these folders, so git still runs; keep them.
+const defaultPath = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(path.delimiter)
+
 export function demoEnvironment(
   home: string,
   base: NodeJS.ProcessEnv = process.env,
@@ -171,7 +174,7 @@ export function demoEnvironment(
       TED_HIDDEN_WINDOW: tedEnv('TED_HIDDEN_WINDOW', base),
     }),
     SHELL: fixture('stub-shell.sh'),
-    PATH: [path.dirname(process.execPath), env.PATH].filter(Boolean).join(path.delimiter),
+    PATH: [path.dirname(process.execPath), env.PATH || defaultPath].join(path.delimiter),
     TED_HOME: home,
     TED_DEMO: '1',
     TED_CLAUDE_BIN: path.resolve(home, 'bin', 'stub-claude.mjs'),
