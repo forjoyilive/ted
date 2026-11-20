@@ -139,7 +139,7 @@ export interface DaemonOptions {
     stopGraceMs?: number
     logBytes?: number
   }
-  runs?: { stopGraceMs?: number; inputAckMs?: number }
+  runs?: { stopGraceMs?: number; inputAckMs?: number; inputRetries?: number; inputRetryMs?: number }
   simulators?: { supported?: boolean; pollMs?: number; idleMs?: number }
   emulators?: { supported?: boolean; pollMs?: number; idleMs?: number; bootTimeoutMs?: number }
   online?: DaemonOnlineOptions

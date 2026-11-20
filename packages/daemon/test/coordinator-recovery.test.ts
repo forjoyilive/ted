@@ -962,3 +962,52 @@ test('admitted Codex follow-ups wait without failing a slow healthy response', a
   )
   expect((await s.call<RunSlots>('GET', '/slots')).working).toBe(0)
 })
+
+test('a message steered at a tool boundary is read after the hook without failing the chat', async () => {
+  const s = await setup({ inputAckMs: 1_000 })
+  const c = await s.message([
+    { say: 'Before tool' },
+    { waitFor: path.join(scratch, 'tool') },
+    { tool: 'Read' },
+    { say: 'After tool' },
+    { waitFor: path.join(scratch, 'finish') },
+    { endTurn: true },
+  ])
+  await waitUntil(async () => {
+    const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`).catch(() => undefined)
+    return chat?.items.some((i) => i.kind === 'agent' && i.text === 'Before tool')
+  }, 'working response')
+  const text = 'Steered while the hook runs'
+  await s.send({ text })
+  await writeFile(path.join(scratch, 'tool'), '')
+  await waitUntil(async () => {
+    const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'After tool')
+  }, 'tool boundary')
+  await new Promise((resolve) => setTimeout(resolve, 2_000))
+  expect((await s.chat()).status).toBe('working')
+  await writeFile(path.join(scratch, 'finish'), '')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'turn end')
+  const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  const agents = chat.items.filter((i) => i.kind === 'agent').map((i) => i.text)
+  expect(agents.filter((t) => t === `Read: ${text}`)).toHaveLength(1)
+  expect(agents.indexOf(`Read: ${text}`)).toBeLessThan(agents.indexOf('After tool'))
+  expect(
+    chat.items.find((i) => i.kind === 'human' && i.text === text && i.queued !== true),
+  ).toBeDefined()
+})
+
+test('a chat whose Run ends as a follow-up arrives resumes and reads it', async () => {
+  const s = await setup()
+  await s.message([{ exitOnInput: true }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'first turn')
+  const follow = JSON.stringify({ steps: [{ say: 'Resumed and read' }, { endTurn: true }] })
+  await s.send({ text: follow })
+  await waitUntil(async () => {
+    const current = await s.chat()
+    if (current.status === 'failed') throw new Error(`chat failed: ${current.error}`)
+    const chat = await s.call<RunChat>('GET', `/runs/${current.runId}/chat`)
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'Resumed and read')
+  }, 'resumed follow-up')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'follow-up settled')
+})

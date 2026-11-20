@@ -108,10 +108,32 @@ export interface RunManagerOptions {
   oldestHost?: number
   stopGraceMs?: number
   inputAckMs?: number
+  inputRetries?: number
+  inputRetryMs?: number
   memory?: MemoryWatch
   mkdir?: MakeDirectory
   sandbox?: Pick<Sandbox, 'problem'>
   sandboxProgram?: string
+}
+
+export interface DispatchOptions {
+  revocable: boolean
+  signal?: AbortSignal
+  forwarded?: () => void
+}
+
+export class InputNotPickedUp extends Error {
+  constructor() {
+    super(
+      'The agent did not acknowledge its queued input; Retry will check the saved delivery before sending again',
+    )
+  }
+}
+
+export class RunEndedBeforeInput extends Error {
+  constructor() {
+    super('The Run ended before the agent read its queued input')
+  }
 }
 
 export interface RunObserver {
@@ -172,7 +194,7 @@ export interface RunManager {
     messages: readonly { id: string; text: string }[],
     steer: boolean,
     canDispatch: (messageId?: string) => boolean,
-    options?: { revocable: boolean; signal?: AbortSignal },
+    options?: DispatchOptions,
   ): Promise<boolean>
   retainRevocableInputs(runId: string, ids: readonly string[]): void
   inputDispatched(runId: string, messageId: string): boolean
@@ -220,6 +242,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const { home, store, agents, tokens } = options
   const stopGraceMs = options.stopGraceMs ?? 10_000
   const inputAckMs = options.inputAckMs ?? 10_000
+  const inputRetries = options.inputRetries ?? 3
+  const inputRetryMs = options.inputRetryMs ?? 3_000
   const makeDirectory = options.mkdir ?? mkdir
   const runsDir = path.join(home, 'runs')
   const binDir = path.join(home, 'bin')
@@ -1109,7 +1133,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     messages: readonly { id: string; text: string }[],
     steer: boolean,
     canDispatch: (messageId?: string) => boolean,
-    options?: { revocable: boolean; signal?: AbortSignal },
+    options?: DispatchOptions,
   ): Promise<boolean> {
     if (options?.signal?.aborted) return false
     const runDir = path.join(runsDir, runId)
@@ -1157,11 +1181,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (missing.length > 0) {
       const outputFrom = statSync(files.log).size
       const additions = missing.map((message) => {
-        const permit = options?.revocable ? randomUUID() : undefined
-        if (permit) grantInput(runDir, permit)
+        const permit = randomUUID()
+        grantInput(runDir, permit)
         return {
           forGeneration: generation,
-          ...(permit && { permit }),
+          permit,
+          ...(!options?.revocable && { pickup: true as const }),
           deliveryIds: [message.id],
           text: message.text,
           outputFrom,
@@ -1187,6 +1212,16 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       record.deliveryIds.some((id) => messages.some((message) => message.id === id)),
     )
     if (relevant.length === 0) return false
+    const forwarded = () =>
+      relevant.every(
+        (record) => accepted(record) || (record.permit && inputConsumed(runDir, record.permit)),
+      )
+    let told = false
+    const tell = () => {
+      if (told || !forwarded()) return
+      told = true
+      options?.forwarded?.()
+    }
     for (let waited = 0; !relevant.every(accepted); waited += pollMs) {
       if (options?.revocable) {
         for (const record of relevant) {
@@ -1207,19 +1242,16 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (closed || options?.signal?.aborted) return false
       const currentGeneration = generations.get(runId)
       if (
-        options?.revocable &&
         currentGeneration &&
         currentGeneration.count + startsFrom(files.log, currentGeneration.readTo) > generation
       )
         return dispatchInput(runId, messages, steer, canDispatch, options)
-      const consumed = () =>
-        relevant.some((record) => record.permit && inputConsumed(runDir, record.permit))
-      if (waited >= inputAckMs && options?.revocable && !consumed())
-        for (const record of relevant) if (record.permit) revokeInput(runDir, record.permit)
-      if ((!consumed() && waited >= inputAckMs) || store.getRun(runId)?.state === 'finished') {
-        throw new Error(
-          'The agent did not acknowledge its queued input; Retry will check the saved delivery before sending again',
-        )
+      tell()
+      if (store.getRun(runId)?.state === 'finished') throw new RunEndedBeforeInput()
+      if (!told && waited >= inputAckMs) {
+        if (options?.revocable)
+          for (const record of relevant) if (record.permit) revokeInput(runDir, record.permit)
+        throw new InputNotPickedUp()
       }
       await sleep(pollMs)
     }
@@ -1532,7 +1564,15 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     async dispatch(runId, messages, steer, canDispatch, options) {
       dispatching.set(runId, (dispatching.get(runId) ?? 0) + 1)
       try {
-        return await dispatchInput(runId, messages, steer, canDispatch, options)
+        for (let attempt = 1; ; attempt++) {
+          try {
+            return await dispatchInput(runId, messages, steer, canDispatch, options)
+          } catch (error) {
+            if (!(error instanceof InputNotPickedUp) || attempt > inputRetries) throw error
+          }
+          await sleep(inputRetryMs)
+          if (closed || options?.signal?.aborted || !canDispatch()) return false
+        }
       } finally {
         const left = (dispatching.get(runId) ?? 1) - 1
         if (left > 0) dispatching.set(runId, left)
@@ -1542,7 +1582,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     retainRevocableInputs(runId, ids) {
       const allowed = new Set(ids)
       for (const record of inputRecords(runId)) {
-        if (record.permit && !record.deliveryIds.every((id) => allowed.has(id)))
+        if (record.permit && !record.pickup && !record.deliveryIds.every((id) => allowed.has(id)))
           revokeInput(path.join(runsDir, runId), record.permit)
       }
     },
@@ -1558,7 +1598,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     consumedInputs(runId) {
       const runDir = path.join(runsDir, runId)
       return inputRecords(runId)
-        .filter((record) => record.permit && inputConsumed(runDir, record.permit))
+        .filter((record) => record.permit && !record.pickup && inputConsumed(runDir, record.permit))
         .flatMap((record) => record.deliveryIds)
     },
     acceptedInputs(runId) {
