@@ -1,6 +1,7 @@
 export { linearSteps, placeholderFactory, tasksBuiltInProcess } from './context.ts'
 export { basicFactory } from './factories.ts'
 export { openStore } from './open.ts'
+export type { PhoneStore, PhonesArea, StoredPhone } from './phones.ts'
 export type {
   AcceptedLayer,
   AfterBlocking,

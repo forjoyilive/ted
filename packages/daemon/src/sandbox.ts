@@ -552,8 +552,8 @@ async function androidSdkFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
   const home = await homeFolder(env)
   const given = [
     path.join(home, 'Library/Android/sdk'),
-    ...['ANDROID_HOME', 'ANDROID_SDK_ROOT'].flatMap((name) =>
-      env[name]?.startsWith('/') === true ? [env[name]] : [],
+    ...[env.ANDROID_HOME, env.ANDROID_SDK_ROOT].flatMap((value) =>
+      value?.startsWith('/') === true ? [value] : [],
     ),
   ]
   return existingReals(given, home)
@@ -602,8 +602,8 @@ async function readCandidates(
   userTemp: string | undefined,
 ): Promise<string[]> {
   const home = await homeFolder(env)
-  const fromEnv = ['DEVELOPER_DIR', 'JAVA_HOME'].flatMap((name) =>
-    env[name]?.startsWith('/') === true ? [env[name]] : [],
+  const fromEnv = [env.DEVELOPER_DIR, env.JAVA_HOME].flatMap((value) =>
+    value?.startsWith('/') === true ? [value] : [],
   )
   const onPath = (env.PATH ?? '')
     .split(':')

@@ -1,0 +1,140 @@
+.dialog {
+  width: 360px;
+}
+
+.empty {
+  padding: 20px 16px;
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+}
+
+.emptyText {
+  margin: 4px 0 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.row button {
+  height: var(--button-height-small);
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
+  background: var(--surface-neutral);
+  color: var(--text-secondary);
+}
+
+.rowText {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.name {
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+
+.detail {
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}
+
+.footnote {
+  margin: -8px 0 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}
+
+.error {
+  margin: 0;
+  color: var(--status-failed-fg);
+}
+
+.qrFrame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--text-on-accent);
+}
+
+.qr {
+  width: 180px;
+  height: 180px;
+}
+
+.qrBackground {
+  fill: var(--text-on-accent);
+}
+
+.qrModules {
+  fill: var(--surface-inverse);
+}
+
+.faded .qr {
+  opacity: 0.2;
+}
+
+.timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}
+
+.expired {
+  color: var(--status-waiting-fg);
+}
+
+.code {
+  margin: 0;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: calc(28px * var(--text-scale));
+  letter-spacing: 0.08em;
+  text-align: center;
+  white-space: pre;
+}
+
+.note {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}
