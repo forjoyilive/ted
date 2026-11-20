@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
+import { sandboxReasons } from '../packages/daemon/test/support/ted-sandbox.ts'
 import {
   affectedTests,
   appSmokeTests,
@@ -628,6 +629,32 @@ Run these outside the sandbox, at most 3 files per command: pnpm vitest run <fil
   packages/app/test/app.test.ts  changed
   packages/cli/test/demo.test.ts  skipped: Ted home; processes
   packages/daemon/test/sandbox.test.ts  skipped: a second sandbox can’t start`)
+  })
+
+  test('files skipped because Ted’s temp folder is in a Ted home get a command with TMPDIR outside it', () => {
+    const skipped = new Map([
+      ['scripts/execution-lab.test.ts', [sandboxReasons.tedHome, sandboxReasons.processes]],
+      ['packages/daemon/test/sandbox.test.ts', [sandboxReasons.secondSandbox]],
+      ['packages/cli/test/demo.test.ts', [sandboxReasons.tedHome]],
+    ])
+    expect(leftOutText([], electron, undefined, skipped)).toBe(
+      [
+        'Ted’s sandbox made some tests skip themselves, so the Affected tests Check left these files out.',
+        'Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>',
+        `  packages/daemon/test/sandbox.test.ts  skipped: ${sandboxReasons.secondSandbox}`,
+        'A Run’s TMPDIR is under ~/.ted even outside the sandbox, so run these outside the sandbox with a temp folder outside ~/.ted, at most 3 files per command: TMPDIR="$(mktemp -d /tmp/ted-vitest.XXXXXX)" pnpm vitest run <files>',
+        `  packages/cli/test/demo.test.ts  skipped: ${sandboxReasons.tedHome}`,
+        `  scripts/execution-lab.test.ts  skipped: ${sandboxReasons.tedHome}; ${sandboxReasons.processes}`,
+      ].join('\n'),
+    )
+    expect(
+      leftOutText(
+        [],
+        electron,
+        undefined,
+        new Map([['packages/cli/test/demo.test.ts', [sandboxReasons.tedHome]]]),
+      ),
+    ).not.toContain('\nRun these outside the sandbox')
   })
 })
 
