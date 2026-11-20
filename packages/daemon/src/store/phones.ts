@@ -14,6 +14,7 @@ export interface StoredPhone {
 
 export interface PhoneStore {
   list(): StoredPhone[]
+  everPaired(): boolean
   get(id: string): StoredPhone | undefined
   byKey(publicKey: string): StoredPhone | undefined
   pair(input: { name: string; publicKey: string; edition: Edition; pairedAt: string }): StoredPhone
@@ -26,13 +27,18 @@ export interface PhonesArea {
 
 export function phonesArea(ctx: StoreContext): PhonesArea {
   const { store, commit, emit } = ctx
+  const rows = () => store.query(queryDb(phones.orderBy('pairedAt', 'asc')))
   const list = (): StoredPhone[] =>
-    store
-      .query(queryDb(phones.orderBy('pairedAt', 'asc')))
-      .map((row) => ({ ...row, edition: row.edition === 'release' ? 'release' : 'dev' }))
+    rows()
+      .filter((row) => row.removedAt === null)
+      .map(({ removedAt: _, ...row }) => ({
+        ...row,
+        edition: row.edition === 'release' ? 'release' : 'dev',
+      }))
   return {
     phones: {
       list,
+      everPaired: () => rows().length > 0,
       get: (id) => list().find((phone) => phone.id === id),
       byKey: (publicKey) => list().find((phone) => phone.publicKey === publicKey),
       pair(input) {

@@ -131,4 +131,4 @@ A phone that gets a reply with a `protocol` above its own says “Update the Ted
 
 The daemon answers a paired phone only on routes marked for phones. In this version that is `status`. Removing a phone on the Mac records `v1.PhoneRemoved`; its next message gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there.
 
-The daemon keeps its relay socket open while a pairing link is live or any phone is paired, and reconnects with backoff (1, 2, 5, 10, 30 seconds).
+The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so a removed phone always gets `not-paired`, not `mac-offline`). It reconnects with backoff (1, 2, 5, 10, 30 seconds).

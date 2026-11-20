@@ -38,6 +38,8 @@ export interface Phones {
   close(): void
 }
 
+export const pairingAnswerMs = 120_000
+
 export function createPhones(options: PhonesOptions): Phones {
   const now = options.now ?? Date.now
   const edition = options.edition ?? ourEdition
@@ -62,7 +64,11 @@ export function createPhones(options: PhonesOptions): Phones {
     return keysLoaded
   }
 
-  const wanted = () => !closed && (pairings.live() || options.phones.list().length > 0)
+  const answering = () => {
+    const at = pairings.expiresAt()
+    return at !== undefined && now() < at + pairingAnswerMs
+  }
+  const wanted = () => !closed && (pairings.live() || answering() || options.phones.everPaired())
 
   const disconnect = () => {
     connection?.relay.stop()
@@ -108,7 +114,15 @@ export function createPhones(options: PhonesOptions): Phones {
     if (expiry) clearTimeout(expiry)
     const at = pairings.expiresAt()
     if (at === undefined) return
-    expiry = setTimeout(refresh, Math.max(0, at - now()) + 50)
+    if (now() >= at + pairingAnswerMs) return
+    const next = now() < at ? at : at + pairingAnswerMs
+    expiry = setTimeout(
+      () => {
+        refresh()
+        watchExpiry()
+      },
+      Math.max(0, next - now()) + 50,
+    )
     expiry.unref()
   }
 
@@ -126,7 +140,7 @@ export function createPhones(options: PhonesOptions): Phones {
 
   return {
     async start() {
-      if (options.phones.list().length > 0) refresh()
+      if (options.phones.everPaired()) refresh()
     },
     async createPairing() {
       const loaded = await keys().catch((error: Error) => {

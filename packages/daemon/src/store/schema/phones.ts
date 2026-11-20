@@ -8,6 +8,7 @@ export const phones = State.SQLite.table({
     publicKey: State.SQLite.text(),
     edition: State.SQLite.text(),
     pairedAt: State.SQLite.text(),
+    removedAt: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -30,5 +31,5 @@ export const phonesEvents = {
 
 export const phonesMaterializers = State.SQLite.materializers(phonesEvents, {
   'v1.PhonePaired': (row) => phones.insert(row),
-  'v1.PhoneRemoved': ({ id }) => phones.delete().where({ id }),
+  'v1.PhoneRemoved': ({ id, removedAt }) => phones.update({ removedAt }).where({ id }),
 })
