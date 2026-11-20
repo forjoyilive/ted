@@ -193,6 +193,10 @@ export function appMenu(platform: Platform, state: MenuState, now: Date = new Da
   ]
 }
 
+export function showsTray(platform: Platform, showTrayIcon: boolean): boolean {
+  return (platform === 'darwin' || platform === 'linux') && showTrayIcon
+}
+
 export function trayLabel(waiting: number): string {
   return waiting > 0 ? String(waiting) : ''
 }
