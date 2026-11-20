@@ -39,6 +39,7 @@ export interface ServedPorts {
 interface Forwarded {
   own?: number
   reach: readonly string[]
+  outbound: boolean
 }
 
 export interface Sandboxed {
@@ -304,14 +305,18 @@ export function createSandbox(options: {
       const linux = await linuxSockets(table, paths, sockets, env)
       const binds = bwrapBinds(paths)
       const personal = await personalFolders(env)
-      const hidden = scope.hideProtected === true ? await existingFolders(personal) : []
+      const protectedHidden = scope.hideProtected === true ? await existingFolders(personal) : []
       const listed = await listedPaths('sandbox_reads', scope.reads ?? [], env)
       const reads = await linuxReads(
         env,
         [...(android ? sdk : []), ...listed],
         [...personal, paths.tedHome, ...(android ? [] : sdk)],
       )
-      const network = ownNetwork(scope)
+      const sdkHidden = android
+        ? []
+        : sdk.filter((dir) => reads.binds.some(([, dest]) => dest !== dir && inside(dest, dir)))
+      const hidden = [...protectedHidden, ...sdkHidden]
+      const network = ownNetwork(scope, android)
       const ports = network ? forwardedPorts(scope, android) : undefined
       const forward =
         ports === undefined
@@ -321,6 +326,7 @@ export function createSandbox(options: {
               options.unshare ?? (await onPath('unshare', env.PATH)),
               ports,
             )
+      const resolv = ports?.outbound === true ? await pastaResolv(paths.tedHome) : undefined
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -342,6 +348,7 @@ export function createSandbox(options: {
         hidden,
         reads,
         network && forward === undefined,
+        resolv,
       )
       const fds = forwardingFds(handles.length)
       return {
@@ -842,6 +849,7 @@ function bwrapArgs(
   hidden: readonly string[],
   reads: LinuxReads,
   ownNetwork: boolean,
+  resolv?: { source: string; dest: string },
 ): string[] {
   const runtime = runtimeDir(env)
   const bind = (b: Bind, i: number) =>
@@ -855,6 +863,7 @@ function bwrapArgs(
     ...(ownNetwork ? ['--unshare-net'] : []),
     ...reads.binds.flatMap(([source, dest]) => ['--ro-bind', source, dest]),
     ...reads.links.flatMap(([target, dest]) => ['--symlink', target, dest]),
+    ...(resolv === undefined ? [] : ['--ro-bind', resolv.source, resolv.dest]),
     '--dev',
     '/dev',
     '--proc',
@@ -887,14 +896,16 @@ function networkOf(scope: SandboxScope): NetworkLevel {
   return scope.groups?.includes('network') === true ? 'outbound' : (scope.network ?? defaultNetwork)
 }
 
-function ownNetwork(scope: SandboxScope): boolean {
-  return networkOf(scope) !== 'outbound'
+// bwrap can't filter single ports, so only android-emulator at outbound shares host loopback, where adb listens.
+function ownNetwork(scope: SandboxScope, android: boolean): boolean {
+  return networkOf(scope) !== 'outbound' || !android
 }
 
 // The adb server and the console and adb ports apps/emulators.ts picks emulators from.
 const androidPorts = ['5037', '5554-5585']
 
 function forwardedPorts(scope: SandboxScope, android: boolean): Forwarded | undefined {
+  const outbound = networkOf(scope) === 'outbound'
   const own = scope.serves?.own
   const reach =
     networkOf(scope) === 'none'
@@ -905,23 +916,23 @@ function forwardedPorts(scope: SandboxScope, android: boolean): Forwarded | unde
             ...(android ? androidPorts : []),
           ]),
         ]
-  if (own === undefined && reach.length === 0) return undefined
-  return { ...(own !== undefined && { own }), reach }
+  if (own === undefined && reach.length === 0 && !outbound) return undefined
+  return { ...(own !== undefined && { own }), reach, outbound }
 }
 
 async function portForwarding(
   pasta: string | undefined,
   unshare: string | undefined,
-  { own, reach }: Forwarded,
+  { own, reach, outbound }: Forwarded,
 ): Promise<{ pasta: string; unshare: string; args: string[] }> {
   if (pasta === undefined) {
     throw new SandboxUnavailable(
-      'pasta isn’t installed, so Ted can’t forward the App’s ports into its sandbox. Install the passt package.',
+      'pasta isn’t installed, so Ted can’t give this sandboxed command a network of its own. Install the passt package.',
     )
   }
   if (unshare === undefined) {
     throw new SandboxUnavailable(
-      'unshare isn’t installed, so Ted can’t give the App a network of its own. Install the util-linux package.',
+      'unshare isn’t installed, so Ted can’t give this sandboxed command a network of its own. Install the util-linux package.',
     )
   }
   // Without --host-lo-to-ns-lo pasta delivers host connections to the namespace's own address, which an
@@ -932,6 +943,7 @@ async function portForwarding(
     args: [
       '-q',
       '--host-lo-to-ns-lo',
+      ...(outbound ? ['--config-net', '--no-map-gw', '--dns-forward', pastaDns] : []),
       '-t',
       own === undefined ? 'none' : `127.0.0.1/${own}`,
       '-T',
@@ -942,6 +954,34 @@ async function portForwarding(
       'none',
     ],
   }
+}
+
+const pastaDns = '169.254.1.1'
+
+// Hosts that run their resolver on loopback (systemd-resolved, Docker) lose DNS in pasta's network without this.
+// It goes over the real file, because a linked /etc/resolv.conf may point outside the mounted folders.
+async function pastaResolv(tedHome: string): Promise<{ source: string; dest: string }> {
+  const home = await real(tedHome)
+  const dir = await plainFolder(home, path.resolve(tedHome), path.join(home, 'sandbox'), true)
+  const file = path.join(dir, 'resolv.conf')
+  const content = Buffer.from(`nameserver ${pastaDns}\n`)
+  const handle = await open(
+    file,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW,
+    0o644,
+  )
+  try {
+    if (!(await handle.stat()).isFile()) {
+      throw new SandboxUnavailable(
+        `${file} isn’t a plain file, so Ted won’t give it to the sandbox`,
+      )
+    }
+    await handle.write(content, 0, content.length, 0)
+    await handle.truncate(content.length)
+  } finally {
+    await handle.close()
+  }
+  return { source: file, dest: await realpath('/etc/resolv.conf').catch(() => '/etc/resolv.conf') }
 }
 
 function launchWithForwarding(
