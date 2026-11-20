@@ -374,7 +374,12 @@ const factoryFrom = (event: TedEvent) =>
   event.type === 'factory-added' || event.type === 'factory-updated' ? event.factory : undefined
 
 export function useTasks(): Task[] {
-  return useLive(ted.listTasks, taskFrom, byCreatedAt, deletedTask)
+  return useTaskList().tasks
+}
+
+export function useTaskList() {
+  const { items, loaded } = useLiveList(ted.listTasks, taskFrom, byCreatedAt, deletedTask)
+  return { tasks: items, loaded }
 }
 
 const byPosition = (a: Factory, b: Factory) =>
@@ -481,15 +486,16 @@ export function useGuides(): FactoryGuide[] {
   }).value
 }
 
-export function useInbox(): InboxItem[] {
-  return useInboxList('waiting', true)
+export function useInbox() {
+  const { value, loaded } = useInboxList('waiting', true)
+  return { items: value, loaded }
 }
 
 export function useAnswered(enabled: boolean): InboxItem[] {
-  return useInboxList('answered', enabled)
+  return useInboxList('answered', enabled).value
 }
 
-function useInboxList(list: 'waiting' | 'answered', enabled: boolean): InboxItem[] {
+function useInboxList(list: 'waiting' | 'answered', enabled: boolean) {
   const shown = useRef<readonly InboxItem[]>([])
   return useEventValue<InboxItem[]>({
     initial: [],
@@ -500,7 +506,7 @@ function useInboxList(list: 'waiting' | 'answered', enabled: boolean): InboxItem
     changed: (value) => {
       shown.current = value
     },
-  }).value
+  })
 }
 
 export function useSettings(): MachineSettings | undefined {

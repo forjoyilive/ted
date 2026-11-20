@@ -47,6 +47,7 @@ import { EmptyState } from '../components/EmptyState.tsx'
 import { FactoryIcon } from '../components/FactoryIcon.tsx'
 import { HierarchyMarker } from '../components/HierarchyMarker.tsx'
 import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
+import { Loading } from '../components/Loading.tsx'
 import { PriorityButton } from '../components/PriorityMenu.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
@@ -224,6 +225,7 @@ export function Board({
   factoryId,
   factory,
   tasks,
+  loaded = true,
   factories,
   queue,
   slots,
@@ -242,6 +244,7 @@ export function Board({
   factoryId: string
   factory: Factory | undefined
   tasks: readonly Task[]
+  loaded?: boolean
   factories: readonly Factory[]
   queue: readonly QueuedForSlot[]
   slots?: RunSlots | undefined
@@ -271,7 +274,7 @@ export function Board({
   const [target, setTarget] = useState<Target>()
   const [refused, setRefused] = useState<{ x: number; y: number }>()
   const chips = filterChips(filters, factories, undefined, allStages)
-  const empty = boardEmpty(tasks, filters, text)
+  const empty = boardEmpty(tasks, filters, text, loaded)
   const saved = boardViewFor(settings?.boardViews, factoryId)
   const [draft, setDraft] = useState<{ factoryId: string; view: BoardView }>()
   const view = draft?.factoryId === factoryId ? draft.view : saved
@@ -801,6 +804,11 @@ export function Board({
           settings={settings}
           onSelect={setSelected}
         />
+        {empty === 'loading' && (
+          <div className={styles.emptyOverlay}>
+            <Loading label="Loading Tasks…" />
+          </div>
+        )}
         {empty === 'no-tasks' && (
           <div className={styles.emptyOverlay}>
             <EmptyState

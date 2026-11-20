@@ -15,6 +15,7 @@ import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { FactoryIcon, FactoryName } from '../components/FactoryIcon.tsx'
 import { CloseIcon, PlusIcon } from '../components/icons.tsx'
+import { Loading } from '../components/Loading.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
@@ -55,6 +56,7 @@ export function TaskMap({
   title,
   factoryId,
   tasks,
+  loaded = true,
   factories,
   banners,
   onOpen,
@@ -64,6 +66,7 @@ export function TaskMap({
   title: string
   factoryId: string
   tasks: readonly Task[]
+  loaded?: boolean
   factories: readonly Factory[]
   banners?: ReactNode
   onOpen: (task: Task) => void
@@ -365,7 +368,12 @@ export function TaskMap({
             ))}
             {map.cards.map((c) => card(c.task, place.get(c.task.id)))}
           </div>
-          {map.links.length === 0 && (
+          {!loaded && (
+            <div className={boardStyles.emptyOverlay}>
+              <Loading label="Loading Tasks…" />
+            </div>
+          )}
+          {loaded && map.links.length === 0 && (
             <div className={boardStyles.emptyOverlay}>
               <EmptyState
                 card

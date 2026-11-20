@@ -89,7 +89,7 @@ import {
   useSimulators,
   useSlots,
   useSnoozedRequests,
-  useTasks,
+  useTaskList,
   useUpdateStatus,
   useWaitingCount,
 } from './data.ts'
@@ -262,7 +262,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
     () => (navigation.requestId === undefined ? undefined : { id: navigation.requestId }),
     [navigation],
   )
-  const tasks = useTasks()
+  const { tasks, loaded: tasksLoaded } = useTaskList()
   const { factories, loaded: factoriesLoaded } = useFactoryList()
   const factoryLayout = useFactoryLayout()
   const settingsResource = useSettingsState()
@@ -356,7 +356,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
     automationDialog !== undefined
   const openNewTask = (factoryId?: string) =>
     setNewTaskOpen(factoryId === undefined ? {} : { factoryId })
-  const inbox = useInbox()
+  const { items: inbox, loaded: inboxLoaded } = useInbox()
   const questions = useAutomationRequests()
   const allAutomations = useAutomationOutcomes()
   const planInbox = usePlanInbox()
@@ -844,7 +844,8 @@ export function App({ start }: { start?: AppStart | undefined }) {
       />
     )
     const { screen } = navigation
-    const noFactories = factoriesLoaded && factories.length === 0 && tasks.length === 0
+    const noFactories =
+      factoriesLoaded && tasksLoaded && factories.length === 0 && tasks.length === 0
     if (screen.kind === 'inbox' && noFactories && !opened && inbox.length === 0) {
       return <NoFactories onAddFactory={() => setAddFactoryOpen(true)} />
     }
@@ -885,6 +886,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
           groupId={screen.groupId}
           showAnswered={screen.answered === true}
           anyTasks={tasks.length > 0}
+          loaded={tasksLoaded && inboxLoaded}
           settings={settings}
           onOpenNotifications={() => dispatch({ type: 'open-settings', section: 'notifications' })}
           selected={navigation.requestId}
@@ -978,6 +980,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
             scope={allTasksScope}
             title="All Tasks"
             tasks={tasks}
+            loaded={tasksLoaded}
             factories={factories}
             layout={factoryLayout}
             settings={settings}
@@ -1009,6 +1012,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
           factories,
           onOpen: openTask,
           onNewTask: () => openNewTask(),
+          loaded: tasksLoaded,
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
         const openPlans = () => dispatch({ type: 'open-plan', factoryId: screen.factoryId })
@@ -1061,6 +1065,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
               title={name}
               factoryId={screen.factoryId}
               tasks={tasks}
+              loaded={tasksLoaded}
               factories={factories}
               banners={view.banners}
               onOpen={openTask}
