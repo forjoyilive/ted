@@ -109,7 +109,7 @@ import type { MakeDirectory } from '../files.ts'
 import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
-import type { RunManager } from '../runs/run-manager.ts'
+import { RunEndedBeforeInput, type RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import type { StoredChatAgent } from '../store/chats.ts'
 import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
@@ -663,7 +663,15 @@ export function createCoordinators(options: {
             const current = saved.get(id)
             if (current?.phase === 'working' && !store.getRun(current.runId))
               save({ ...current, phase: 'queued' })
-          } else fail(id, error)
+          } else {
+            const current = saved.get(id)
+            if (
+              !(error instanceof RunEndedBeforeInput) ||
+              !current ||
+              !(resumedAfterEnd(current) || resumeAfterEnd(current))
+            )
+              fail(id, error)
+          }
         },
         done() {
           if (!closed) {
