@@ -191,6 +191,22 @@ test('a phone is never sent requests that were waiting before it was paired, eve
   expect(sent.map((message) => message.requestId)).toEqual([id])
 })
 
+test('a first away report sends a request from the 2 minutes before it, with no other event', async () => {
+  startClock('2026-11-19T10:00:00Z')
+  pairPhone('iPhone', token)
+  const id = await ask('Before the daemon started', 'Still waiting?')
+  vi.setSystemTime(new Date('2026-11-19T10:00:30Z'))
+  presence.close()
+  presence = createPresence()
+  startNotifier()
+  await settled()
+  expect(sent).toEqual([])
+
+  presence.report(true)
+  await settled()
+  expect(sent.map((message) => message.requestId)).toEqual([id])
+})
+
 test('a request posted while away is sent at once to every phone with a token', async () => {
   pairPhone('iPhone', token)
   pairPhone('iPad', otherToken)
