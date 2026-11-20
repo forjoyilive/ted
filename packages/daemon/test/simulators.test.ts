@@ -774,7 +774,16 @@ describe('iOS simulator Apps', () => {
       async () => (await readFile(said, 'utf8').catch(() => '')).includes(building),
       'ted run-app to say whose build it waits for',
     )
+    await rm(built)
     await client.ok('POST', `/tasks/${builder.id}/apps/stop`, { name: 'Watch' })
+    await waitUntil(
+      async () =>
+        (await readFile(said, 'utf8').catch(() => '')).includes(
+          'Waiting for iPhone to finish building and launch on iPhone 17…',
+        ),
+      'ted run-app to say it waits for NB-3’s own build',
+    )
+    await writeFile(built, '')
     const result = await leadResult(client, second)
     expect(result.code).toBe(0)
     const lines = (await readFile(said, 'utf8')).split('\n')
