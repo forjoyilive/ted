@@ -85,7 +85,15 @@ import {
   taskRepos,
 } from './schema/merge.ts'
 import { peerMessages, peersEvents, peersMaterializers } from './schema/peers.ts'
-import { phoneNotifications, phones, phonesEvents, phonesMaterializers } from './schema/phones.ts'
+import {
+  phoneNotifications,
+  phoneRelayAck,
+  phoneRelayResets,
+  phoneRelaySent,
+  phones,
+  phonesEvents,
+  phonesMaterializers,
+} from './schema/phones.ts'
 import { planRequests, plans, plansEvents, plansMaterializers, planTasks } from './schema/plans.ts'
 import {
   commentAttachments,
@@ -290,6 +298,9 @@ const state = State.SQLite.makeState({
     phones,
     phoneNotifications,
     requestReturns,
+    phoneRelayResets,
+    phoneRelayAck,
+    phoneRelaySent,
   },
   materializers,
 })

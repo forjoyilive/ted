@@ -8,6 +8,7 @@ import {
   type Banner,
   type Comment,
   type DaemonClient,
+  encodePairingLink,
   type Factory,
   type MacReply,
   type PhoneAnswer,
@@ -109,13 +110,14 @@ afterAll(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function pairedPhone(name: string, approve = true): Promise<TestPhone> {
+async function pairedPhone(name: string): Promise<TestPhone> {
   const offer = await client.createPhonePairing()
   const paired = new TestPhone(offer.link)
   phones.push(paired)
   await paired.online
   await paired.pair(name)
-  if (approve) await client.approvePhonePairing({ pairing: paired.link.pairing })
+  await client.approvePhonePairing({ pairing: paired.link.pairing })
+  await paired.approved()
   return paired
 }
 
@@ -441,10 +443,10 @@ test('a proposal too long for the relay opens on the phone as Answer on your Mac
   })
 })
 
-test('a phone that isn’t approved still gets not-paired on the Inbox routes', async () => {
-  const waiting = await pairedPhone('Waiting Phone', false)
-  expect(failure(await waiting.requests())).toBe('not-paired')
-  expect(failure(await waiting.answer('any', { action: 'approve' }))).toBe('not-paired')
+test('a phone key that isn’t paired gets not-paired on the Inbox routes', async () => {
+  const stranger = new TestPhone(encodePairingLink(phone.link))
+  expect(failure(await stranger.requests(phone))).toBe('not-paired')
+  expect(failure(await stranger.answer('any', { action: 'approve' }, phone))).toBe('not-paired')
 })
 
 test('a Run’s permission request is approved from the phone as from the desktop', async () => {

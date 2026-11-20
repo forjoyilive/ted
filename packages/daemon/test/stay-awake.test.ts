@@ -148,6 +148,7 @@ describe('Stay Awake for paired phones', () => {
       const phone = store.phones.pair({
         name: 'iPhone',
         publicKey: 'phone-key',
+        relayKey: 'phone-relay-key',
         edition: 'dev',
         pairedAt: new Date().toISOString(),
       })
@@ -167,6 +168,7 @@ describe('Stay Awake for paired phones', () => {
       store.phones.pair({
         name: 'iPhone again',
         publicKey: 'phone-key-2',
+        relayKey: 'phone-relay-key-2',
         edition: 'dev',
         pairedAt: new Date().toISOString(),
       })
