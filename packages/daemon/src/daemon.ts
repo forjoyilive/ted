@@ -926,6 +926,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
         taskCreation: {
           factories: () => store.listFactories(),
+          defaults: (factoryId) => tasks.defaults(factoryId),
           task: (ref) => store.getTask(ref),
           create: (input, caller) => tasks.create(input, caller),
           start: (ref) => tasks.start(ref),

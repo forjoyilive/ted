@@ -10,12 +10,16 @@ import {
   type PhoneTaskCreatedBody,
   parsePhoneFactoriesBody,
   parsePhoneTaskCreatedBody,
+  phoneLabelMax,
+  phoneReplyBodyMax,
   readDaemonInfo,
   toBase64Url,
 } from '@ted/protocol'
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterAll, beforeAll, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { createPhoneNewTask } from '../src/phones/new-task.ts'
+import type { PhoneTasks } from '../src/phones/tasks.ts'
 import type { PhonesArea, TedStore } from '../src/store/index.ts'
 import {
   api,
@@ -58,7 +62,8 @@ beforeAll(async () => {
   const origin = await makeOriginRepo(scratch)
   await commitToOrigin(scratch, {
     '.gitignore': 'stub-*\n',
-    '.ted/workflow.yaml': 'version: 1\norder: [intake, work, validate, review]\n',
+    '.ted/workflow.yaml':
+      'version: 1\norder: [intake, work, validate, review]\nlead: { agent: claude, model: opus, effort: high }\nstages:\n  clarify: { depth: few }\n',
   })
   const ghState = path.join(scratch, 'gh.json')
   await writeFile(ghState, '{}')
@@ -134,6 +139,10 @@ test('factories lists each Factory with only its key, name, icon and default pri
 
 test('task-create makes a Backlog Task in the chosen Factory with the given fields and the Factory’s defaults', async () => {
   const defaults = await client.taskDefaults(notebook.id)
+  expect(defaults).toMatchObject({
+    clarifyDepth: 'few',
+    lead: { agent: 'claude', model: 'opus', effort: 'high' },
+  })
   const reply = created(
     await send({
       type: 'request',
@@ -249,4 +258,32 @@ test('a phone key that isn’t paired gets not-paired on factories and task-crea
     ),
   ).toMatchObject({ ok: false, error: { code: 'not-paired' } })
   expect(store.listTasks().length).toBe(before)
+})
+
+test('factories stops before the reply would pass the size limit and cuts long names', () => {
+  const many = Array.from({ length: 400 }, (_, i) => ({
+    id: `f${i}`,
+    key: `F${i}`,
+    name: 'N'.repeat(300),
+    position: i,
+  }))
+  const newTask = createPhoneNewTask(
+    {
+      factories: () => many,
+      defaults: () => Promise.reject(new Error('unused')),
+      task: () => undefined,
+      create: () => Promise.reject(new Error('unused')),
+      start: () => Promise.reject(new Error('unused')),
+    },
+    { createdTask: () => undefined, persisted: () => Promise.resolve() },
+    {} as PhoneTasks,
+  )
+  const reply = newTask.factories()
+  if (!('body' in reply)) throw new Error('refused')
+  const { factories } = parsePhoneFactoriesBody(reply.body)
+  expect(factories.length).toBeGreaterThan(0)
+  expect(factories.length).toBeLessThan(many.length)
+  expect(factories.map((f) => f.key)).toEqual(many.slice(0, factories.length).map((f) => f.key))
+  expect(factories[0]?.name).toHaveLength(phoneLabelMax)
+  expect(Buffer.byteLength(JSON.stringify(reply.body))).toBeLessThanOrEqual(phoneReplyBodyMax)
 })

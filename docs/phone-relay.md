@@ -359,7 +359,7 @@ Lists every Factory the Mac’s New Task dialog offers, in the sidebar’s order
 { "factories": [{ "key": "NB", "name": "Notebook", "icon": { "kind": "letter", "color": "blue" }, "defaultPriority": "none" }] }
 ```
 
-`icon` has the same shape as a Task row’s Factory icon and is left out when the Factory has none. `name` goes through `redactSecrets`. `defaultPriority` is the priority the phone’s form starts at; Factories have no priority setting, so it is always `none`, the Mac dialog’s starting value. Nothing else about a Factory is sent.
+`icon` has the same shape as a Task row’s Factory icon and is left out when the Factory has none. `name` goes through `redactSecrets` and is cut to 200 characters. The list stops before the Factory that would take the reply past `phoneReplyBodyMax` (40,000 bytes of JSON). `defaultPriority` is the priority the phone’s form starts at; Factories have no priority setting, so it is always `none`, the Mac dialog’s starting value. Nothing else about a Factory is sent.
 
 ### `task-create`
 
@@ -372,11 +372,11 @@ Lists every Factory the Mac’s New Task dialog offers, in the sidebar’s order
 | `priority` | Optional `urgent`, `high`, `medium`, `low` or `none`; `none` when left out. |
 | `start` | `true` or `false`, always sent: Start now. |
 
-A wrong type, a value past its limit or a bad `createId` gets `bad-request`. No other field is read: the Task Lead, Clarify depth, blockers, parent and attachments always take the Factory’s defaults (no blockers, no parent, no files), as the Mac’s New Task dialog does when the user leaves them alone.
+A wrong type, a value past its limit or a bad `createId` gets `bad-request`. No other field is read: the Task Lead and Clarify depth are the Factory’s Task defaults, the same values the Mac’s New Task dialog starts with (the Workflow’s Clarify depth, and its lead adjusted for installed, enabled and paused agents), and there are no blockers, parent or files. An unknown `factory` is `refused` with “no Factory with key <key>”.
 
 The daemon creates the Task with the same Tasks module call as the Mac’s New Task dialog, as the user (`createdBy` is `human`), in Backlog. When the daemon refuses, for example an unknown Factory, the phone gets `refused` with the daemon’s sentence, through `redactSecrets`, and nothing is created. With `start` on, the daemon then starts the Task with the same call as the Mac’s Start button; if that start is refused, the Task stays in Backlog and the reply carries `startRefused` with the daemon’s sentence, through `redactSecrets`, cut to 500 characters. With `start` off, the Task stays in Backlog.
 
-**Sending twice.** When a reply is lost, the phone sends the same `task-create` again as a new message (new `id`, nonce and `at`, because the daemon drops a repeated nonce and any `at` more than 120 seconds off) with the same `createId`. The daemon records each created Task as `v1.PhoneTaskCreated` under the phone and `createId`, and waits for the record to reach disk before it answers, so a resend, even after the Mac restarts, gets the first Task as it is now and creates nothing, whatever the other fields say. Two sends with the same `createId` at once share one create. A resend for a Task since deleted or archived gets `gone`. A refused create records nothing, so the phone may send it again. The `createId` belongs to one phone: the same value from another phone is a different Task.
+**Sending twice.** When a reply is lost, the phone sends the same `task-create` again as a new message (new `id`, nonce and `at`, because the daemon drops a repeated nonce and any `at` more than 120 seconds off) with the same `createId`. The daemon records `v1.PhoneTaskCreated` under the phone and `createId` in the same store commit that creates the Task, and waits for it to reach disk before it starts the Task or answers, so a resend, even after the Mac restarts, gets the first Task as it is now and creates nothing, whatever the other fields say. Two sends with the same `createId` at once share one create. A resend for a Task since deleted or archived gets `gone`. A refused create records nothing, so the phone may send it again. The `createId` belongs to one phone: the same value from another phone is a different Task.
 
 ## Pairing
 

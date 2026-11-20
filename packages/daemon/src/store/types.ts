@@ -305,6 +305,7 @@ export interface NewTask {
   plan?: { planId: string; row: number }
   setup?: boolean
   coordinatorOperation?: string
+  phoneCreate?: { phoneId: string; createId: string }
   taskLead?: { creatorId: string; runId: string; child: boolean }
   linearConsent?: boolean
   children?: readonly NewTreeTask[]

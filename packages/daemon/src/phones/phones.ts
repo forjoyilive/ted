@@ -70,7 +70,7 @@ export function createPhones(options: PhonesOptions): Phones {
   const requests = createPhoneRequests(options.inbox)
   const tasks = createPhoneTasks(options.tasks, now)
   const actions = createPhoneActions(options.taskChanges, tasks)
-  const newTask = createPhoneNewTask(options.taskCreation, options.phones, tasks, now)
+  const newTask = createPhoneNewTask(options.taskCreation, options.phones, tasks)
   const tickets = new Map<string, Ticket>()
   const ending = new Map<string, number>()
   let keysLoaded: Promise<PhoneKeys> | undefined

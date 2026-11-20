@@ -1,8 +1,22 @@
-import type { Factory, Priority, Task } from '@ted/protocol'
-import { phoneNewTaskPriority, RequestValidationError } from '@ted/protocol'
+import type {
+  ClarifyDepth,
+  Factory,
+  PhoneFactory,
+  Priority,
+  Task,
+  TaskDefaults,
+  TaskLead,
+} from '@ted/protocol'
+import {
+  phoneLabelMax,
+  phoneNewTaskPriority,
+  phoneReplyBodyMax,
+  RequestValidationError,
+} from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { Caller } from '../tasks/tasks.ts'
+import { cutChars, jsonBytes } from './fit.ts'
 import type { PhoneOutcome } from './requests.ts'
 import { type PhoneTasks, phoneIcon } from './tasks.ts'
 
@@ -20,10 +34,19 @@ export interface PhoneNewTaskInput {
 }
 
 export interface PhoneTaskCreation {
-  factories(): readonly Pick<Factory, 'key' | 'name' | 'icon' | 'position'>[]
+  factories(): readonly Pick<Factory, 'id' | 'key' | 'name' | 'icon' | 'position'>[]
+  defaults(factoryId: string): Promise<TaskDefaults>
   task(ref: string): Task | undefined
   create(
-    input: { factory: string; title: string; description: string; priority: Priority },
+    input: {
+      factory: string
+      title: string
+      description: string
+      priority: Priority
+      lead: TaskLead
+      clarifyDepth: ClarifyDepth
+      phoneCreate: { phoneId: string; createId: string }
+    },
     caller: PhoneCaller,
   ): Promise<Task>
   start(ref: string): Promise<Task>
@@ -31,7 +54,6 @@ export interface PhoneTaskCreation {
 
 export interface PhoneCreatedTasks {
   createdTask(phoneId: string, createId: string): string | undefined
-  markTaskCreated(input: { phoneId: string; createId: string; taskId: string; at: string }): void
   persisted(): Promise<void>
 }
 
@@ -44,7 +66,6 @@ export function createPhoneNewTask(
   changes: PhoneTaskCreation,
   created: PhoneCreatedTasks,
   tasks: PhoneTasks,
-  now: () => number,
 ): PhoneNewTask {
   const running = new Map<string, Promise<PhoneOutcome>>()
 
@@ -64,14 +85,22 @@ export function createPhoneNewTask(
     }
     const title = input.title?.trim() ?? ''
     if (title === '') return { code: 'refused', message: 'A Task needs a title.' }
+    const factory = changes.factories().find((each) => each.key === input.factory)
+    if (!factory) {
+      return { code: 'refused', message: redactSecrets(`no Factory with key ${input.factory}`) }
+    }
     let task: Task
     try {
+      const defaults = await changes.defaults(factory.id)
       task = await changes.create(
         {
-          factory: input.factory,
+          factory: factory.key,
           title,
           description: input.description ?? '',
           priority: input.priority,
+          lead: defaults.lead,
+          clarifyDepth: defaults.clarifyDepth,
+          phoneCreate: { phoneId: caller.phoneId, createId: input.createId },
         },
         caller,
       )
@@ -84,12 +113,6 @@ export function createPhoneNewTask(
       console.error(redactSecrets(`a phone couldn’t create a Task: ${String(error)}`))
       return { code: 'refused' }
     }
-    created.markTaskCreated({
-      phoneId: caller.phoneId,
-      createId: input.createId,
-      taskId: task.id,
-      at: new Date(now()).toISOString(),
-    })
     await created.persisted()
     if (!input.start) return shown(task.id)
     try {
@@ -108,21 +131,21 @@ export function createPhoneNewTask(
   }
 
   return {
-    factories: () => ({
-      body: {
-        factories: [...changes.factories()]
-          .sort((a, b) => a.position - b.position)
-          .map((factory) => {
-            const icon = phoneIcon(factory.icon)
-            return {
-              key: factory.key,
-              name: redactSecrets(factory.name),
-              ...(icon !== undefined && { icon }),
-              defaultPriority: phoneNewTaskPriority,
-            }
-          }),
-      },
-    }),
+    factories() {
+      const factories: PhoneFactory[] = []
+      for (const factory of [...changes.factories()].sort((a, b) => a.position - b.position)) {
+        const icon = phoneIcon(factory.icon)
+        const entry: PhoneFactory = {
+          key: factory.key,
+          name: cutChars(redactSecrets(factory.name), phoneLabelMax),
+          ...(icon !== undefined && { icon }),
+          defaultPriority: phoneNewTaskPriority,
+        }
+        if (jsonBytes({ factories: [...factories, entry] }) > phoneReplyBodyMax) break
+        factories.push(entry)
+      }
+      return { body: { factories } }
+    },
     create(caller, input) {
       const key = JSON.stringify([caller.phoneId, input.createId])
       const pending = running.get(key)

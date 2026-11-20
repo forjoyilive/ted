@@ -12365,6 +12365,12 @@ export function createTasks(options: {
     if (parentRef !== undefined && caller.kind !== 'app') {
       throw new RequestError(403, 'only the app can create a Task under a parent')
     }
+    if (
+      fields.phoneCreate !== undefined &&
+      (caller.kind !== 'phone' || caller.phoneId !== fields.phoneCreate.phoneId)
+    ) {
+      throw new RequestError(403, 'only that phone can record its own create request')
+    }
     if (parentRef !== undefined && followUp !== undefined) {
       throw new RequestError(400, 'a follow-up Task can’t be created under a parent')
     }

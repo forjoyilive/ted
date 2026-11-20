@@ -80,7 +80,6 @@ export interface PhoneStore {
   }): boolean
   waitingSince(request: { id: string; createdAt: string }): string
   createdTask(phoneId: string, createId: string): string | undefined
-  markTaskCreated(input: { phoneId: string; createId: string; taskId: string; at: string }): void
   persisted(): Promise<void>
 }
 
@@ -211,9 +210,6 @@ export function phonesArea(ctx: StoreContext): PhonesArea {
         store.query(
           queryDb(phoneTaskCreates.where({ id: phoneTaskCreateId(phoneId, createId) })),
         )[0]?.taskId,
-      markTaskCreated(input) {
-        commit(events.phoneTaskCreated(input))
-      },
       persisted,
     },
   }
