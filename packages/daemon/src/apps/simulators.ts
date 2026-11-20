@@ -135,7 +135,7 @@ const simulatorViewers = [
     bundle: 'com.apple.iphonesimulator',
     args: (udid: string) => ['--args', '-CurrentDeviceUDID', udid],
   },
-  { bundle: 'com.apple.dt.Devices', args: () => [] },
+  { bundle: 'com.apple.dt.Devices', args: (udid: string) => [`devices://device/open?id=${udid}`] },
 ]
 
 export const simulatorToolsProblem = 'simulator-tools'
