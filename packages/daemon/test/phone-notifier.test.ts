@@ -1,15 +1,17 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { WaitingRequest } from '@ted/protocol'
+import type { Banner, WaitingRequest } from '@ted/protocol'
 import { afterEach, beforeEach, expect, expectTypeOf, test, vi } from 'vitest'
 import {
   createPhoneNotifier,
   type PhoneNotifier,
   permissionBody,
+  problemPushText,
   pushText,
   pushTextMax,
 } from '../src/phones/notifier.ts'
+import type { PhoneProblemSource } from '../src/phones/problems.ts'
 import type { PushMessage, PushResult, PushService } from '../src/phones/push.ts'
 import { createPresence, type Presence } from '../src/presence.ts'
 import { openStore, type PhonesArea, type TedStore } from '../src/store/index.ts'
@@ -69,9 +71,27 @@ function pairPhone(name: string, pushToken?: string): string {
   return phone.id
 }
 
+function problemSource(): PhoneProblemSource {
+  return {
+    banners: () => store.listBanners(),
+    factoryName: (id) => store.getFactory(id)?.name,
+    subscribe: (listener) => store.subscribe(listener),
+  }
+}
+
 function startNotifier(): PhoneNotifier {
-  notifier = createPhoneNotifier({ store, presence, push, log: () => undefined })
+  notifier = createPhoneNotifier({
+    store,
+    presence,
+    push,
+    problems: problemSource(),
+    log: () => undefined,
+  })
   return notifier
+}
+
+function raise(problem: string, text: string, severity: Banner['severity'] = 'stops-work'): Banner {
+  return store.raiseBanner({ id: `${problem}:${factoryId}`, problem, severity, factoryId, text })
 }
 
 async function settled(): Promise<void> {
@@ -367,4 +387,95 @@ test('notification text is redacted, shortened, and a permission request never s
     headline: 'Close stale issues?',
   }
   expect(pushText(automation)).toEqual({ title: 'Nightly sweep', body: 'Close stale issues?' })
+})
+
+test('a stops-work problem raised while away sends one notification that opens Problems; clearing it sends nothing', async () => {
+  pairPhone('iPhone', token)
+  presence.report(true)
+  startNotifier()
+  const banner = raise('clone-failed', 'Couldn’t clone acme/notes · Notebooks can’t start Tasks')
+  await settled()
+  expect(sent).toEqual([
+    {
+      to: token,
+      title: 'Work stopped · Notebooks',
+      body: 'Couldn’t clone acme/notes · Notebooks can’t start Tasks',
+      opens: 'problems',
+    },
+  ])
+
+  store.clearBanner(banner.id)
+  await settled()
+  expect(sent).toHaveLength(1)
+
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  raise('clone-failed', 'Couldn’t clone acme/notes · Notebooks can’t start Tasks')
+  await settled()
+  expect(sent).toHaveLength(2)
+  expect(sent.every((message) => message.opens === 'problems')).toBe(true)
+})
+
+test('a problem raised at the Mac is sent when the user becomes away, and not if it cleared first', async () => {
+  pairPhone('iPhone', token)
+  presence.report(false)
+  startNotifier()
+  raise('disk-full', 'Disk full · new work held')
+  const cleared = raise('provider-signed-out', 'Claude is signed out')
+  await settled()
+  expect(sent).toEqual([])
+
+  store.clearBanner(cleared.id)
+  presence.report(true)
+  await settled()
+  expect(sent.map((message) => message.body)).toEqual(['Disk full · new work held'])
+
+  presence.report(false)
+  presence.report(true)
+  await settled()
+  expect(sent).toHaveLength(1)
+})
+
+test('warnings never notify, and the Problems setting turns problem notifications off', async () => {
+  pairPhone('iPhone', token)
+  presence.report(true)
+  store.updateSettings({ notifyProblems: false })
+  startNotifier()
+  raise('disk-low', 'Disk almost full', 'warning')
+  raise('disk-full', 'Disk full · new work held')
+  await settled()
+  expect(sent).toEqual([])
+
+  store.updateSettings({ notifyProblems: true })
+  await settled()
+  expect(sent.map((message) => message.body)).toEqual(['Disk full · new work held'])
+})
+
+test('a problem notification is not repeated after a restart', async () => {
+  pairPhone('iPhone', token)
+  presence.report(true)
+  startNotifier()
+  raise('disk-full', 'Disk full · new work held')
+  await settled()
+  notifier?.close()
+  startNotifier()
+  raise('disk-full', 'Disk full · new work held · 1 GB free')
+  await settled()
+  expect(sent).toHaveLength(1)
+})
+
+test('problem notification text names the Factory or Ted, redacted and shortened', () => {
+  const banner: Banner = {
+    id: 'disk-full:app',
+    problem: 'disk-full',
+    severity: 'stops-work',
+    text: `Can’t reach https://user:hunter2@example.com ${'x'.repeat(400)}`,
+    raisedAt: '2026-11-19T10:00:00.000Z',
+  }
+  const text = problemPushText(banner, undefined)
+  expect(text.title).toBe('Work stopped · Ted')
+  expect(text.body).not.toContain('hunter2')
+  expect([...text.body]).toHaveLength(pushTextMax)
+  expect(problemPushText({ ...banner, factoryId: 'f' }, 'Notebooks').title).toBe(
+    'Work stopped · Notebooks',
+  )
 })

@@ -12,6 +12,7 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import type { PhoneProblemsBody } from './phone-problems.ts'
 import {
   type PhoneAnswer,
   type PhoneAnsweredBody,
@@ -53,7 +54,14 @@ export const phoneErrorCodes = [
 ] as const
 export type PhoneErrorCode = (typeof phoneErrorCodes)[number]
 
-export const phoneRouteNames = ['status', 'requests', 'request', 'answer', 'push-token'] as const
+export const phoneRouteNames = [
+  'status',
+  'requests',
+  'request',
+  'answer',
+  'push-token',
+  'problems',
+] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
 export interface PairingLink {
@@ -133,6 +141,7 @@ export type PhoneReplyBody =
   | PhoneRequestBody
   | PhoneAnsweredBody
   | PhonePushTokenBody
+  | PhoneProblemsBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
     | { ok: true; body: PhoneReplyBody }

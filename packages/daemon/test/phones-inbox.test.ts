@@ -14,6 +14,7 @@ import {
   type PhoneRequestSummary,
   type Plan,
   type PlanDetail,
+  parsePhoneProblemsBody,
   parsePhoneRequestBody,
   parsePhoneRequestsBody,
   phoneReplyBodyMax,
@@ -671,3 +672,47 @@ test('a planning chat that saves a phone answer but can’t resume says the answ
     'gone',
   )
 }, 90_000)
+
+test('the phone lists current stops-work problems, redacted, and never warnings', async () => {
+  const problems = async () => {
+    const reply = await phone.send({ type: 'request', route: 'problems' })
+    if (!reply.ok) throw new Error(`problems failed: ${reply.error.code}`)
+    return parsePhoneProblemsBody(reply.body).problems
+  }
+  const stops = store.raiseBanner({
+    id: `phone-test-clone:${factory.id}`,
+    problem: 'phone-test-clone',
+    severity: 'stops-work',
+    factoryId: factory.id,
+    text: 'Couldn’t clone https://user:hunter2@example.com/acme/notes.git',
+  })
+  const disk = store.raiseBanner({
+    id: 'phone-test-stop:app',
+    problem: 'phone-test-stop',
+    severity: 'stops-work',
+    text: 'Disk full · new work held',
+  })
+  store.raiseBanner({
+    id: 'phone-test-warning:app',
+    problem: 'phone-test-warning',
+    severity: 'warning',
+    text: 'Disk almost full',
+  })
+
+  const listedProblems = await problems()
+  expect(listedProblems.map((problem) => problem.id).sort()).toEqual([disk.id, stops.id].sort())
+  expect(listedProblems.find((problem) => problem.id === disk.id)).toEqual({
+    id: disk.id,
+    text: 'Disk full · new work held',
+    raisedAt: disk.raisedAt,
+  })
+  const clone = listedProblems.find((problem) => problem.id === stops.id)
+  expect(clone?.factory).toBe(factory.name)
+  expect(clone?.text).toContain('https://[redacted]@example.com')
+  expect(clone?.text).not.toContain('hunter2')
+
+  store.clearBanner(stops.id)
+  store.clearBanner(disk.id)
+  store.clearBanner('phone-test-warning:app')
+  expect(await problems()).toEqual([])
+})

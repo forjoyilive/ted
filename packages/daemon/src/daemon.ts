@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   DaemonClient,
+  type DaemonEvent,
   type DaemonInfo,
   type DataStatus,
   type PublicDaemonInfo,
@@ -52,6 +53,7 @@ import { createMemoryWatch } from './memory-kills.ts'
 import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
 import { createPhoneNotifier } from './phones/notifier.ts'
 import { createPhones } from './phones/phones.ts'
+import type { PhoneProblemSource } from './phones/problems.ts'
 import { noPush, type PushService } from './phones/push.ts'
 import { storeInbox } from './phones/requests.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
@@ -361,7 +363,26 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.mkdir !== undefined && { mkdir: options.mkdir }),
       })
       const runs = options.wrap?.runs?.(startedRuns, store) ?? startedRuns
-      const banners = createBanners({ store, emit })
+      const bannerListeners = new Set<(event: DaemonEvent) => void>()
+      const banners = createBanners({
+        store,
+        emit: (event) => {
+          emit(event)
+          for (const listener of bannerListeners) listener(event)
+        },
+      })
+      const phoneProblemSource: PhoneProblemSource = {
+        banners: () => banners.list(),
+        factoryName: (factoryId) => store.getFactory(factoryId)?.name,
+        subscribe(listener) {
+          const unsubscribe = store.subscribe(listener)
+          bannerListeners.add(listener)
+          return () => {
+            unsubscribe()
+            bannerListeners.delete(listener)
+          }
+        },
+      }
       const diskOptions = options.disk ?? {}
       const fakeFree = tedEnv('TED_FREE_BYTES_FILE')
       let wake: () => void = () => undefined
@@ -884,6 +905,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             await automations.answer(id, answer)
           },
         }),
+        problems: phoneProblemSource,
         keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
         version: options.version,
         ...(options.phones?.relayUrl !== undefined && { relayUrl: options.phones.relayUrl }),
@@ -897,6 +919,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         store,
         presence,
         push: options.phones?.push ?? noPush,
+        problems: phoneProblemSource,
         ...(options.phones?.now && { now: options.phones.now }),
       })
       const factoryRemovals = createFactoryRemovals({

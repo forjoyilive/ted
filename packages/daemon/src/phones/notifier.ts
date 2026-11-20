@@ -1,15 +1,21 @@
-import type { DaemonEvent, MachineSettings, WaitingRequest } from '@ted/protocol'
+import type { Banner, DaemonEvent, MachineSettings, WaitingRequest } from '@ted/protocol'
 import type { Presence } from '../presence.ts'
 import { redactSecrets } from '../redact.ts'
 import type { PhoneStore } from '../store/index.ts'
-import type { PushService } from './push.ts'
+import {
+  everyFactoryTitle,
+  type PhoneProblemSource,
+  problemNotificationKey,
+  stopsWork,
+} from './problems.ts'
+import type { PushMessage, PushService } from './push.ts'
 
 export const pushTextMax = 180
 export const permissionBody = 'Permission requested'
 
 export interface PhoneNotifierStore {
   waiting(): WaitingRequest[]
-  settings(): Pick<MachineSettings, 'notifyInboxItems'>
+  settings(): Pick<MachineSettings, 'notifyInboxItems' | 'notifyProblems'>
   phones: PhoneStore
   subscribe(listener: (event: DaemonEvent) => void): () => void
 }
@@ -18,6 +24,7 @@ export interface PhoneNotifierOptions {
   store: PhoneNotifierStore
   presence: Pick<Presence, 'away' | 'subscribe'>
   push: PushService
+  problems?: PhoneProblemSource
   now?: () => number
   log?: (line: string) => void
 }
@@ -64,11 +71,23 @@ export function pushText(request: WaitingRequest): PushText {
   return { title, body: body || 'Ted needs your answer' }
 }
 
+export function problemPushText(banner: Banner, factoryName: string | undefined): PushText {
+  const place = banner.factoryId === undefined ? everyFactoryTitle : factoryName
+  const title = cut(redactSecrets(place === undefined ? 'Work stopped' : `Work stopped · ${place}`))
+  return { title, body: cut(redactSecrets(banner.text)) || 'A problem is stopping work' }
+}
+
 interface Due {
   phoneId: string
   token: string
   request: WaitingRequest
   waitingSince: string
+}
+
+interface DueProblem {
+  phoneId: string
+  token: string
+  banner: Banner
 }
 
 export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifier {
@@ -82,14 +101,38 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
   const keyOf = (item: Pick<Due, 'phoneId' | 'request' | 'waitingSince'>) =>
     JSON.stringify([item.phoneId, item.request.id, item.waitingSince])
 
-  const open = () => !closed && presence.away() && store.settings().notifyInboxItems
+  const problems = options.problems
+  const away = () => !closed && presence.away()
+  const open = () => away() && store.settings().notifyInboxItems
+  const problemsOpen = () => problems !== undefined && away() && store.settings().notifyProblems
 
-  const candidates = (): Due[] => {
-    if (!open()) return []
-    const phones = store.phones.list().flatMap((phone) => {
+  const phonesWithTokens = () =>
+    store.phones.list().flatMap((phone) => {
       const token = store.phones.pushToken(phone.id)
       return token === undefined ? [] : [{ phoneId: phone.id, token }]
     })
+
+  const problemKeyOf = (item: Pick<DueProblem, 'phoneId' | 'banner'>) =>
+    JSON.stringify([item.phoneId, problemNotificationKey(item.banner), item.banner.raisedAt])
+
+  const problemCandidates = (): DueProblem[] => {
+    if (problems === undefined || !problemsOpen()) return []
+    const phones = phonesWithTokens()
+    if (phones.length === 0) return []
+    return stopsWork(problems).flatMap((banner) =>
+      phones.flatMap((phone) => {
+        const item = { ...phone, banner }
+        return inFlight.has(problemKeyOf(item)) ||
+          store.phones.notified(phone.phoneId, problemNotificationKey(banner), banner.raisedAt)
+          ? []
+          : [item]
+      }),
+    )
+  }
+
+  const candidates = (): Due[] => {
+    if (!open()) return []
+    const phones = phonesWithTokens()
     if (phones.length === 0) return []
     return store.waiting().flatMap((request) => {
       if (request.uncounted) return []
@@ -112,53 +155,80 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
     return store.phones.waitingSince(request) === item.waitingSince ? request : undefined
   }
 
+  const problemStillDue = (item: DueProblem): Banner | undefined => {
+    if (problems === undefined || !problemsOpen()) return undefined
+    if (store.phones.pushToken(item.phoneId) !== item.token) return undefined
+    const key = problemNotificationKey(item.banner)
+    if (store.phones.notified(item.phoneId, key, item.banner.raisedAt)) return undefined
+    return stopsWork(problems).find(
+      (banner) => banner.id === item.banner.id && banner.raisedAt === item.banner.raisedAt,
+    )
+  }
+
+  const sendOne = async (
+    phoneId: string,
+    message: PushMessage,
+    record: { requestId: string; waitingSince: string },
+  ) => {
+    const result = await push.send(message).finally(() => {
+      store.phones.markNotified({ phoneId, ...record, at: new Date(now()).toISOString() })
+    })
+    if (result.kind === 'unregistered' && store.phones.pushToken(phoneId) === message.to) {
+      store.phones.clearPushToken(phoneId)
+    }
+  }
+
   const deliver = async (item: Due) => {
     const request = stillDue(item)
     if (request === undefined) return
     const text = pushText(request)
-    const sent = push.send({
-      to: item.token,
-      title: text.title,
-      body: text.body,
-      requestId: request.id,
-    })
-    const result = await sent.finally(() => {
-      store.phones.markNotified({
-        phoneId: item.phoneId,
-        requestId: request.id,
-        waitingSince: item.waitingSince,
-        at: new Date(now()).toISOString(),
-      })
-    })
-    if (result.kind === 'unregistered' && store.phones.pushToken(item.phoneId) === item.token) {
-      store.phones.clearPushToken(item.phoneId)
-    }
+    await sendOne(
+      item.phoneId,
+      { to: item.token, title: text.title, body: text.body, requestId: request.id },
+      { requestId: request.id, waitingSince: item.waitingSince },
+    )
   }
 
-  const sendAll = async (items: Due[]) => {
-    await Promise.resolve()
-    await Promise.all(
-      items.map((item) =>
-        deliver(item)
-          .catch((error: Error) =>
-            log(redactSecrets(`a phone notification failed: ${String(error)}`)),
-          )
-          .finally(() => inFlight.delete(keyOf(item))),
-      ),
+  const deliverProblem = async (item: DueProblem) => {
+    const banner = problemStillDue(item)
+    if (banner === undefined || problems === undefined) return
+    const factoryName =
+      banner.factoryId === undefined ? undefined : problems.factoryName(banner.factoryId)
+    const text = problemPushText(banner, factoryName)
+    await sendOne(
+      item.phoneId,
+      { to: item.token, title: text.title, body: text.body, opens: 'problems' },
+      { requestId: problemNotificationKey(banner), waitingSince: banner.raisedAt },
     )
+  }
+
+  const settle = (sending: Promise<void>, key: string) =>
+    sending
+      .catch((error: Error) => log(redactSecrets(`a phone notification failed: ${String(error)}`)))
+      .finally(() => inFlight.delete(key))
+
+  const sendAll = async (items: Due[], problemItems: DueProblem[]) => {
+    await Promise.resolve()
+    await Promise.all([
+      ...items.map((item) => settle(deliver(item), keyOf(item))),
+      ...problemItems.map((item) => settle(deliverProblem(item), problemKeyOf(item))),
+    ])
   }
 
   const update = () => {
     let items: Due[]
+    let problemItems: DueProblem[]
     try {
       items = candidates()
+      problemItems = problemCandidates()
     } catch (error) {
       log(redactSecrets(`couldn’t check which phones to notify: ${String(error)}`))
       return
     }
-    if (items.length === 0) return
+    if (items.length === 0 && problemItems.length === 0) return
     for (const item of items) inFlight.add(keyOf(item))
-    const running: Promise<void> = sendAll(items)
+    for (const item of problemItems) inFlight.add(problemKeyOf(item))
+    const running: Promise<void> = sendAll(items, problemItems)
       .catch((error: Error) => log(redactSecrets(`phone notifications failed: ${String(error)}`)))
       .finally(() => sending.delete(running))
     sending.add(running)
@@ -172,6 +242,9 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
     )
       update()
   })
+  const unsubscribeProblems = problems?.subscribe((event) => {
+    if (event.type === 'banner-raised' || event.type === 'banner-updated') update()
+  })
   const unsubscribePresence = presence.subscribe(() => update())
   update()
 
@@ -182,6 +255,7 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
     close() {
       closed = true
       unsubscribeStore()
+      unsubscribeProblems?.()
       unsubscribePresence()
     },
   }

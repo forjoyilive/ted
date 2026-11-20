@@ -13,12 +13,14 @@ import { createPhoneBridge, type PhoneBridge } from './bridge.ts'
 import { loadPhoneKeys, type PhoneKeyrings, type PhoneKeys } from './keys.ts'
 import { computerName } from './mac-name.ts'
 import { createPairings } from './pairings.ts'
+import { type PhoneProblemSource, phoneProblems } from './problems.ts'
 import { createRelayClient, type RelayClient } from './relay-client.ts'
 import { createPhoneRequests, type PhoneInbox } from './requests.ts'
 
 export interface PhonesOptions {
   phones: PhoneStore
   inbox: PhoneInbox
+  problems: Pick<PhoneProblemSource, 'banners' | 'factoryName'>
   keyrings: PhoneKeyrings
   version: string
   relayUrl?: string
@@ -93,6 +95,7 @@ export function createPhones(options: PhonesOptions): Phones {
         edition,
         version: options.version,
         requests,
+        problems: () => phoneProblems(options.problems),
         setPushToken: (phoneId, token) => options.phones.setPushToken(phoneId, token),
       },
       now,

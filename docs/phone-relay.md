@@ -97,6 +97,7 @@ Every message inside a box has:
 - `{"type":"request","route":"status"}` from a paired phone’s key.
 - `{"type":"request","route":"requests"}`, `{"type":"request","route":"request","requestId":"<request ID>"}` and `{"type":"request","route":"answer","requestId":"<request ID>","answer":{…}}` from a paired phone’s key (protocol 2; see Inbox requests below). The request ID goes in `requestId` because `id` is the message’s own ID.
 - `{"type":"request","route":"push-token","token":"ExponentPushToken[…]"}` from a paired phone’s key. The daemon accepts only `ExponentPushToken[…]` or `ExpoPushToken[…]` with 1 to 200 letters, digits, `_` or `-` inside the brackets, and stores it with that phone’s pairing; any other value gets `bad-request`. A token another paired phone held moves to this phone.
+- `{"type":"request","route":"problems"}` from a paired phone’s key. A Mac older than this route answers `unknown-route`, which the phone treats as no problems.
 
 ### Mac → phone
 
@@ -109,10 +110,13 @@ Every message inside a box has:
 - `request` → `{"request":<detail>}`.
 - `answer` → `{"answered":true}`.
 - `push-token` → `{}`.
+- `problems` → `{"problems":[{"id":"clone-failed:<Factory ID>","factory":"Notebook","text":"Couldn’t clone …","raisedAt":"<ISO time>"}, …]}`: the current stops-work banners, newest first, never warnings. `factory` is the Factory’s name and is left out for a problem that affects every Factory. `text` is the banner’s text through `redactSecrets`, cut to 500 characters; at most 50 problems.
 
 ### Push notifications
 
 While the desktop app reports the user away (2 minutes idle or the screen locked, `POST /presence`), or hasn’t reported for 90 seconds, the daemon sends each phone with a push token one Expo notification per waiting Inbox request that counts (Inbox notifications on, globally and for its Factory, and not snoozed). Title: the Task, chat or Automation title; body: the question headline, both through `redactSecrets` and cut to 180 characters; a permission request’s body is “Permission requested”. `data.requestId` is the ID the `request` route takes. Each send is recorded as `v1.PhoneNotified` under the phone, request ID and time the request became waiting (its creation, or its last return from snooze), so a restart never resends and a request back from snooze is sent again. A `DeviceNotRegistered` ticket clears the token.
+
+With Problems notifications on (machine setting `notifyProblems`), the same away rule sends one notification per phone when a stops-work banner is raised, and none when it clears; a problem raised while the user is at the Mac is sent when they become away if it is still raised. Title: “Work stopped · <Factory>”, or “Work stopped · Ted” for a problem that affects every Factory; body: the banner’s text, through `redactSecrets` and cut to 180 characters. `data` is `{"opens":"problems"}` instead of a `requestId`. It is recorded as `v1.PhoneNotified` with request ID `problem:<banner ID>` and the banner’s `raisedAt`, so a restart or a change to the banner’s text never resends it, and a problem that clears and comes back is sent again.
 
 ### Error codes
 
@@ -208,6 +212,6 @@ The daemon answers through the same code as the desktop app, as the human. A “
 
 ## Paired phones
 
-The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer` and `push-token`. Removing a phone on the Mac records `v1.PhoneRemoved`; its next message gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there.
+The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer`, `push-token` and `problems`. Removing a phone on the Mac records `v1.PhoneRemoved`; its next message gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there.
 
 The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so a removed phone always gets `not-paired`, not `mac-offline`). It reconnects with backoff (1, 2, 5, 10, 30 seconds).
