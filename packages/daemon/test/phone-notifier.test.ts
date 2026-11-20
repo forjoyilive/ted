@@ -60,6 +60,13 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true })
 })
 
+function startClock(at: string): void {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(at))
+  presence.close()
+  presence = createPresence()
+}
+
 function pairPhone(name: string, pushToken?: string): string {
   const phone = store.phones.pair({
     name,
@@ -105,7 +112,7 @@ async function ask(title: string, body: string): Promise<string> {
   return store.postComment({ taskId: task.id, author: { kind: 'ted' }, kind: 'question', body }).id
 }
 
-test('a request waiting while the user is at the Mac sends nothing; going away sends it once', async () => {
+test('a request from the 2 idle minutes before the user goes away is sent once when they go away', async () => {
   pairPhone('iPhone', token)
   presence.report(false)
   startNotifier()
@@ -128,6 +135,76 @@ test('a request waiting while the user is at the Mac sends nothing; going away s
   presence.report(true)
   await settled()
   expect(sent).toHaveLength(1)
+})
+
+test('a request that started waiting while the user was at the Mac is never sent', async () => {
+  startClock('2026-11-19T10:00:00Z')
+  pairPhone('iPhone', token)
+  presence.report(false)
+  startNotifier()
+  await ask('Seen at the Mac', 'Rebase now?')
+  vi.setSystemTime(new Date('2026-11-19T10:02:01Z'))
+  presence.report(false)
+  await settled()
+
+  presence.report(true)
+  await settled()
+  expect(sent).toEqual([])
+
+  const id = await ask('While away', 'Merge now?')
+  await settled()
+  expect(sent.map((message) => message.requestId)).toEqual([id])
+})
+
+test('when the Mac stops reporting, requests from before its last report are never sent', async () => {
+  startClock('2026-11-19T10:00:00Z')
+  pairPhone('iPhone', token)
+  presence.report(false)
+  startNotifier()
+  await ask('Before', 'Seen?')
+  vi.setSystemTime(new Date('2026-11-19T10:00:01Z'))
+  presence.report(false)
+  vi.setSystemTime(new Date('2026-11-19T10:05:00Z'))
+  const id = await ask('After', 'Unseen?')
+  await settled()
+  expect(sent.map((message) => message.requestId)).toEqual([id])
+})
+
+test('a phone is never sent requests that were waiting before it was paired, even after pairing again', async () => {
+  startClock('2026-11-19T10:00:00Z')
+  presence.report(true)
+  startNotifier()
+  await ask('Old', 'Waiting since before pairing?')
+  vi.setSystemTime(new Date('2026-11-19T10:01:00Z'))
+  const first = pairPhone('iPhone', token)
+  await settled()
+  expect(sent).toEqual([])
+
+  const id = await ask('New', 'After pairing?')
+  await settled()
+  expect(sent.map((message) => message.requestId)).toEqual([id])
+
+  vi.setSystemTime(new Date('2026-11-19T10:02:00Z'))
+  store.phones.remove(first, new Date().toISOString())
+  pairPhone('iPhone again', token)
+  await settled()
+  expect(sent.map((message) => message.requestId)).toEqual([id])
+})
+
+test('a first away report sends a request from the 2 minutes before it, with no other event', async () => {
+  startClock('2026-11-19T10:00:00Z')
+  pairPhone('iPhone', token)
+  const id = await ask('Before the daemon started', 'Still waiting?')
+  vi.setSystemTime(new Date('2026-11-19T10:00:30Z'))
+  presence.close()
+  presence = createPresence()
+  startNotifier()
+  await settled()
+  expect(sent).toEqual([])
+
+  presence.report(true)
+  await settled()
+  expect(sent.map((message) => message.requestId)).toEqual([id])
 })
 
 test('a request posted while away is sent at once to every phone with a token', async () => {
@@ -230,6 +307,35 @@ test('a send in progress isn’t started again, and is recorded once it finishes
   expect(sent).toHaveLength(1)
 })
 
+test('a request back from snooze while its first send is still in progress isn’t sent again', async () => {
+  startClock('2026-11-19T10:00:00Z')
+  pairPhone('iPhone', token)
+  presence.report(true)
+  let finish: (result: PushResult) => void = () => undefined
+  const gated: PushService = {
+    send(message) {
+      sent.push(message)
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    },
+  }
+  notifier = createPhoneNotifier({ store, presence, push: gated, log: () => undefined })
+  const id = await ask('Slow send', 'Wait for Expo?')
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(sent.map((message) => message.requestId)).toEqual([id])
+
+  store.snoozeRequest(id, '2026-11-19T11:00:00.000Z')
+  vi.setSystemTime(new Date('2026-11-19T11:00:01Z'))
+  expect(store.returnDueRequests(Date.now())).toEqual([id])
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(sent).toHaveLength(1)
+
+  finish({ kind: 'sent' })
+  await settled()
+  expect(sent).toHaveLength(1)
+})
+
 test('nothing is sent with Inbox notifications off, globally or for the request’s Factory', async () => {
   pairPhone('iPhone', token)
   presence.report(true)
@@ -269,9 +375,8 @@ test('a new notifier on the same store doesn’t send a request again', async ()
   expect(sent).toHaveLength(1)
 })
 
-test('a request back from snooze counts as new and is sent again', async () => {
-  vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-11-19T10:00:00Z'))
+test('a request back from snooze is not sent again', async () => {
+  startClock('2026-11-19T10:00:00Z')
   pairPhone('iPhone', token)
   presence.report(true)
   startNotifier()
@@ -284,7 +389,7 @@ test('a request back from snooze counts as new and is sent again', async () => {
   vi.setSystemTime(new Date('2026-11-19T11:00:01Z'))
   expect(store.returnDueRequests(Date.now())).toEqual([id])
   await settled()
-  expect(sent.map((message) => message.requestId)).toEqual([id, id])
+  expect(sent.map((message) => message.requestId)).toEqual([id])
 })
 
 test('DeviceNotRegistered clears that phone’s token and nothing more is sent to it', async () => {
@@ -378,6 +483,8 @@ test('a notification is recorded once per phone, request and waiting time', () =
   expect(store.phones.markNotified(mark)).toBe(false)
   expect(store.phones.notified(phoneId, 'r1', mark.waitingSince)).toBe(true)
   expect(store.phones.notified(phoneId, 'r1', '2026-11-19T11:00:00.000Z')).toBe(false)
+  expect(store.phones.everNotified(phoneId, 'r1')).toBe(true)
+  expect(store.phones.everNotified(phoneId, 'r2')).toBe(false)
 })
 
 const base = { factoryId: 'f', createdAt: '2026-11-19T10:00:00.000Z' }
@@ -475,6 +582,25 @@ test('a problem raised at the Mac is sent when the user becomes away, and not if
   presence.report(true)
   await settled()
   expect(sent).toHaveLength(1)
+})
+
+test('a problem raised while the user was at the Mac, or before the phone was paired, is never sent', async () => {
+  startClock('2026-11-19T10:00:00Z')
+  presence.report(true)
+  startNotifier()
+  raise('disk-full', 'Disk full · new work held')
+  vi.setSystemTime(new Date('2026-11-19T10:01:00Z'))
+  pairPhone('iPhone', token)
+  await settled()
+  expect(sent).toEqual([])
+
+  presence.report(false)
+  raise('provider-signed-out', 'Claude is signed out')
+  vi.setSystemTime(new Date('2026-11-19T10:03:01Z'))
+  presence.report(false)
+  presence.report(true)
+  await settled()
+  expect(sent).toEqual([])
 })
 
 test('warnings never notify, and the Problems setting turns problem notifications off', async () => {
