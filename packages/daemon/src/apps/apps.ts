@@ -1396,7 +1396,12 @@ export function createApps(options: AppsOptions): Apps {
   })
 
   void (async () => {
-    for (const { taskId, key, dir } of await restored) watch(taskId, key, dir)
+    const restoredTasks = new Set<string>()
+    for (const { taskId, key, dir } of await restored) {
+      watch(taskId, key, dir)
+      restoredTasks.add(taskId)
+    }
+    for (const taskId of restoredTasks) changed(taskId)
     for (const taskId of safeDirs(appsDir)) {
       if (options.keep(taskId)) continue
       await stopAll(taskId).catch(() => undefined)
