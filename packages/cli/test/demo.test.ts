@@ -30,6 +30,7 @@ test('lists demo seeding in help', async () => {
   const result = await exec(process.execPath, [cli, 'help'], { env: env() })
   expect(result.stdout).toContain('ted dev seed [--reset]')
   expect(result.stdout).toContain('ted dev stop')
+  expect(result.stdout).toContain('ted dev ask question|permission|sign-off')
   expect(await readdir(home)).toEqual([])
 })
 

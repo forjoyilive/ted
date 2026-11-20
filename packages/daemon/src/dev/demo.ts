@@ -16,6 +16,7 @@ import {
 } from './home.ts'
 import { seedScenarios, verifyDemo } from './scenarios.ts'
 
+export { askDemo, demoAskKinds, isDemoAskKind } from './ask.ts'
 export { checkDemoHome, demoEnvironment, demoHome } from './home.ts'
 export { verifyDemo } from './scenarios.ts'
 
