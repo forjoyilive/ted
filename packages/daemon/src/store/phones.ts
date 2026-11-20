@@ -69,6 +69,7 @@ export interface PhoneStore {
   clearPushToken(id: string): void
   pushToken(id: string): string | undefined
   notified(phoneId: string, requestId: string, waitingSince: string): boolean
+  everNotified(phoneId: string, requestId: string): boolean
   markNotified(input: {
     phoneId: string
     requestId: string
@@ -188,6 +189,8 @@ export function phonesArea(ctx: StoreContext): PhonesArea {
       },
       pushToken,
       notified,
+      everNotified: (phoneId, requestId) =>
+        store.query(queryDb(phoneNotifications.where({ phoneId, requestId }))).length > 0,
       markNotified(input) {
         if (notified(input.phoneId, input.requestId, input.waitingSince)) return false
         commit(events.phoneNotified(input))
