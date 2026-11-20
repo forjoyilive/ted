@@ -185,7 +185,7 @@ One request with what the phone needs to answer it. The **detail** is the summar
 `answer` is one of:
 
 - `{"action":"answer","choice":"…"}`, `{"action":"answer","choices":["…"]}` or `{"action":"answer","text":"…"}`, with optional `text` beside a choice, for `choices` and `text` forms.
-- `{"action":"answer-round","answers":[{"answer":"…","choices":["…"]}]}`: one entry per question, in order.
+- `{"action":"answer-round","answers":[{"answer":"…","choices":["…"]}]}`: one entry per question, in order. For a question with `multiple`, `choices` holds the picks and `answer` holds only extra typed text, usually `""`.
 - `{"action":"approve"}` for `permission`, `signoff` and `proposal`.
 - `{"action":"deny"}` for `permission`.
 - `{"action":"request-changes","text":"…"}` for `signoff` and `proposal`.
