@@ -10,6 +10,7 @@ export interface EventValueOptions<T, E> {
   changed: (value: T) => void
   loaded?: () => void
   error?: (error: unknown) => void
+  retryEveryMs?: number | undefined
 }
 
 export function eventValue<T, E>(options: EventValueOptions<T, E>) {
@@ -67,6 +68,7 @@ export function eventValue<T, E>(options: EventValueOptions<T, E>) {
         pending = undefined
         options.error?.(error)
         settle(undefined)
+        if (!again && options.retryEveryMs !== undefined) schedule(options.retryEveryMs)
       }
       if (again) void refresh()
     })()
@@ -76,21 +78,22 @@ export function eventValue<T, E>(options: EventValueOptions<T, E>) {
     if (running) again = true
     else void refresh()
   }
+  const schedule = (delay: number) => {
+    const at = Date.now() + delay
+    if (at >= due) return
+    clearTimeout(timer)
+    due = at
+    timer = setTimeout(() => {
+      unschedule()
+      reload()
+    }, delay)
+  }
   const unsubscribe = options.subscribe((event) => {
     if (!active) return
     const change = options.event(event)
     if (typeof change === 'function') update(change)
     else if (change === 'reload') reload()
-    else if (typeof change === 'number') {
-      const at = Date.now() + change
-      if (at >= due) return
-      clearTimeout(timer)
-      due = at
-      timer = setTimeout(() => {
-        unschedule()
-        reload()
-      }, change)
-    }
+    else if (typeof change === 'number') schedule(change)
   })
   void refresh()
   return {
