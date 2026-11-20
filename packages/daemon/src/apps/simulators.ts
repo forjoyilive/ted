@@ -38,7 +38,7 @@ export interface SimctlResult {
 export interface SimulatorTools {
   simctl(args: string[]): Promise<SimctlResult>
   idb(args: string[]): Promise<SimctlResult>
-  open(args: string[]): Promise<void>
+  open(args: string[]): Promise<SimctlResult>
   record(udid: string, file: string): ChildProcess
 }
 
@@ -67,9 +67,7 @@ export function createSimulatorTools(options: {
   return {
     simctl: (args) => run(xcrun, ['simctl', ...args]),
     idb: (args) => run(idb, args),
-    async open(args) {
-      await run(opener, args)
-    },
+    open: (args) => run(opener, args),
     record(udid, file) {
       return spawn(xcrun, ['simctl', 'io', udid, 'recordVideo', '--codec=h264', '--force', file], {
         env: options.env(),
@@ -131,6 +129,14 @@ interface Recording {
   file: string
   ended: Promise<void>
 }
+
+const simulatorViewers = [
+  {
+    bundle: 'com.apple.iphonesimulator',
+    args: (udid: string) => ['--args', '-CurrentDeviceUDID', udid],
+  },
+  { bundle: 'com.apple.dt.Devices', args: (udid: string) => [`devices://device/open?id=${udid}`] },
+]
 
 export const simulatorToolsProblem = 'simulator-tools'
 
@@ -296,7 +302,7 @@ export function createSimulators(options: {
           `Ted couldn’t boot ${record.device}: ${firstLine(result.stderr)}`,
         )
       }
-      await tools.open(['-g', '-a', 'Simulator', '--args', '-CurrentDeviceUDID', record.udid])
+      await openViewer(record.udid, false)
       booted.add(record.udid)
     },
     async stop(record) {
@@ -329,6 +335,21 @@ export function createSimulators(options: {
       for (const recording of recordings.values()) recording.child.kill('SIGINT')
       await Promise.all([...recordings.values()].map((r) => r.ended))
     },
+  }
+
+  async function openViewer(udid: string, front: boolean): Promise<SimctlResult> {
+    const failures: string[] = []
+    for (const viewer of simulatorViewers) {
+      const result = await tools.open([
+        ...(front ? [] : ['-g']),
+        '-b',
+        viewer.bundle,
+        ...viewer.args(udid),
+      ])
+      if (result.code === 0) return result
+      failures.push(firstLine(result.stderr))
+    }
+    return { code: 1, stdout: '', stderr: failures.join('; ') }
   }
 
   const deviceSlots = createDeviceSlots({
@@ -391,7 +412,13 @@ export function createSimulators(options: {
     },
     async show(taskId, repo, name) {
       const record = needsLive(taskId, repo, name)
-      await tools.open(['-a', 'Simulator', '--args', '-CurrentDeviceUDID', record.udid])
+      const opened = await openViewer(record.udid, true)
+      if (opened.code !== 0) {
+        throw new RequestError(
+          409,
+          `Ted couldn’t open Simulator or Xcode’s DeviceHub: ${opened.stderr || 'no app found'}`,
+        )
+      }
       touch(record)
     },
     async screenshot(taskId, repo, name) {
