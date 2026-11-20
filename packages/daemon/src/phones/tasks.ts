@@ -74,6 +74,7 @@ export interface PhoneTasks {
 }
 
 const dayMs = 24 * 60 * 60 * 1000
+const stageCacheMs = 10_000
 const cursorRoom = 'x'.repeat(phoneCursorMax)
 
 function plain(text: string, max: number): string {
@@ -202,17 +203,27 @@ interface Placed {
 }
 
 export function createPhoneTasks(source: PhoneTaskSource, now: () => number): PhoneTasks {
+  const stageCache = new Map<string, { at: number; stages: readonly BoardStage[] }>()
+
+  async function stagesOf(factoryId: string): Promise<readonly BoardStage[]> {
+    const at = now()
+    const cached = stageCache.get(factoryId)
+    if (cached && at - cached.at >= 0 && at - cached.at < stageCacheMs) return cached.stages
+    let stages: readonly BoardStage[]
+    try {
+      stages = await source.stages(factoryId)
+    } catch {
+      stages = defaultStageList
+    }
+    stageCache.set(factoryId, { at, stages })
+    return stages
+  }
+
   async function stageLists(
     factories: readonly PhoneTaskFactory[],
   ): Promise<Map<string, readonly BoardStage[]>> {
     const lists = await Promise.all(
-      factories.map(async (factory) => {
-        try {
-          return [factory.id, await source.stages(factory.id)] as const
-        } catch {
-          return [factory.id, defaultStageList] as const
-        }
-      }),
+      factories.map(async (factory) => [factory.id, await stagesOf(factory.id)] as const),
     )
     return new Map(lists)
   }

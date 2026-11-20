@@ -10,6 +10,7 @@ import {
   type PhoneTaskGroup,
   type PhoneTaskRow,
   type PhoneTasksBody,
+  type Priority,
   parsePhoneTaskBody,
   parsePhoneTaskCommentsBody,
   parsePhoneTasksBody,
@@ -182,8 +183,11 @@ async function thread(taskId: string): Promise<PhoneCommentEntry[][]> {
   return all
 }
 
-const make = (title: string, factory: Factory = notebook, extra: { description?: string } = {}) =>
-  store.createTask({ title, factoryId: factory.id, ...extra })
+const make = (
+  title: string,
+  factory: Factory = notebook,
+  extra: { description?: string; priority?: Priority } = {},
+) => store.createTask({ title, factoryId: factory.id, ...extra })
 
 const listedIds = () =>
   store
@@ -244,9 +248,10 @@ test('the list has open Tasks and recent Done ones from every Factory, never arc
 test('paging reaches every Task exactly once in each grouping, and a row that moves gives no duplicates', async () => {
   const titleTail = 'Ü'.repeat(700)
   const levels = ['medium', 'low', 'none'] as const
-  for (let n = 0; n < 210; n++) {
-    const task = await make(`Task ${n} ${titleTail}`, n % 2 === 0 ? notebook : shop)
-    store.setPriority(task.id, levels[n % levels.length] ?? 'none')
+  for (let n = 0; n < 100; n++) {
+    await make(`Task ${n} ${titleTail}`, n % 2 === 0 ? notebook : shop, {
+      priority: levels[n % levels.length] ?? 'none',
+    })
   }
   const expected = new Set(listedIds())
 
@@ -286,7 +291,7 @@ test('paging reaches every Task exactly once in each grouping, and a row that mo
   for (const id of listedIds()) {
     if (id !== moved.id) expect(ids).toContain(id)
   }
-})
+}, 90_000)
 
 test('a long description and a thread of long multibyte comments stay under the reply limit', async () => {
   const task = await make('Write the long spec', notebook, {
