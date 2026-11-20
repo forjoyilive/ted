@@ -1,11 +1,11 @@
 import type { ChatKind, Factory, FactorySlots, RunSlots, SlotHolder } from '@ted/protocol'
 import { isChat } from '@ted/protocol/slots'
+import { ordinal } from '@ted/protocol/task-status'
 import { type ReactNode, useEffect, useId, useRef } from 'react'
 import { slotCount } from '../slots.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { FactoryIcon } from './FactoryIcon.tsx'
 import { Help } from './Help.tsx'
-import { ordinal } from './TaskStatus.tsx'
 import styles from './WorkingRuns.module.css'
 
 const machine = navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'

@@ -125,7 +125,7 @@ test('a phone pairs over a signed login, the user approves it, and it reads stat
   expect(listed).toEqual([
     expect.objectContaining({ name: 'iPhone 16', lastReachedAt: expect.any(String) }),
   ])
-  expect(failure(await phone.send({ type: 'request', route: 'tasks' }))).toBe('unknown-route')
+  expect(failure(await phone.send({ type: 'request', route: 'settings' }))).toBe('unknown-route')
   expect(failure(await phone.status(phoneProtocolVersion + 1))).toBe('too-new')
   expect(failure(await phone.status(2))).toBe('too-old')
   expect(failure(await phone.status(0))).toBe('too-old')

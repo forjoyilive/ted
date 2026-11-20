@@ -17,10 +17,12 @@ import { createPairings } from './pairings.ts'
 import { type PhoneProblemSource, phoneProblems } from './problems.ts'
 import { createRelayClient, type RelayClient } from './relay-client.ts'
 import { createPhoneRequests, type PhoneInbox } from './requests.ts'
+import { createPhoneTasks, type PhoneTaskSource } from './tasks.ts'
 
 export interface PhonesOptions {
   phones: PhoneStore
   inbox: PhoneInbox
+  tasks: PhoneTaskSource
   problems: Pick<PhoneProblemSource, 'banners' | 'factoryName'>
   keyrings: PhoneKeyrings
   version: string
@@ -62,6 +64,7 @@ export function createPhones(options: PhonesOptions): Phones {
   const pairings = createPairings(now, edition)
   const reached = new Map<string, string>()
   const requests = createPhoneRequests(options.inbox)
+  const tasks = createPhoneTasks(options.tasks, now)
   const tickets = new Map<string, Ticket>()
   const ending = new Map<string, number>()
   let keysLoaded: Promise<PhoneKeys> | undefined
@@ -196,6 +199,7 @@ export function createPhones(options: PhonesOptions): Phones {
         edition,
         version: options.version,
         requests,
+        tasks,
         problems: () => phoneProblems(options.problems),
         setPushToken: (phoneId, token) => options.phones.setPushToken(phoneId, token),
       },

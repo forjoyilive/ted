@@ -2,6 +2,7 @@ import type { Edition, PhoneProblemsBody, PhoneRequest, PhoneRouteName } from '@
 import { phoneProtocolVersion } from '@ted/protocol'
 import type { Caller } from '../tasks/tasks.ts'
 import type { PhoneOutcome, PhoneRequests } from './requests.ts'
+import type { PhoneTasks } from './tasks.ts'
 
 export type PhoneCaller = Extract<Caller, { kind: 'phone' }>
 
@@ -12,6 +13,7 @@ export interface PhoneRouteContext {
   edition: Edition
   version: string
   requests: PhoneRequests
+  tasks: PhoneTasks
   problems(): PhoneProblemsBody
   setPushToken(phoneId: string, token: string): boolean
 }
@@ -65,6 +67,26 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     name: 'problems',
     async handle(_, __, { problems }) {
       return { body: problems() }
+    },
+  },
+  {
+    name: 'tasks',
+    async handle(_, request, { tasks }) {
+      return tasks.list(request.group ?? 'status', request.cursor)
+    },
+  },
+  {
+    name: 'task',
+    async handle(_, request, { tasks }) {
+      if (request.taskId === undefined) return { code: 'bad-request' }
+      return tasks.read(request.taskId)
+    },
+  },
+  {
+    name: 'task-comments',
+    async handle(_, request, { tasks }) {
+      if (request.taskId === undefined) return { code: 'bad-request' }
+      return tasks.comments(request.taskId, request.cursor)
     },
   },
 ]

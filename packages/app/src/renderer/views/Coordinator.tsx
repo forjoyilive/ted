@@ -8,6 +8,7 @@ import type {
   Task,
   TaskLead,
 } from '@ted/protocol'
+import { statusLabel } from '@ted/protocol/task-status'
 import { useEffect, useRef, useState } from 'react'
 import { type ChatState, coordinatorChatState, coordinatorStatus } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
@@ -26,7 +27,6 @@ import { EventLine } from '../components/EventLine.tsx'
 import { PiAutoNote } from '../components/PiAutoNote.tsx'
 import { ChatSection, Composer, runMeta, tokenAmount } from '../components/RunChat.tsx'
 import { agentNames } from '../components/RunIcon.tsx'
-import { statusLabel } from '../components/TaskStatus.tsx'
 import { useCoordinatorChatState, useCoordinatorState } from '../data.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { when } from '../plans.ts'

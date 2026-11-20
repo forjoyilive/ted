@@ -11,6 +11,7 @@ import type {
 } from '@ted/protocol'
 import { boardCardSizes, boardFields } from '@ted/protocol/board-view'
 import { isCleanup } from '@ted/protocol/stage'
+import { ordinal } from '@ted/protocol/task-status'
 import {
   type DragEvent,
   type KeyboardEvent,
@@ -52,7 +53,7 @@ import { PriorityButton } from '../components/PriorityMenu.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
-import { ordinal, RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
+import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { boardEmpty } from '../empty-states.ts'
 import {
   activeFilterCount,

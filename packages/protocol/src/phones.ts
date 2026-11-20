@@ -21,6 +21,15 @@ import {
   type PhoneRequestsBody,
   parsePhoneAnswer,
 } from './phone-requests.ts'
+import {
+  type PhoneTaskBody,
+  type PhoneTaskCommentsBody,
+  type PhoneTaskGroup,
+  type PhoneTasksBody,
+  phoneCursorMax,
+  phoneTaskGroups,
+  phoneTaskIdMax,
+} from './phone-tasks.ts'
 import { RequestValidationError } from './validation.ts'
 
 export const phoneProtocolVersion = 3
@@ -66,6 +75,9 @@ export const phoneRouteNames = [
   'answer',
   'push-token',
   'problems',
+  'tasks',
+  'task',
+  'task-comments',
 ] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
@@ -111,6 +123,9 @@ export type PhoneRequest =
       requestId?: string
       answer?: PhoneAnswer
       token?: string
+      taskId?: string
+      group?: PhoneTaskGroup
+      cursor?: string
     })
 
 export interface PhoneReplyError {
@@ -149,6 +164,9 @@ export type PhoneReplyBody =
   | PhoneAnsweredBody
   | PhonePushTokenBody
   | PhoneProblemsBody
+  | PhoneTasksBody
+  | PhoneTaskBody
+  | PhoneTaskCommentsBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
     | { ok: true; body: PhoneReplyBody }
@@ -407,7 +425,45 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
     }
   }
   if (route === 'push-token') return { ...header, type, route, token: pushToken(object) }
+  if (route === 'tasks') {
+    const group = read.optional(object, 'group', (o, f) => read.oneOf(o, f, phoneTaskGroups))
+    const cursor = optionalCursor(object)
+    return {
+      ...header,
+      type,
+      route,
+      group: group ?? 'status',
+      ...(cursor !== undefined && { cursor }),
+    }
+  }
+  if (route === 'task') return { ...header, type, route, taskId: taskId(object) }
+  if (route === 'task-comments') {
+    const cursor = optionalCursor(object)
+    return {
+      ...header,
+      type,
+      route,
+      taskId: taskId(object),
+      ...(cursor !== undefined && { cursor }),
+    }
+  }
   return { ...header, type, route }
+}
+
+function taskId(object: JsonObject): string {
+  const id = read.string(object, 'taskId')
+  if (!id || id.length > phoneTaskIdMax) {
+    throw new ParseError('taskId', `taskId must be text of 1 to ${phoneTaskIdMax} characters`)
+  }
+  return id
+}
+
+function optionalCursor(object: JsonObject): string | undefined {
+  const cursor = read.optional(object, 'cursor', read.string)
+  if (cursor !== undefined && (!cursor || cursor.length > phoneCursorMax)) {
+    throw new ParseError('cursor', `cursor must be text of 1 to ${phoneCursorMax} characters`)
+  }
+  return cursor
 }
 
 function pushToken(object: JsonObject): string {

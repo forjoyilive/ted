@@ -56,6 +56,7 @@ import { createPhones } from './phones/phones.ts'
 import type { PhoneProblemSource } from './phones/problems.ts'
 import { noPush, type PushService } from './phones/push.ts'
 import { storeInbox } from './phones/requests.ts'
+import { storeTaskSource } from './phones/tasks.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
 import { createPresence } from './presence.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
@@ -907,6 +908,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             await automations.answer(id, answer)
           },
         }),
+        tasks: storeTaskSource(store, async (factoryId) => (await tasks.board(factoryId)).stages),
         problems: phoneProblemSource,
         keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
         version: options.version,
