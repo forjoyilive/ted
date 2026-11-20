@@ -127,12 +127,20 @@ describe('linkSharedFiles', () => {
   test('GLOSSARY.md, AGENTS.md and CLAUDE.md at a repo root are not compared', () => {
     const rows = linkSharedFiles(
       [
-        touching(['GLOSSARY.md', 'ted/AGENTS.md', 'docs/CLAUDE.md']),
-        touching(['GLOSSARY.md', 'ted/AGENTS.md', 'docs/CLAUDE.md']),
+        touching(['ted-mobile/GLOSSARY.md', 'ted/AGENTS.md', 'docs/CLAUDE.md']),
+        touching(['ted-mobile/GLOSSARY.md', 'ted/AGENTS.md', 'docs/CLAUDE.md']),
       ],
       ['ted', 'ted-mobile'],
     )
     expect(links(rows)[1]).toEqual([[1], [1], [{ row: 1, files: ['docs/CLAUDE.md'] }]])
+  })
+
+  test('in a Factory with one repo, a nested file named like an ignored one is still compared', () => {
+    const rows = linkSharedFiles(
+      [touching(['GLOSSARY.md', 'ted/AGENTS.md']), touching(['GLOSSARY.md', 'ted/AGENTS.md'])],
+      ['ted'],
+    )
+    expect(links(rows)[1]).toEqual([[1], [1], [{ row: 1, files: ['ted/AGENTS.md'] }]])
   })
 
   test('in a Factory with several repos, every path starts with a repo name', () => {

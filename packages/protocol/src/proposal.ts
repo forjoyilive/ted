@@ -89,8 +89,8 @@ export const proposalFilesNote =
   'In `files`, list exact paths, not folders or wildcards; in a Factory with several repos, start each with the repo name. List only files the row will change substantially. Ted links rows that share a file so they run one after another, in row order, and the human can remove a link before approving. `GLOSSARY.md`, `AGENTS.md` and `CLAUDE.md` aren’t compared.'
 
 function compared(path: string, repos: readonly string[]): boolean {
-  return !sharedFileIgnoreList.some(
-    (name) => path === name || repos.some((repo) => path === `${repo}/${name}`),
+  return !sharedFileIgnoreList.some((name) =>
+    repos.length > 1 ? repos.some((repo) => path === `${repo}/${name}`) : path === name,
   )
 }
 
