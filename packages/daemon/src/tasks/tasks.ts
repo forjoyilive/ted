@@ -905,7 +905,7 @@ export interface Tasks {
   browserCapture(session: string, id: string, save: () => Promise<Attachment>): Promise<Attachment>
   listApps(ref: string, caller: Caller): Promise<TaskApp[]>
   startApp(ref: string, caller: Caller, app: StartAppRequest): Promise<TaskApp>
-  stopApp(ref: string, app: AppRef): Promise<TaskApp>
+  stopApp(ref: string, caller: Caller, app: AppRef): Promise<TaskApp>
   restartApp(ref: string, app: RestartAppRequest): Promise<TaskApp>
   appLog(ref: string, app: AppRef): Promise<AppLog>
   showApp(ref: string, app: AppRef): Promise<TaskApp>
@@ -14649,9 +14649,11 @@ export function createTasks(options: {
       if (!capture) throw new RequestError(404, 'No browser capture on this Run')
       return capture
     },
-    stopApp(ref, app) {
-      browser.cancel(find(ref).id, app)
-      return apps.stop(find(ref).id, app)
+    stopApp(ref, caller, app) {
+      const lead = caller.kind === 'run' ? taskLead(ref, caller, 'stops an App') : undefined
+      const task = lead?.task ?? find(ref)
+      browser.cancel(task.id, app)
+      return apps.stop(task.id, app, lead && { runId: lead.runId })
     },
     restartApp(ref, { declaration, ...app }) {
       const { task, by } = runnableApps(ref, { kind: 'app' })

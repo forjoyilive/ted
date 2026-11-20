@@ -931,6 +931,10 @@ export function threadEvents(
       case 'v1.AppStopped':
         add(entry, 'quiet', `You stopped ${text(data.name)}`)
         break
+      case 'v2.AppStopped':
+        if (data.by === 'task-lead') add(entry, 'run', `Task Lead stopped ${text(data.name)}`)
+        else add(entry, 'quiet', `You stopped ${text(data.name)}`)
+        break
       case 'v1.AppExited':
         add(entry, 'failure', appExitLine(text(data.name), data.code, data.signal))
         break

@@ -1571,6 +1571,12 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     appSwipe: () => device('swipe'),
     appAppearance: () => device('appearance'),
     appSize: () => device('size'),
+    appStop: async () => {
+      const ref = taskRef()
+      const app = { name: args[0] ?? '', ...(options.repo && { repo: options.repo }) }
+      const stopped = await withDaemon(home, (client) => client.stopApp(ref, app))
+      console.log(`Stopped ${printable(stopped.name)}`)
+    },
     screenshot: async () => {
       if (
         options.task === undefined &&

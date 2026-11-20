@@ -377,7 +377,7 @@ describe('Apps', () => {
     )
   })
 
-  test('a Run starts only its own Task’s Apps, only the human stops or restarts them, and the human’s ▶ asks first until they choose Always for that App in this Factory, which a Run can’t choose', async () => {
+  test('a Run starts only its own Task’s Apps, only the human restarts them, another Task’s Run can’t stop them, and the human’s ▶ asks first until they choose Always for that App in this Factory, which a Run can’t choose', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
     const client = await start()
     const task = await unapprovedTaskWithWorktree(client)
@@ -402,11 +402,10 @@ describe('Apps', () => {
       daemon?.port ?? 0,
       (await loadRunTokens(tedPaths(home).runTokenKey)).issue(lead ?? ''),
     )
-    for (const action of ['stop', 'restart'])
-      expect(
-        (await asLead.call('POST', `/tasks/${task.id}/apps/${action}`, { name: 'Web' })).status,
-        `the Task’s own Run asks to ${action}`,
-      ).toBe(403)
+    expect(
+      (await asLead.call('POST', `/tasks/${task.id}/apps/restart`, { name: 'Web' })).status,
+      'the Task’s own Run asks to restart',
+    ).toBe(403)
     const approval = (await appNamed(client, task, 'API'))?.outsideSandboxApproval
     expect(approval).toEqual({
       repo: 'widgets',
@@ -421,6 +420,38 @@ describe('Apps', () => {
     await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: [approval] } })
     expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBeUndefined()
     expect((await appNamed(client, task, 'Web'))?.confirmOutsideSandbox).toBe(true)
+  })
+
+  test('the Task Lead stops any of its Task’s Apps, the Thread says so, and another Task’s Lead can’t', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
+    const client = await start()
+    const task = await taskWithWorktree(client)
+    const other = await client.ok<Task>('POST', '/tasks', {
+      title: '{"steps": [{"endTurn": true}]}',
+      factory: 'NB',
+    })
+    await client.ok('POST', `/tasks/${other.id}/start`)
+    const leadOf = (id: string) =>
+      waitUntil(async () => {
+        const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === id)
+        return current?.leadRunId
+      }, 'the Task Lead Run')
+    const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+    const asLead = api(daemon?.port ?? 0, tokens.issue(await leadOf(task.id)))
+    const asOtherLead = api(daemon?.port ?? 0, tokens.issue(await leadOf(other.id)))
+
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Web' })
+    await waitForState(client, task, 'Web', 'running')
+
+    const refused = await asOtherLead.call('POST', `/tasks/${task.id}/apps/stop`, { name: 'Web' })
+    expect(refused.status).toBe(403)
+    expect((await appNamed(client, task, 'Web'))?.state).toBe('running')
+
+    const res = await asLead.call('POST', `/tasks/${task.id}/apps/stop`, { name: 'Web' })
+    expect(res.status).toBe(200)
+    expect((res.body as TaskApp).state).toBe('stopped')
+    await eventText(client, task, 'Task Lead stopped Web')
+    expect((await events(client, task)).some((e) => e.text === 'You stopped Web')).toBe(false)
   })
 
   test('an Always approval for an older declaration of the App, or a name-only one, asks again, and ▶ runs it only with the declaration the human confirmed', async () => {
