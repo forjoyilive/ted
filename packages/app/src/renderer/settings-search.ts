@@ -125,6 +125,12 @@ const entries = {
     name: 'When you quit with work running',
     help: 'Work running means Runs going or Automations on. Keeping Ted running in the background lets them carry on with no window open.',
   },
+  'app.general.startup.menu-bar': {
+    name: 'Show menu bar icon',
+    keywords: 'tray status menu dock',
+    help: 'Shows Ted’s waiting count and problems in the menu bar. While it’s off, Ted stays in the Dock when you close its window.',
+    platform: 'mac',
+  },
   'app.general.startup.tray': {
     name: 'Show tray icon',
     help: 'Shows Ted’s waiting count and problems in the system tray. Some desktops, such as stock GNOME, don’t show tray icons.',

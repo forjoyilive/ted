@@ -1163,6 +1163,7 @@ export async function openContext({
         ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
         : undefined
     const requests = taskComments.filter((row) => isOpenRequest(row) && row.heldFor === null)
+    const appStarting = appsStarting.get(row.id)
     const facts: TaskFacts = {
       ...(preparation === 'preparing' && { preparing: true }),
       ...(snoozedUntil !== null && { snoozedUntil }),
@@ -1242,6 +1243,7 @@ export async function openContext({
       ...(checkingNow && { checking: checkingNow }),
       ...(movingAfterChecks.has(row.id) && { movingAfterChecks: true }),
       testActivity: testInvocationStore.active(row.id),
+      ...(appStarting !== undefined && { appStarting }),
       ...(storeState.checksWaiting.has(row.id) && {
         checksWaiting: { place: storeState.checksWaiting.get(row.id) ?? 1 },
       }),
@@ -2614,6 +2616,8 @@ export async function openContext({
     emit({ type: 'activity-changed', activity: next })
   }
 
+  const appsStarting = new Map<string, string>()
+
   const testInvocationStore = createTestInvocationStore({
     store,
     changed: (id) => {
@@ -2859,6 +2863,7 @@ export async function openContext({
     snoozed,
     noteActivity,
     testInvocationStore,
+    appsStarting,
     failureStore,
     coordinatorStore,
     chatStore,

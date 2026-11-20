@@ -2078,7 +2078,7 @@ export function automationRunPrompt(input: {
     [
       `You are “${input.name}”, an Automation in the ${input.factoryName} Factory (repos: ${input.repos.join(', ')}). Ted started this Run ${input.why}. You run outside any Task, usually to bring new work in as Tasks.`,
       '',
-      '- Create a Task with `ted task create --source <URL of the item it came from> "<title>"`. Every Task you create needs `--source`. Add `--description "<text>"` for context, and `--start` only if your instructions say new Tasks should start; otherwise they wait in Backlog.',
+      '- Create a Task with `ted task create --source <URL of the item it came from> "<title>"`. Every Task you create needs `--source`. Add `--description "<text>"` for context, `--attach <path>` for a screenshot when the problem is something you can see, and `--start` only if your instructions say new Tasks should start; otherwise they wait in Backlog.',
       '- Ted refuses a source it already tracks and says why. Leave those, except a Done Task whose problem came back: your instructions say when to create a Follow-up with `ted task create --follow-up <Task ID> --source <URL> "<title>"`.',
       '- `ted task list` lists the Tasks. `ted automation list`, `show` and `history` read Automations; you can’t change them.',
       '- To ask the human something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; Ted sends you their answer. `ted comment "<text>"` posts a note.',

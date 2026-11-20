@@ -575,6 +575,14 @@ test('Stages shares the range selector and shows an empty period as unavailable'
     'Custom range…',
   ])
   expect(within(list).getByRole('option', { selected: true }).textContent).toBe('All time')
+  expect(
+    within(list)
+      .getAllByRole('separator')
+      .map((line) => [
+        line.previousElementSibling?.textContent,
+        line.nextElementSibling?.textContent,
+      ]),
+  ).toEqual([['All time', 'Custom range…']])
   await user().click(within(list).getByRole('option', { name: 'Today' }))
   expect(change).toHaveBeenLastCalledWith({ range: 'today', panel: 'stages' })
   expect(screen.queryByRole('listbox')).toBeNull()
@@ -1188,6 +1196,18 @@ test('a custom range is picked from the calendar, applied to every request and r
     expect(JSON.parse(localStorage.getItem('ted.dashboard') ?? '{}')).toMatchObject({
       range: { from: '2026-10-26', to: '2026-11-12' },
     })
+
+    await user().click(select)
+    const list = screen.getByRole('listbox', { name: 'Historical period' })
+    expect(
+      within(list)
+        .getAllByRole('separator')
+        .map((line) => [
+          line.previousElementSibling?.textContent,
+          line.nextElementSibling?.textContent,
+        ]),
+    ).toEqual([['All time', '26 Oct – 12 Nov']])
+    await user().keyboard('{Escape}')
 
     await user().selectOptions(select, 'custom-edit')
     const again = screen.getByRole('dialog', { name: 'Custom range' })

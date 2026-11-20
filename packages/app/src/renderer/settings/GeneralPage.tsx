@@ -44,6 +44,7 @@ const quitOptions: { value: QuitChoice; label: string }[] = [
 ]
 
 const onLinux = navigator.userAgent.includes('Linux')
+const onMac = navigator.userAgent.includes('Mac')
 
 const fontSizeOptions = Array.from(
   { length: terminalFontSizes.max - terminalFontSizes.min + 1 },
@@ -232,6 +233,15 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             onChange={(quitWithWorkRunning) => ted.updateSettings({ quitWithWorkRunning })}
           />
         </SettingRow>
+        {onMac && (
+          <SettingRow setting="app.general.startup.menu-bar">
+            <Switch
+              label="Show menu bar icon"
+              checked={settings.showTrayIcon}
+              onChange={(showTrayIcon) => ted.updateSettings({ showTrayIcon })}
+            />
+          </SettingRow>
+        )}
         {onLinux && (
           <SettingRow setting="app.general.startup.tray">
             <Switch

@@ -126,7 +126,7 @@ export type TaskStatus =
   | { kind: 'partly-merged' }
   | { kind: 'waiting-on-you'; snoozedUntil?: string }
   | { kind: 'paused'; reason: string }
-  | { kind: 'working' }
+  | { kind: 'working'; app?: string }
   | { kind: 'stopped'; at?: string; prepared?: true }
   | { kind: 'blocked'; by: string; ended?: BlockerEnded }
   | { kind: 'queued'; place: number }
