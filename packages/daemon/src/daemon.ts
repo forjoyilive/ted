@@ -908,7 +908,22 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             await automations.answer(id, answer)
           },
         }),
-        tasks: storeTaskSource(store, async (factoryId) => (await tasks.board(factoryId)).stages),
+        tasks: storeTaskSource(
+          store,
+          async (factoryId) => (await tasks.board(factoryId)).stages,
+          (taskId) => tasks.hierarchyPreview(taskId).descendants.map((child) => child.id),
+        ),
+        taskChanges: {
+          task: (ref) => store.getTask(ref),
+          start: (ref) => tasks.start(ref),
+          stop: (ref) => tasks.stop(ref),
+          resume: (ref, comment) => tasks.resumeFromPhone(ref, comment),
+          setPriority: (ref, priority) => tasks.setPriority(ref, priority),
+          comment: (ref, caller, input) => tasks.comment(ref, caller, input),
+          archive: (ref, options) => tasks.archive(ref, options),
+          delete: (ref, options) => tasks.delete(ref, options),
+          hierarchyRevision: (ref) => tasks.hierarchy(ref).revision,
+        },
         problems: phoneProblemSource,
         keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
         version: options.version,

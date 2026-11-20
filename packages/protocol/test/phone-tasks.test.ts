@@ -5,6 +5,7 @@ import {
   encodeTasksCursor,
   type PhoneTaskBody,
   type PhoneTaskCommentsBody,
+  type PhoneTaskRow,
   type PhoneTasksBody,
   parseCommentsCursor,
   parsePhoneTaskBody,
@@ -13,7 +14,12 @@ import {
   parseTasksCursor,
   phoneCursorMax,
 } from '../src/phone-tasks.ts'
-import { parsePhoneRequest, toBase64Url } from '../src/phones.ts'
+import {
+  parsePhoneRequest,
+  phoneActionTextMax,
+  phoneRevisionMax,
+  toBase64Url,
+} from '../src/phones.ts'
 
 const roundTrip = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
@@ -28,7 +34,8 @@ const row = {
   priority: 'high',
   section: 'working',
   updatedAt: '2026-11-20T09:00:00.000Z',
-} as const
+  actions: ['stop', 'priority', 'comment', 'archive', 'delete'],
+} satisfies PhoneTaskRow
 
 test('parsePhoneTasksBody reads every field, with and without a cursor and an icon', () => {
   const body: PhoneTasksBody = {
@@ -43,6 +50,7 @@ test('parsePhoneTasksBody reads every field, with and without a cursor and an ic
         status: '',
         section: 'backlog',
         priority: 'none',
+        actions: [],
       },
       {
         ...row,
@@ -71,14 +79,34 @@ test('parsePhoneTasksBody reads every field, with and without a cursor and an ic
       rows: [{ ...row, factory: { ...row.factory, icon: { kind: 'image', dataUrl: 'x' } } }],
     }),
   ).toThrow(/kind/)
+  expect(() => parsePhoneTasksBody({ ...body, rows: [{ ...row, actions: ['edit'] }] })).toThrow(
+    /actions/,
+  )
+  const { actions: __, ...withoutActions } = row
+  expect(() => parsePhoneTasksBody({ ...body, rows: [withoutActions] })).toThrow(/actions/)
 })
 
-test('parsePhoneTaskBody reads the row fields, the description and cut', () => {
-  const body: PhoneTaskBody = {
-    task: { ...row, description: '# Goal\n\nBuild it.', cut: true },
+test('parsePhoneTaskBody reads the row fields, the description, cut and the Archive and Delete facts', () => {
+  const task = {
+    ...row,
+    description: '# Goal\n\nBuild it.',
+    cut: true,
+    childTasks: 2,
+    openPullRequests: 1,
+    hierarchyRevision: 'abc123',
   }
+  const body: PhoneTaskBody = { task }
   expect(parsePhoneTaskBody(roundTrip(body))).toEqual(body)
-  expect(() => parsePhoneTaskBody({ task: { ...row, cut: false } })).toThrow(/description/)
+  expect(() => parsePhoneTaskBody({ task: { ...task, description: undefined } })).toThrow(
+    /description/,
+  )
+  expect(() => parsePhoneTaskBody({ task: { ...task, childTasks: -1 } })).toThrow(/childTasks/)
+  expect(() => parsePhoneTaskBody({ task: { ...task, openPullRequests: 'one' } })).toThrow(
+    /openPullRequests/,
+  )
+  expect(() => parsePhoneTaskBody({ task: { ...task, hierarchyRevision: 3 } })).toThrow(
+    /hierarchyRevision/,
+  )
 })
 
 test('parsePhoneTaskCommentsBody reads notes and open and answered requests', () => {
@@ -202,4 +230,72 @@ test('parsePhoneRequest reads taskId, group and cursor on the Task routes', () =
   const { cursor: _, ...first } = thread
   expect(parsePhoneRequest(first)).toEqual(first)
   expect(() => parsePhoneRequest({ ...thread, cursor: 4 })).toThrow(/cursor/)
+})
+
+test('parsePhoneRequest reads every field of the Task action routes and refuses bad ones', () => {
+  const header = { protocol: 3, id: toBase64Url(new Uint8Array(16)), at: 1, type: 'request' }
+  for (const route of ['task-start', 'task-stop'] as const) {
+    const plain = { ...header, route, taskId: 'TED-788' }
+    expect(parsePhoneRequest(plain)).toEqual(plain)
+    expect(() => parsePhoneRequest({ ...plain, taskId: '' })).toThrow(/taskId/)
+  }
+
+  const resume = { ...header, route: 'task-resume', taskId: 'TED-788', text: 'Carry on' }
+  expect(parsePhoneRequest(resume)).toEqual(resume)
+  const { text: _, ...bareResume } = resume
+  expect(parsePhoneRequest(bareResume)).toEqual(bareResume)
+  expect(parsePhoneRequest({ ...resume, text: '' })).toEqual({ ...resume, text: '' })
+  expect(() => parsePhoneRequest({ ...resume, text: 'x'.repeat(phoneActionTextMax + 1) })).toThrow(
+    /text/,
+  )
+
+  const priority = { ...header, route: 'task-priority', taskId: 'TED-788', priority: 'urgent' }
+  expect(parsePhoneRequest(priority)).toEqual(priority)
+  expect(() => parsePhoneRequest({ ...priority, priority: 'soon' })).toThrow(/priority/)
+  expect(() => parsePhoneRequest({ ...priority, priority: undefined })).toThrow(/priority/)
+
+  const comment = { ...header, route: 'task-comment', taskId: 'TED-788', text: 'Looks good' }
+  expect(parsePhoneRequest(comment)).toEqual(comment)
+  expect(() => parsePhoneRequest({ ...comment, text: '  ' })).toThrow(/text/)
+  expect(() => parsePhoneRequest({ ...comment, text: undefined })).toThrow(/text/)
+  expect(() => parsePhoneRequest({ ...comment, text: 'x'.repeat(phoneActionTextMax + 1) })).toThrow(
+    /text/,
+  )
+
+  const archive = {
+    ...header,
+    route: 'task-archive',
+    taskId: 'TED-788',
+    hierarchyRevision: 'rev',
+    closePullRequests: true,
+    children: 'detach',
+  }
+  expect(parsePhoneRequest(archive)).toEqual(archive)
+  const { children: __, ...bareArchive } = archive
+  expect(parsePhoneRequest(bareArchive)).toEqual(bareArchive)
+  expect(() => parsePhoneRequest({ ...archive, children: 'unparent' })).toThrow(/children/)
+  expect(() => parsePhoneRequest({ ...archive, closePullRequests: undefined })).toThrow(
+    /closePullRequests/,
+  )
+  expect(() => parsePhoneRequest({ ...archive, hierarchyRevision: '' })).toThrow(
+    /hierarchyRevision/,
+  )
+  expect(() =>
+    parsePhoneRequest({ ...archive, hierarchyRevision: 'r'.repeat(phoneRevisionMax + 1) }),
+  ).toThrow(/hierarchyRevision/)
+
+  const remove = {
+    ...header,
+    route: 'task-delete',
+    taskId: 'TED-788',
+    hierarchyRevision: 'rev',
+    children: 'unparent',
+  }
+  expect(parsePhoneRequest(remove)).toEqual(remove)
+  const { children: ___, ...bareRemove } = remove
+  expect(parsePhoneRequest(bareRemove)).toEqual(bareRemove)
+  expect(() => parsePhoneRequest({ ...remove, children: 'detach' })).toThrow(/children/)
+  expect(() => parsePhoneRequest({ ...remove, hierarchyRevision: undefined })).toThrow(
+    /hierarchyRevision/,
+  )
 })

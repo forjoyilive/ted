@@ -218,6 +218,7 @@ test('the list has open Tasks and recent Done ones from every Factory, never arc
     priority: open.priority,
     section: 'backlog',
     updatedAt: expect.any(String),
+    actions: ['start', 'priority', 'comment', 'archive', 'delete'],
   })
   expect(rows.find((row) => row.id === elsewhere.id)?.factory.id).toBe(shop.id)
   expect(rows.find((row) => row.id === done.id)).toMatchObject({ section: 'done', tone: 'done' })

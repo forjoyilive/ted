@@ -771,6 +771,7 @@ export interface Tasks {
   moveToBacklog(ref: string): Task
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
+  resumeFromPhone(ref: string, comment?: string): Promise<Task>
   stoppingForQuit(): void
   midWork(taskId: string): boolean
   runEnv(run: Run): Promise<Record<string, string> | undefined>
@@ -12875,6 +12876,8 @@ export function createTasks(options: {
     start,
     stop: stopByHand,
     resume: resumeByHand,
+    resumeFromPhone: (ref, comment) =>
+      resumeByHand(ref, { ...(comment !== undefined && { comment }), sendDrafts: false }),
     stoppingForQuit,
     runEnv: async (run) => (await leadLifecycle.runEnv(run)) ?? (await subAgents.runEnv(run)),
     midWork(taskId) {
@@ -13216,7 +13219,7 @@ export function createTasks(options: {
         }
         const task = find(ref)
         requireCommentable(task)
-        return humanComment(task, body, attachments)
+        return humanComment(task, body, attachments, caller.kind !== 'phone')
       }
       const { task, runId } = ownTask(ref, caller)
       checkOwnFiles(task, attachments)

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
   type BoardStage,
   type Comment,
@@ -9,6 +10,7 @@ import {
   type PhoneCommentsCursor,
   type PhoneFactoryIcon,
   type PhoneStatusSection,
+  type PhoneTaskAction,
   type PhoneTaskCommentsBody,
   type PhoneTaskDetail,
   type PhoneTaskGroup,
@@ -34,6 +36,7 @@ import {
 import { stageDisplayName } from '@ted/protocol/stage'
 import { defaultStageList, mergeStageLists, stageNameIn } from '@ted/protocol/stage-list'
 import { priorities } from '@ted/protocol/task'
+import { openPullRequests, statusActionKind } from '@ted/protocol/task-actions'
 import { statusLabel } from '@ted/protocol/task-status'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
@@ -50,11 +53,13 @@ export interface PhoneTaskSource {
   stageEntries(taskId: string): StageEntry[]
   waitingIds(): ReadonlySet<string>
   stages(factoryId: string): Promise<readonly BoardStage[]>
+  descendants(taskId: string): string[]
 }
 
 export function storeTaskSource(
   store: TedStore,
   stages: PhoneTaskSource['stages'],
+  descendants: PhoneTaskSource['descendants'],
 ): PhoneTaskSource {
   return {
     tasks: () => store.listTasks(),
@@ -64,6 +69,7 @@ export function storeTaskSource(
     stageEntries: (taskId) => store.listStageEntries(taskId),
     waitingIds: () => new Set(store.waiting().map((request) => request.id)),
     stages,
+    descendants,
   }
 }
 
@@ -71,6 +77,7 @@ export interface PhoneTasks {
   list(group: PhoneTaskGroup, cursor: string | undefined): Promise<PhoneOutcome>
   read(taskId: string): Promise<PhoneOutcome>
   comments(taskId: string, cursor: string | undefined): Promise<PhoneOutcome>
+  revision(taskId: string): string | undefined
 }
 
 const dayMs = 24 * 60 * 60 * 1000
@@ -150,6 +157,19 @@ function newerFirst(a: PhoneCommentsCursor, b: PhoneCommentsCursor): number {
 
 const fencePattern = /^ {0,3}(`{3,}|~{3,})/
 const delimiterPattern = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
+
+export function phoneTaskActions(task: Task): PhoneTaskAction[] {
+  if (task.archived) return []
+  const kind = statusActionKind(task)
+  const status: PhoneTaskAction[] =
+    kind === 'start' || kind === 'stop'
+      ? [kind]
+      : kind === 'resume' || kind === 'retry'
+        ? ['resume']
+        : []
+  const comment: PhoneTaskAction[] = task.commentBox === 'merge-pending' ? [] : ['comment']
+  return [...status, 'priority', ...comment, 'archive', 'delete']
+}
 
 export function formattedBlocks(markdown: string): number {
   const lines = markdown.split('\n')
@@ -281,6 +301,7 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
       priority: task.priority,
       section,
       updatedAt: task.updatedAt,
+      actions: phoneTaskActions(task),
     }
   }
 
@@ -392,13 +413,21 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
       factory,
       lists.get(task.factoryId) ?? defaultStageList,
     )
+    const descendants = source.descendants(task.id)
     const redacted = redactSecrets(task.description)
     const short = cutChars(redacted, phoneDescriptionMax)
-    const bare: PhoneTaskDetail = { ...shown, description: '', cut: false }
+    const bare: PhoneTaskDetail = {
+      ...shown,
+      description: '',
+      cut: false,
+      childTasks: descendants.length,
+      openPullRequests: openPullRequests(task).length,
+      hierarchyRevision: familyRevision(task, descendants),
+    }
     const fitted = fitText(short, Math.max(0, phoneReplyBodyMax - jsonBytes({ task: bare })))
     return {
       body: {
-        task: { ...shown, description: fitted.text, cut: short !== redacted || fitted.cut },
+        task: { ...bare, description: fitted.text, cut: short !== redacted || fitted.cut },
       },
     }
   }
@@ -480,5 +509,21 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     return { body }
   }
 
-  return { list, read, comments }
+  function familyRevision(task: Task, descendants: readonly string[]): string {
+    const family = descendants.map((id) => {
+      const child = source.task(id)
+      return [id, child?.parentId ?? null, child?.archived !== undefined]
+    })
+    const prs = openPullRequests(task).map(({ repo, pr }) => [repo.name, pr.number])
+    return createHash('sha256')
+      .update(JSON.stringify([task.id, task.parentId ?? null, prs, family]))
+      .digest('hex')
+  }
+
+  function revision(taskId: string): string | undefined {
+    const task = visible(taskId)
+    return task ? familyRevision(task, source.descendants(task.id)) : undefined
+  }
+
+  return { list, read, comments, revision }
 }

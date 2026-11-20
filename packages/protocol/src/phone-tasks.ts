@@ -8,6 +8,7 @@ import {
   isArray,
   isInteger,
   isNumber,
+  isOneOf,
   isString,
   type Json,
   type JsonArray,
@@ -33,6 +34,17 @@ export const phoneStatusSectionLabels: Readonly<Record<PhoneStatusSection, strin
   backlog: 'Backlog',
   done: 'Done',
 }
+
+export const phoneTaskActions = [
+  'start',
+  'stop',
+  'resume',
+  'priority',
+  'comment',
+  'archive',
+  'delete',
+] as const
+export type PhoneTaskAction = (typeof phoneTaskActions)[number]
 
 export const phoneTaskTones = ['working', 'waiting', 'failed', 'stopped', 'done', 'none'] as const
 export type PhoneTaskTone = (typeof phoneTaskTones)[number]
@@ -66,6 +78,7 @@ export interface PhoneTaskRow {
   priority: Priority
   section: string
   updatedAt: string
+  actions: PhoneTaskAction[]
 }
 
 export interface PhoneTaskSection {
@@ -84,6 +97,9 @@ export interface PhoneTasksBody {
 export interface PhoneTaskDetail extends PhoneTaskRow {
   description: string
   cut: boolean
+  childTasks: number
+  openPullRequests: number
+  hierarchyRevision: string
 }
 
 export interface PhoneTaskBody {
@@ -201,6 +217,11 @@ export function parsePhoneFactoryIcon(value: Untyped): PhoneFactoryIcon {
   return { kind, symbol: read.oneOf(object, 'symbol', factoryIconSymbols), color }
 }
 
+function action(value: Json): PhoneTaskAction {
+  if (isOneOf(value, phoneTaskActions)) return value
+  throw new ParseError('actions', `actions must hold only ${phoneTaskActions.join(', ')}`)
+}
+
 function rowFields(object: JsonObject): PhoneTaskRow {
   const factory = read.object(object.factory, 'factory')
   const icon = factory.icon === undefined ? undefined : parsePhoneFactoryIcon(factory.icon)
@@ -219,6 +240,7 @@ function rowFields(object: JsonObject): PhoneTaskRow {
     priority: read.oneOf(object, 'priority', priorities),
     section: read.string(object, 'section'),
     updatedAt: read.string(object, 'updatedAt'),
+    actions: read.list(object, 'actions').map(action),
   }
 }
 
@@ -254,6 +276,9 @@ export function parsePhoneTaskBody(value: Untyped): PhoneTaskBody {
       ...rowFields(task),
       description: read.string(task, 'description'),
       cut: read.boolean(task, 'cut'),
+      childTasks: count(task, 'childTasks'),
+      openPullRequests: count(task, 'openPullRequests'),
+      hierarchyRevision: read.string(task, 'hierarchyRevision'),
     },
   }
 }

@@ -12,6 +12,7 @@
     "./task": "./src/task.ts",
     "./task-move": "./src/task-move.ts",
     "./task-status": "./src/task-status.ts",
+    "./task-actions": "./src/task-actions.ts",
     "./stage": "./src/stage.ts",
     "./stage-list": "./src/stage-list.ts",
     "./task-intervals": "./src/task-intervals.ts",
