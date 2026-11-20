@@ -1215,7 +1215,7 @@ export function createTasks(options: {
     emit: (event) => {
       if (event.type === 'apps-changed' && store.getTask(event.taskId) !== undefined) {
         const taskId = event.taskId
-        void apps.list(taskId).then(
+        void createdApps.list(taskId).then(
           (list) => store.noteAppStarting(taskId, list.find(appStarting)?.name),
           () => store.noteAppStarting(taskId, undefined),
         )
