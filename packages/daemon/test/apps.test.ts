@@ -15,7 +15,7 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { appAccess, electronEnv } from '../src/apps/apps.ts'
+import { appAccess, electronEnv, servedPorts } from '../src/apps/apps.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { tryLock } from '../src/lock.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -718,6 +718,21 @@ test('only a Run’s start of an Electron App gets a debugging port, hidden, wit
   expect(electronEnv(4100, 'task-lead', false, 'linux').TED_ELECTRON_ARGS).toBe(
     '--remote-debugging-port=4100 --ozone-platform=headless',
   )
+})
+
+test('an App serves its own port and reaches its Task’s other Apps; an emulator App also reaches the adb server', () => {
+  const ports = { 'web/api': 4100, 'web/site': 4101 }
+  expect(servedPorts({ kind: 'web' }, 4100, ports, {})).toEqual({ own: 4100, reach: [4101] })
+  expect(servedPorts({ kind: 'command' }, undefined, ports, {})).toEqual({ reach: [4100, 4101] })
+  expect(servedPorts({ kind: 'android-emulator' }, undefined, ports, {})).toEqual({
+    reach: [4100, 4101, 5037],
+  })
+  expect(
+    servedPorts({ kind: 'android-emulator' }, undefined, {}, { ANDROID_ADB_SERVER_PORT: '5099' }),
+  ).toEqual({ reach: [5099] })
+  expect(
+    servedPorts({ kind: 'android-emulator' }, undefined, {}, { ANDROID_ADB_SERVER_PORT: 'x' }),
+  ).toEqual({ reach: [5037] })
 })
 
 test('an Electron App gets the electron access group, once, beside the groups it lists', () => {
