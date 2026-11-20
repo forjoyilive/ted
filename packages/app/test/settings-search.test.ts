@@ -26,6 +26,7 @@ test('a setting is found by its name, group, page and description, with its page
     'app.general.startup',
     'app.general.startup.login',
     'app.general.startup.quit',
+    'app.general.startup.menu-bar',
     'app.general.startup.stay-awake',
   ])
   expect(find('notifications inbox')).toMatchObject([
