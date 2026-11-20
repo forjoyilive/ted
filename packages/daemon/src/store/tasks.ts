@@ -288,6 +288,7 @@ export function tasksArea(ctx: StoreContext): TasksArea {
       plan,
       setup = false,
       coordinatorOperation,
+      phoneCreate,
       taskLead,
       children = [],
       notes = [],
@@ -453,6 +454,7 @@ export function tasksArea(ctx: StoreContext): TasksArea {
           : []),
         ...(plan ? [events.planTaskCreated({ ...plan, taskId: id, at })] : []),
         ...(setup ? [events.setupTaskCreated({ taskId: id, factoryId, at })] : []),
+        ...(phoneCreate ? [events.phoneTaskCreated({ ...phoneCreate, taskId: id, at })] : []),
         ...(coordinatorOperation !== undefined
           ? [
               events.taskCreatedByCoordinator({

@@ -124,7 +124,7 @@ function tone(task: Task): PhoneTaskTone {
   }
 }
 
-function phoneIcon(icon: FactoryIcon | undefined): PhoneFactoryIcon | undefined {
+export function phoneIcon(icon: FactoryIcon | undefined): PhoneFactoryIcon | undefined {
   switch (icon?.kind) {
     case 'letter':
       return { kind: 'letter', color: icon.color }

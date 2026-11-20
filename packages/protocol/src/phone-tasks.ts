@@ -62,6 +62,23 @@ export type PhoneFactoryIcon =
   | { kind: 'symbol'; symbol: FactoryIconSymbol; color: FactoryIconColor }
   | { kind: 'emoji'; emoji: string }
 
+export const phoneNewTaskPriority: Priority = 'none'
+
+export interface PhoneFactory {
+  key: string
+  name: string
+  icon?: PhoneFactoryIcon
+  defaultPriority: Priority
+}
+
+export interface PhoneFactoriesBody {
+  factories: PhoneFactory[]
+}
+
+export interface PhoneTaskCreatedBody extends PhoneTaskBody {
+  startRefused?: string
+}
+
 export interface PhoneNamed {
   id: string
   name: string
@@ -280,6 +297,31 @@ export function parsePhoneTaskBody(value: Untyped): PhoneTaskBody {
       openPullRequests: count(task, 'openPullRequests'),
       hierarchyRevision: read.string(task, 'hierarchyRevision'),
     },
+  }
+}
+
+export function parsePhoneTaskCreatedBody(value: Untyped): PhoneTaskCreatedBody {
+  const object = read.object(value, 'body')
+  const startRefused = read.optional(object, 'startRefused', read.string)
+  return {
+    ...parsePhoneTaskBody(object),
+    ...(startRefused !== undefined && { startRefused }),
+  }
+}
+
+export function parsePhoneFactoriesBody(value: Untyped): PhoneFactoriesBody {
+  const object = read.object(value, 'body')
+  return {
+    factories: read.list(object, 'factories').map((entry) => {
+      const factory = read.object(entry, 'factory')
+      const icon = factory.icon === undefined ? undefined : parsePhoneFactoryIcon(factory.icon)
+      return {
+        key: read.string(factory, 'key'),
+        name: read.string(factory, 'name'),
+        ...(icon !== undefined && { icon }),
+        defaultPriority: read.oneOf(factory, 'defaultPriority', priorities),
+      }
+    }),
   }
 }
 

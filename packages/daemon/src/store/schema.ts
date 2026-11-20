@@ -93,6 +93,7 @@ import {
   phones,
   phonesEvents,
   phonesMaterializers,
+  phoneTaskCreates,
 } from './schema/phones.ts'
 import { planRequests, plans, plansEvents, plansMaterializers, planTasks } from './schema/plans.ts'
 import {
@@ -301,6 +302,7 @@ const state = State.SQLite.makeState({
     phoneRelayResets,
     phoneRelayAck,
     phoneRelaySent,
+    phoneTaskCreates,
   },
   materializers,
 })
