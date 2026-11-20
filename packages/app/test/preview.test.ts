@@ -113,13 +113,20 @@ describe('iOS simulator Apps', () => {
     waiting: [],
   })
 
-  test('the row says whether its simulator is booted or why it was shut down', () => {
+  test('the row says whether its App is still building, its simulator is booted, or why it was shut down', () => {
+    const booted17 = { device: 'iPhone 17', booted: true }
+    expect(appStatusLine(iPhone({ state: 'running', simulator: booted17 }), now)).toBe(
+      'iPhone 17 · building',
+    )
     expect(
       appStatusLine(
-        iPhone({ state: 'running', simulator: { device: 'iPhone 17', booted: true } }),
+        iPhone({ state: 'running', simulator: booted17, builtAt: '2026-11-09T10:20:00Z' }),
         now,
       ),
     ).toBe('iPhone 17 · booted')
+    expect(
+      appStatusLine(iPhone({ state: 'running', simulator: booted17, notReady: true }), now),
+    ).toBe('iPhone 17 · didn’t print TED_APP_READY within 15 minutes')
     expect(
       appStatusLine(
         iPhone({

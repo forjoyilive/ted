@@ -237,6 +237,7 @@ interface Instance {
   waitingFor?: string
   readyAt?: string
   builtAt?: string
+  notReadyAt?: string
   readyFrom?: number
   ended?: {
     at: string
@@ -525,6 +526,7 @@ export function createApps(options: AppsOptions): Apps {
       ...(live && instance?.url !== undefined && { url: instance.url }),
       ...(instance && { startedAt: instance.startedAt }),
       ...(instance?.builtAt !== undefined && { builtAt: instance.builtAt }),
+      ...(live && instance?.notReadyAt !== undefined && { notReady: true }),
       ...(instance?.startedBy !== undefined && { startedBy: instance.startedBy }),
       ...(ended && { endedAt: ended.at }),
       ...(ended?.code !== undefined && { exitCode: ended.code }),
@@ -1191,11 +1193,17 @@ export function createApps(options: AppsOptions): Apps {
         )
         return
       }
-      if (started && pool.building(key) && (await saidReady(dir, key))) {
-        pool.endTurn(key)
-        instance.builtAt = new Date().toISOString()
-        await writeInstance(dir, instance)
-        changed(taskId)
+      if (started && isDeviceApp(instance) && instance.builtAt === undefined) {
+        const building = pool.building(key)
+        if (await saidReady(dir, key)) {
+          if (building) pool.endTurn(key)
+          const { notReadyAt: _, ...built } = instance
+          await writeInstance(dir, { ...built, builtAt: new Date().toISOString() })
+          changed(taskId)
+        } else if (!building && instance.notReadyAt === undefined) {
+          await writeInstance(dir, { ...instance, notReadyAt: new Date().toISOString() })
+          changed(taskId)
+        }
       }
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {

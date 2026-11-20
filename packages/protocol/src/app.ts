@@ -17,6 +17,7 @@ export interface TaskApp {
   url?: string
   startedAt?: string
   builtAt?: string
+  notReady?: true
   endedAt?: string
   exitCode?: number
   signal?: string
@@ -136,6 +137,17 @@ export function isDeviceApp<T extends { kind: AppKind }>(
   app: T,
 ): app is T & { kind: 'ios-simulator' | 'android-emulator' } {
   return isSimulatorApp(app) || isEmulatorApp(app)
+}
+
+export function deviceBuilding(
+  app: Pick<TaskApp, 'kind' | 'state' | 'builtAt' | 'notReady'>,
+): boolean {
+  return (
+    isDeviceApp(app) &&
+    app.state === 'running' &&
+    app.builtAt === undefined &&
+    app.notReady !== true
+  )
 }
 
 export function devicePlatform(app: { kind: AppKind }): DevicePlatform | undefined {
