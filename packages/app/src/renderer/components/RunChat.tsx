@@ -119,13 +119,15 @@ function Collapsible({
   label,
   mono,
   meta,
+  metaTitle,
   open: initiallyOpen = false,
   tone,
   children,
 }: {
   label: ReactNode
-  mono?: ReactNode
+  mono?: string
   meta?: ReactNode
+  metaTitle?: string | undefined
   open?: boolean | undefined
   tone?: 'failed' | undefined
   children?: ReactNode
@@ -143,8 +145,16 @@ function Collapsible({
       >
         <ChevronIcon open={open && !empty} className={styles.chevron} />
         <span className={styles.rowLabel}>{label}</span>
-        {mono !== undefined && <span className={styles.rowMono}>{mono}</span>}
-        {meta !== undefined && <span className={styles.rowMeta}>{meta}</span>}
+        {mono !== undefined && (
+          <span className={styles.rowMono} title={mono}>
+            {mono}
+          </span>
+        )}
+        {meta !== undefined && (
+          <span className={styles.rowMeta} title={metaTitle}>
+            {meta}
+          </span>
+        )}
       </ActionButton>
       {open && !empty && <div className={styles.rowBody}>{children}</div>}
     </div>
@@ -191,6 +201,8 @@ function ToolRow({
   const additions = diffs.reduce((sum, d) => sum + d.additions, 0)
   const deletions = diffs.reduce((sum, d) => sum + d.deletions, 0)
   const outputLines = item.output?.trimEnd().split('\n').length ?? 0
+  const described =
+    item.detail ?? (outputLines === 1 ? item.output?.trim().slice(0, 80) : undefined)
   const meta =
     item.status === 'running' ? (
       <span className={styles.running}>
@@ -205,7 +217,7 @@ function ToolRow({
     ) : item.tool === 'Read' && outputLines > 0 ? (
       `${outputLines} lines`
     ) : (
-      (item.detail ?? (outputLines === 1 ? item.output?.trim().slice(0, 80) : undefined))
+      described
     )
   const showDetail = item.detail !== undefined && meta !== item.detail
   return (
@@ -214,6 +226,7 @@ function ToolRow({
       label={item.tool}
       mono={item.title}
       meta={meta}
+      metaTitle={meta === described ? described : undefined}
       tone={item.status === 'failed' ? 'failed' : undefined}
     >
       {(showDetail || diffs.length > 0 || item.output !== undefined) && (
@@ -265,6 +278,7 @@ function CommandRow({
       label={running ? 'Ted is running' : 'Ted ran'}
       mono={item.name}
       meta={outsideMeta(item, now)}
+      metaTitle={outsideMeta(item, now)}
       open={outside !== undefined && running}
       tone={item.status === 'failed' ? 'failed' : undefined}
     >
