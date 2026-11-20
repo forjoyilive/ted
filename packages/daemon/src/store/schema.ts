@@ -85,6 +85,7 @@ import {
   taskRepos,
 } from './schema/merge.ts'
 import { peerMessages, peersEvents, peersMaterializers } from './schema/peers.ts'
+import { phones, phonesEvents, phonesMaterializers } from './schema/phones.ts'
 import { planRequests, plans, plansEvents, plansMaterializers, planTasks } from './schema/plans.ts'
 import {
   commentAttachments,
@@ -147,6 +148,7 @@ export * from './schema/failures.ts'
 export * from './schema/machine.ts'
 export * from './schema/merge.ts'
 export * from './schema/peers.ts'
+export * from './schema/phones.ts'
 export * from './schema/plans.ts'
 export * from './schema/requests.ts'
 export * from './schema/runs.ts'
@@ -166,6 +168,7 @@ export const events = {
   ...machineEvents,
   ...mergeEvents,
   ...peersEvents,
+  ...phonesEvents,
   ...plansEvents,
   ...requestsEvents,
   ...runsEvents,
@@ -186,6 +189,7 @@ const materializers = counted(
     ...machineMaterializers,
     ...mergeMaterializers,
     ...peersMaterializers,
+    ...phonesMaterializers,
     ...plansMaterializers,
     ...requestsMaterializers,
     ...runsMaterializers,
@@ -282,6 +286,7 @@ const state = State.SQLite.makeState({
     chatRequests,
     sideChats,
     requestSnoozes,
+    phones,
   },
   materializers,
 })

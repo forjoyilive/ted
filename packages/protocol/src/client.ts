@@ -194,6 +194,12 @@ import type {
 } from './outside-command.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
+  PairedPhones,
+  PhonePairingDecision,
+  PhonePairingOffer,
+  PhonePairingState,
+} from './phones.ts'
+import type {
   ChatArchiveExpiry,
   Plan,
   PlanDetail,
@@ -339,6 +345,27 @@ export class DaemonClient {
     this.#idleTimeoutMs = idleTimeoutMs
   }
 
+  createPhonePairing(): Promise<PhonePairingOffer> {
+    return this.#request('POST', '/phones/pairings')
+  }
+  currentPhonePairing(): Promise<PhonePairingState> {
+    return this.#request('GET', '/phones/pairings/current')
+  }
+  cancelPhonePairing(): Promise<PhonePairingState> {
+    return this.#request('DELETE', '/phones/pairings/current')
+  }
+  approvePhonePairing(input: PhonePairingDecision): Promise<PhonePairingState> {
+    return this.#request('POST', '/phones/pairings/current/approve', input)
+  }
+  refusePhonePairing(input: PhonePairingDecision): Promise<PhonePairingState> {
+    return this.#request('POST', '/phones/pairings/current/refuse', input)
+  }
+  pairedPhones(): Promise<PairedPhones> {
+    return this.#request('GET', '/phones')
+  }
+  removePhone(id: string): Promise<PairedPhones> {
+    return this.#request('DELETE', `/phones/${encodeURIComponent(id)}`)
+  }
   executionMachines(): Promise<ExecutionMachines> {
     return this.#request('GET', '/execution/machines')
   }

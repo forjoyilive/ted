@@ -15,6 +15,7 @@ import { LibraryPage } from './LibraryPage.tsx'
 import { LimitsPage } from './LimitsPage.tsx'
 import { MachinesPage } from './MachinesPage.tsx'
 import { NotificationsPage } from './NotificationsPage.tsx'
+import { PhonesPage } from './PhonesPage.tsx'
 import { StoragePage } from './StoragePage.tsx'
 import styles from './settings.module.css'
 
@@ -41,6 +42,7 @@ const pages: Record<SettingsSectionId, ComponentType<SettingsPageProps>> = {
   general: GeneralPage,
   notifications: NotificationsPage,
   machines: MachinesPage,
+  phones: PhonesPage,
   agents: AgentsPage,
   limits: LimitsPage,
   integrations: IntegrationsPage,

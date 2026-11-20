@@ -3,6 +3,7 @@ import { constants, type Stats } from 'node:fs'
 import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   accessGroups,
   accessSockets,
@@ -12,6 +13,7 @@ import {
   outsideTedEnv,
   type SandboxAccess,
 } from '@ted/protocol'
+import { nodeEntry } from './node-entry.ts'
 import { protectedPaths } from './protected-folders.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -23,10 +25,21 @@ export interface SandboxScope {
   sockets?: readonly NamedSocket[]
   reads?: readonly string[]
   network?: NetworkLevel
-  serves?: number
+  serves?: ServedPorts
   ownTempOnly?: boolean
   hideProtected?: boolean
   groups?: readonly SandboxAccess[]
+}
+
+export interface ServedPorts {
+  own?: number
+  reach: readonly number[]
+}
+
+interface Forwarded {
+  own?: number
+  reach: readonly string[]
+  outbound: boolean
 }
 
 export interface Sandboxed {
@@ -38,6 +51,12 @@ export interface Sandboxed {
 }
 
 export const firstBindFd = 3
+
+const forwardPortsMain = fileURLToPath(new URL('./forward-ports.ts', import.meta.url))
+
+export function forwardingFds(bindFds: number) {
+  return { status: firstBindFd + bindFds, block: firstBindFd + bindFds + 1 }
+}
 
 export interface SandboxGrants {
   sockets: readonly NamedSocket[]
@@ -111,10 +130,11 @@ export function createSandbox(options: {
   env: () => NodeJS.ProcessEnv
   platform?: NodeJS.Platform
   program?: string
+  pasta?: string
+  unshare?: string
   bindFds?: boolean
   unixSockets?: () => Promise<string>
   simulatorRuntimes?: string
-  pasta?: string
 }): Sandbox {
   const platform = options.platform ?? process.platform
   let ready: string | undefined
@@ -125,31 +145,6 @@ export function createSandbox(options: {
     if (options.program !== undefined) return options.program
     if (platform === 'darwin') return '/usr/bin/sandbox-exec'
     return onPath('bwrap', options.env().PATH)
-  }
-
-  async function privateNetwork(
-    scope: SandboxScope,
-    adb: boolean,
-    tedHome: string,
-  ): Promise<LinuxNetwork> {
-    const wanted = linuxNetwork(scope, adb)
-    if (wanted.kind !== 'private') return wanted
-    // A test sandbox program stands in for the whole sandbox, so it gets host networking as before.
-    if (options.pasta === undefined && options.program !== undefined) return { kind: 'host' }
-    const pasta =
-      options.pasta === undefined
-        ? await onPath('pasta', options.env().PATH)
-        : await executable(options.pasta)
-    if (pasta === undefined) {
-      throw new SandboxUnavailable(
-        'pasta isn’t installed, so Ted can’t give this sandboxed command its own network. Install the passt package.',
-      )
-    }
-    return {
-      ...wanted,
-      pasta,
-      ...(wanted.outbound && { resolv: await pastaResolv(tedHome) }),
-    }
   }
 
   async function socketTable(): Promise<string> {
@@ -321,7 +316,17 @@ export function createSandbox(options: {
         ? []
         : sdk.filter((dir) => reads.binds.some(([, dest]) => dest !== dir && inside(dest, dir)))
       const hidden = [...protectedHidden, ...sdkHidden]
-      const network = await privateNetwork(scope, android, paths.tedHome)
+      const network = ownNetwork(scope, android)
+      const ports = network ? forwardedPorts(scope, android) : undefined
+      const forward =
+        ports === undefined
+          ? undefined
+          : await portForwarding(
+              options.pasta ?? (await onPath('pasta', env.PATH)),
+              options.unshare ?? (await onPath('unshare', env.PATH)),
+              ports,
+            )
+      const resolv = ports?.outbound === true ? await pastaResolv(paths.tedHome) : undefined
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -334,13 +339,42 @@ export function createSandbox(options: {
         await close()
         throw error
       }
+      const sandboxArgs = bwrapArgs(
+        paths,
+        env,
+        linux,
+        binds,
+        bindFds,
+        hidden,
+        reads,
+        network && forward === undefined,
+        resolv,
+      )
+      const fds = forwardingFds(handles.length)
       return {
-        argv: inPasta(network, [
-          ready,
-          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, reads, network),
-          '--',
-          ...argv,
-        ]),
+        argv:
+          forward === undefined
+            ? [ready, ...sandboxArgs, '--', ...argv]
+            : launchWithForwarding(forward.pasta, forward.args, handles.length, [
+                forward.unshare,
+                '--user',
+                '--map-root-user',
+                '--net',
+                '--',
+                ready,
+                '--unshare-user',
+                '--uid',
+                String(process.getuid?.() ?? 0),
+                '--gid',
+                String(process.getgid?.() ?? 0),
+                '--json-status-fd',
+                String(fds.status),
+                '--block-fd',
+                String(fds.block),
+                ...sandboxArgs,
+                '--',
+                ...argv,
+              ]),
         env: added,
         fds: handles.map((handle) => handle.fd),
         missingSockets,
@@ -574,8 +608,8 @@ async function androidSdkFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
   const home = await homeFolder(env)
   const given = [
     path.join(home, 'Library/Android/sdk'),
-    ...['ANDROID_HOME', 'ANDROID_SDK_ROOT'].flatMap((name) =>
-      env[name]?.startsWith('/') === true ? [env[name]] : [],
+    ...[env.ANDROID_HOME, env.ANDROID_SDK_ROOT].flatMap((value) =>
+      value?.startsWith('/') === true ? [value] : [],
     ),
   ]
   return existingReals(given, home)
@@ -624,8 +658,8 @@ async function readCandidates(
   userTemp: string | undefined,
 ): Promise<string[]> {
   const home = await homeFolder(env)
-  const fromEnv = ['DEVELOPER_DIR', 'JAVA_HOME'].flatMap((name) =>
-    env[name]?.startsWith('/') === true ? [env[name]] : [],
+  const fromEnv = [env.DEVELOPER_DIR, env.JAVA_HOME].flatMap((value) =>
+    value?.startsWith('/') === true ? [value] : [],
   )
   const onPath = (env.PATH ?? '')
     .split(':')
@@ -814,7 +848,8 @@ function bwrapArgs(
   byFd: boolean,
   hidden: readonly string[],
   reads: LinuxReads,
-  network: LinuxNetwork,
+  ownNetwork: boolean,
+  resolv?: { source: string; dest: string },
 ): string[] {
   const runtime = runtimeDir(env)
   const bind = (b: Bind, i: number) =>
@@ -825,15 +860,10 @@ function bwrapArgs(
   return [
     '--die-with-parent',
     '--unshare-pid',
-    ...(network.kind === 'none' ? ['--unshare-net'] : []),
-    ...(network.kind === 'private'
-      ? ['--unshare-user', '--uid', String(network.uid), '--gid', String(network.gid)]
-      : []),
+    ...(ownNetwork ? ['--unshare-net'] : []),
     ...reads.binds.flatMap(([source, dest]) => ['--ro-bind', source, dest]),
     ...reads.links.flatMap(([target, dest]) => ['--symlink', target, dest]),
-    ...(network.kind === 'private' && network.resolv !== undefined
-      ? ['--ro-bind', network.resolv.source, network.resolv.dest]
-      : []),
+    ...(resolv === undefined ? [] : ['--ro-bind', resolv.source, resolv.dest]),
     '--dev',
     '/dev',
     '--proc',
@@ -866,70 +896,67 @@ function networkOf(scope: SandboxScope): NetworkLevel {
   return scope.groups?.includes('network') === true ? 'outbound' : (scope.network ?? defaultNetwork)
 }
 
-type LinuxNetwork =
-  | { kind: 'none' }
-  | { kind: 'host' }
-  | {
-      kind: 'private'
-      outbound: boolean
-      port: number | undefined
-      uid: number
-      gid: number
-      pasta: string
-      resolv?: { source: string; dest: string }
-    }
+// bwrap can't filter single ports, so only android-emulator at outbound shares host loopback, where adb listens.
+function ownNetwork(scope: SandboxScope, android: boolean): boolean {
+  return networkOf(scope) !== 'outbound' || !android
+}
 
-type WantedNetwork =
-  | Exclude<LinuxNetwork, { kind: 'private' }>
-  | {
-      kind: 'private'
-      outbound: boolean
-      port: number | undefined
-      uid: number
-      gid: number
-    }
+// The adb server and the console and adb ports apps/emulators.ts picks emulators from.
+const androidPorts = ['5037', '5554-5585']
 
-// bwrap can't filter single ports, so adb is closed by moving every command that would share host loopback into pasta's network.
-function linuxNetwork(scope: SandboxScope, adb: boolean): WantedNetwork {
-  const network = networkOf(scope)
-  if (network === 'none') return { kind: 'none' }
-  if (adb) return { kind: 'host' }
-  if (network === 'localhost' && scope.serves === undefined) return { kind: 'none' }
+function forwardedPorts(scope: SandboxScope, android: boolean): Forwarded | undefined {
+  const outbound = networkOf(scope) === 'outbound'
+  const own = scope.serves?.own
+  const reach =
+    networkOf(scope) === 'none'
+      ? []
+      : [
+          ...new Set([
+            ...(scope.serves?.reach ?? []).filter((port) => port !== own).map(String),
+            ...(android ? androidPorts : []),
+          ]),
+        ]
+  if (own === undefined && reach.length === 0 && !outbound) return undefined
+  return { ...(own !== undefined && { own }), reach, outbound }
+}
+
+async function portForwarding(
+  pasta: string | undefined,
+  unshare: string | undefined,
+  { own, reach, outbound }: Forwarded,
+): Promise<{ pasta: string; unshare: string; args: string[] }> {
+  if (pasta === undefined) {
+    throw new SandboxUnavailable(
+      'pasta isn’t installed, so Ted can’t give this sandboxed command a network of its own. Install the passt package.',
+    )
+  }
+  if (unshare === undefined) {
+    throw new SandboxUnavailable(
+      'unshare isn’t installed, so Ted can’t give this sandboxed command a network of its own. Install the util-linux package.',
+    )
+  }
+  // Without --host-lo-to-ns-lo pasta delivers host connections to the namespace's own address, which an
+  // App listening on 127.0.0.1 resets. Pasta's UDP default forwards host loopback ports automatically.
   return {
-    kind: 'private',
-    outbound: network === 'outbound',
-    port: scope.serves,
-    uid: process.getuid?.() ?? 0,
-    gid: process.getgid?.() ?? 0,
+    pasta,
+    unshare,
+    args: [
+      '-q',
+      '--host-lo-to-ns-lo',
+      ...(outbound ? ['--config-net', '--no-map-gw', '--dns-forward', pastaDns] : []),
+      '-t',
+      own === undefined ? 'none' : `127.0.0.1/${own}`,
+      '-T',
+      reach.length === 0 ? 'none' : reach.join(','),
+      '-u',
+      'none',
+      '-U',
+      'none',
+    ],
   }
 }
 
 const pastaDns = '169.254.1.1'
-
-function inPasta(network: LinuxNetwork, argv: [string, ...string[]]): [string, ...string[]] {
-  if (network.kind !== 'private') return argv
-  return [network.pasta, ...pastaArgs(network), ...argv]
-}
-
-// -T none and -U none matter: pasta's default forwards the namespace's connections to host ports, adb's included.
-// pasta refuses a second -t for the same port, so ::1 isn't forwarded.
-function pastaArgs(network: Extract<LinuxNetwork, { kind: 'private' }>): string[] {
-  return [
-    '--quiet',
-    '--no-map-gw',
-    '--host-lo-to-ns-lo',
-    ...(network.outbound ? ['--config-net', '--dns-forward', pastaDns] : []),
-    '-t',
-    network.port === undefined ? 'none' : `127.0.0.1/${network.port}`,
-    '-u',
-    'none',
-    '-T',
-    'none',
-    '-U',
-    'none',
-    '--',
-  ]
-}
 
 // Hosts that run their resolver on loopback (systemd-resolved, Docker) lose DNS in pasta's network without this.
 // It goes over the real file, because a linked /etc/resolv.conf may point outside the mounted folders.
@@ -955,6 +982,16 @@ async function pastaResolv(tedHome: string): Promise<{ source: string; dest: str
     await handle.close()
   }
   return { source: file, dest: await realpath('/etc/resolv.conf').catch(() => '/etc/resolv.conf') }
+}
+
+function launchWithForwarding(
+  pasta: string,
+  pastaArgs: readonly string[],
+  bindFds: number,
+  bwrap: readonly string[],
+): [string, ...string[]] {
+  const entry = nodeEntry(forwardPortsMain, [pasta, String(bindFds), ...pastaArgs, '--', ...bwrap])
+  return ['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1', entry.command, ...entry.args]
 }
 
 type MacService = { name: string } | { prefix: string } | { regex: string }
@@ -1145,17 +1182,16 @@ function inside(folder: string, file: string): boolean {
 async function onPath(name: string, searchPath: string | undefined): Promise<string | undefined> {
   for (const dir of (searchPath ?? '/usr/bin:/bin').split(':')) {
     if (!dir.startsWith('/')) continue
-    const found = await executable(path.join(dir, name))
-    if (found !== undefined) return found
+    const candidate = path.join(dir, name)
+    if (
+      await access(candidate, constants.X_OK).then(
+        () => true,
+        () => false,
+      )
+    )
+      return candidate
   }
   return undefined
-}
-
-async function executable(file: string): Promise<string | undefined> {
-  return access(file, constants.X_OK).then(
-    () => file,
-    () => undefined,
-  )
 }
 
 function probe(

@@ -49,6 +49,8 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
+import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
+import { createPhones } from './phones/phones.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
 import { redactSecrets } from './redact.ts'
@@ -147,6 +149,15 @@ export interface DaemonOptions {
   slow?: { requestMs?: number; stallMs?: number }
   wrap?: DaemonWrappers
   mkdir?: MakeDirectory
+  phones?: DaemonPhonesOptions
+}
+
+export interface DaemonPhonesOptions {
+  keyrings?: PhoneKeyrings
+  relayUrl?: string
+  now?: () => number
+  macName?: () => Promise<string>
+  relayDelaysMs?: readonly number[]
 }
 
 export interface DaemonWrappers {
@@ -852,6 +863,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
       })
       await execution.start()
+      const phones = createPhones({
+        phones: store.phones,
+        keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
+        version: options.version,
+        ...(options.phones?.relayUrl !== undefined && { relayUrl: options.phones.relayUrl }),
+        ...(options.phones?.now && { now: options.phones.now }),
+        ...(options.phones?.macName && { macName: options.phones.macName }),
+        ...(options.phones?.relayDelaysMs && { relayDelaysMs: options.phones.relayDelaysMs }),
+      })
+      await phones.start()
       const factoryRemovals = createFactoryRemovals({
         execution,
         factorySettings,
@@ -954,6 +975,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const services = {
         busy,
         execution,
+        phones,
         sideChats,
         coordinators,
         automations,
@@ -978,6 +1000,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         chatArchiveCleanup,
         async close() {
           openStore = undefined
+          phones.close()
           await execution.close()
           const shellsClosed = shells.close()
           await sideChats.close()

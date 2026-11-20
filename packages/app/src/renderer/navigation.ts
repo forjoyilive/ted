@@ -5,6 +5,7 @@ export const settingsSectionIds = [
   'general',
   'notifications',
   'machines',
+  'phones',
   'agents',
   'limits',
   'integrations',

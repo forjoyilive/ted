@@ -4,7 +4,7 @@ Ted (“Totally Excellent Development”) runs software factories: agents carry 
 
 ## Language
 
-These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview, banner and sandbox opening. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
+These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview, banner, sandbox opening, paired phone and relay. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
 
 **Controller**:
 The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when Ted uses several machines.
@@ -23,6 +23,14 @@ _Avoid_: Job, remote command
 **Task assignment**:
 The durable ownership of a Task’s execution by one machine; losing contact does not move that ownership elsewhere.
 _Avoid_: Lease, placement hint
+
+**Paired phone**:
+An iPhone running the Ted phone app that the user approved in Settings → Phones. It reaches this Mac only through the relay, encrypted end to end, and only for the routes marked for phones.
+_Avoid_: Mobile client, device
+
+**Relay**:
+The server that passes encrypted messages between a paired phone and the Ted daemon, because the daemon listens only on this Mac. It cannot read the encrypted messages; it can see public keys, channel and connection identifiers, nonces, sizes and times.
+_Avoid_: Proxy, tunnel, phone server
 
 **Factory**:
 A largely automated process that carries software development tasks from creation to merge for one product, which may span several repos.
