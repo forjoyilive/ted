@@ -171,6 +171,7 @@ export function demoEnvironment(
       TED_HIDDEN_WINDOW: tedEnv('TED_HIDDEN_WINDOW', base),
     }),
     SHELL: fixture('stub-shell.sh'),
+    PATH: [path.dirname(process.execPath), env.PATH].filter(Boolean).join(path.delimiter),
     TED_HOME: home,
     TED_DEMO: '1',
     TED_CLAUDE_BIN: path.resolve(home, 'bin', 'stub-claude.mjs'),

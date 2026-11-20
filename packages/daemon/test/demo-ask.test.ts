@@ -7,7 +7,7 @@ import { demoEnvironment, prepareDemo, until } from '../src/dev/demo.ts'
 import { demoVersion, markDemo } from '../src/dev/home.ts'
 import { runCli } from '../src/health/cli.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { killRunHosts, stopDaemonIn, stubClaudePath } from './helpers.ts'
+import { killRunHosts, stopDaemonIn } from './helpers.ts'
 
 const original = { ...process.env }
 let home: string | undefined
@@ -62,11 +62,8 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
   await markDemo(home, { version: demoVersion, complete: true })
   await expect(askDemo(home, 'question')).rejects.toThrow('Open the demo first')
 
-  daemon = await startDaemon({
-    home,
-    version: tedVersion,
-    claudeBin: stubClaudePath,
-  })
+  const claudeBin = path.join(home, 'bin', 'stub-claude.mjs')
+  daemon = await startDaemon({ home, version: tedVersion, checkAgentsOnStart: true, claudeBin })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('The demo daemon did not publish its connection.')
   const client = new DaemonClient(info, '', { appKey: daemon.appToken })
@@ -90,7 +87,7 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
       await until(async () => (await lead()).run === 'idle', 'a waiting Task Lead', 60_000)
     } catch {
       const claude = (await client.agentHealth()).find((h) => h.agent === 'claude')
-      const auth = await runCli(stubClaudePath, ['auth', 'status'], {
+      const auth = await runCli(claudeBin, ['auth', 'status'], {
         env: { ...process.env, TED_HOME: home },
         cwd: home ?? '',
       })

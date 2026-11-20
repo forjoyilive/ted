@@ -83,6 +83,7 @@ test('demo children receive only local fixtures and no inherited credentials or 
   expect(env.TED_LOW_PRIORITY).toBe('off')
   expect(env.GIT_ALLOW_PROTOCOL).toBe('file')
   expect(env.NODE_OPTIONS).toBeUndefined()
+  expect(env.PATH).toBe([path.dirname(process.execPath), '/usr/bin'].join(path.delimiter))
 })
 
 test('the demo keeps a phone relay override so a phone can pair with it', () => {
