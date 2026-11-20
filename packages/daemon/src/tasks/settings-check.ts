@@ -64,7 +64,13 @@ export async function checkSettings(input: {
   )
   const branch =
     input.runBranchChecker && (await isTedSource(worktree))
-      ? await runBranch(worktree, libraryDir, log, input.runBranchChecker)
+      ? await runBranch(worktree, libraryDir, log, input.runBranchChecker).catch(
+          (error: Error): BranchOutcome => ({
+            kind: 'unavailable',
+            reason: `Ted couldn’t start it: ${error.message}`,
+            output: [],
+          }),
+        )
       : undefined
   if (branch?.kind === 'interrupted') return { outcome: 'interrupted' }
 
@@ -171,6 +177,6 @@ async function runBranch(
       return { kind: 'unavailable', reason, output: [] }
     }
   } finally {
-    await rm(scratch, { recursive: true, force: true })
+    await rm(scratch, { recursive: true, force: true }).catch(() => {})
   }
 }

@@ -205,6 +205,28 @@ describe('the Ted settings Check', () => {
     expect(text).toContain('its result wasn’t readable: problems must be a list')
   })
 
+  test('when Ted can’t prepare the branch’s checker, the installed checker decides and says why', async () => {
+    await makeTedSource('')
+    await useWorkflow(workflowWithGroup('network'))
+    await mkdir(path.join(worktree, 'node_modules'))
+    await writeFile(path.join(worktree, 'node_modules', '.cache'), 'not a folder')
+    const runner = writesResult(clean)
+
+    const result = await checkSettings({
+      worktree,
+      log,
+      libraryDir: library,
+      runBranchChecker: runner,
+    })
+
+    expect(result).toEqual({ outcome: 'failed', exitCode: 1 })
+    expect(runner.commands).toEqual([])
+    const text = await readFile(log, 'utf8')
+    expect(text).toContain('gave no result (Ted couldn’t start it:')
+    expect(text).toContain('so the installed checker was used')
+    expect(text).toContain('`network` isn’t a sandbox access group')
+  })
+
   test('an interrupted branch checker interrupts the Check', async () => {
     await makeTedSource('')
     await useWorkflow(workflowWithGroup('electron'))
