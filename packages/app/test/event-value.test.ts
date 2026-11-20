@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest'
 import { type EventChange, eventValue } from '../src/renderer/event-value.ts'
 
-function source<T>(initial: T, event: (event: string) => EventChange<T>) {
+function source<T>(initial: T, event: (event: string) => EventChange<T>, retryEveryMs?: number) {
   const calls: ReturnType<typeof Promise.withResolvers<T>>[] = []
   let listener: ((event: string) => void) | undefined
   const changed = vi.fn()
@@ -14,6 +14,7 @@ function source<T>(initial: T, event: (event: string) => EventChange<T>) {
     event,
     changed,
     error,
+    retryEveryMs,
     load: () => {
       const call = Promise.withResolvers<T>()
       calls.push(call)
@@ -241,3 +242,45 @@ test.each(['failure', 'dispose'] as const)(
     s.dispose()
   },
 )
+
+test('a failed load is tried again after retryEveryMs until one works, and dispose stops it', async () => {
+  vi.useFakeTimers()
+  try {
+    const s = source(0, () => undefined, 2_000)
+    s.calls[0]?.reject(new Error('busy'))
+    await vi.advanceTimersByTimeAsync(1_999)
+    expect(s.calls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(s.calls).toHaveLength(2)
+    s.calls[1]?.reject(new Error('busy'))
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(s.calls).toHaveLength(3)
+    s.calls[2]?.resolve(4)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(s.calls).toHaveLength(3)
+    expect(s.changed).toHaveBeenCalledExactlyOnceWith(4)
+    expect(s.error).toHaveBeenCalledTimes(2)
+    void s.refresh()
+    s.calls[3]?.reject(new Error('busy'))
+    await vi.advanceTimersByTimeAsync(0)
+    s.dispose()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(s.calls).toHaveLength(4)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('a failed load is not tried again without retryEveryMs', async () => {
+  vi.useFakeTimers()
+  try {
+    const s = source(0, () => undefined)
+    s.calls[0]?.reject(new Error('busy'))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(s.calls).toHaveLength(1)
+    expect(s.error).toHaveBeenCalledOnce()
+    s.dispose()
+  } finally {
+    vi.useRealTimers()
+  }
+})

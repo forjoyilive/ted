@@ -110,6 +110,7 @@ export function useEventValue<T>(options: {
   reconcile?: (loaded: T, current: T) => T
   changed?: (value: T) => void
   error?: (error: unknown) => void
+  retryEveryMs?: number
 }) {
   const { epoch } = useConnection()
   const key = options.key ?? ''
@@ -155,6 +156,7 @@ export function useEventValue<T>(options: {
         setState((previous) => ({ ...previous, error: readableError(error) }))
         current.current.error?.(error)
       },
+      retryEveryMs: current.current.retryEveryMs,
     })
     controller.current = source
     const refresh = () => void source.refresh()
@@ -502,6 +504,7 @@ function useInboxList(list: 'waiting' | 'answered', enabled: boolean) {
     load: list === 'waiting' ? ted.listInbox : ted.listAnswered,
     enabled,
     key: list,
+    retryEveryMs: 2_000,
     event: (event) => inboxChange(event, shown.current, list),
     changed: (value) => {
       shown.current = value
