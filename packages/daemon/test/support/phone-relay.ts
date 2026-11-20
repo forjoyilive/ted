@@ -409,12 +409,14 @@ export class TestPhone {
   readonly link: PairingLink
   readonly replies: MacReply[] = []
   readonly closes: number[] = []
+  readonly pairedCloses: number[] = []
   #mode: 'pairing' | 'phone' = 'pairing'
   #socket: WebSocket | undefined
   #online: Promise<void> | undefined
   #closed = false
   #now: () => number
   #listeners = new Set<(data: string) => void>()
+  #closeListeners = new Set<(code: number) => void>()
 
   constructor(
     linkText: string,
@@ -454,6 +456,7 @@ export class TestPhone {
       sign: (text) => nacl.sign.detached(text, this.relayKeys.secretKey),
       ...(ticket && { ticket }),
     })
+    const mode = this.#mode
     const socket = new WebSocket(url, { headers: { [relayAuthHeader]: login } })
     this.#socket = socket
     const online = Promise.withResolvers<void>()
@@ -469,10 +472,12 @@ export class TestPhone {
     })
     socket.addEventListener('close', (event) => {
       this.closes.push(event.code)
+      if (mode === 'phone') this.pairedCloses.push(event.code)
       online.reject(new RelayRefused(`the relay closed the socket with ${event.code}`))
       if (this.#socket !== socket) return
       this.#socket = undefined
       this.#online = undefined
+      for (const listener of this.#closeListeners) listener(event.code)
     })
     return online.promise
   }
@@ -531,17 +536,21 @@ export class TestPhone {
   }
 
   async ask(id: string, envelope: string, carrier: TestPhone = this): Promise<MacReply> {
-    const { promise, resolve } = Promise.withResolvers<MacReply>()
+    const { promise, resolve, reject } = Promise.withResolvers<MacReply>()
     const listener = (data: string) => {
       const reply = this.open(data)
       if (reply?.id === id) resolve(reply)
     }
+    const closed = (code: number) =>
+      reject(new RelayRefused(`the relay closed the socket with ${code}`))
     carrier.#listeners.add(listener)
+    carrier.#closeListeners.add(closed)
     try {
       await carrier.sendRaw(envelope)
       return await promise
     } finally {
       carrier.#listeners.delete(listener)
+      carrier.#closeListeners.delete(closed)
     }
   }
 

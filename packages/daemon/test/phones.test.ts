@@ -270,7 +270,7 @@ test('a removed phone is shut out by the relay at once, gets not-paired, and a r
   const removed = (await client.pairedPhones()).phones.find((p) => p.name === 'Removed Phone')
   if (!removed) throw new Error('phone not listed')
   await client.removePhone(removed.id)
-  await expect.poll(() => phone.closes).toContain(4403)
+  await expect.poll(() => phone.pairedCloses).toContain(4403)
   expect(relay.list(phone.link.channel)?.keys).not.toContain(phone.relayKey())
   await expect(phone.status()).rejects.toThrow(RelayRefused)
   expect(

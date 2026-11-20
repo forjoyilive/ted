@@ -98,7 +98,7 @@ test('removing the only paired phone sends the relay an empty list, which shuts 
   if (!only) throw new Error('phone not listed')
   await client.removePhone(only.id)
   expect((await client.pairedPhones()).phones).toEqual([])
-  await expect.poll(() => phone.closes).toContain(4403)
+  await expect.poll(() => phone.pairedCloses).toContain(4403)
   expect(relay.list(phone.link.channel)).toEqual({ rev: 2, keys: [] })
   await expect(phone.status()).rejects.toThrow(RelayRefused)
 })
