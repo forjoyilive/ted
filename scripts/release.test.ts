@@ -1,8 +1,8 @@
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { checkedCommits, failedTests, fileTimes, summary } from './check.ts'
+import { builderIdentity, pickSigningIdentity, signingRefusal } from './mac-app.ts'
 import {
-  builderIdentity,
   type Change,
   changedFiles,
   changeKind,
@@ -15,12 +15,10 @@ import {
   notesPrompt,
   type PublishFacts,
   parseVersion,
-  pickSigningIdentity,
   publishRefusal,
   type ReleaseRecord,
   releaseAction,
   releaseFiles,
-  signingRefusal,
   websiteRelease,
 } from './release.ts'
 
