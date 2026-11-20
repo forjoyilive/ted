@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { globSync, readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
 import path from 'node:path'
+import { sandboxReasons } from '../packages/daemon/test/support/ted-sandbox.ts'
 import { isObject, isString, parseJson } from '../packages/protocol/src/parse.ts'
 import { electronFiles, testFilePatterns } from './test-files.ts'
 
@@ -447,6 +448,14 @@ export function leftOutText(
 ): string | undefined {
   const app = sandbox === undefined ? [] : run.filter((pick) => electron.has(pick.file))
   if (app.length === 0 && sandboxSkipped.size === 0) return undefined
+  const skipped = [...sandboxSkipped].sort(([a], [b]) => (a < b ? -1 : 1))
+  const needsTemp = skipped.filter(([, reasons]) => reasons.includes(sandboxReasons.tedHome))
+  const plain = [
+    ...app.map((pick) => `  ${pick.file}  ${pick.why}`),
+    ...skipped
+      .filter(([, reasons]) => !reasons.includes(sandboxReasons.tedHome))
+      .map(([file, reasons]) => `  ${file}  skipped: ${reasons.join('; ')}`),
+  ]
   return [
     ...(app.length === 0
       ? []
@@ -458,11 +467,18 @@ export function leftOutText(
       : [
           'Ted’s sandbox made some tests skip themselves, so the Affected tests Check left these files out.',
         ]),
-    'Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>',
-    ...app.map((pick) => `  ${pick.file}  ${pick.why}`),
-    ...[...sandboxSkipped]
-      .sort(([a], [b]) => (a < b ? -1 : 1))
-      .map(([file, reasons]) => `  ${file}  skipped: ${reasons.join('; ')}`),
+    ...(plain.length === 0
+      ? []
+      : [
+          'Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>',
+          ...plain,
+        ]),
+    ...(needsTemp.length === 0
+      ? []
+      : [
+          'A Run’s TMPDIR is under ~/.ted even outside the sandbox, so run these outside the sandbox with a temp folder outside ~/.ted, at most 3 files per command: TMPDIR="$(mktemp -d /tmp/ted-vitest.XXXXXX)" pnpm vitest run <files>',
+          ...needsTemp.map(([file, reasons]) => `  ${file}  skipped: ${reasons.join('; ')}`),
+        ]),
   ].join('\n')
 }
 
