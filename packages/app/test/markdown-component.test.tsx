@@ -49,6 +49,29 @@ test('renders nested Markdown and keeps fenced code literal and keyboard reachab
   expect(code.querySelector('strong, h1')).toBeNull()
 })
 
+test('a list on single line breaks after a paragraph shows as a list, and blank lines split paragraphs', () => {
+  const text = [
+    'Step 1 passed. **Step 2: Notification.**',
+    '1. Close Ted on the phone.',
+    '2. Lock the Mac’s screen.',
+    '',
+    'Then check',
+    'the Inbox.',
+    '',
+    '- One',
+    '- Two',
+  ].join('\n')
+  const { container } = render(<Markdown text={text} />)
+  const paragraphs = Array.from(container.querySelectorAll('p'), (p) => p.textContent)
+  expect(paragraphs).toEqual(['Step 1 passed. Step 2: Notification.', 'Then check\nthe Inbox.'])
+  expect(Array.from(container.querySelectorAll('ol > li'), (li) => li.textContent)).toEqual([
+    'Close Ted on the phone.',
+    'Lock the Mac’s screen.',
+  ])
+  expect(container.querySelectorAll('ul > li')).toHaveLength(2)
+  expect(container.querySelector('br')).toBeNull()
+})
+
 test('does not activate HTML, load images or expose non-web links', () => {
   const { container } = render(
     <Markdown
