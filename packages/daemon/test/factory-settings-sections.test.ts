@@ -380,7 +380,7 @@ describe('Factory settings: Workflow', () => {
     })
   })
 
-  test('an unknown Stage file shows as ignored; inherited sockets, Electron Apps and outbound network grants show for the Sandbox section', async () => {
+  test('an unknown Stage file shows as ignored; inherited sockets, Electron and device Apps and outbound network grants show for the Sandbox section', async () => {
     const client = await start({
       workflow: [
         'version: 1',
@@ -391,6 +391,8 @@ describe('Factory settings: Workflow', () => {
         '      - { name: Desktop, kind: command, run: electron . $TED_ELECTRON_ARGS, electron: true }',
         '      - { name: Web, run: npm run dev, sandbox_access: [network] }',
         '      - { name: Local, run: npm start, sandbox_access: [ios-xcode] }',
+        '      - { name: iPhone, kind: ios-simulator, device: iPhone 17, run: ./run-ios.sh }',
+        '      - { name: Pixel, kind: android-emulator, device: Pixel_8, run: ./run-android.sh }',
         '',
       ].join('\n'),
       files: { '.ted/stages/security.md': '# Security\n' },
@@ -405,6 +407,10 @@ describe('Factory settings: Workflow', () => {
     expect(view.sandboxSockets).toEqual([{ name: 'docker', path: '~/.orbstack/run/docker.sock' }])
     expect(view.sandboxSocketsFrom).toBe('library')
     expect(view.electronApps).toEqual([{ repo: 'widgets', name: 'Desktop' }])
+    expect(view.deviceApps).toEqual([
+      { repo: 'widgets', name: 'iPhone', group: 'ios-simulator' },
+      { repo: 'widgets', name: 'Pixel', group: 'android-emulator' },
+    ])
     expect(view.sandboxNetworkFrom).toBe('library')
   })
 })

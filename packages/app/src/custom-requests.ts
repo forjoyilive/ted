@@ -10,7 +10,7 @@ import type {
   ProblemReportRequest,
   ProblemReportResult,
   ProcessInfo,
-  ProcessUsage,
+  ResourceReading,
   RunFixRequest,
   RunFixResult,
   SaveExportResult,
@@ -74,7 +74,7 @@ export interface CustomRequests {
   chooseProfilePicture: () => Promise<MachineSettings>
   copyReport: () => Promise<void>
   memoryUse: () => Promise<MemoryUse>
-  resourceUsage: () => Promise<ProcessUsage>
+  resourceUsage: () => Promise<ResourceReading>
   appProcesses: () => Promise<ProcessInfo[]>
   tedFolder: () => Promise<{ path: string; platform: string }>
   showTedFolder: () => Promise<void>

@@ -3,6 +3,7 @@ import type {
   CheckRun,
   Comment,
   FailureCase,
+  FailureDecision,
   ValidationProgress,
   ValidationSnapshot,
 } from '@ted/protocol'
@@ -10,6 +11,7 @@ import {
   ciFailureLabel,
   failureChoiceLabels,
   namedRepairChoice,
+  rerunFailureChoice,
   validationExecution,
 } from '@ted/protocol/failures'
 import { shortReference } from '@ted/protocol/reference'
@@ -41,9 +43,12 @@ export function acceptedPositions(failures: readonly FailureCase[], runId: strin
 
 function cantAcceptCaption(
   failure: FailureCase,
-  reason: AcceptRefusal | undefined,
+  decision: FailureDecision | undefined,
   closable: boolean,
 ): string {
+  if (decision?.rerun)
+    return `This failure can’t be accepted: the Task’s code changed after the Task Lead asked about it. ${rerunFailureChoice} moves the Task to Validate, where Ted runs the checks on the code as it is now.`
+  const reason: AcceptRefusal | undefined = decision?.acceptRefused
   const check =
     failure.source.kind === 'factory-check' || failure.source.kind === 'post-rebase-check'
   const why =
@@ -182,7 +187,7 @@ export function FailureDetails({
       </details>
       <p className={styles.caption}>
         {noAccept
-          ? cantAcceptCaption(failure, request?.acceptRefused, closable)
+          ? cantAcceptCaption(failure, request, closable)
           : 'Accepting covers only this failure. It doesn’t count as passed or approve a merge.'}
       </p>
     </section>

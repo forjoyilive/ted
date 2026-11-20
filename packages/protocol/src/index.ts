@@ -477,12 +477,15 @@ export {
 export { parseDeviceRequest } from './device-parsers.ts'
 export type {
   Diagnostics,
+  DiagnosticsUsage,
   LogText,
+  MachineUsage,
   ProcessInfo,
   ProcessKind,
   ProcessRun,
   ProcessRunRole,
   ProcessUsage,
+  ResourceReading,
   RunDiagnostics,
   TokenUse,
 } from './diagnostics.ts'
@@ -666,6 +669,7 @@ export {
   failureChoiceLabels,
   failureChoices,
   namedRepairChoice,
+  rerunFailureChoice,
   validateFailureChoices,
   validationExecution,
 } from './failures.ts'

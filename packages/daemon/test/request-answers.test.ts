@@ -49,7 +49,7 @@ beforeEach(async () => {
     untilChecksReported: async () => {},
     holding: async (_task, work) => work(),
     holdingSignoff: async (_task, work) => work(),
-    failures: { findDecision: () => undefined, resolve: unexpected },
+    failures: { findDecision: () => undefined, resolve: unexpected, refreshStale: async () => 0 },
     waitForRepair: unexpected,
     humanComment: unexpected,
     answerRunPermission: unexpected,
@@ -100,6 +100,7 @@ beforeEach(async () => {
     },
     backMessage: (_workflow, _to, _from, sendBack) => sendBack.findings,
     leaveWorkToDiagnose: unexpected,
+    leaveWorkToRerun: unexpected,
     diagnoseInValidate: unexpected,
     stop: unexpected,
     settleDependents: () => {

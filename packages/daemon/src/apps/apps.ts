@@ -243,6 +243,7 @@ interface Instance {
   waitingFor?: string
   readyAt?: string
   builtAt?: string
+  notReadyAt?: string
   readyFrom?: number
   ended?: {
     at: string
@@ -534,7 +535,8 @@ export function createApps(options: AppsOptions): Apps {
       ...(state === 'running' &&
         isDeviceApp(app) &&
         instance?.builtAt === undefined &&
-        pool.building(keyOf(taskId, repo, app.name)) && { building: true as const }),
+        instance?.notReadyAt === undefined && { building: true as const }),
+      ...(live && instance?.notReadyAt !== undefined && { notReady: true }),
       ...(instance?.startedBy !== undefined && { startedBy: instance.startedBy }),
       ...(ended && { endedAt: ended.at }),
       ...(ended?.code !== undefined && { exitCode: ended.code }),
@@ -854,7 +856,7 @@ export function createApps(options: AppsOptions): Apps {
       const sandboxed = await sandboxFor(
         scope && {
           ...scope,
-          serves: servedPorts(app, port, ports, env),
+          serves: servedPorts(port, ports),
           groups: appAccess(app),
         },
         task,
@@ -1177,7 +1179,6 @@ export function createApps(options: AppsOptions): Apps {
     onHost: (pid: number, name: string) => Promise<void>,
   ): Promise<void> {
     let launchedAt = Date.now()
-    let wasBuilding = pool.building(key)
     while (!closed) {
       const instance = await readInstance(dir)
       if (!instance || instance.ended) return
@@ -1211,16 +1212,18 @@ export function createApps(options: AppsOptions): Apps {
         )
         return
       }
-      if (started && pool.building(key) && (await saidReady(dir, key))) {
-        pool.endTurn(key)
-        instance.builtAt = new Date().toISOString()
-        await writeInstance(dir, instance)
-        wasBuilding = false
-        changed(taskId)
+      if (started && isDeviceApp(instance) && instance.builtAt === undefined) {
+        const building = pool.building(key)
+        if (await saidReady(dir, key)) {
+          if (building) pool.endTurn(key)
+          const { notReadyAt: _, ...built } = instance
+          await writeInstance(dir, { ...built, builtAt: new Date().toISOString() })
+          changed(taskId)
+        } else if (!building && instance.notReadyAt === undefined) {
+          await writeInstance(dir, { ...instance, notReadyAt: new Date().toISOString() })
+          changed(taskId)
+        }
       }
-      const building = pool.building(key)
-      if (wasBuilding && !building) changed(taskId)
-      wasBuilding = building
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {
         const answer = await answers(readyUrl)
@@ -1672,29 +1675,22 @@ export async function portFree(port: number): Promise<boolean> {
   return !answered
 }
 
-// adb inside the sandbox talks to the adb server on the host's loopback, by default on port 5037.
-export function servedPorts(
-  app: Pick<AppDeclaration, 'kind'>,
-  own: number | undefined,
-  ports: Record<string, number>,
-  env: NodeJS.ProcessEnv,
-): ServedPorts {
-  const adb = Number(env.ANDROID_ADB_SERVER_PORT)
-  const adbPort = Number.isInteger(adb) && adb > 0 && adb < 65536 ? adb : 5037
+export function servedPorts(own: number | undefined, ports: Record<string, number>): ServedPorts {
   return {
     ...(own !== undefined && { own }),
-    reach: [
-      ...Object.values(ports).filter((port) => port !== own),
-      ...(isEmulatorApp(app) ? [adbPort] : []),
-    ],
+    reach: Object.values(ports).filter((port) => port !== own),
   }
 }
 
 export function appAccess(
-  app: Pick<AppDeclaration, 'electron' | 'sandboxAccess'>,
+  app: Pick<AppDeclaration, 'kind' | 'electron' | 'sandboxAccess'>,
 ): SandboxAccess[] {
+  const implied: SandboxAccess[] = [
+    ...(app.electron === true ? ['electron' as const] : []),
+    ...(app.kind === 'ios-simulator' || app.kind === 'android-emulator' ? [app.kind] : []),
+  ]
   const access = app.sandboxAccess ?? []
-  return app.electron === true && !access.includes('electron') ? [...access, 'electron'] : access
+  return [...access, ...implied.filter((group) => !access.includes(group))]
 }
 
 export function electronEnv(

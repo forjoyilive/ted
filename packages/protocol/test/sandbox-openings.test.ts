@@ -28,6 +28,27 @@ test('Library sockets and Electron Apps widen the sandbox without running anythi
   expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
 })
 
+test('a simulator or emulator App is a row naming the access group its kind gives it', () => {
+  const openings = sandboxOpenings({
+    ...none,
+    deviceApps: [
+      { repo: 'app', name: 'iPhone', group: 'ios-simulator' },
+      { repo: 'app', name: 'Pixel', group: 'android-emulator' },
+    ],
+  })
+  expect(openings).toEqual([
+    { kind: 'device-app', unsandboxed: false, repo: 'app', app: 'iPhone', group: 'ios-simulator' },
+    {
+      kind: 'device-app',
+      unsandboxed: false,
+      repo: 'app',
+      app: 'Pixel',
+      group: 'android-emulator',
+    },
+  ])
+  expect(sandboxSummary(openings)).toEqual({ kind: 'widened', count: 2 })
+})
+
 test('unsandboxed items come first and are counted', () => {
   const openings = sandboxOpenings({
     ...none,
