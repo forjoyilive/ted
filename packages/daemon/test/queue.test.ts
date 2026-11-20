@@ -1,6 +1,12 @@
 import { busyMarks, defaultWorkingRuns, type Priority } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { type BusyState, createBusyHold, createCpuReader, nextBusy } from '../src/busy.ts'
+import {
+  type BusyState,
+  createBusyHold,
+  createCpuReader,
+  describeCpuWindow,
+  nextBusy,
+} from '../src/busy.ts'
 import {
   continuationFlags,
   queueOrder,
@@ -501,7 +507,7 @@ describe('createBusyHold', () => {
   test('the first check after an idle minute samples the CPU over a second, so a busy CPU holds until the hold confirms', async () => {
     let clock = 0
     let rate = 0.1
-    const cpu = { busy: 0, total: 0 }
+    const cpu = { busy: 0, total: 0, cores: 1 }
     const advance = (ms: number) => {
       clock += ms
       cpu.busy += rate * ms
@@ -517,7 +523,7 @@ describe('createBusyHold', () => {
           waits.push(ms)
           advance(ms)
         },
-      }),
+      }).read,
       memoryAvailable: () => 1,
       confirmMs,
       now: () => clock,
@@ -541,9 +547,9 @@ describe('createBusyHold', () => {
     let clock = 0
     let release = () => {}
     let waits = 0
-    const read = createCpuReader({
+    const { read } = createCpuReader({
       now: () => clock,
-      sample: () => ({ busy: clock / 2, total: clock }),
+      sample: () => ({ busy: clock / 2, total: clock, cores: 1 }),
       wait: (ms) => {
         waits += 1
         return new Promise<void>((resolve) => {
@@ -559,6 +565,78 @@ describe('createBusyHold', () => {
     release()
     expect(await Promise.all([first, second])).toEqual([0.5, 0.5])
     expect(waits).toBe(1)
+  })
+
+  test('a clock that moves backwards takes a new sample instead of repeating the last reading', async () => {
+    let clock = 10_000
+    let rate = 1
+    const cpu = { busy: 0, total: 0, cores: 2 }
+    const reader = createCpuReader({
+      now: () => clock,
+      sample: () => ({ ...cpu }),
+      wait: async (ms) => {
+        clock += ms
+        cpu.busy += rate * 2 * ms
+        cpu.total += 2 * ms
+      },
+    })
+    expect(await reader.read()).toBe(1)
+    clock -= 3_600_000
+    rate = 0.1
+    expect(await reader.read()).toBeCloseTo(0.1)
+  })
+
+  test('a sample whose core times fall well short of the time that passed is refused', async () => {
+    let clock = 0
+    const cpu = { busy: 0, total: 0, cores: 12 }
+    const reader = createCpuReader({
+      now: () => clock,
+      sample: () => ({ ...cpu }),
+      wait: async (ms) => {
+        clock += ms
+        cpu.busy += 1_200
+        cpu.total += 12 * ms
+      },
+    })
+    expect(await reader.read()).toBeCloseTo(0.1)
+
+    clock += 5_000
+    cpu.busy += 4_000
+    cpu.total += 4_000
+    expect(await reader.read()).toBeNaN()
+    expect(describeCpuWindow(reader.last())).toBe(
+      'CPU: last sample refused (4000 ms busy of 4000 ms counted on 12 cores over 5000 ms)',
+    )
+
+    clock += 5_000
+    cpu.busy += 6_000
+    cpu.total += 60_000
+    expect(await reader.read()).toBeCloseTo(0.1)
+    expect(describeCpuWindow(reader.last())).toBe(
+      'CPU: 10% (6000 ms busy of 60000 ms counted on 12 cores over 5000 ms)',
+    )
+  })
+
+  test('the usage reading shows no CPU figure for a refused sample', async () => {
+    let clock = 0
+    const cpu = { busy: 0, total: 0, cores: 4 }
+    const reader = createCpuReader({
+      now: () => clock,
+      sample: () => ({ ...cpu }),
+      wait: async (ms) => {
+        clock += ms
+        cpu.busy += ms
+        cpu.total += ms
+      },
+    })
+    const busy = createBusyHold({
+      on: () => true,
+      loadRatio: reader.read,
+      memoryAvailable: () => 0.5,
+      confirmMs,
+    })
+    expect(await busy.reading()).toEqual({ cpuInUse: null, memoryInUse: 0.5 })
+    expect(await busy.check()).toBeUndefined()
   })
 })
 

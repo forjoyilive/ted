@@ -108,7 +108,10 @@ const routes: Route[] = [
     path: /^\/diagnostics\/report(?:\?.*)?$/,
     handle: async ({ req }, options) => {
       const log = new URL(req.url ?? '/', 'http://localhost').searchParams.get('log')
-      return [200, { text: await report(options, { includeLog: log !== '0' }) }]
+      return [
+        200,
+        { text: await report(options, { includeLog: log !== '0', cpu: options.busy.cpuSample() }) },
+      ]
     },
   },
   {

@@ -359,7 +359,7 @@ describe('sub-agents', () => {
     expect((await getTask(client, task.id)).stage).toBe('intake')
   })
 
-  test('a sub-agent can’t change the Task: blockers, Checks, the brief, Clarify depth and sub-agents are the Task Lead’s', async () => {
+  test('a sub-agent can’t change the Task: blockers, Checks, the brief, Clarify depth, sub-agents and stopping Apps are the Task Lead’s', async () => {
     const client = await startTed()
     const other = await client.ok<Task>('POST', '/tasks', { title: 'Other', factory: 'NB' })
     const inner = await promptFile('inner.md', 'Inner', { endTurn: true })
@@ -374,6 +374,7 @@ describe('sub-agents', () => {
       { run: ['sh', '-c', `ted brief write --file ${brief}`] },
       { run: ['sh', '-c', 'ted clarify depth grilling "deep"'] },
       { run: ['sh', '-c', `ted run start --prompt-file ${inner}`] },
+      { run: ['sh', '-c', 'ted app stop Web'] },
       { run: ['sh', '-c', 'ted status "Reading the parser"'] },
       { endTurn: true },
     )
@@ -394,13 +395,14 @@ describe('sub-agents', () => {
         return []
       }
     })
-    expect(results.map((r) => r.code)).toEqual([1, 1, 1, 1, 1, 1, 0])
+    expect(results.map((r) => r.code)).toEqual([1, 1, 1, 1, 1, 1, 1, 0])
     expect(results[0]?.stderr).toMatch(/only the Task Lead changes blockers/)
     expect(results[1]?.stderr).toMatch(/only the Task Lead changes blockers/)
     expect(results[2]?.stderr).toMatch(/only the Task Lead runs checks/)
     expect(results[3]?.stderr).toMatch(/only the Task Lead writes the Task brief/)
     expect(results[4]?.stderr).toMatch(/only the Task Lead picks the Clarify depth/)
     expect(results[5]?.stderr).toMatch(/only the Task Lead can start and steer sub-agents/)
+    expect(results[6]?.stderr).toMatch(/only the Task Lead stops an App/)
     const current = await getTask(client, task.id)
     expect(current.blockedBy).toEqual([])
     const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)

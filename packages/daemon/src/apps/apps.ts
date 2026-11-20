@@ -204,7 +204,7 @@ export interface AppsOptions {
 export interface Apps {
   list(taskId: string): Promise<TaskApp[]>
   start(taskId: string, ref: AppRef, by: AppStarter, options?: StartOptions): Promise<TaskApp>
-  stop(taskId: string, ref: AppRef): Promise<TaskApp>
+  stop(taskId: string, ref: AppRef, byLead?: { runId: string }): Promise<TaskApp>
   restart(taskId: string, ref: AppRef, by: AppStarter, declaration?: string): Promise<TaskApp>
   log(taskId: string, ref: AppRef): Promise<AppLog>
   envFor(taskId: string): Promise<Record<string, string>>
@@ -1446,11 +1446,16 @@ export function createApps(options: AppsOptions): Apps {
         startNow(taskId, { repo: repo.name, name: app.name }, by, start, false),
       )
     },
-    async stop(taskId, ref) {
+    async stop(taskId, ref, byLead) {
       const { repo, app } = await findListed(taskId, ref)
       return serial(keyOf(taskId, repo.name, app.name), async () => {
         if (await stopNow(taskId, repo.name, app.name)) {
-          thread.appStopped({ taskId, repo: repo.name, name: app.name })
+          thread.appStopped({
+            taskId,
+            repo: repo.name,
+            name: app.name,
+            ...(byLead ? { by: 'task-lead', runId: byLead.runId } : { by: 'human' }),
+          })
         }
         if (isDeviceApp(app)) await devicesFor(app.kind).shutDown(taskId, repo.name, app.name)
         return toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))

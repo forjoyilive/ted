@@ -358,6 +358,7 @@ import {
   repairUncommittedHandOff,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
+import { createBulkIntake, type FiringLink, IntakeBudgetError } from './bulk-intake.ts'
 import { createCacheSeeds } from './cache-seeds.ts'
 import { conversationText } from './carry-over.ts'
 import { commitChanges, fileDiffs, taskChanges, taskCommits } from './changes.ts'
@@ -905,7 +906,7 @@ export interface Tasks {
   browserCapture(session: string, id: string, save: () => Promise<Attachment>): Promise<Attachment>
   listApps(ref: string, caller: Caller): Promise<TaskApp[]>
   startApp(ref: string, caller: Caller, app: StartAppRequest): Promise<TaskApp>
-  stopApp(ref: string, app: AppRef): Promise<TaskApp>
+  stopApp(ref: string, caller: Caller, app: AppRef): Promise<TaskApp>
   restartApp(ref: string, app: RestartAppRequest): Promise<TaskApp>
   appLog(ref: string, app: AppRef): Promise<AppLog>
   showApp(ref: string, app: AppRef): Promise<TaskApp>
@@ -5560,23 +5561,25 @@ export function createTasks(options: {
     return planAsana(tree, factory.id, user.gid, caller.kind === 'app').preview
   }
 
-  class IntakeBudgetError extends Error {}
-
   const intakeLimit = options.asana?.intakeLimit ?? maxAsanaIntakeTasks
 
-  function asanaAllowance(
-    automation: { link: { automationId: string; firingId: string } } | undefined,
-  ): number {
-    if (!automation) return Number.POSITIVE_INFINITY
-    const { automationId, firingId } = automation.link
-    const used = store.automations
-      .createdTasks(automationId)
+  function createdInFiring(link: FiringLink, owns: (url: string) => boolean): number {
+    return store.automations
+      .createdTasks(link.automationId)
       .filter(
         (row) =>
-          row.firingId === firingId &&
-          parseAsanaTaskUrl(store.getTask(row.taskId)?.source?.url ?? '') !== undefined,
+          row.firingId === link.firingId && owns(store.getTask(row.taskId)?.source?.url ?? ''),
       ).length
-    return intakeLimit - used
+  }
+
+  const bulkIntake = createBulkIntake({ createdInFiring })
+  const ownsAsana = (url: string) => parseAsanaTaskUrl(url) !== undefined
+  const factoryGone = (factory: StoredFactory) => () =>
+    removingFactories.has(factory.id) || !store.getFactory(factory.id)
+
+  function asanaAllowance(automation: { link: FiringLink } | undefined): number {
+    if (!automation) return Number.POSITIVE_INFINITY
+    return intakeLimit - createdInFiring(automation.link, ownsAsana)
   }
 
   interface IntakeImport {
@@ -5597,11 +5600,7 @@ export function createTasks(options: {
   }
 
   const intakeGuard = (factory: StoredFactory) =>
-    asanaIntakeHold(
-      store,
-      factory,
-      () => removingFactories.has(factory.id) || !store.getFactory(factory.id),
-    )
+    asanaIntakeHold(store, factory, factoryGone(factory))
 
   const trackedAsana = (factoryId: string, gid: string) =>
     sourceClash(store.listTasks(), factoryId, asanaTaskUrl(gid))
@@ -5639,8 +5638,6 @@ export function createTasks(options: {
     })
   }
 
-  const asanaIntakes = new Map<string, Promise<unknown>>()
-
   function asanaIntake(
     input: AsanaIntakeRequest,
     caller: Caller = { kind: 'app' },
@@ -5659,106 +5656,77 @@ export function createTasks(options: {
     if (removingFactories.has(factory.id)) {
       throw new RequestError(409, `${factory.name} is being removed`)
     }
-    const prior = asanaIntakes.get(factory.id) ?? Promise.resolve()
-    const next = prior.catch(() => undefined).then(() => asanaIntakeNow(factory, caller))
-    asanaIntakes.set(factory.id, next)
-    return next.finally(() => {
-      if (asanaIntakes.get(factory.id) === next) asanaIntakes.delete(factory.id)
-    })
-  }
-
-  async function asanaIntakeNow(
-    factory: StoredFactory,
-    caller: Caller,
-  ): Promise<AsanaIntakeResult> {
-    const { scope, unchanged } = intakeGuard(factory)
-    const { asana, read } = intakeAsana()
-    const user = await asana.user().catch((error: unknown) => {
-      throw new RequestError(409, error instanceof Error ? error.message : 'Connect Asana first')
-    })
-    const confirmed = await confirmAsanaScope(read, scope)
-    unchanged()
-    const listed = await listAsanaIntake(read, scope)
-    const parents = new Map<string, string | null>()
-    const checks = []
-    for (const item of listed.items) {
-      checks.push(await checkAsanaRoot({ read, scope, userGid: user.gid, gid: item.gid, parents }))
-    }
-    const roots = checks
-      .flatMap((check) => (check.kind === 'root' ? [check] : []))
-      .sort((a, b) => a.ancestors.length - b.ancestors.length)
-    const result: AsanaIntakeResult = {
-      scope: confirmed,
-      imported: [],
-      skipped: checks.flatMap((check) =>
-        check.kind === 'unreadable'
-          ? [{ gid: check.gid, name: check.name, url: check.url, reason: check.reason }]
-          : [],
-      ),
-      tracked: 0,
-      left: 0,
-      ...(listed.incomplete !== undefined && { incomplete: listed.incomplete }),
-    }
-    let budget = Math.min(intakeLimit, asanaAllowance(automationCaller(caller)))
-    for (const root of roots) {
-      if (result.stopped !== undefined) break
-      if (
-        trackedAsana(factory.id, root.gid) ||
-        root.ancestors.some((ancestor) => trackedAsana(factory.id, ancestor))
-      ) {
-        result.tracked++
-        continue
-      }
-      if (budget <= 0) {
-        result.left++
-        continue
-      }
-      try {
+    return bulkIntake.run(factory.id, automation?.link, {
+      kind: 'asana',
+      limit: intakeLimit,
+      owns: ownsAsana,
+      overBudget: 'stop',
+      start: async () => {
+        const { scope, unchanged } = intakeGuard(factory)
+        const { asana, read } = intakeAsana()
+        const user = await asana.user().catch((error: unknown) => {
+          throw new RequestError(
+            409,
+            error instanceof Error ? error.message : 'Connect Asana first',
+          )
+        })
+        const confirmed = await confirmAsanaScope(read, scope)
         unchanged()
+        const listed = await listAsanaIntake(read, scope)
+        const parents = new Map<string, string | null>()
+        const checks = []
+        for (const item of listed.items) {
+          checks.push(
+            await checkAsanaRoot({ read, scope, userGid: user.gid, gid: item.gid, parents }),
+          )
+        }
+        automationCaller(caller)
+        return {
+          items: checks
+            .flatMap((check) => (check.kind === 'root' ? [check] : []))
+            .sort((a, b) => a.ancestors.length - b.ancestors.length),
+          unchanged,
+          label: `Asana intake for ${factory.key} from ${scopeName(confirmed)}`,
+          skipped: checks.flatMap((check) =>
+            check.kind === 'unreadable'
+              ? [{ gid: check.gid, name: check.name, url: check.url, reason: check.reason }]
+              : [],
+          ),
+          fields: {
+            scope: confirmed,
+            ...(listed.incomplete !== undefined && { incomplete: listed.incomplete }),
+          },
+        }
+      },
+      isTracked: (root) =>
+        trackedAsana(factory.id, root.gid) !== undefined ||
+        root.ancestors.some((ancestor) => trackedAsana(factory.id, ancestor) !== undefined),
+      importOne: async (root, { remaining, unchanged }) => {
         const imported = await importAsana(
           { url: asanaTaskUrl(root.gid), factory: factory.key },
           caller,
           undefined,
-          { budget, unchanged },
+          { budget: remaining(), unchanged },
         )
-        budget -= imported.created.length
-        if (imported.root) {
-          result.imported.push({
-            gid: root.gid,
-            name: root.name,
-            root: imported.root,
-            created: imported.created,
-            linked: imported.linked,
-          })
+        return {
+          created: imported.created.length,
+          ...(imported.root && {
+            entry: {
+              gid: root.gid,
+              name: root.name,
+              root: imported.root,
+              created: imported.created,
+              linked: imported.linked,
+            },
+          }),
         }
-      } catch (error) {
-        if (error instanceof IntakeBudgetError) {
-          budget = 0
-          result.left++
-          continue
-        }
-        const reason = redactSecrets(error instanceof Error ? error.message : String(error))
-        try {
-          unchanged()
-        } catch (changed) {
-          result.stopped = changed instanceof Error ? changed.message : reason
-          break
-        }
-        result.skipped.push({ gid: root.gid, name: root.name, url: root.url, reason })
-      }
-    }
-    if (result.imported.length > 0 || result.stopped !== undefined) {
-      console.log(
-        redactSecrets(
-          `Asana intake for ${factory.key} from ${scopeName(confirmed)}: imported ${result.imported.length}, skipped ${result.skipped.length}, left ${result.left}${result.stopped ? ', stopped' : ''}`,
-        ),
-      )
-    }
-    return result
+      },
+      skippedEntry: (root, reason) => ({ gid: root.gid, name: root.name, url: root.url, reason }),
+    })
   }
 
-  const githubIntakes = new Map<string, Promise<unknown>>()
   const githubIntakeLimit = options.github?.intakeLimit ?? maxGitHubIntakeTasks
+  const ownsGitHub = (url: string) => parseGitHubIssueUrl(url) !== undefined
 
   function githubIntake(
     input: GitHubIntakeRequest,
@@ -5787,130 +5755,75 @@ export function createTasks(options: {
     if (!factory || removingFactories.has(factory.id)) {
       throw new RequestError(409, `${automation.factoryKey} is being removed`)
     }
-    const prior = githubIntakes.get(factory.id) ?? Promise.resolve()
-    const next = prior
-      .catch(() => undefined)
-      .then(() => githubIntakeNow(factory, caller, automation))
-    githubIntakes.set(factory.id, next)
-    return next.finally(() => {
-      if (githubIntakes.get(factory.id) === next) githubIntakes.delete(factory.id)
-    })
-  }
-
-  function githubAllowance(automation: { link: { automationId: string; firingId: string } }) {
-    const { automationId, firingId } = automation.link
-    const used = store.automations
-      .createdTasks(automationId)
-      .filter(
-        (row) =>
-          row.firingId === firingId &&
-          parseGitHubIssueUrl(store.getTask(row.taskId)?.source?.url ?? '') !== undefined,
-      ).length
-    return githubIntakeLimit - used
-  }
-
-  async function githubIntakeNow(
-    factory: StoredFactory,
-    caller: Caller,
-    automation: { link: { automationId: string; firingId: string } },
-  ): Promise<GitHubIntakeResult> {
-    const { scope, unchanged } = githubIntakeHold(
-      store,
-      factory,
-      () => removingFactories.has(factory.id) || !store.getFactory(factory.id),
-    )
-    const gh = options.gh
-    if (!gh) throw new RequestError(409, 'Ted can’t reach GitHub here, so it imported nothing.')
-    const resolution = await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch(
-      () => undefined,
-    )
-    const repos = resolution
-      ? factoryRepos(resolution.workflow, factory).map((entry) => entry.repo)
-      : [factory.repo]
-    const listing = await listIntakeIssues(gh, repos, scope.label)
-    unchanged()
-    const plan = planGitHubIntake(
-      listing.issues,
-      (url) => sourceClash(sameSource(url), factory.id, url) !== undefined,
-    )
-    const listedAtMost = intakePageSize * maxIntakePages
-    const result: GitHubIntakeResult = {
-      label: scope.label,
-      imported: [],
-      skipped: [],
-      tracked: plan.tracked,
-      left: 0,
-      unlisted: listing.unlisted.map(({ repo, reason }) => ({
-        repo,
-        reason: githubUnreadableWhy[reason],
-      })),
-      ...(listing.incomplete.length > 0 && {
-        incomplete: `GitHub listed more than ${listedAtMost} open issues with the label in ${listing.incomplete.join(', ')}; Ted checked the first ${listedAtMost} in each.`,
-      }),
-    }
-    const allowance = () => githubAllowance(automation)
-    for (const issue of plan.candidates) {
-      const ref = `${issue.repo}#${issue.number}`
-      if (allowance() <= 0) {
-        result.left++
-        continue
-      }
-      try {
+    return bulkIntake.run(factory.id, automation.link, {
+      kind: 'github',
+      limit: githubIntakeLimit,
+      owns: ownsGitHub,
+      overBudget: 'next',
+      start: async () => {
+        const { scope, unchanged } = githubIntakeHold(store, factory, factoryGone(factory))
+        const gh = options.gh
+        if (!gh) throw new RequestError(409, 'Ted can’t reach GitHub here, so it imported nothing.')
+        const resolution = await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch(
+          () => undefined,
+        )
+        const repos = resolution
+          ? factoryRepos(resolution.workflow, factory).map((entry) => entry.repo)
+          : [factory.repo]
+        const listing = await listIntakeIssues(gh, repos, scope.label)
         unchanged()
-        const task = await createTask({ source: issue.url }, caller, { allowance, unchanged })
+        const plan = planGitHubIntake(
+          listing.issues,
+          (url) => sourceClash(sameSource(url), factory.id, url) !== undefined,
+        )
+        const listedAtMost = intakePageSize * maxIntakePages
+        return {
+          items: plan.candidates,
+          unchanged,
+          label: `GitHub intake for ${factory.key}`,
+          tracked: plan.tracked,
+          fields: {
+            label: scope.label,
+            unlisted: listing.unlisted.map(({ repo, reason }) => ({
+              repo,
+              reason: githubUnreadableWhy[reason],
+            })),
+            ...(listing.incomplete.length > 0 && {
+              incomplete: `GitHub listed more than ${listedAtMost} open issues with the label in ${listing.incomplete.join(', ')}; Ted checked the first ${listedAtMost} in each.`,
+            }),
+          },
+        }
+      },
+      isTracked: () => false,
+      importOne: async (issue, { remaining, unchanged }) => {
+        const task = await createTask({ source: issue.url }, caller, {
+          allowance: remaining,
+          unchanged,
+        })
         const created = [task.id, ...descendants(task.id)].flatMap((id) => {
           const made = store.getTask(id)
           return made ? [{ taskId: made.id, displayId: made.displayId }] : []
         })
-        result.imported.push({
-          url: issue.url,
-          issue: ref,
-          root: { taskId: task.id, displayId: task.displayId },
-          created,
-        })
-      } catch (error) {
-        if (error instanceof IntakeBudgetError) {
-          result.left++
-          continue
+        return {
+          created: created.length,
+          entry: {
+            url: issue.url,
+            issue: `${issue.repo}#${issue.number}`,
+            root: { taskId: task.id, displayId: task.displayId },
+            created,
+          },
         }
-        const reason = redactSecrets(error instanceof Error ? error.message : String(error))
-        try {
-          unchanged()
-        } catch (changed) {
-          result.stopped = changed instanceof Error ? changed.message : reason
-          break
-        }
-        result.skipped.push({ url: issue.url, issue: ref, reason })
-      }
-    }
-    if (result.imported.length > 0 || result.stopped !== undefined) {
-      console.log(
-        redactSecrets(
-          `GitHub intake for ${factory.key}: imported ${result.imported.length}, skipped ${result.skipped.length}, left ${result.left}${result.stopped ? ', stopped' : ''}`,
-        ),
-      )
-    }
-    return result
+      },
+      skippedEntry: (issue, reason) => ({
+        url: issue.url,
+        issue: `${issue.repo}#${issue.number}`,
+        reason,
+      }),
+    })
   }
 
   const linearIntakeLimit = options.linearIntakeLimit ?? maxLinearIntakeTasks
-  const linearIntakes = new Map<string, Promise<unknown>>()
-
-  function linearAllowance(
-    automation: { link: { automationId: string; firingId: string } } | undefined,
-    imported: number,
-  ): number {
-    if (!automation) return linearIntakeLimit - imported
-    const { automationId, firingId } = automation.link
-    const used = store.automations
-      .createdTasks(automationId)
-      .filter(
-        (row) =>
-          row.firingId === firingId &&
-          parseLinearUrl(store.getTask(row.taskId)?.source?.url ?? '') !== undefined,
-      ).length
-    return linearIntakeLimit - used
-  }
+  const ownsLinear = (url: string) => parseLinearUrl(url) !== undefined
 
   function linearIntake(
     input: LinearIntakeRequest,
@@ -5930,86 +5843,53 @@ export function createTasks(options: {
     if (removingFactories.has(factory.id)) {
       throw new RequestError(409, `${factory.name} is being removed`)
     }
-    const prior = linearIntakes.get(factory.id) ?? Promise.resolve()
-    const next = prior.catch(() => undefined).then(() => linearIntakeNow(factory, caller))
-    linearIntakes.set(factory.id, next)
-    return next.finally(() => {
-      if (linearIntakes.get(factory.id) === next) linearIntakes.delete(factory.id)
-    })
-  }
-
-  async function linearIntakeNow(
-    factory: StoredFactory,
-    caller: Caller,
-  ): Promise<LinearIntakeResult> {
-    const { scope, unchanged } = linearIntakeHold(store, factory, () =>
-      removingFactories.has(factory.id),
-    )
-    const linear = options.linear
-    if (!linear?.intakeIssues) {
-      throw new RequestError(
-        409,
-        'Linear isn’t connected. Connect it in App Settings → Integrations first.',
-      )
-    }
-    const list = await linear.intakeIssues(scope)
-    unchanged()
-    refuseLinearList(scope, list)
-    const result: LinearIntakeResult = {
-      scope,
-      imported: [],
-      skipped: [],
-      tracked: 0,
-      left: 0,
-      ...(list.incomplete !== undefined && { incomplete: list.incomplete }),
-    }
-    const automation = automationCaller(caller)
-    const allowance = () => linearAllowance(automation, result.imported.length)
-    for (const issue of list.issues) {
-      if (sourceClash(sameSource(issue.url), factory.id, issue.url)) {
-        result.tracked++
-        continue
-      }
-      if (allowance() <= 0) {
-        result.left++
-        continue
-      }
-      try {
+    return bulkIntake.run(factory.id, automation?.link, {
+      kind: 'linear',
+      limit: linearIntakeLimit,
+      owns: ownsLinear,
+      overBudget: 'next',
+      start: async () => {
+        const { scope, unchanged } = linearIntakeHold(store, factory, factoryGone(factory))
+        const linear = options.linear
+        if (!linear?.intakeIssues) {
+          throw new RequestError(
+            409,
+            'Linear isn’t connected. Connect it in App Settings → Integrations first.',
+          )
+        }
+        const list = await linear.intakeIssues(scope)
         unchanged()
+        refuseLinearList(scope, list)
+        automationCaller(caller)
+        return {
+          items: list.issues,
+          unchanged,
+          label: `Linear intake for ${factory.key} from ${scope.kind} ${scope.name}`,
+          fields: {
+            scope,
+            ...(list.incomplete !== undefined && { incomplete: list.incomplete }),
+          },
+        }
+      },
+      isTracked: (issue) => sourceClash(sameSource(issue.url), factory.id, issue.url) !== undefined,
+      importOne: async (issue, { remaining, unchanged }) => {
         const task = await createTask(
           { factory: factory.key, source: issue.url, title: issue.title },
           caller,
-          { allowance, unchanged },
+          { allowance: remaining, unchanged },
         )
-        result.imported.push({
-          identifier: issue.identifier,
-          title: task.title,
-          url: issue.url,
-          task: { taskId: task.id, displayId: task.displayId },
-        })
-      } catch (error) {
-        if (error instanceof IntakeBudgetError) {
-          result.left++
-          continue
+        return {
+          created: 1 + descendants(task.id).length,
+          entry: {
+            identifier: issue.identifier,
+            title: task.title,
+            url: issue.url,
+            task: { taskId: task.id, displayId: task.displayId },
+          },
         }
-        const reason = redactSecrets(error instanceof Error ? error.message : String(error))
-        try {
-          unchanged()
-        } catch (changed) {
-          result.stopped = changed instanceof Error ? changed.message : reason
-          break
-        }
-        result.skipped.push({ identifier: issue.identifier, url: issue.url, reason })
-      }
-    }
-    if (result.imported.length > 0 || result.stopped !== undefined) {
-      console.log(
-        redactSecrets(
-          `Linear intake for ${factory.key} from ${scope.kind} ${scope.name}: imported ${result.imported.length}, skipped ${result.skipped.length}, left ${result.left}${result.stopped ? ', stopped' : ''}`,
-        ),
-      )
-    }
-    return result
+      },
+      skippedEntry: (issue, reason) => ({ identifier: issue.identifier, url: issue.url, reason }),
+    })
   }
 
   function asanaSyncChoice(
@@ -14649,9 +14529,11 @@ export function createTasks(options: {
       if (!capture) throw new RequestError(404, 'No browser capture on this Run')
       return capture
     },
-    stopApp(ref, app) {
-      browser.cancel(find(ref).id, app)
-      return apps.stop(find(ref).id, app)
+    stopApp(ref, caller, app) {
+      const lead = caller.kind === 'run' ? taskLead(ref, caller, 'stops an App') : undefined
+      const task = lead?.task ?? find(ref)
+      browser.cancel(task.id, app)
+      return apps.stop(task.id, app, lead && { runId: lead.runId })
     },
     restartApp(ref, { declaration, ...app }) {
       const { task, by } = runnableApps(ref, { kind: 'app' })

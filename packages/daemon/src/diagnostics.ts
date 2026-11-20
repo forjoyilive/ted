@@ -367,7 +367,7 @@ const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
 
 export async function report(
   sources: DiagnosticsSources,
-  { includeLog = true }: { includeLog?: boolean } = {},
+  { includeLog = true, cpu }: { includeLog?: boolean; cpu?: string } = {},
 ): Promise<string> {
   const diagnostics = await collectDiagnostics(sources)
   const settings = sources.store.settings()
@@ -378,6 +378,7 @@ export async function report(
     `Created ${new Date().toISOString()}`,
     `${os.type()} ${os.release()} ${os.arch()}, Node ${process.versions.node}`,
     `Memory: ${megabytes(availableBytes)} available of ${megabytes(totalBytes)}`,
+    ...(cpu !== undefined ? [cpu] : []),
     `Settings: appearance ${settings.appearance}, terminal font size ${settings.terminalFontSize}, Developer mode ${settings.developerMode ? 'on' : 'off'}`,
     '',
     'Runs',
