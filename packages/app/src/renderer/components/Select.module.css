@@ -95,6 +95,13 @@
   background: var(--surface-selected);
 }
 
+.divider {
+  height: 0;
+  margin: 5px 0;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+}
+
 .optionLabel {
   flex: 1;
   overflow: hidden;
