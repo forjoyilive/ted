@@ -160,6 +160,28 @@ test('message headers and phone requests', () => {
     route: 'requests',
   })
   expect(() => parsePhoneRequest({ ...header, type: 'reply' })).toThrow()
+  const pushToken = {
+    ...header,
+    type: 'request',
+    route: 'push-token',
+    token: 'ExponentPushToken[aB3_-x]',
+  }
+  expect(parsePhoneRequest(pushToken)).toEqual(pushToken)
+  expect(parsePhoneRequest({ ...pushToken, token: 'ExpoPushToken[aB3]' })).toMatchObject({
+    token: 'ExpoPushToken[aB3]',
+  })
+  for (const token of [
+    undefined,
+    7,
+    '',
+    'ExponentPushToken[]',
+    'ExponentPushToken[a b]',
+    'ExponentPushToken[abc] ',
+    'apns:abc',
+    `ExponentPushToken[${'a'.repeat(201)}]`,
+  ]) {
+    expect(() => parsePhoneRequest({ ...pushToken, token }), String(token)).toThrow(/token/)
+  }
 })
 
 test('Mac replies carry a body or a known error code', () => {

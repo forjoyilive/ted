@@ -23,6 +23,7 @@ import {
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import type { PushMessage } from '../src/phones/push.ts'
 import type { NewComment, TedStore } from '../src/store/index.ts'
 import {
   api,
@@ -47,6 +48,7 @@ let http: ReturnType<typeof api>
 let factory: Factory
 let phone: TestPhone
 const phones: TestPhone[] = []
+const pushed: PushMessage[] = []
 
 const ok = async <T>(method: string, route: string, body?: JsonObject): Promise<T> => {
   const res = await http.call(method, route, body)
@@ -69,6 +71,12 @@ beforeAll(async () => {
       relayUrl: relay.url,
       macName: async () => 'Inbox Mac',
       relayDelaysMs: [50],
+      push: {
+        async send(message) {
+          pushed.push(message)
+          return { kind: 'sent' }
+        },
+      },
     },
     wrap: {
       store: (opened) => {
@@ -569,3 +577,50 @@ test('a planning chat’s round and an Automation’s question are answered from
   expect(automationAnswer(pocketQuestion.id)).toBe('No\n\nNot today')
   expect(automationAnswer(pocketQuestion.id)).toBe(automationAnswer(deskQuestion.id))
 }, 120_000)
+
+test('a phone registers its push token and gets one notification per request while the user is away', async () => {
+  const pushPhone = await pairedPhone('Push Phone')
+  const phoneId = store.phones.byKey(pushPhone.publicKey())?.id ?? ''
+  const token = 'ExponentPushToken[push-phone_1]'
+
+  for (const bad of ['', 'abc', 'ExponentPushToken[]', `ExponentPushToken[${'a'.repeat(201)}]`]) {
+    expect(
+      failure(await pushPhone.send({ type: 'request', route: 'push-token', token: bad })),
+      bad,
+    ).toBe('bad-request')
+  }
+  expect(failure(await pushPhone.send({ type: 'request', route: 'push-token' }))).toBe(
+    'bad-request',
+  )
+  expect(store.phones.pushToken(phoneId)).toBeUndefined()
+
+  expect(await client.reportPresence({ away: false })).toEqual({ away: false })
+  expect(await pushPhone.send({ type: 'request', route: 'push-token', token })).toMatchObject({
+    ok: true,
+    body: {},
+  })
+  expect(store.phones.pushToken(phoneId)).toBe(token)
+  expect(store.phones.pushToken(store.phones.byKey(phone.publicKey())?.id ?? '')).toBeUndefined()
+
+  const task = await newTask('Notify me')
+  const asked = ask(task.id, { kind: 'question', body: 'Ship the beta?' })
+  await waitUntil(
+    async () => (await client.listWaiting()).some((r) => r.id === asked.id),
+    'the request in the Inbox',
+  )
+  expect(pushed.filter((message) => message.requestId === asked.id)).toEqual([])
+
+  expect(await client.reportPresence({ away: true })).toEqual({ away: true })
+  await expect
+    .poll(() => pushed.filter((message) => message.requestId === asked.id))
+    .toEqual([{ to: token, title: 'Notify me', body: 'Ship the beta?', requestId: asked.id }])
+  expect(await opened(asked.id)).toMatchObject({ id: asked.id, title: 'Notify me' })
+  expect(
+    (await pushPhone.request(asked.id)).ok,
+    'the notification’s requestId opens the request',
+  ).toBe(true)
+
+  await client.removePhone(phoneId)
+  expect(store.phones.pushToken(phoneId)).toBeUndefined()
+  await client.reportPresence({ away: false })
+})

@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { queryDb } from '@livestore/livestore'
 import type { Edition } from '@ted/protocol'
 import type { StoreContext } from './context.ts'
-import { events, phoneNotificationId, phoneNotifications, phones, requestReturns } from './schema.ts'
+import {
+  events,
+  phoneNotificationId,
+  phoneNotifications,
+  phones,
+  requestReturns,
+} from './schema.ts'
 
 export interface StoredPhone {
   id: string

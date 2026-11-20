@@ -96,6 +96,7 @@ Every message inside a box has:
 - `{"type":"pair-status","pairing":"<pairing ID>"}` from the same key, polled every 2 seconds while waiting.
 - `{"type":"request","route":"status"}` from a paired phone’s key.
 - `{"type":"request","route":"requests"}`, `{"type":"request","route":"request","requestId":"<request ID>"}` and `{"type":"request","route":"answer","requestId":"<request ID>","answer":{…}}` from a paired phone’s key (protocol 2; see Inbox requests below). The request ID goes in `requestId` because `id` is the message’s own ID.
+- `{"type":"request","route":"push-token","token":"ExponentPushToken[…]"}` from a paired phone’s key. The daemon accepts only `ExponentPushToken[…]` or `ExpoPushToken[…]` with 1 to 200 letters, digits, `_` or `-` inside the brackets, and stores it with that phone’s pairing; any other value gets `bad-request`. A token another paired phone held moves to this phone.
 
 ### Mac → phone
 
@@ -107,6 +108,11 @@ Every message inside a box has:
 - `requests` → `{"requests":[<summary>, …],"more":0}`.
 - `request` → `{"request":<detail>}`.
 - `answer` → `{"answered":true}`.
+- `push-token` → `{}`.
+
+### Push notifications
+
+While the desktop app reports the user away (2 minutes idle or the screen locked, `POST /presence`), or hasn’t reported for 90 seconds, the daemon sends each phone with a push token one Expo notification per waiting Inbox request that counts (Inbox notifications on, globally and for its Factory, and not snoozed). Title: the Task, chat or Automation title; body: the question headline, both through `redactSecrets` and cut to 180 characters; a permission request’s body is “Permission requested”. `data.requestId` is the ID the `request` route takes. Each send is recorded as `v1.PhoneNotified` under the phone, request ID and time the request became waiting (its creation, or its last return from snooze), so a restart never resends and a request back from snooze is sent again. A `DeviceNotRegistered` ticket clears the token.
 
 ### Error codes
 
@@ -202,6 +208,6 @@ The daemon answers through the same code as the desktop app, as the human. A “
 
 ## Paired phones
 
-The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request` and `answer`. Removing a phone on the Mac records `v1.PhoneRemoved`; its next message gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there.
+The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer` and `push-token`. Removing a phone on the Mac records `v1.PhoneRemoved`; its next message gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there.
 
 The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so a removed phone always gets `not-paired`, not `mac-offline`). It reconnects with backoff (1, 2, 5, 10, 30 seconds).

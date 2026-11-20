@@ -20,8 +20,7 @@ export function createPresence(options: PresenceOptions = {}): Presence {
   let current = true
   let timer: NodeJS.Timeout | undefined
 
-  const compute = () =>
-    reported === undefined || reported.away || now() - reported.at >= staleMs
+  const compute = () => reported === undefined || reported.away || now() - reported.at >= staleMs
   const update = () => {
     const next = compute()
     if (next === current) return
