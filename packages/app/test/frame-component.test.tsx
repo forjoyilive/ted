@@ -13,8 +13,8 @@ const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
 
 test('Developer mode shows live process totals in the sidebar and stops collecting when off', async () => {
   const app = appState()
-  let cpuPercent = 15
-  const usage = vi.fn(() => ({ cpuPercent, memoryBytes: 2493 * 1024 ** 2 }))
+  let cpuInUse = 0.15
+  const usage = vi.fn(() => ({ machine: { cpuInUse, memoryInUse: 0.6 } }))
   const diagnostics = vi.fn()
   app.handle('resourceUsage', usage)
   app.handle('getDiagnostics', diagnostics)
@@ -29,14 +29,14 @@ test('Developer mode shows live process totals in the sidebar and stops collecti
       app.emit({ type: 'settings-changed', settings: { ...app.state.settings } }),
     )
     expect(within(nav()).getByLabelText('Developer resource usage').textContent).toBe(
-      'CPU 15% · Memory 2.4 GB',
+      'CPU 15% · Memory 60%',
     )
-    cpuPercent = 32.54
+    cpuInUse = 0.3254
     await act(async () => vi.advanceTimersByTimeAsync(4_000))
     expect(usage).toHaveBeenCalledOnce()
     await act(async () => vi.advanceTimersByTimeAsync(1_000))
     expect(screen.getByLabelText('Developer resource usage').textContent).toBe(
-      'CPU 32.5% · Memory 2.4 GB',
+      'CPU 33% · Memory 60%',
     )
     app.state.settings.developerMode = false
     await act(async () =>
@@ -63,7 +63,7 @@ test('Developer mode shows live process totals in the sidebar and stops collecti
 test('sidebar resource readings stop while the window is hidden and resume when it shows', async () => {
   const app = appState()
   app.state.settings.developerMode = true
-  const usage = vi.fn(() => ({ cpuPercent: 1, memoryBytes: 1024 ** 2 }))
+  const usage = vi.fn(() => ({ machine: { cpuInUse: 0.01, memoryInUse: 0.5 } }))
   app.handle('resourceUsage', usage)
   let hidden = false
   const show = (visible: boolean) => {
@@ -97,21 +97,21 @@ test('sidebar resource readings recover after a failure without showing stale to
   app.state.settings.developerMode = true
   const usage = vi
     .fn()
-    .mockResolvedValueOnce({ cpuPercent: 1, memoryBytes: 1024 ** 2 })
+    .mockResolvedValueOnce({ machine: { cpuInUse: 0.01, memoryInUse: 0.5 } })
     .mockRejectedValueOnce(new Error('Offline'))
-    .mockResolvedValue({ cpuPercent: 0, memoryBytes: 0 })
+    .mockResolvedValue({ machine: { cpuInUse: null, memoryInUse: 0.42 } })
   app.handle('resourceUsage', usage)
   vi.useFakeTimers()
   const view = app.mount()
   try {
     await act(async () => {})
-    expect(screen.getByText('CPU 1% · Memory 1 MB')).toBeTruthy()
+    expect(screen.getByText('CPU 1% · Memory 50%')).toBeTruthy()
     await act(async () => vi.advanceTimersByTimeAsync(5_000))
     expect(screen.getByLabelText('Developer resource usage').textContent).toBe(
       'CPU / Memory unavailable',
     )
     await act(async () => vi.advanceTimersByTimeAsync(5_000))
-    expect(screen.getByText('CPU 0% · Memory 0 MB')).toBeTruthy()
+    expect(screen.getByText('CPU – · Memory 42%')).toBeTruthy()
   } finally {
     view.unmount()
     vi.useRealTimers()
@@ -120,7 +120,7 @@ test('sidebar resource readings recover after a failure without showing stale to
 
 test('a slow resource reading does not overlap or restart polling after leaving the main screen', async () => {
   const app = appState()
-  const pending = deferred<{ cpuPercent: number; memoryBytes: number }>()
+  const pending = deferred<{ machine: { cpuInUse: number; memoryInUse: number } }>()
   const usage = vi.fn(() => pending.promise)
   app.handle('resourceUsage', usage)
   app.state.settings.developerMode = true
@@ -133,7 +133,7 @@ test('a slow resource reading does not overlap or restart polling after leaving 
     fireEvent.click(within(nav()).getByRole('button', { name: /^Settings/ }))
     await act(async () => {})
     expect(screen.queryByLabelText('Developer resource usage')).toBeNull()
-    await act(async () => pending.resolve({ cpuPercent: 0, memoryBytes: 0 }))
+    await act(async () => pending.resolve({ machine: { cpuInUse: 0, memoryInUse: 0 } }))
     await act(async () => vi.advanceTimersByTimeAsync(10_000))
     expect(usage).toHaveBeenCalledOnce()
   } finally {
@@ -676,8 +676,7 @@ test('hovering the sidebar memory figure shows what makes it up and opens every 
   const none = { count: 0, bytes: 0 }
   bridge({
     resourceUsage: () => ({
-      cpuPercent: 339,
-      memoryBytes: 2600 * mb,
+      machine: { cpuInUse: 0.79, memoryInUse: 0.6 },
       memory: {
         daemon: { bytes: 900 * mb, heapBytes: 0, externalBytes: 0 },
         hosts: { count: 2, bytes: 100 * mb },
@@ -697,7 +696,7 @@ test('hovering the sidebar memory figure shows what makes it up and opens every 
   })
   const dispatch = vi.fn()
   render(<ResourceUsage dispatch={dispatch} />)
-  const figure = await screen.findByRole('button', { name: 'CPU 339% · Memory 2.5 GB' })
+  const figure = await screen.findByRole('button', { name: 'CPU 79% · Memory 60%' })
   await user().hover(figure)
   const card = await screen.findByRole('region', { name: 'Memory breakdown' })
   expect(within(card).getByRole('heading').textContent).toBe(

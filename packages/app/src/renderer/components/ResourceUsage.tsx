@@ -1,4 +1,4 @@
-import type { ProcessUsage } from '@ted/protocol'
+import type { ResourceReading } from '@ted/protocol'
 import {
   agentBreakdown,
   agentsPartLabel,
@@ -11,14 +11,17 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { besideAnchor } from '../menu-tooltip.ts'
 import type { NavigationAction } from '../navigation.ts'
 import { openSetting } from '../setting-focus.ts'
+import { percent } from '../slots.ts'
 import { ted } from '../ted.ts'
 import styles from './ResourceUsage.module.css'
 
 const refreshMs = 5_000
 const closeAfterMs = 150
 
+const share = (value: number | null) => (value === null ? '–' : percent(value))
+
 export function ResourceUsage({ dispatch }: { dispatch: (action: NavigationAction) => void }) {
-  const [usage, setUsage] = useState<ProcessUsage>()
+  const [usage, setUsage] = useState<ResourceReading>()
   const [failed, setFailed] = useState(false)
   const [open, setOpen] = useState(false)
   const closing = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -119,7 +122,7 @@ export function ResourceUsage({ dispatch }: { dispatch: (action: NavigationActio
         onClick={show}
       >
         {usage
-          ? `CPU ${Math.round(usage.cpuPercent * 10) / 10}% · Memory ${memorySize(usage.memoryBytes)}`
+          ? `CPU ${share(usage.machine.cpuInUse)} · Memory ${share(usage.machine.memoryInUse)}`
           : failed
             ? 'CPU / Memory unavailable'
             : 'CPU / Memory reading…'}
@@ -131,8 +134,7 @@ export function ResourceUsage({ dispatch }: { dispatch: (action: NavigationActio
           </h3>
           <p className={styles.note}>
             Each process is measured the way Activity Monitor measures it. Most show there as node,
-            claude, codex or Ted. CPU is a share of all this computer’s cores: 100% means every core
-            is in use.
+            claude, codex or Ted.
           </p>
           <ul className={styles.parts}>
             {parts.map((part) => (

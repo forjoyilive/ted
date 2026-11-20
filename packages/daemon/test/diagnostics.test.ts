@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type Diagnostics,
+  type DiagnosticsUsage,
   type LogText,
   type MemoryUse,
   type ProcessUsage,
@@ -183,10 +184,11 @@ describe('Diagnostics', () => {
     expect(diagnostics.memory.availableBytes).toBeGreaterThan(0)
     expect(diagnostics.memory.availableBytes).toBeLessThanOrEqual(diagnostics.memory.totalBytes)
 
-    const usage = (await client.call('GET', '/diagnostics/usage')).body as ProcessUsage
-    expect(Object.keys(usage).sort()).toEqual(['cpuPercent', 'memory', 'memoryBytes'])
+    const usage = (await client.call('GET', '/diagnostics/usage')).body as DiagnosticsUsage
+    expect(Object.keys(usage).sort()).toEqual(['cpuPercent', 'machine', 'memory', 'memoryBytes'])
     expect(usage.memory.agents.count).toBe(1)
     expect(usage.cpuPercent).toBeGreaterThanOrEqual(0)
+    expect(usage.machine).toEqual({ cpuInUse: 0, memoryInUse: 0 })
     expect(usage.memoryBytes).toBeGreaterThan(owned.reduce((sum, p) => sum + p.memoryBytes, 0) / 2)
 
     const memory = (await client.call('GET', '/diagnostics/memory')).body as MemoryUse

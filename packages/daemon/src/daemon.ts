@@ -951,6 +951,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       const services = {
+        busy,
         execution,
         sideChats,
         coordinators,

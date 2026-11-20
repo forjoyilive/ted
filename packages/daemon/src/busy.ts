@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import os from 'node:os'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
-import { type BusyHold, busyMarks, tedEnv } from '@ted/protocol'
+import { type BusyHold, busyMarks, type MachineUsage, tedEnv } from '@ted/protocol'
 
 const execFileAsync = promisify(execFile)
 
@@ -186,6 +186,7 @@ export interface Busy {
   current(): BusyHold | undefined
   pending(): boolean
   memory(): Promise<number>
+  reading(): Promise<MachineUsage>
 }
 
 export function createBusyHold(options: BusyHoldOptions): Busy {
@@ -224,5 +225,15 @@ export function createBusyHold(options: BusyHoldOptions): Busy {
     current: () => state.hold,
     pending: () => state.hold === undefined && state.cpuHighSince !== undefined,
     memory: memoryShare,
+    async reading() {
+      const [cpu, memoryAvailable] = await Promise.all([
+        Promise.resolve(cpuInUse()).catch(() => Number.NaN),
+        memoryShare(),
+      ])
+      return {
+        cpuInUse: Number.isFinite(cpu) ? rounded(cpu) : null,
+        memoryInUse: Number.isFinite(memoryAvailable) ? rounded(1 - memoryAvailable) : null,
+      }
+    },
   }
 }
