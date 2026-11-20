@@ -70,6 +70,7 @@ export interface QueuedInput extends GenerationLine {
   deliveryIds: string[]
   text: string
   outputFrom: number
+  pickup?: true
 }
 
 export function readQueuedInput(line: string): QueuedInput | undefined {
@@ -82,7 +83,13 @@ export function readQueuedInput(line: string): QueuedInput | undefined {
     typeof value.outputFrom === 'number' &&
     Number.isFinite(value.outputFrom) &&
     value.outputFrom >= 0
-    ? { ...tagged, deliveryIds: value.deliveryIds, text: value.text, outputFrom: value.outputFrom }
+    ? {
+        ...tagged,
+        deliveryIds: value.deliveryIds,
+        text: value.text,
+        outputFrom: value.outputFrom,
+        ...(value.pickup === true && { pickup: true }),
+      }
     : undefined
 }
 

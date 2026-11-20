@@ -9,3 +9,4 @@ release:
     build-without-tests: pnpm release build <version> --skip-checks
     publish: pnpm release publish
     discard: pnpm release discard
+    update: pnpm update-installed --yes --skip-checks

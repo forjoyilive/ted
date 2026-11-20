@@ -13,6 +13,7 @@ repos:
         run: MAC_CHROMIUM_TMPDIR="$TMPDIR" TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app $TED_ELECTRON_ARGS
   - name: ted-mobile
     remote: https://github.com/forjoyilive/ted-mobile.git
+    merge_method: merge
     worktree:
       setup: { run: pnpm install --frozen-lockfile, sandbox_access: [ios-xcode, network] }
     apps:
@@ -53,7 +54,7 @@ stages:
     steps:
       - name: Stop leftovers
         instruction: >-
-          Stop anything this Task started that Ted doesn’t track. End a Ted Dev daemon started with this worktree’s TED_HOME (`node_modules/.cache/ted-home`): `daemon.json` there names a PID, but the file can outlive the daemon and the PID can belong to another process by now, so kill it only after `ps` shows that PID is a Ted daemon using this exact TED_HOME. When you can’t confirm that, don’t kill it; report the step failed and say why. Also end any Electron, browser or other process left running from the worktree, after confirming the same way that it is one, and remove temp files or folders the Task made outside the worktree. Ted stops the Task’s Apps and simulators and removes the worktree itself; leave those. Never touch `~/.ted`, `~/.ted-dev` or the user’s own checkout. Report skipped when there was nothing to stop.
+          Stop anything this Task started that Ted doesn’t track. End a Ted Dev daemon started with this worktree’s TED_HOME (`node_modules/.cache/ted-home`): `daemon.json` there names a PID, but the file can outlive the daemon and the PID can belong to another process by now, so kill it only after `ps` shows that PID is a Ted daemon using this exact TED_HOME. When you can’t confirm that, don’t kill it; report the step failed and say why. Also end a local relay the Task started with `pnpm relay` in `ted-mobile` (`wrangler dev`, usually on port 8787), and any Electron, browser or other process left running from the worktree, after confirming the same way that it is one, and remove temp files or folders the Task made outside the worktree. Ted stops the Task’s Apps and simulators and removes the worktree itself; leave those. Never touch `~/.ted`, `~/.ted-dev` or the user’s own checkout. Report skipped when there was nothing to stop.
       - name: Comment on the linked issue
         instruction: >-
           When the Task names a Linear, Asana or GitHub issue it came from or links to, comment on that issue with the merged pull request and one or two plain sentences on what shipped. Only use an issue the Task names; never search for a match. Report skipped when the Task names no issue.
