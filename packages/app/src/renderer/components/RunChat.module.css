@@ -103,7 +103,7 @@
   visibility: hidden;
 }
 
-.rowHead > .chevron {
+.rowHead .chevron {
   grid-column: 1;
 }
 
@@ -112,7 +112,7 @@
   color: var(--text-secondary);
 }
 
-.rowHead > .rowLabel {
+.rowHead .rowLabel {
   grid-column: 2;
   margin-left: 8px;
 }
@@ -135,7 +135,7 @@
   font-size: var(--text-12);
 }
 
-.rowHead > .rowMeta {
+.rowHead .rowMeta {
   grid-column: 5;
   min-width: 0;
   margin-left: 8px;
