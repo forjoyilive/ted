@@ -294,7 +294,9 @@ describe('Run chat', () => {
       await description.waitFor()
       const layout = await row.evaluate((head) => {
         const box = head.getBoundingClientRect()
-        const parts = [...head.querySelectorAll('span')].map((part) => part.getBoundingClientRect())
+        const parts = [...head.querySelectorAll('span')].flatMap((part) =>
+          part.getClientRects().length > 0 ? [part.getBoundingClientRect()] : [],
+        )
         return {
           inside: parts.every((part) => part.left >= box.left && part.right <= box.right + 0.5),
           scrolls: head.scrollWidth > head.clientWidth,
