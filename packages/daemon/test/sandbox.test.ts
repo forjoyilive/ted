@@ -11,7 +11,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises'
-import { type AddressInfo, createServer, type Server } from 'node:net'
+import { type AddressInfo, connect, createServer, type Server } from 'node:net'
 import { homedir, tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -1094,28 +1094,135 @@ describe.runIf(process.platform === 'linux')('the sandbox on Linux', () => {
     await rm(userHome, { recursive: true, force: true })
   })
 
-  async function inBwrap(script: string, reads: string[] = []) {
-    const sandbox = createSandbox({ tedHome, env: () => ({ ...process.env, HOME: userHome }) })
-    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), reads })
+  interface BwrapOptions {
+    reads?: string[]
+    network?: 'none' | 'localhost' | 'outbound'
+    serves?: number
+    groups?: SandboxAccess[]
+    env?: Record<string, string>
+  }
+
+  async function startBwrap(script: string, options: BwrapOptions = {}) {
+    const { reads = [], env = {}, ...network } = options
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ ...process.env, HOME: userHome, ...env }),
+    })
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), reads, ...network })
     const [command, ...args] = wrapped.argv
-    try {
-      return await new Promise<string>((resolve, reject) => {
-        let stdout = ''
-        const child = spawn(command, [...args, script], {
-          cwd: worktree,
-          env: withSandboxEnv(process.env, wrapped.env),
-          stdio: ['ignore', 'pipe', 'inherit', ...wrapped.fds],
-        })
-        child.stdout?.on('data', (chunk: Buffer) => {
-          stdout += chunk.toString('utf8')
-        })
-        child.once('error', reject)
-        child.once('close', () => resolve(stdout))
-      })
-    } finally {
-      await wrapped.close()
+    const child = spawn(command, [...args, script], {
+      cwd: worktree,
+      env: withSandboxEnv(process.env, wrapped.env),
+      stdio: ['ignore', 'pipe', 'inherit', ...wrapped.fds],
+    })
+    let stdout = ''
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
+    const done = new Promise<string>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('close', () => resolve(stdout))
+    }).finally(() => wrapped.close())
+    return { child, done, output: () => stdout }
+  }
+
+  async function inBwrap(script: string, reads: string[] = [], options: BwrapOptions = {}) {
+    return (await startBwrap(script, { ...options, reads })).done
+  }
+
+  const lines = (output: string) => output.trim().split('\n')
+
+  async function freePort(): Promise<number> {
+    const { server, port } = await listenTcp()
+    await new Promise((resolve) => server.close(resolve))
+    return port
+  }
+
+  async function until(check: () => boolean) {
+    for (let tries = 0; tries < 100 && !check(); tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
+
+  const readFrom = (port: number) =>
+    new Promise<string>((resolve) => {
+      let got = ''
+      const socket = connect(port, '127.0.0.1')
+      socket.on('data', (chunk: Buffer) => {
+        got += chunk.toString('utf8')
+      })
+      socket.on('error', (error: NodeJS.ErrnoException) => resolve(error.code ?? 'error'))
+      socket.on('close', () => resolve(got))
+    })
+
+  test('without android-emulator, a command can’t reach adb at any network level; with it, it can', async () => {
+    const adb = createServer((connection) => connection.end())
+    await new Promise<void>((resolve) => {
+      adb.once('error', () => resolve())
+      adb.listen(5037, '127.0.0.1', () => resolve())
+    })
+    try {
+      const serves = await freePort()
+      const levels: BwrapOptions[] = [
+        {},
+        { network: 'none' },
+        { network: 'outbound' },
+        { groups: ['network'] },
+        { serves },
+        { network: 'outbound', serves },
+      ]
+      for (const level of levels) {
+        expect(lines(await inBwrap(tryTcp('127.0.0.1', 5037), [], level))).toEqual(['ECONNREFUSED'])
+      }
+      for (const level of [{}, { network: 'outbound' }] satisfies BwrapOptions[]) {
+        const opened = await inBwrap(tryTcp('127.0.0.1', 5037), [], {
+          ...level,
+          groups: ['android-emulator'],
+        })
+        expect(lines(opened)).toEqual(['connected'])
+      }
+    } finally {
+      await new Promise((resolve) => adb.close(resolve))
+    }
+  })
+
+  test('an App’s port on 127.0.0.1 inside its own network is reachable from the host', async () => {
+    for (const network of ['localhost', 'outbound'] as const) {
+      const port = await freePort()
+      const app = await startBwrap(
+        `'${process.execPath}' -e "require('net').createServer((s) => s.end('app')).listen(${port}, '127.0.0.1', () => console.log('up')); setTimeout(() => process.exit(), 20000)"`,
+        { network, serves: port },
+      )
+      try {
+        await until(() => app.output().includes('up'))
+        let got = ''
+        for (let tries = 0; tries < 50 && got !== 'app'; tries++) {
+          got = await readFrom(port)
+          if (got !== 'app') await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+        expect(got).toBe('app')
+      } finally {
+        app.child.kill()
+        await app.done
+      }
+    }
+  })
+
+  test('an Android SDK inside a folder in the read set stays hidden without android-emulator', async () => {
+    const tools = path.join(userHome, 'tools')
+    const sdk = path.join(tools, 'android-sdk')
+    await mkdir(sdk, { recursive: true })
+    await writeFile(path.join(sdk, 'source.properties'), 'sdk')
+    await writeFile(path.join(tools, 'other'), 'other')
+    const script = [
+      tryRead(path.join(sdk, 'source.properties')),
+      tryRead(path.join(tools, 'other')),
+    ].join('; ')
+    const env = { ANDROID_HOME: sdk }
+    expect(lines(await inBwrap(script, ['~/tools'], { env }))).toEqual(['refused', 'read'])
+    const android = await inBwrap(script, ['~/tools'], { env, groups: ['android-emulator'] })
+    expect(lines(android)).toEqual(['read', 'read'])
+  })
 
   test('a sandboxed command can’t read files in HOME outside the allowed set', async () => {
     const output = await inBwrap(
@@ -1150,6 +1257,12 @@ describe.runIf(process.platform === 'linux')('the sandbox on Linux', () => {
 })
 
 describe('the folders a sandbox opens', () => {
+  async function stubPasta(): Promise<string> {
+    const file = path.join(outside, 'pasta')
+    await writeFile(file, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    return file
+  }
+
   test('a worktree swapped for a link to somewhere else is refused', async () => {
     const sandbox = createSandbox({
       tedHome,
@@ -1339,30 +1452,89 @@ describe('the folders a sandbox opens', () => {
     expect(argv.lastIndexOf(await realpath(tedHome))).toBeGreaterThan(argv.indexOf(realInner))
   })
 
-  test('on Linux, a command gets its own network unless it has outbound access or is an App serving a port', async () => {
+  test('on Linux, every network level but android-emulator’s keeps the command off host loopback', async () => {
     const sandbox = createSandbox({
       tedHome,
       env: () => ({ PATH: '/usr/bin:/bin' }),
       platform: 'linux',
       program: '/usr/bin/true',
+      pasta: await stubPasta(),
       unixSockets: async () => '',
     })
-    const ownNetwork = async (extra: {
+    const pasta = path.join(outside, 'pasta')
+    const network = async (extra: {
       network?: 'none' | 'localhost' | 'outbound'
-      serves?: boolean
+      serves?: number
       groups?: SandboxAccess[]
-    }) =>
-      (await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })).argv.includes(
-        '--unshare-net',
-      )
-    expect(await ownNetwork({})).toBe(true)
-    expect(await ownNetwork({ network: 'none' })).toBe(true)
-    expect(await ownNetwork({ network: 'outbound' })).toBe(false)
-    expect(await ownNetwork({ groups: ['network'] })).toBe(false)
-    expect(await ownNetwork({ serves: true })).toBe(false)
-    expect(await ownNetwork({ network: 'none', serves: true })).toBe(true)
-    expect(await ownNetwork({ groups: ['android-emulator'] })).toBe(false)
-    expect(await ownNetwork({ network: 'none', groups: ['android-emulator'] })).toBe(true)
+    }) => {
+      const { argv } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })
+      const bwrap = argv.indexOf('/usr/bin/true')
+      const pasta = argv.slice(0, bwrap)
+      const own = argv.slice(bwrap)
+      if (own.includes('--unshare-net')) return 'own'
+      if (pasta.length === 0) return 'host'
+      return pasta.join(' ')
+    }
+    const noReverse = '-u none -T none -U none --'
+    const outbound = `${pasta} --quiet --no-map-gw --host-lo-to-ns-lo --config-net --dns-forward 169.254.1.1`
+    expect(await network({})).toBe('own')
+    expect(await network({ network: 'none' })).toBe('own')
+    expect(await network({ network: 'none', serves: 4100 })).toBe('own')
+    expect(await network({ network: 'outbound' })).toBe(`${outbound} -t none ${noReverse}`)
+    expect(await network({ groups: ['network'] })).toBe(`${outbound} -t none ${noReverse}`)
+    expect(await network({ network: 'outbound', serves: 4100 })).toBe(
+      `${outbound} -t 127.0.0.1/4100 ${noReverse}`,
+    )
+    expect(await network({ serves: 4100 })).toBe(
+      `${pasta} --quiet --no-map-gw --host-lo-to-ns-lo -t 127.0.0.1/4100 ${noReverse}`,
+    )
+    expect(await network({ groups: ['android-emulator'] })).toBe('host')
+    expect(await network({ network: 'outbound', groups: ['android-emulator'] })).toBe('host')
+    expect(await network({ network: 'none', groups: ['android-emulator'] })).toBe('own')
+  })
+
+  test('on Linux, a command in pasta’s network keeps its own uid and gets a resolv.conf naming pasta’s DNS address', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin' }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      pasta: await stubPasta(),
+      unixSockets: async () => '',
+    })
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), network: 'outbound' })
+    const own = argv.slice(argv.indexOf('/usr/bin/true'))
+    const after = (flag: string) => own.slice(own.indexOf(flag) + 1, own.indexOf(flag) + 3)
+    expect(after('--uid')[0]).toBe(String(process.getuid?.()))
+    expect(own).toContain('--unshare-user')
+    const resolv = path.join(await realpath(tedHome), 'sandbox', 'resolv.conf')
+    const dest = await realpath('/etc/resolv.conf').catch(() => '/etc/resolv.conf')
+    expect(own.join(' ')).toContain(`--ro-bind ${resolv} ${dest}`)
+    expect(own.indexOf(resolv)).toBeGreaterThan(own.lastIndexOf('--symlink'))
+    expect(await readFile(resolv, 'utf8')).toBe('nameserver 169.254.1.1\n')
+    const local = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), serves: 4100 })
+    expect(local.argv).not.toContain(resolv)
+  })
+
+  test('on Linux, a command that needs its own network is refused when pasta isn’t installed', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin' }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      pasta: path.join(outside, 'no-such-pasta'),
+      unixSockets: async () => '',
+    })
+    await expect(
+      sandbox.wrap(['/bin/sh', '-c'], { ...scope(), network: 'outbound' }),
+    ).rejects.toThrow(/Install the passt package/)
+    await expect(sandbox.wrap(['/bin/sh', '-c'], { ...scope(), serves: 4100 })).rejects.toThrow(
+      SandboxUnavailable,
+    )
+    await expect(sandbox.wrap(['/bin/sh', '-c'], scope())).resolves.toBeDefined()
+    await expect(
+      sandbox.wrap(['/bin/sh', '-c'], { ...scope(), groups: ['android-emulator'] }),
+    ).resolves.toBeDefined()
   })
 
   test('on Linux, only android-emulator mounts the Android SDK, even when a folder in it is on PATH', async () => {
@@ -1384,6 +1556,31 @@ describe('the folders a sandbox opens', () => {
       groups: ['android-emulator'],
     })
     expect(android.argv.join(' ')).toContain(`${sdk} ${sdk}`)
+  })
+
+  test('on Linux, an Android SDK under a folder mounted whole gets an empty folder over it unless the command has android-emulator', async () => {
+    const opt = await mkdtemp(path.join(outside, 'opt-'))
+    const sdk = path.join(opt, 'android-sdk')
+    await mkdir(sdk)
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin', ANDROID_HOME: sdk }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const realOpt = await realpath(opt)
+    const realSdk = await realpath(sdk)
+    const plain = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), reads: [opt] })
+    expect(plain.argv.join(' ')).toContain(`--ro-bind ${realOpt} ${realOpt}`)
+    expect(plain.argv.join(' ')).toContain(`--tmpfs ${realSdk}`)
+    expect(plain.argv.indexOf(realSdk)).toBeGreaterThan(plain.argv.indexOf(realOpt))
+    const android = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      reads: [opt],
+      groups: ['android-emulator'],
+    })
+    expect(android.argv.join(' ')).not.toContain(`--tmpfs ${realSdk}`)
   })
 
   test('on Linux, a scope that hides protected folders covers each one that exists in HOME', async () => {

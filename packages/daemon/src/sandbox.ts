@@ -23,7 +23,7 @@ export interface SandboxScope {
   sockets?: readonly NamedSocket[]
   reads?: readonly string[]
   network?: NetworkLevel
-  serves?: boolean
+  serves?: number
   ownTempOnly?: boolean
   hideProtected?: boolean
   groups?: readonly SandboxAccess[]
@@ -114,6 +114,7 @@ export function createSandbox(options: {
   bindFds?: boolean
   unixSockets?: () => Promise<string>
   simulatorRuntimes?: string
+  pasta?: string
 }): Sandbox {
   const platform = options.platform ?? process.platform
   let ready: string | undefined
@@ -124,6 +125,31 @@ export function createSandbox(options: {
     if (options.program !== undefined) return options.program
     if (platform === 'darwin') return '/usr/bin/sandbox-exec'
     return onPath('bwrap', options.env().PATH)
+  }
+
+  async function privateNetwork(
+    scope: SandboxScope,
+    adb: boolean,
+    tedHome: string,
+  ): Promise<LinuxNetwork> {
+    const wanted = linuxNetwork(scope, adb)
+    if (wanted.kind !== 'private') return wanted
+    // A test sandbox program stands in for the whole sandbox, so it gets host networking as before.
+    if (options.pasta === undefined && options.program !== undefined) return { kind: 'host' }
+    const pasta =
+      options.pasta === undefined
+        ? await onPath('pasta', options.env().PATH)
+        : await executable(options.pasta)
+    if (pasta === undefined) {
+      throw new SandboxUnavailable(
+        'pasta isn’t installed, so Ted can’t give this sandboxed command its own network. Install the passt package.',
+      )
+    }
+    return {
+      ...wanted,
+      pasta,
+      ...(wanted.outbound && { resolv: await pastaResolv(tedHome) }),
+    }
   }
 
   async function socketTable(): Promise<string> {
@@ -284,13 +310,18 @@ export function createSandbox(options: {
       const linux = await linuxSockets(table, paths, sockets, env)
       const binds = bwrapBinds(paths)
       const personal = await personalFolders(env)
-      const hidden = scope.hideProtected === true ? await existingFolders(personal) : []
+      const protectedHidden = scope.hideProtected === true ? await existingFolders(personal) : []
       const listed = await listedPaths('sandbox_reads', scope.reads ?? [], env)
       const reads = await linuxReads(
         env,
         [...(android ? sdk : []), ...listed],
         [...personal, paths.tedHome, ...(android ? [] : sdk)],
       )
+      const sdkHidden = android
+        ? []
+        : sdk.filter((dir) => reads.binds.some(([, dest]) => dest !== dir && inside(dest, dir)))
+      const hidden = [...protectedHidden, ...sdkHidden]
+      const network = await privateNetwork(scope, android, paths.tedHome)
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -304,21 +335,12 @@ export function createSandbox(options: {
         throw error
       }
       return {
-        argv: [
+        argv: inPasta(network, [
           ready,
-          ...bwrapArgs(
-            paths,
-            env,
-            linux,
-            binds,
-            bindFds,
-            hidden,
-            reads,
-            ownNetwork(scope, android),
-          ),
+          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, reads, network),
           '--',
           ...argv,
-        ],
+        ]),
         env: added,
         fds: handles.map((handle) => handle.fd),
         missingSockets,
@@ -792,7 +814,7 @@ function bwrapArgs(
   byFd: boolean,
   hidden: readonly string[],
   reads: LinuxReads,
-  ownNetwork: boolean,
+  network: LinuxNetwork,
 ): string[] {
   const runtime = runtimeDir(env)
   const bind = (b: Bind, i: number) =>
@@ -803,9 +825,15 @@ function bwrapArgs(
   return [
     '--die-with-parent',
     '--unshare-pid',
-    ...(ownNetwork ? ['--unshare-net'] : []),
+    ...(network.kind === 'none' ? ['--unshare-net'] : []),
+    ...(network.kind === 'private'
+      ? ['--unshare-user', '--uid', String(network.uid), '--gid', String(network.gid)]
+      : []),
     ...reads.binds.flatMap(([source, dest]) => ['--ro-bind', source, dest]),
     ...reads.links.flatMap(([target, dest]) => ['--symlink', target, dest]),
+    ...(network.kind === 'private' && network.resolv !== undefined
+      ? ['--ro-bind', network.resolv.source, network.resolv.dest]
+      : []),
     '--dev',
     '/dev',
     '--proc',
@@ -838,10 +866,95 @@ function networkOf(scope: SandboxScope): NetworkLevel {
   return scope.groups?.includes('network') === true ? 'outbound' : (scope.network ?? defaultNetwork)
 }
 
-// An App's port must stay reachable from the host, and bwrap can't share host loopback without host networking.
-function ownNetwork(scope: SandboxScope, adb: boolean): boolean {
+type LinuxNetwork =
+  | { kind: 'none' }
+  | { kind: 'host' }
+  | {
+      kind: 'private'
+      outbound: boolean
+      port: number | undefined
+      uid: number
+      gid: number
+      pasta: string
+      resolv?: { source: string; dest: string }
+    }
+
+type WantedNetwork =
+  | Exclude<LinuxNetwork, { kind: 'private' }>
+  | {
+      kind: 'private'
+      outbound: boolean
+      port: number | undefined
+      uid: number
+      gid: number
+    }
+
+// bwrap can't filter single ports, so adb is closed by moving every command that would share host loopback into pasta's network.
+function linuxNetwork(scope: SandboxScope, adb: boolean): WantedNetwork {
   const network = networkOf(scope)
-  return network === 'none' || (network === 'localhost' && scope.serves !== true && !adb)
+  if (network === 'none') return { kind: 'none' }
+  if (adb) return { kind: 'host' }
+  if (network === 'localhost' && scope.serves === undefined) return { kind: 'none' }
+  return {
+    kind: 'private',
+    outbound: network === 'outbound',
+    port: scope.serves,
+    uid: process.getuid?.() ?? 0,
+    gid: process.getgid?.() ?? 0,
+  }
+}
+
+const pastaDns = '169.254.1.1'
+
+function inPasta(network: LinuxNetwork, argv: [string, ...string[]]): [string, ...string[]] {
+  if (network.kind !== 'private') return argv
+  return [network.pasta, ...pastaArgs(network), ...argv]
+}
+
+// -T none and -U none matter: pasta's default forwards the namespace's connections to host ports, adb's included.
+// pasta refuses a second -t for the same port, so ::1 isn't forwarded.
+function pastaArgs(network: Extract<LinuxNetwork, { kind: 'private' }>): string[] {
+  return [
+    '--quiet',
+    '--no-map-gw',
+    '--host-lo-to-ns-lo',
+    ...(network.outbound ? ['--config-net', '--dns-forward', pastaDns] : []),
+    '-t',
+    network.port === undefined ? 'none' : `127.0.0.1/${network.port}`,
+    '-u',
+    'none',
+    '-T',
+    'none',
+    '-U',
+    'none',
+    '--',
+  ]
+}
+
+// Hosts that run their resolver on loopback (systemd-resolved, Docker) lose DNS in pasta's network without this.
+// It goes over the real file, because a linked /etc/resolv.conf may point outside the mounted folders.
+async function pastaResolv(tedHome: string): Promise<{ source: string; dest: string }> {
+  const home = await real(tedHome)
+  const dir = await plainFolder(home, path.resolve(tedHome), path.join(home, 'sandbox'), true)
+  const file = path.join(dir, 'resolv.conf')
+  const content = Buffer.from(`nameserver ${pastaDns}\n`)
+  const handle = await open(
+    file,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW,
+    0o644,
+  )
+  try {
+    if (!(await handle.stat()).isFile()) {
+      throw new SandboxUnavailable(
+        `${file} isn’t a plain file, so Ted won’t give it to the sandbox`,
+      )
+    }
+    await handle.write(content, 0, content.length, 0)
+    await handle.truncate(content.length)
+  } finally {
+    await handle.close()
+  }
+  return { source: file, dest: await realpath('/etc/resolv.conf').catch(() => '/etc/resolv.conf') }
 }
 
 type MacService = { name: string } | { prefix: string } | { regex: string }
@@ -1032,16 +1145,17 @@ function inside(folder: string, file: string): boolean {
 async function onPath(name: string, searchPath: string | undefined): Promise<string | undefined> {
   for (const dir of (searchPath ?? '/usr/bin:/bin').split(':')) {
     if (!dir.startsWith('/')) continue
-    const candidate = path.join(dir, name)
-    if (
-      await access(candidate, constants.X_OK).then(
-        () => true,
-        () => false,
-      )
-    )
-      return candidate
+    const found = await executable(path.join(dir, name))
+    if (found !== undefined) return found
   }
   return undefined
+}
+
+async function executable(file: string): Promise<string | undefined> {
+  return access(file, constants.X_OK).then(
+    () => file,
+    () => undefined,
+  )
 }
 
 function probe(
