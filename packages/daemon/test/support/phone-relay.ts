@@ -537,6 +537,7 @@ export class TestPhone {
 
   async ask(id: string, envelope: string, carrier: TestPhone = this): Promise<MacReply> {
     const { promise, resolve, reject } = Promise.withResolvers<MacReply>()
+    promise.catch(() => undefined)
     const listener = (data: string) => {
       const reply = this.open(data)
       if (reply?.id === id) resolve(reply)
