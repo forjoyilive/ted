@@ -3,6 +3,7 @@ import { constants, type Stats } from 'node:fs'
 import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   accessGroups,
   accessSockets,
@@ -12,6 +13,7 @@ import {
   outsideTedEnv,
   type SandboxAccess,
 } from '@ted/protocol'
+import { nodeEntry } from './node-entry.ts'
 import { protectedPaths } from './protected-folders.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -23,10 +25,20 @@ export interface SandboxScope {
   sockets?: readonly NamedSocket[]
   reads?: readonly string[]
   network?: NetworkLevel
-  serves?: boolean
+  serves?: ServedPorts
   ownTempOnly?: boolean
   hideProtected?: boolean
   groups?: readonly SandboxAccess[]
+}
+
+export interface ServedPorts {
+  own?: number
+  reach: readonly number[]
+}
+
+interface Forwarded {
+  own?: number
+  reach: readonly string[]
 }
 
 export interface Sandboxed {
@@ -38,6 +50,12 @@ export interface Sandboxed {
 }
 
 export const firstBindFd = 3
+
+const forwardPortsMain = fileURLToPath(new URL('./forward-ports.ts', import.meta.url))
+
+export function forwardingFds(bindFds: number) {
+  return { status: firstBindFd + bindFds, block: firstBindFd + bindFds + 1 }
+}
 
 export interface SandboxGrants {
   sockets: readonly NamedSocket[]
@@ -111,6 +129,8 @@ export function createSandbox(options: {
   env: () => NodeJS.ProcessEnv
   platform?: NodeJS.Platform
   program?: string
+  pasta?: string
+  unshare?: string
   bindFds?: boolean
   unixSockets?: () => Promise<string>
   simulatorRuntimes?: string
@@ -291,6 +311,16 @@ export function createSandbox(options: {
         [...(android ? sdk : []), ...listed],
         [...personal, paths.tedHome, ...(android ? [] : sdk)],
       )
+      const network = ownNetwork(scope)
+      const ports = network ? forwardedPorts(scope, android) : undefined
+      const forward =
+        ports === undefined
+          ? undefined
+          : await portForwarding(
+              options.pasta ?? (await onPath('pasta', env.PATH)),
+              options.unshare ?? (await onPath('unshare', env.PATH)),
+              ports,
+            )
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -303,22 +333,41 @@ export function createSandbox(options: {
         await close()
         throw error
       }
+      const sandboxArgs = bwrapArgs(
+        paths,
+        env,
+        linux,
+        binds,
+        bindFds,
+        hidden,
+        reads,
+        network && forward === undefined,
+      )
+      const fds = forwardingFds(handles.length)
       return {
-        argv: [
-          ready,
-          ...bwrapArgs(
-            paths,
-            env,
-            linux,
-            binds,
-            bindFds,
-            hidden,
-            reads,
-            ownNetwork(scope, android),
-          ),
-          '--',
-          ...argv,
-        ],
+        argv:
+          forward === undefined
+            ? [ready, ...sandboxArgs, '--', ...argv]
+            : launchWithForwarding(forward.pasta, forward.args, handles.length, [
+                forward.unshare,
+                '--user',
+                '--map-root-user',
+                '--net',
+                '--',
+                ready,
+                '--unshare-user',
+                '--uid',
+                String(process.getuid?.() ?? 0),
+                '--gid',
+                String(process.getgid?.() ?? 0),
+                '--json-status-fd',
+                String(fds.status),
+                '--block-fd',
+                String(fds.block),
+                ...sandboxArgs,
+                '--',
+                ...argv,
+              ]),
         env: added,
         fds: handles.map((handle) => handle.fd),
         missingSockets,
@@ -838,10 +887,71 @@ function networkOf(scope: SandboxScope): NetworkLevel {
   return scope.groups?.includes('network') === true ? 'outbound' : (scope.network ?? defaultNetwork)
 }
 
-// An App's port must stay reachable from the host, and bwrap can't share host loopback without host networking.
-function ownNetwork(scope: SandboxScope, adb: boolean): boolean {
-  const network = networkOf(scope)
-  return network === 'none' || (network === 'localhost' && scope.serves !== true && !adb)
+function ownNetwork(scope: SandboxScope): boolean {
+  return networkOf(scope) !== 'outbound'
+}
+
+// The adb server and the console and adb ports apps/emulators.ts picks emulators from.
+const androidPorts = ['5037', '5554-5585']
+
+function forwardedPorts(scope: SandboxScope, android: boolean): Forwarded | undefined {
+  const own = scope.serves?.own
+  const reach =
+    networkOf(scope) === 'none'
+      ? []
+      : [
+          ...new Set([
+            ...(scope.serves?.reach ?? []).filter((port) => port !== own).map(String),
+            ...(android ? androidPorts : []),
+          ]),
+        ]
+  if (own === undefined && reach.length === 0) return undefined
+  return { ...(own !== undefined && { own }), reach }
+}
+
+async function portForwarding(
+  pasta: string | undefined,
+  unshare: string | undefined,
+  { own, reach }: Forwarded,
+): Promise<{ pasta: string; unshare: string; args: string[] }> {
+  if (pasta === undefined) {
+    throw new SandboxUnavailable(
+      'pasta isn’t installed, so Ted can’t forward the App’s ports into its sandbox. Install the passt package.',
+    )
+  }
+  if (unshare === undefined) {
+    throw new SandboxUnavailable(
+      'unshare isn’t installed, so Ted can’t give the App a network of its own. Install the util-linux package.',
+    )
+  }
+  // Without --host-lo-to-ns-lo pasta delivers host connections to the namespace's own address, which an
+  // App listening on 127.0.0.1 resets. Pasta's UDP default forwards host loopback ports automatically.
+  return {
+    pasta,
+    unshare,
+    args: [
+      '-q',
+      '--host-lo-to-ns-lo',
+      '-t',
+      own === undefined ? 'none' : `127.0.0.1/${own}`,
+      '-T',
+      reach.length === 0 ? 'none' : reach.join(','),
+      '-u',
+      'none',
+      '-U',
+      'none',
+    ],
+  }
+}
+
+function launchWithForwarding(
+  pasta: string,
+  pastaArgs: readonly string[],
+  bindFds: number,
+  bwrap: readonly string[],
+): [string, ...string[]] {
+  const entry = nodeEntry(forwardPortsMain, [pasta, String(bindFds), ...pastaArgs, '--', ...bwrap])
+  return ['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1', entry.command, ...entry.args]
 }
 
 type MacService = { name: string } | { prefix: string } | { regex: string }

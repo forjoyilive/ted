@@ -40,7 +40,13 @@ import { workCommand } from '../priority.ts'
 import { markProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import { type LaunchAuthority, launchAuthority } from '../runs/launch-authority.ts'
-import { type Sandbox, type SandboxScope, SandboxUnavailable, withSandboxEnv } from '../sandbox.ts'
+import {
+  type Sandbox,
+  type SandboxScope,
+  SandboxUnavailable,
+  type ServedPorts,
+  withSandboxEnv,
+} from '../sandbox.ts'
 import { appendRefusalHints } from '../sandbox-hints.ts'
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { TedStore } from '../store/index.ts'
@@ -817,7 +823,8 @@ export function createApps(options: AppsOptions): Apps {
       task = await options.task(taskId)
       const dir = dirOf(taskId, repo.name, app.name)
       const key = keyOf(taskId, repo.name, app.name)
-      const vars = appVars(task, await allocate(taskId, task))
+      const ports = await allocate(taskId, task)
+      const vars = appVars(task, ports)
       const portVars: Record<string, string> = port === undefined ? {} : { PORT: String(port) }
       const scope = by === 'human' ? undefined : task.sandbox
       const electron = app.electron === true && port !== undefined
@@ -847,7 +854,11 @@ export function createApps(options: AppsOptions): Apps {
       )
       const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
       const sandboxed = await sandboxFor(
-        scope && { ...scope, serves: true, groups: appAccess(app) },
+        scope && {
+          ...scope,
+          serves: servedPorts(port, ports),
+          groups: appAccess(app),
+        },
         task,
         dir,
       )
@@ -1662,6 +1673,13 @@ export async function portFree(port: number): Promise<boolean> {
     socket.once('error', () => resolve(false))
   })
   return !answered
+}
+
+export function servedPorts(own: number | undefined, ports: Record<string, number>): ServedPorts {
+  return {
+    ...(own !== undefined && { own }),
+    reach: Object.values(ports).filter((port) => port !== own),
+  }
 }
 
 export function appAccess(

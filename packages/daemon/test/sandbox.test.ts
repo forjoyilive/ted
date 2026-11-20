@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { createSocket as createDgram } from 'node:dgram'
 import {
   mkdir,
   mkdtemp,
@@ -11,7 +12,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises'
-import { type AddressInfo, createServer, type Server } from 'node:net'
+import { type AddressInfo, connect, createServer, type Server } from 'node:net'
 import { homedir, tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -20,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
   createSandbox,
   SandboxUnavailable,
+  type ServedPorts,
   unixSocketPaths,
   withSandboxEnv,
 } from '../src/sandbox.ts'
@@ -1147,6 +1149,253 @@ describe.runIf(process.platform === 'linux')('the sandbox on Linux', () => {
     )
     expect(output.split('\n').slice(0, 3)).toEqual(['read', 'refused', 'refused'])
   })
+
+  const probeApp = `
+import { connect } from 'node:net'
+import { createSocket } from 'node:dgram'
+import { createServer } from 'node:http'
+const [own, sibling, other, udp] = process.argv.slice(2).map(Number)
+const tcp = (host, port) => new Promise((resolve) => {
+  const socket = connect({ host, port })
+  socket.setTimeout(3000, () => { socket.destroy(); resolve('timeout') })
+  socket.once('connect', () => { socket.destroy(); resolve('open') })
+  socket.once('error', (error) => resolve(error.code))
+})
+const greeting = (host, port) => new Promise((resolve) => {
+  let data = ''
+  const socket = connect({ host, port })
+  socket.setTimeout(3000, () => { socket.destroy(); resolve('timeout') })
+  socket.on('data', (chunk) => { data += chunk })
+  socket.once('end', () => resolve(data === '' ? 'closed' : data))
+  socket.once('error', (error) => resolve(error.code))
+})
+const datagram = (port) => new Promise((resolve) => {
+  const socket = createSocket('udp4')
+  const done = (result) => { clearTimeout(timer); socket.close(); resolve(result) }
+  const timer = setTimeout(() => done('no reply'), 1500)
+  socket.once('message', () => done('reply'))
+  socket.once('error', (error) => done(error.code))
+  socket.send('ping', port, '127.0.0.1')
+})
+const results = {
+  outside: await tcp('192.0.2.1', 80),
+  sibling: await greeting('127.0.0.1', sibling),
+  other: await tcp('127.0.0.1', other),
+  udp: await datagram(udp),
+}
+createServer((_, response) => response.end(JSON.stringify(results))).listen(own, '127.0.0.1')
+`
+
+  const siblingApp = `
+import { createServer } from 'node:net'
+createServer((socket) => socket.end('sibling')).listen(Number(process.argv[2]), '127.0.0.1')
+`
+
+  async function freePort() {
+    const server = createServer()
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    await new Promise((resolve) => server.close(resolve))
+    return port
+  }
+
+  async function hostPorts() {
+    const other = createServer((socket) => socket.end())
+    await new Promise<void>((resolve) => other.listen(0, '127.0.0.1', resolve))
+    const udp = createDgram('udp4')
+    udp.on('message', (message, from) => udp.send(message, from.port, from.address))
+    await new Promise<void>((resolve) => udp.bind(0, '127.0.0.1', resolve))
+    return {
+      own: await freePort(),
+      sibling: await freePort(),
+      other: (other.address() as AddressInfo).port,
+      udp: udp.address().port,
+      close: async () => {
+        udp.close()
+        await new Promise((resolve) => other.close(resolve))
+      },
+    }
+  }
+
+  async function startApp(
+    network: 'none' | 'localhost',
+    serves: ServedPorts,
+    file: string,
+    source: string,
+    args: number[],
+  ) {
+    await writeFile(path.join(worktree, file), source)
+    const sandbox = createSandbox({ tedHome, env: () => ({ ...process.env, HOME: userHome }) })
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), network, serves })
+    const [command, ...wrappedArgs] = wrapped.argv
+    const child = spawn(
+      command,
+      [...wrappedArgs, `exec "${process.execPath}" ${file} ${args.join(' ')}`],
+      {
+        cwd: worktree,
+        detached: true,
+        env: withSandboxEnv(process.env, wrapped.env),
+        stdio: ['ignore', 'inherit', 'inherit', ...wrapped.fds],
+      },
+    )
+    const exited = new Promise((resolve) => child.once('close', resolve))
+    await wrapped.close()
+    return {
+      stop: async () => {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
+        await exited
+      },
+    }
+  }
+
+  async function answer(port: number): Promise<string> {
+    for (let waited = 0; waited < 30_000; waited += 200) {
+      const text = await fetch(`http://127.0.0.1:${port}/`).then(
+        (response) => response.text(),
+        () => undefined,
+      )
+      if (text !== undefined) return text
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    throw new Error(`nothing answered on port ${port}`)
+  }
+
+  async function greeted(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      let data = ''
+      const socket = connect({ host: '127.0.0.1', port })
+      socket.setTimeout(3000, () => {
+        socket.destroy()
+        resolve(false)
+      })
+      socket.on('data', (chunk: Buffer) => {
+        data += chunk.toString('utf8')
+      })
+      socket.once('end', () => resolve(data === 'sibling'))
+      socket.once('error', () => resolve(false))
+    })
+  }
+
+  async function runApp(
+    network: 'none' | 'localhost',
+    ports: Awaited<ReturnType<typeof hostPorts>>,
+  ) {
+    const sibling = await startApp(
+      'localhost',
+      { own: ports.sibling, reach: [ports.own] },
+      'sibling.mjs',
+      siblingApp,
+      [ports.sibling],
+    )
+    try {
+      for (let waited = 0; !(await greeted(ports.sibling)); waited += 200) {
+        if (waited >= 30_000) throw new Error('the sibling App never answered on its port')
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+      const probe = await startApp(
+        network,
+        { own: ports.own, reach: [ports.sibling] },
+        'app.mjs',
+        probeApp,
+        [ports.own, ports.sibling, ports.other, ports.udp],
+      )
+      try {
+        return JSON.parse(await answer(ports.own)) as Record<string, string>
+      } finally {
+        await probe.stop()
+      }
+    } finally {
+      await sibling.stop()
+    }
+  }
+
+  test('an App at localhost serves its port to the host and reaches only its sibling Apps', async () => {
+    const ports = await hostPorts()
+    try {
+      const results = await runApp('localhost', ports)
+      expect(results.outside).toBe('ENETUNREACH')
+      expect(results.sibling).toBe('sibling')
+      expect(results.other).toBe('ECONNREFUSED')
+      expect(results.udp).not.toBe('reply')
+    } finally {
+      await ports.close()
+    }
+  })
+
+  test('an App at none serves its port to the host and reaches nothing else', async () => {
+    const ports = await hostPorts()
+    try {
+      const results = await runApp('none', ports)
+      expect(results.outside).toBe('ENETUNREACH')
+      expect(results.sibling).toBe('ECONNREFUSED')
+      expect(results.other).toBe('ECONNREFUSED')
+      expect(results.udp).not.toBe('reply')
+    } finally {
+      await ports.close()
+    }
+  })
+
+  test('when pasta fails, the App’s command never runs and the output says why', async () => {
+    const pasta = path.join(outside, 'pasta')
+    await writeFile(pasta, '#!/bin/sh\necho "no namespace for you" >&2\nexit 3\n', { mode: 0o755 })
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ ...process.env, HOME: userHome }),
+      pasta,
+    })
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      serves: { own: 4100, reach: [] },
+    })
+    const [command, ...args] = wrapped.argv
+    const result = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
+      let stderr = ''
+      const child = spawn(command, [...args, `touch ${path.join(worktree, 'ran')}`], {
+        cwd: worktree,
+        env: withSandboxEnv(process.env, wrapped.env),
+        stdio: ['ignore', 'ignore', 'pipe', ...wrapped.fds],
+      })
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf8')
+      })
+      child.once('close', (code) => resolve({ code, stderr }))
+    })
+    await wrapped.close()
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain(
+      'Ted couldn’t forward the App’s ports into its sandbox: no namespace for you',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await expect(stat(path.join(worktree, 'ran'))).rejects.toThrow()
+  })
+
+  test('an App stopped before its ports are forwarded never runs its command', async () => {
+    const pasta = path.join(outside, 'pasta')
+    await writeFile(pasta, "#!/bin/sh\ntrap '' TERM\nsleep 3\n", { mode: 0o755 })
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ ...process.env, HOME: userHome }),
+      pasta,
+    })
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      serves: { own: 4100, reach: [] },
+    })
+    const [command, ...args] = wrapped.argv
+    const child = spawn(command, [...args, `touch ${path.join(worktree, 'ran')}`], {
+      cwd: worktree,
+      detached: true,
+      env: withSandboxEnv(process.env, wrapped.env),
+      stdio: ['ignore', 'ignore', 'ignore', ...wrapped.fds],
+    })
+    const exited = new Promise((resolve) => child.once('close', resolve))
+    await wrapped.close()
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    if (child.pid !== undefined) process.kill(-child.pid, 'SIGTERM')
+    await exited
+    await new Promise((resolve) => setTimeout(resolve, 3500))
+    await expect(stat(path.join(worktree, 'ran'))).rejects.toThrow()
+  })
 })
 
 describe('the folders a sandbox opens', () => {
@@ -1339,30 +1588,121 @@ describe('the folders a sandbox opens', () => {
     expect(argv.lastIndexOf(await realpath(tedHome))).toBeGreaterThan(argv.indexOf(realInner))
   })
 
-  test('on Linux, a command gets its own network unless it has outbound access or is an App serving a port', async () => {
+  test('on Linux, every command below outbound gets its own network, and an App’s ports are forwarded by pasta', async () => {
     const sandbox = createSandbox({
       tedHome,
       env: () => ({ PATH: '/usr/bin:/bin' }),
       platform: 'linux',
       program: '/usr/bin/true',
+      pasta: '/usr/bin/pasta',
+      unshare: '/usr/bin/unshare',
       unixSockets: async () => '',
     })
-    const ownNetwork = async (extra: {
+    const wrap = async (extra: {
       network?: 'none' | 'localhost' | 'outbound'
-      serves?: boolean
+      serves?: ServedPorts
       groups?: SandboxAccess[]
-    }) =>
-      (await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })).argv.includes(
-        '--unshare-net',
-      )
+    }) => (await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })).argv
+    const ownNetwork = async (extra: Parameters<typeof wrap>[0]) => {
+      const argv = await wrap(extra)
+      return argv.includes('--unshare-net') || argv.includes('--net')
+    }
     expect(await ownNetwork({})).toBe(true)
     expect(await ownNetwork({ network: 'none' })).toBe(true)
     expect(await ownNetwork({ network: 'outbound' })).toBe(false)
     expect(await ownNetwork({ groups: ['network'] })).toBe(false)
-    expect(await ownNetwork({ serves: true })).toBe(false)
-    expect(await ownNetwork({ network: 'none', serves: true })).toBe(true)
-    expect(await ownNetwork({ groups: ['android-emulator'] })).toBe(false)
+    expect(await ownNetwork({ serves: { own: 4100, reach: [4101] } })).toBe(true)
+
+    const pastaArgs = (argv: string[]) => {
+      const at = argv.indexOf('/usr/bin/pasta')
+      return at < 0 ? undefined : argv.slice(at + 2, argv.indexOf('--', at))
+    }
+    const forwarding = [
+      '-q',
+      '--host-lo-to-ns-lo',
+      '-t',
+      '127.0.0.1/4100',
+      '-T',
+      '4101,4102',
+      '-u',
+      'none',
+      '-U',
+      'none',
+    ]
+    const app = await wrap({ serves: { own: 4100, reach: [4101, 4100, 4102, 4101] } })
+    expect(app.slice(0, 2)).toEqual(['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1'])
+    expect(pastaArgs(app)).toEqual(forwarding)
+    const launched = app.slice(app.indexOf('--', app.indexOf('/usr/bin/pasta')) + 1)
+    expect(launched.slice(0, 11)).toEqual([
+      '/usr/bin/unshare',
+      '--user',
+      '--map-root-user',
+      '--net',
+      '--',
+      '/usr/bin/true',
+      '--unshare-user',
+      '--uid',
+      String(process.getuid?.() ?? 0),
+      '--gid',
+      String(process.getgid?.() ?? 0),
+    ])
+    expect(launched).not.toContain('--unshare-net')
+    expect(launched.slice(-2)).toEqual(['/bin/sh', '-c'])
+    expect(
+      pastaArgs(await wrap({ network: 'none', serves: { own: 4100, reach: [4101] } })),
+    ).toEqual(forwarding.with(5, 'none'))
+    expect(pastaArgs(await wrap({ serves: { reach: [4101] } }))).toEqual(
+      forwarding.with(3, 'none').with(5, '4101'),
+    )
+    const portless = await wrap({ serves: { reach: [] } })
+    expect(pastaArgs(portless)).toBeUndefined()
+    expect(portless[0]).toBe('/usr/bin/true')
+    expect(portless).toContain('--unshare-net')
+    const outbound = await wrap({ network: 'outbound', serves: { own: 4100, reach: [4101] } })
+    expect(pastaArgs(outbound)).toBeUndefined()
+    expect(outbound).not.toContain('--unshare-net')
+    const adb = await wrap({ groups: ['android-emulator'] })
+    expect(pastaArgs(adb)).toEqual(forwarding.with(3, 'none').with(5, '5037,5554-5585'))
+    expect(pastaArgs(await wrap({ network: 'none', groups: ['android-emulator'] }))).toBeUndefined()
     expect(await ownNetwork({ network: 'none', groups: ['android-emulator'] })).toBe(true)
+  })
+
+  test('on Linux, an App with a port is refused when pasta or unshare isn’t installed', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: outside }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    await expect(
+      sandbox.wrap(['/bin/sh', '-c'], { ...scope(), serves: { own: 4100, reach: [] } }),
+    ).rejects.toThrow(
+      new SandboxUnavailable(
+        'pasta isn’t installed, so Ted can’t forward the App’s ports into its sandbox. Install the passt package.',
+      ),
+    )
+    const outbound = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      network: 'outbound',
+      serves: { own: 4100, reach: [] },
+    })
+    expect(outbound.argv[0]).toBe('/usr/bin/true')
+    const withPasta = createSandbox({
+      tedHome,
+      env: () => ({ PATH: outside }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      pasta: '/usr/bin/pasta',
+      unixSockets: async () => '',
+    })
+    await expect(
+      withPasta.wrap(['/bin/sh', '-c'], { ...scope(), serves: { own: 4100, reach: [] } }),
+    ).rejects.toThrow(
+      new SandboxUnavailable(
+        'unshare isn’t installed, so Ted can’t give the App a network of its own. Install the util-linux package.',
+      ),
+    )
   })
 
   test('on Linux, only android-emulator mounts the Android SDK, even when a folder in it is on PATH', async () => {
@@ -1374,6 +1714,8 @@ describe('the folders a sandbox opens', () => {
       env: () => ({ PATH: `/usr/bin:/bin:${tools}`, HOME: userHome }),
       platform: 'linux',
       program: '/usr/bin/true',
+      pasta: '/usr/bin/pasta',
+      unshare: '/usr/bin/unshare',
       unixSockets: async () => '',
     })
     const sdk = path.join(await realpath(userHome), 'Library', 'Android', 'sdk')
