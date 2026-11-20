@@ -1,14 +1,9 @@
 import type { Task } from '@ted/protocol'
+import { type StatusActionKind, statusActionKind } from '@ted/protocol/task-actions'
 import { startTask } from './setup-notice.ts'
 import { ted } from './ted.ts'
 
-export type StatusActionKind =
-  | 'start'
-  | 'move-to-backlog'
-  | 'resume'
-  | 'retry'
-  | 'stop'
-  | 'follow-up'
+export type { StatusActionKind }
 
 export interface StatusAction {
   kind: StatusActionKind
@@ -17,44 +12,39 @@ export interface StatusAction {
 }
 
 export function statusAction(task: Task): StatusAction | undefined {
-  if (task.archived) return undefined
-  if (task.stage === 'done') {
-    return {
-      kind: 'follow-up',
-      label: 'Follow-up…',
-      help: 'Creates a new Task linked to this one, starting from its brief. This Task stays Done.',
-    }
+  const kind = statusActionKind(task)
+  switch (kind) {
+    case undefined:
+      return undefined
+    case 'follow-up':
+      return {
+        kind,
+        label: 'Follow-up…',
+        help: 'Creates a new Task linked to this one, starting from its brief. This Task stays Done.',
+      }
+    case 'retry':
+      return {
+        kind,
+        label: 'Retry',
+        help: 'Starts a fresh Task Lead Run from the brief plus the comments since.',
+      }
+    case 'resume':
+      return {
+        kind,
+        label: 'Resume',
+        help: 'Starts a fresh Task Lead Run from the brief plus the comments since, when a slot is free.',
+      }
+    case 'start':
+      return { kind, label: 'Start', help: 'Joins the queue as Queued.' }
+    case 'move-to-backlog':
+      return {
+        kind,
+        label: 'Move to Backlog',
+        help: 'Takes the Task out of the queue. It hasn’t had a Run yet.',
+      }
+    case 'stop':
+      return { kind, label: 'Stop Task', help: stopHelp(task.runs.length) }
   }
-  if (task.statuses.includes('failed')) {
-    return {
-      kind: 'retry',
-      label: 'Retry',
-      help: 'Starts a fresh Task Lead Run from the brief plus the comments since.',
-    }
-  }
-  if (task.statuses.includes('stopped') || task.canResume) {
-    return {
-      kind: 'resume',
-      label: 'Resume',
-      help: 'Starts a fresh Task Lead Run from the brief plus the comments since, when a slot is free.',
-    }
-  }
-  if (task.stage === 'backlog') {
-    return { kind: 'start', label: 'Start', help: 'Joins the queue as Queued.' }
-  }
-  if (
-    task.statuses.includes('queued') &&
-    task.runs.length === 0 &&
-    task.repos.length === 0 &&
-    task.leadRunId === undefined
-  ) {
-    return {
-      kind: 'move-to-backlog',
-      label: 'Move to Backlog',
-      help: 'Takes the Task out of the queue. It hasn’t had a Run yet.',
-    }
-  }
-  return { kind: 'stop', label: 'Stop Task', help: stopHelp(task.runs.length) }
 }
 
 function stopHelp(runs: number): string {

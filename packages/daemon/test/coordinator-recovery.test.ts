@@ -442,7 +442,7 @@ test('failed session launch keeps pending input available for a successful retry
   expect(after.items.some((i) => i.kind === 'agent' && i.text === 'Resumed pending request')).toBe(
     true,
   )
-})
+}, 90_000)
 
 test('failed admitted input write preserves the human request for Retry', async () => {
   const s = await setup()

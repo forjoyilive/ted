@@ -30,6 +30,7 @@ import {
   phoneTaskGroups,
   phoneTaskIdMax,
 } from './phone-tasks.ts'
+import { type Priority, priorities } from './task.ts'
 import { RequestValidationError } from './validation.ts'
 
 export const phoneProtocolVersion = 3
@@ -41,6 +42,8 @@ export const pairingLifetimeMs = 5 * 60_000
 export const phoneMessageWindowMs = 120_000
 export const phoneNameMax = 100
 export const phoneRequestIdMax = 200
+export const phoneActionTextMax = 10_000
+export const phoneRevisionMax = 128
 export const relayLoginVersion = 2
 export const relayAuthHeader = 'Ted-Relay-Auth'
 export const relayAuthMax = 1_024
@@ -78,6 +81,13 @@ export const phoneRouteNames = [
   'tasks',
   'task',
   'task-comments',
+  'task-start',
+  'task-stop',
+  'task-resume',
+  'task-priority',
+  'task-comment',
+  'task-archive',
+  'task-delete',
 ] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
@@ -126,6 +136,11 @@ export type PhoneRequest =
       taskId?: string
       group?: PhoneTaskGroup
       cursor?: string
+      text?: string
+      priority?: Priority
+      children?: 'archive' | 'detach' | 'delete' | 'unparent'
+      closePullRequests?: boolean
+      hierarchyRevision?: string
     })
 
 export interface PhoneReplyError {
@@ -447,7 +462,82 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       ...(cursor !== undefined && { cursor }),
     }
   }
+  if (route === 'task-start' || route === 'task-stop') {
+    return { ...header, type, route, taskId: taskId(object) }
+  }
+  if (route === 'task-resume') {
+    const text = read.optional(object, 'text', read.string)
+    if (text !== undefined) actionText(text, false)
+    return {
+      ...header,
+      type,
+      route,
+      taskId: taskId(object),
+      ...(text !== undefined && { text }),
+    }
+  }
+  if (route === 'task-priority') {
+    return {
+      ...header,
+      type,
+      route,
+      taskId: taskId(object),
+      priority: read.oneOf(object, 'priority', priorities),
+    }
+  }
+  if (route === 'task-comment') {
+    const text = read.string(object, 'text')
+    actionText(text, true)
+    return { ...header, type, route, taskId: taskId(object), text }
+  }
+  if (route === 'task-archive') {
+    const children = read.optional(object, 'children', (o, f) =>
+      read.oneOf(o, f, ['archive', 'detach'] as const),
+    )
+    return {
+      ...header,
+      type,
+      route,
+      taskId: taskId(object),
+      hierarchyRevision: revision(object),
+      closePullRequests: read.boolean(object, 'closePullRequests'),
+      ...(children !== undefined && { children }),
+    }
+  }
+  if (route === 'task-delete') {
+    const children = read.optional(object, 'children', (o, f) =>
+      read.oneOf(o, f, ['delete', 'unparent'] as const),
+    )
+    return {
+      ...header,
+      type,
+      route,
+      taskId: taskId(object),
+      hierarchyRevision: revision(object),
+      ...(children !== undefined && { children }),
+    }
+  }
   return { ...header, type, route }
+}
+
+function actionText(text: string, required: boolean): void {
+  if (text.length > phoneActionTextMax || (required && text.trim() === '')) {
+    throw new ParseError(
+      'text',
+      `text must be ${required ? 'text of 1' : '0'} to ${phoneActionTextMax} characters`,
+    )
+  }
+}
+
+function revision(object: JsonObject): string {
+  const value = read.string(object, 'hierarchyRevision')
+  if (!value || value.length > phoneRevisionMax) {
+    throw new ParseError(
+      'hierarchyRevision',
+      `hierarchyRevision must be text of 1 to ${phoneRevisionMax} characters`,
+    )
+  }
+  return value
 }
 
 function taskId(object: JsonObject): string {

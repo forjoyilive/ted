@@ -18,6 +18,7 @@ import {
   noChoicesPicked,
   trackerName,
 } from '@ted/protocol/task'
+import { openPullRequests } from '@ted/protocol/task-actions'
 import { keepMoveChoice, moveChoice, movePlanKey } from '@ted/protocol/task-move'
 import { type ComponentProps, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
@@ -56,7 +57,6 @@ import {
   ArchiveDialog,
   Dialog,
   MovePlanDetails,
-  openPullRequests,
   useBlocked,
   useMovePlan,
 } from './ArchiveDialogs.tsx'

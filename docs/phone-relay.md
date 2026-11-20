@@ -131,6 +131,7 @@ Every message inside a box has:
 - `{"type":"request","route":"push-token","token":"ExponentPushToken[…]"}` from a paired phone’s key. The daemon accepts only `ExponentPushToken[…]` or `ExpoPushToken[…]` with 1 to 200 letters, digits, `_` or `-` inside the brackets, and stores it with that phone’s pairing; any other value gets `bad-request`. A token another paired phone held moves to this phone.
 - `{"type":"request","route":"problems"}` from a paired phone’s key. A Mac older than this route answers `unknown-route`, which the phone treats as no problems.
 - `{"type":"request","route":"tasks","group":"status","cursor":"<cursor>"}`, `{"type":"request","route":"task","taskId":"TED-786"}` and `{"type":"request","route":"task-comments","taskId":"TED-786","cursor":"<cursor>"}` from a paired phone’s key (see Tasks below). `group` is optional and `status` when left out; `cursor` is optional. `taskId` is 1 to 200 characters and `cursor` 1 to 512; anything else gets `bad-request`. A Mac older than these routes answers `unknown-route`.
+- `{"type":"request","route":"task-start","taskId":"TED-788"}`, `task-stop`, `task-resume` (optional `text`), `task-priority` (`priority`), `task-comment` (`text`), `task-archive` (`hierarchyRevision`, `closePullRequests`, optional `children`) and `task-delete` (`hierarchyRevision`, optional `children`) from a paired phone’s key (see Task actions below). A Mac older than these routes answers `unknown-route`.
 
 ### Mac → phone
 
@@ -146,6 +147,8 @@ Every message inside a box has:
 - `tasks` → `{"rows":[<row>, …],"sections":[<section>, …],"cursor":"<cursor>","at":"<ISO time>"}`.
 - `task` → `{"task":<task>}`.
 - `task-comments` → `{"entries":[<entry>, …],"cursor":"<cursor>"}`.
+- `task-start`, `task-stop`, `task-resume`, `task-priority` and `task-comment` → `{"task":<task>}`, the Task as the `task` route shows it after the change.
+- `task-archive` and `task-delete` → `{}`.
 - `problems` → `{"problems":[{"id":"clone-failed:<Factory ID>","factory":"Notebook","text":"Couldn’t clone …","raisedAt":"<ISO time>"}, …]}`: the current stops-work banners, newest first, never warnings. `factory` is the Factory’s name, cut to 200 characters, and is left out for a problem that affects every Factory. `text` is the banner’s text through `redactSecrets`, cut to 500 characters; at most 50 problems, and fewer when the next one would take the reply past `phoneReplyBodyMax` bytes.
 
 ### Push notifications
@@ -166,15 +169,15 @@ With Problems notifications on (machine setting `notifyProblems`), the same away
 | `too-new` | The phone’s `protocol` is above the daemon’s. The phone says “Update Ted on your Mac.” |
 | `bad-request` | The message has the wrong shape. |
 | `unknown-route` | `request` names a route not marked for phones. |
-| `gone` | The request was answered, withdrawn or superseded elsewhere, or its Task, plan or Automation is gone; or, on `task` and `task-comments`, no Task has that ID or the Task is archived. The phone says so and drops it from the list. |
+| `gone` | The request was answered, withdrawn or superseded elsewhere, or its Task, plan or Automation is gone; or, on `task`, `task-comments` and the Task actions, no Task has that ID or the Task is archived. The phone says so and drops it from the list. |
 | `answer-on-mac` | The phone may not answer this request. The daemon refuses it whatever the phone sends. |
-| `refused` | Ted’s own answer code refused the answer (for example a choice that isn’t offered). `message` is the daemon’s sentence. |
+| `refused` | Ted’s own code refused the answer (for example a choice that isn’t offered) or the Task action (for example Stop on a Task that hasn’t started, or Archive after the Task’s family changed). `message` is the daemon’s sentence, through `redactSecrets`. |
 
 A phone that gets a reply with a `protocol` above its own says “Update the Ted app on your phone.”
 
 ## Inbox requests
 
-Protocol 2 adds three routes. They show the open requests the desktop Inbox shows and answer some of them. Apart from these and the read-only Tasks routes below, a phone gets nothing: no settings, Factory changes, Runs or Task changes.
+Protocol 2 adds three routes. They show the open requests the desktop Inbox shows and answer some of them. Apart from these, the read-only Tasks routes and the seven Task actions below, a phone gets nothing: no settings, Factory changes, Runs or other Task changes.
 
 ### `requests`
 
@@ -274,6 +277,7 @@ Inside a section, rows follow the Mac’s All Tasks order: priority, then rank, 
 - `status` uses the desktop’s wording (“Waiting on you”, “Queued · 3rd”, “Blocked by TED-12”), and is `""` when the Task has no status (Backlog and Done).
 - `tone` is `working` (working, queued), `waiting` (waiting on you, blocked, paused, waiting for GitHub, snoozed), `failed` (failed, partly merged), `stopped`, `done` or `none` (no status).
 - `section` is the row’s section key in the grouping asked for.
+- `actions` lists the Task actions the Mac offers for the Task now, in this order: `start` (in Backlog), `stop` (where the Mac shows Stop Task), `resume` (stopped or failed; the Mac’s Retry does the same), `priority`, `comment` (left out while Ted is merging the Task’s pull requests, when the Mac offers only Send and cancel merge), `archive` and `delete`. At most one of `start`, `stop` and `resume` appears, and none in Done or when the Mac shows Move to Backlog. The phone offers only these; the daemon still decides each action when it arrives.
 
 `sections` holds `{"key":"working","label":"Working","count":12}` for each section with at least one Task, in order, on every page; `count` counts the whole list, not the page. `sections` never takes more than half of `phoneReplyBodyMax`, so at least one row always fits: when it would, the Mac cuts every label to 100 characters, then 50, then 20, then none, and as a last resort sends only the sections that fit, with empty labels. `at` is when the Mac made the page.
 
@@ -284,10 +288,16 @@ Inside a section, rows follow the Mac’s All Tasks order: priority, then rank, 
 One Task by its display ID (`TED-786`) or full ID, to refresh a row in place. The **task** is the row plus:
 
 ```json
-{ "description": "<Markdown>", "cut": false }
+{
+  "description": "<Markdown>",
+  "cut": false,
+  "childTasks": 2,
+  "openPullRequests": 1,
+  "hierarchyRevision": "<revision>"
+}
 ```
 
-`section` here is the Task’s `status` section key. The description is cut at 16,000 characters, then to the bytes left in the reply, and `cut` is `true` when either happened. An unknown or archived Task gets `gone`.
+`section` here is the Task’s `status` section key. `childTasks` counts the Task’s child Tasks and theirs, as the Mac’s Archive and Delete dialogs do; `openPullRequests` counts its repos with a pull request that isn’t closed or merged, as the Mac’s Archive dialog does. `hierarchyRevision` is opaque text (a SHA-256 in hex) covering the Task and each of its child Tasks and theirs: for each, the fields the Mac’s hierarchy revision covers (parent, children, Stage, archived, blockers, status, Runs, last change and merge) and its open pull requests. Any change to one of them, such as an edit to the Task on the Mac, changes it. `task-archive` and `task-delete` send it back. The description is cut at 16,000 characters, then to the bytes left in the reply, and `cut` is `true` when either happened. An unknown or archived Task gets `gone`.
 
 ### `task-comments`
 
@@ -316,6 +326,24 @@ Every entry in the Task’s thread, newest first: notes from the user, the Task 
 
 A page holds as many entries as fit; `cursor` (the last entry’s time and ID, opaque like the list cursor) gets older entries and is left out when none are left. A bad cursor gets `bad-request`; an unknown or archived Task gets `gone`.
 
+## Task actions
+
+Seven routes change a Task. Each runs the same Tasks module code as the Mac’s button, as the user, so the Mac’s own rules decide: when the daemon refuses, the phone gets `refused` with the daemon’s sentence, through `redactSecrets`. Every route takes `taskId`, a display ID (`TED-788`) or full ID of 1 to 200 characters. An unknown or archived Task gets `gone`, and a missing or wrong field gets `bad-request`. The protocol number doesn’t change: a Mac without these routes answers `unknown-route`. Nothing on the Mac turns them off; pairing the phone (and Face ID on the phone) is the gate.
+
+| Route | Fields | Does |
+| - | - | - |
+| `task-start` | `taskId` | Start, as the Mac’s Start: the Task leaves Backlog and joins the queue. The Mac’s Factory setup reminder before a Start isn’t shown. |
+| `task-stop` | `taskId` | Stop Task. Refused when the Task hasn’t started, is Done or is already stopped. |
+| `task-resume` | `taskId`, optional `text` | Resume (or Retry, for a failed Task). `text` is at most 10,000 characters and is posted as the user’s comment first when it isn’t blank. Refused when the Task isn’t stopped or failed. |
+| `task-priority` | `taskId`, `priority` | Sets `urgent`, `high`, `medium`, `low` or `none`. |
+| `task-comment` | `taskId`, `text` | Posts `text` (1 to 10,000 characters, not only spaces) as the user’s comment, text only. Refused while Ted is merging the Task’s pull requests. |
+| `task-archive` | `taskId`, `hierarchyRevision`, `closePullRequests`, optional `children` | Archive. `closePullRequests` (`true` or `false`, always sent) closes the Task’s open pull requests on GitHub. `children` is `archive` (the child Tasks too, also when left out) or `detach` (archive only this Task; its direct children lose their parent). |
+| `task-delete` | `taskId`, `hierarchyRevision`, optional `children` | Delete. `children` is `delete` (the child Tasks and theirs too) or `unparent` (delete only this Task; its direct children lose their parent). With child Tasks and no `children`, it is refused. |
+
+The phone sends back the `hierarchyRevision` it read with the Task. When it no longer matches, the daemon refuses with “TED-788 or its child Tasks changed since your phone read it. Open it again and choose again.”, and the phone reads the Task again and asks again. This plays the part of the Mac’s hierarchy revision check, which the Mac’s dialogs keep current as Tasks change; the Mac’s revision covers every Task in the Factory and would go stale on the phone whenever any of them changed, so the phone’s covers the same fields for this Task’s family only. When the phone’s revision matches, the daemon passes the Mac’s current revision to the Tasks module in the same step, so the Mac’s own checks (for example a child Task being set up or deleted at that moment) still apply.
+
+A comment, or Resume text, from the phone is the user’s, but never sends the Task’s line comment drafts made on the Mac, because they can’t be seen on the phone. The daemon’s HTTP routes, the Mac’s own buttons and the tokens that may call them don’t change.
+
 ## Pairing
 
 1. The app asks the daemon for a pairing link. The daemon makes a pairing ID and secret, keeps them in memory, connects to the relay if it isn’t already, and sends `pairing` with the ticket hash. It returns the link only after `pairing-ok`; with no answer in 5 seconds the app says Ted can’t reach the relay. A new link cancels the previous one.
@@ -328,7 +356,7 @@ The daemon sends `pairing-end` right after it answers a `pair-status` with `appr
 
 ## Paired phones
 
-The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer`, `push-token`, `problems`, `tasks`, `task` and `task-comments`. Removing a phone on the Mac records `v1.PhoneRemoved` and sends the new list; the relay then refuses that phone. A message that still reaches the daemon from a removed key gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there. Phones paired before protocol 3 have no relay key, so they aren’t on the relay’s list and must pair again.
+The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer`, `push-token`, `problems`, `tasks`, `task`, `task-comments`, `task-start`, `task-stop`, `task-resume`, `task-priority`, `task-comment`, `task-archive` and `task-delete`. Removing a phone on the Mac records `v1.PhoneRemoved` and sends the new list; the relay then refuses that phone. A message that still reaches the daemon from a removed key gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there. Phones paired before protocol 3 have no relay key, so they aren’t on the relay’s list and must pair again.
 
 The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so the relay’s list stays current). It reconnects with backoff (1, 2, 5, 10, 30 seconds).
 

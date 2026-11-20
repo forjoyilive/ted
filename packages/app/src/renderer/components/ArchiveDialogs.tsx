@@ -1,5 +1,6 @@
 import type { Task, TaskHierarchyPreview, TaskMovePlan } from '@ted/protocol'
 import { archiveChoice } from '@ted/protocol/task'
+import { openPullRequests } from '@ted/protocol/task-actions'
 import { movePlanKey } from '@ted/protocol/task-move'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useFactories, useTaskRuns, useTasks } from '../data.ts'
@@ -162,14 +163,6 @@ function parentRefusal(task: Task, parent: Task): string | undefined {
 function joinAnd(items: readonly string[]): string {
   if (items.length < 2) return items.join('')
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
-}
-
-export function openPullRequests(task: Task) {
-  return task.repos.flatMap((r) =>
-    r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
-      ? [{ repo: r, pr: r.pullRequest }]
-      : [],
-  )
 }
 
 export function useBlocked(task: Task): Task[] {

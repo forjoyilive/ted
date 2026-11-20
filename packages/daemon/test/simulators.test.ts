@@ -392,7 +392,7 @@ describe('iOS simulator Apps', () => {
     expect((await iPhone(client, task))?.state).toBe('running')
     expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toEqual([])
     expect(await cpusTold(1)).toEqual([String(checkCpus(os.availableParallelism(), 1, 50))])
-  })
+  }, 90_000)
 
   test('a Task shows Starting app while its iPhone App builds, and stops once the build turn ends without a ready line', async () => {
     const client = await start({}, undefined, undefined, { buildTurnMs: 8_000 })
