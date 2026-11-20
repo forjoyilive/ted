@@ -60,6 +60,34 @@ test('a refused connect or a failed lookup names network, and the hint says what
   expect(refusalHints('connect EPERM 192.0.2.1:443', ['network'], 'the App “Web”')).toEqual([])
 })
 
+test('a lost CoreSimulator connection or a refused device folder names ios-simulator, on macOS only', () => {
+  const lost =
+    'An error was encountered processing the command: CoreSimulatorService connection became invalid.'
+  const devices =
+    'open /Users/someone/Library/Developer/CoreSimulator/Devices/device_set.plist: Operation not permitted'
+  expect(refusedGroups(lost, 'darwin')).toEqual(['ios-simulator'])
+  expect(refusedGroups(devices, 'darwin')).toEqual(['ios-simulator'])
+  expect(refusedGroups(devices, 'linux')).toEqual([])
+  expect(refusedGroups('/Users/someone/Library/Developer/CoreSimulator/Devices', 'darwin')).toEqual(
+    [],
+  )
+  expect(refusalHints(lost, ['ios-simulator'], 'the App “iOS”', [], 'darwin')).toEqual([])
+})
+
+test('adb unable to reach its server or a refused SDK path names android-emulator, not network', () => {
+  const adb = '* cannot connect to daemon at tcp:5037: Operation not permitted'
+  const connect = 'Error: connect EPERM 127.0.0.1:5037 - Local (0.0.0.0:0)'
+  const sdk =
+    'cat: /Users/someone/Library/Android/sdk/platform-tools/source.properties: Operation not permitted'
+  for (const line of [adb, connect, sdk])
+    expect(refusedGroups(line, 'linux')).toEqual(['android-emulator'])
+  expect(refusedGroups('connect ECONNREFUSED 127.0.0.1:5037')).toEqual([])
+  expect(refusalHints(adb, [], 'the Check “Android build”')).toEqual([
+    'Ted: the sandbox refused something in the android-emulator access group, which the Check “Android build” doesn’t have. Propose sandbox_access: [android-emulator] for it in .ted/workflow.yaml instead of working around the refusal; it takes effect once the user merges or approves it.',
+  ])
+  expect(refusalHints(adb, ['android-emulator'], 'the App “Android”')).toEqual([])
+})
+
 test('a refused Electron service names the electron group, and a socket the Library lacks gets its own line', () => {
   const lookup =
     'Check in with com.apple.coreservices.launchservicesd failed: Operation not permitted'

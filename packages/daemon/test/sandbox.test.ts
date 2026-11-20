@@ -934,6 +934,57 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
     expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
   })
 
+  test('only the ios-simulator group reads the simulator device folders, and only android-emulator reads the Android SDK', async () => {
+    const home = await realpath(outside)
+    const device = path.join(home, 'Library', 'Developer', 'CoreSimulator', 'Devices', 'set.plist')
+    const xcodeData = path.join(home, 'Library', 'Developer', 'Xcode', 'UserData', 'x')
+    const sdk = path.join(home, 'Library', 'Android', 'sdk', 'platform-tools', 'source.properties')
+    for (const file of [device, xcodeData, sdk]) {
+      await mkdir(path.dirname(file), { recursive: true })
+      await writeFile(file, 'x')
+    }
+    const script = [device, xcodeData, sdk].map(tryRead).join('; ')
+    const plain = await inSandbox(script, { home })
+    expect(plain.stdout.trim().split('\n')).toEqual(['refused', 'read', 'refused'])
+    const simulator = await inSandbox(script, { home, groups: ['ios-simulator'] })
+    expect(simulator.stdout.trim().split('\n')).toEqual(['read', 'read', 'refused'])
+    const android = await inSandbox(script, { home, groups: ['android-emulator'] })
+    expect(android.stdout.trim().split('\n')).toEqual(['refused', 'read', 'read'])
+  })
+
+  test('only the ios-simulator group looks up CoreSimulator, and only android-emulator connects to adb and emulator ports, whatever the network level', async () => {
+    const sandbox = createSandbox({ tedHome, env: () => process.env })
+    const profile = async (extra: {
+      network?: 'none' | 'localhost' | 'outbound'
+      groups?: SandboxAccess[]
+    }) => (await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), ...extra })).argv.join('\n')
+    const coreSimulator = '(global-name-prefix "com.apple.CoreSimulator.")'
+    const denyAdb = '(deny network-outbound (remote ip "localhost:5037"))'
+    const denyLastEmulator = '(deny network-outbound (remote ip "localhost:5585"))'
+    for (const network of ['localhost', 'outbound'] as const) {
+      const closed = await profile({ network, groups: ['ios-xcode', 'network'] })
+      expect(closed).not.toContain(coreSimulator)
+      expect(closed).toContain(denyAdb)
+      expect(closed).toContain(denyLastEmulator)
+      const open = await profile({ network, groups: ['ios-simulator', 'android-emulator'] })
+      expect(open).toContain(coreSimulator)
+      expect(open).not.toContain(denyAdb)
+      expect(open).not.toContain(denyLastEmulator)
+    }
+    const attempt = async (network: 'localhost' | 'outbound') => {
+      const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), network })
+      const [command, ...args] = argv
+      const { stdout } = await execFileAsync(
+        command,
+        [...args, [5037, 5555].map((port) => tryTcp('127.0.0.1', port)).join('; ')],
+        { cwd: worktree, env: withSandboxEnv(process.env, env) },
+      )
+      return stdout.trim().split('\n')
+    }
+    expect(await attempt('localhost')).toEqual(['EPERM', 'EPERM'])
+    expect(await attempt('outbound')).toEqual(['EPERM', 'EPERM'])
+  })
+
   test('without a grant it reaches only loopback, none closes loopback too, and outbound or the network group lifts the IP rule', async () => {
     const { server, port } = await listenTcp()
     const sandbox = createSandbox({ tedHome, env: () => process.env })
@@ -1310,6 +1361,28 @@ describe('the folders a sandbox opens', () => {
     expect(await ownNetwork({ groups: ['network'] })).toBe(false)
     expect(await ownNetwork({ serves: true })).toBe(false)
     expect(await ownNetwork({ network: 'none', serves: true })).toBe(true)
+    expect(await ownNetwork({ groups: ['android-emulator'] })).toBe(false)
+  })
+
+  test('on Linux, only android-emulator mounts the Android SDK, even when a folder in it is on PATH', async () => {
+    const userHome = await mkdtemp(path.join(outside, 'home-'))
+    const tools = path.join(userHome, 'Library', 'Android', 'sdk', 'platform-tools')
+    await mkdir(tools, { recursive: true })
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: `/usr/bin:/bin:${tools}`, HOME: userHome }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+    })
+    const sdk = path.join(await realpath(userHome), 'Library', 'Android', 'sdk')
+    const plain = (await sandbox.wrap(['/bin/sh', '-c'], scope())).argv.join(' ')
+    expect(plain).not.toContain(sdk)
+    const android = await sandbox.wrap(['/bin/sh', '-c'], {
+      ...scope(),
+      groups: ['android-emulator'],
+    })
+    expect(android.argv.join(' ')).toContain(`${sdk} ${sdk}`)
   })
 
   test('on Linux, a scope that hides protected folders covers each one that exists in HOME', async () => {

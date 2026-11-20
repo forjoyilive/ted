@@ -7,7 +7,7 @@ const uuid = '[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}'
 const xcodeSavers =
   'xcodebuild|SWBBuildService|XCBBuildService|actool|ibtool|ibtoold|swift-build|swift-run|swift-test'
 
-const groupPaths: Record<Exclude<SandboxGroup, 'network'>, RegExp> = {
+const groupPaths: Record<Exclude<SandboxGroup, 'network' | 'android-emulator'>, RegExp> = {
   'ios-xcode': new RegExp(
     [
       `${perUserTemp}(?:TemporaryItems/NSIRD_(?:${xcodeSavers})_|TemporaryDirectory\\.[A-Za-z0-9]{6}|swbuild\\.tmp\\.[A-Za-z0-9]{8}|actool-sprite-atlas-scratch-|ibtoold-[0-9]+|Untitled-[A-Za-z0-9]{8}\\.uicatalog|${uuid}|\\.?[^/\\s]+_${uuid}-[0-9]+-[0-9A-F]{16}\\.png)`,
@@ -17,7 +17,19 @@ const groupPaths: Record<Exclude<SandboxGroup, 'network'>, RegExp> = {
   ),
   'shared-tmp': /(?<![\w./~-])\/(?:private\/)?tmp(?:\/|$|[\s'"`:,)])/m,
   electron: /com\.apple\.(?:coreservices\.launchservicesd|windowserver\.active)/i,
+  'ios-simulator':
+    /com\.apple\.CoreSimulator\.|\/Library\/Developer\/CoreSimulator(?:\/|$|[\s'"`:,)])/i,
 }
+
+const androidSdkPath = /\/Library\/Android\/sdk(?:\/|$|[\s'"`:,)])/i
+
+// simctl and xcodebuild report a refused CoreSimulator lookup as a lost or missing service connection.
+const simulatorRefused =
+  /CoreSimulatorService.*(?:invalid|interrupted|unable|failed|couldn[’']t|could not)|(?:unable|failed) to (?:connect|initialize|locate).*CoreSimulator/i
+
+// adb can't reach its server, or a connect to the server or an emulator port is refused.
+const adbRefused =
+  /cannot connect to daemon|could not connect to tcp:5037|(?:127\.0\.0\.1|localhost|::1)[:.](?:5037|555[4-9]|55[67][0-9]|558[0-5])\b.*EPERM|EPERM.*(?:127\.0\.0\.1|localhost|::1)[:.](?:5037|555[4-9]|55[67][0-9]|558[0-5])\b/i
 
 const refused =
   /operation not permitted|permission denied|(?:don[’']t|do not) have permission|not allowed to|sandbox(?:-exec)?:.*deny/i
@@ -30,7 +42,11 @@ const groupRefusals: Record<SandboxGroup, (line: string) => boolean> = {
   'ios-xcode': (line) => refused.test(line) && groupPaths['ios-xcode'].test(line),
   'shared-tmp': (line) => refused.test(line) && groupPaths['shared-tmp'].test(line),
   electron: (line) => refused.test(line) && groupPaths.electron.test(line),
-  network: (line) => networkRefused.test(line),
+  'ios-simulator': (line) =>
+    simulatorRefused.test(line) || (refused.test(line) && groupPaths['ios-simulator'].test(line)),
+  'android-emulator': (line) =>
+    adbRefused.test(line) || (refused.test(line) && androidSdkPath.test(line)),
+  network: (line) => networkRefused.test(line) && !adbRefused.test(line),
 }
 
 function refusedWhat(group: SandboxGroup, who: string): string {
@@ -39,7 +55,7 @@ function refusedWhat(group: SandboxGroup, who: string): string {
     : `something in the ${group} access group, which ${who} doesn’t have`
 }
 
-const macOnly: readonly SandboxGroup[] = ['shared-tmp']
+const macOnly: readonly SandboxGroup[] = ['shared-tmp', 'ios-simulator']
 
 export function refusedGroups(
   output: string,

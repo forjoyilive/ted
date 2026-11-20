@@ -1,4 +1,11 @@
-export const sandboxGroupNames = ['ios-xcode', 'shared-tmp', 'electron', 'network'] as const
+export const sandboxGroupNames = [
+  'ios-xcode',
+  'ios-simulator',
+  'android-emulator',
+  'shared-tmp',
+  'electron',
+  'network',
+] as const
 
 export type SandboxGroup = (typeof sandboxGroupNames)[number]
 
@@ -22,6 +29,28 @@ export const sandboxGroups: readonly SandboxGroupInfo[] = [
       '~/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading: plain .dia files',
       'Runs with others-execute added to the umask, so its ibtoold pipes stay apart from the user’s own',
       'Reads iOS Simulator runtimes mounted at /private/var/run/com.apple.security.cryptexd/mnt/com.apple.iPhoneOS.SimulatorRuntime-*',
+    ],
+  },
+  {
+    name: 'ios-simulator',
+    label: 'iOS Simulator',
+    summary:
+      'The CoreSimulator services and device folders that simctl and xcodebuild use to reach a simulator. An ios-simulator App gets this group.',
+    opens: [
+      'macOS: services whose names start with com.apple.CoreSimulator.',
+      '~/Library/Developer/CoreSimulator: read',
+      'Reads iOS Simulator runtimes mounted at /private/var/run/com.apple.security.cryptexd/mnt/com.apple.iPhoneOS.SimulatorRuntime-*',
+    ],
+  },
+  {
+    name: 'android-emulator',
+    label: 'Android emulator and adb',
+    summary:
+      'The adb server and emulator ports on this machine, and the Android SDK folders. An android-emulator App gets this group.',
+    opens: [
+      'localhost TCP 5037 (the adb server) and 5554–5585 (emulator console and adb ports)',
+      '~/Library/Android/sdk, $ANDROID_HOME and $ANDROID_SDK_ROOT: read',
+      'Host networking (Linux)',
     ],
   },
   {
