@@ -258,6 +258,29 @@ test('a first Factories load that fails is tried again until it succeeds', async
   }
 })
 
+test('a first Task list load that fails is tried again, and the Inbox then leaves its placeholder', async () => {
+  vi.useFakeTimers()
+  try {
+    const a = appState()
+    let calls = 0
+    a.handle('listTasks', () =>
+      ++calls < 2 ? Promise.reject(new Error('can’t reach Ted’s daemon')) : [],
+    )
+    a.mount({ start: { factoryId: 'f1' } })
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(screen.getByRole('status', { name: 'Loading the Inbox…' })).toBeTruthy()
+    expect(screen.queryByText('Nothing waiting in widgets')).toBeNull()
+    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    expect(calls).toBe(2)
+    expect(screen.queryByRole('status', { name: 'Loading the Inbox…' })).toBeNull()
+    expect(screen.getByText('Nothing waiting in widgets')).toBeTruthy()
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(calls).toBe(2)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 test('sidebar expansion survives a component remount', async () => {
   const a = appState()
   a.state.factories.push(factory({ id: 'f2', key: 'MS', name: 'site' }))
