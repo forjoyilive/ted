@@ -33,6 +33,7 @@ export function SandboxSection({
     | 'sandboxSockets'
     | 'sandboxSocketsFrom'
     | 'electronApps'
+    | 'deviceApps'
     | 'sandboxNetworkFrom'
     | 'repos'
     | 'checks'
@@ -52,6 +53,7 @@ export function SandboxSection({
     sockets: view.sandboxSockets,
     ...(view.sandboxSocketsFrom && { socketsFrom: view.sandboxSocketsFrom }),
     electronApps: view.electronApps,
+    ...(view.deviceApps && { deviceApps: view.deviceApps }),
     ...(view.sandboxNetworkFrom && { networkFrom: view.sandboxNetworkFrom }),
     access: settingsAccessHolders(view),
   })
@@ -100,6 +102,7 @@ export function SandboxSection({
           </Button>
         )
       case 'electron-app':
+      case 'device-app':
         return (
           <Button size="small" onClick={onOpenRepos}>
             Open Repos
@@ -210,6 +213,8 @@ function rowKey(opening: SandboxOpening): string {
       return `socket:${opening.socket}`
     case 'electron-app':
       return `electron:${opening.repo}:${opening.app}`
+    case 'device-app':
+      return `device:${opening.repo}:${opening.app}`
     case 'access-group':
       return `access:${opening.holder}:${opening.repo ?? ''}:${opening.name}:${opening.group}`
     default:
@@ -266,6 +271,20 @@ function describe(opening: SandboxOpening): OpeningText {
           </>
         ),
       }
+    case 'device-app':
+      return {
+        name: `${opening.group === 'ios-simulator' ? 'iOS Simulator' : 'Android emulator'} App “${opening.app}”`,
+        what:
+          opening.group === 'ios-simulator'
+            ? 'It gets the ios-simulator access group: its sandbox can reach the iOS Simulator services and read the simulator device folders.'
+            : 'It gets the android-emulator access group: its sandbox can reach the adb server and emulator ports on this Mac, and read the Android SDK.',
+        where: (
+          <>
+            From <code className={styles.code}>kind: {opening.group}</code> on the App in the{' '}
+            {opening.repo} repo’s entry in <code className={styles.code}>.ted/workflow.yaml</code>.
+          </>
+        ),
+      }
     case 'network':
       return {
         name: 'Network for every sandboxed command',
@@ -319,6 +338,10 @@ function NetworkSource({ from }: { from: LayerKind }) {
 function accessWhat(group: SandboxAccess): string {
   if (group === 'ios-xcode')
     return 'Its commands can write where Xcode, SwiftPM, actool and ibtool keep temp files. These folders are shared with your other apps on this Mac.'
+  if (group === 'ios-simulator')
+    return 'Its commands can reach the iOS Simulator services and read the simulator device folders.'
+  if (group === 'android-emulator')
+    return 'Its commands can reach the adb server and emulator ports on this Mac, and read the Android SDK.'
   if (group === 'shared-tmp')
     return 'Its commands can read and write /tmp. This folder is shared with your other apps on this Mac.'
   if (group === 'electron')

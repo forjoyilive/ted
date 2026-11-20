@@ -7,7 +7,7 @@ import {
   type RunChecksRequest,
 } from './checks.ts'
 import { maxCommitBody } from './commit-title.ts'
-import { isArray, isOneOf, isString, type Untyped } from './parse.ts'
+import { isArray, isInteger, isObject, isOneOf, isString, type Untyped } from './parse.ts'
 import { proposalCycle } from './proposal.ts'
 import { agentKindList } from './run.ts'
 import { isSandboxAccess, type SandboxAccess, sandboxGroupNames } from './sandbox-groups.ts'
@@ -52,6 +52,7 @@ import {
   type PostCommentRequest,
   type ProposalChoice,
   type ProposalInput,
+  type ProposalLink,
   type ProposalRowInput,
   priorities,
   type ResumeTaskRequest,
@@ -385,7 +386,10 @@ export function parseProposalInput(value: unknown): ProposalInput {
 }
 
 function proposalRow(item: unknown, row: number, count: number): ProposalRowInput {
-  const { title, scope, description, priority, blockedBy } = (item ?? {}) as Record<string, unknown>
+  const { title, scope, description, priority, blockedBy, files } = (item ?? {}) as Record<
+    string,
+    unknown
+  >
   const name = typeof title === 'string' ? oneLine(title) : ''
   if (name === '') throw new HttpError(400, `row ${row} needs a title`)
   if ([...name].length > maxTitleLength) {
@@ -426,13 +430,47 @@ function proposalRow(item: unknown, row: number, count: number): ProposalRowInpu
       )
     }
   }
+  if (!isArray(files) || !files.every(isString)) {
+    throw new HttpError(
+      400,
+      `row ${row} needs \`files\`: the repo paths it will likely change, such as "packages/daemon/src/sandbox.ts"`,
+    )
+  }
+  const paths = [...new Set(files.map((path) => proposalPath(path, row)))]
+  if (paths.length === 0) throw new HttpError(400, `row ${row} needs at least one file in files`)
+  if (paths.length > maxProposalFiles) {
+    throw new HttpError(400, `row ${row} lists at most ${maxProposalFiles} files`)
+  }
   return {
     title: name,
     scope: line,
     ...(details !== '' && { description: details }),
     ...(level !== undefined && { priority: level }),
     ...(blockers.length > 0 && { blockedBy: blockers }),
+    files: paths,
   }
+}
+
+const maxProposalFiles = 50
+
+const maxProposalPathLength = 300
+
+function proposalPath(given: string, row: number): string {
+  const path = given.trim().replace(/^(\.\/)+/, '')
+  const refuse = (why: string) => {
+    throw new HttpError(400, `row ${row}’s file "${given}" ${why}`)
+  }
+  if (path === '') refuse('is empty')
+  if ([...path].length > maxProposalPathLength) {
+    refuse(`is longer than ${maxProposalPathLength} characters`)
+  }
+  if (path.startsWith('/') || /^[A-Za-z]:/.test(path)) refuse('must be a path inside the repo')
+  if (path.endsWith('/')) refuse('is a folder; list the files in it')
+  if (/[*?[\]{}\\]/.test(path)) refuse('must be an exact path, without wildcards')
+  if (path.split('/').some((part) => part === '' || part === '.' || part === '..')) {
+    refuse('must be a plain repo path, without "..", "." or "//"')
+  }
+  return path
 }
 
 const maxSettle = 12
@@ -465,17 +503,33 @@ function proposalChoice(value: unknown): ProposalChoice {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new HttpError(400, 'proposal must be an object')
   }
-  const { skip, startUnblocked } = value as Record<string, unknown>
+  const { skip, unlink, startUnblocked } = value as Record<string, unknown>
   if (skip !== undefined && (!Array.isArray(skip) || !skip.every((r) => Number.isInteger(r)))) {
     throw new HttpError(400, 'skip must list row numbers')
   }
+  const links = unlink === undefined ? undefined : proposalLinks(unlink)
   if (startUnblocked !== undefined && typeof startUnblocked !== 'boolean') {
     throw new HttpError(400, 'startUnblocked must be true or false')
   }
   return {
     ...(skip !== undefined && { skip: [...new Set(skip as number[])] }),
+    ...(links !== undefined && { unlink: links }),
     ...(startUnblocked !== undefined && { startUnblocked }),
   }
+}
+
+function proposalLinks(value: Untyped): ProposalLink[] {
+  const fail = () => {
+    throw new HttpError(400, 'unlink must list links as { "row": n, "blocker": n }')
+  }
+  if (!isArray(value)) return fail()
+  const links: ProposalLink[] = []
+  for (const item of value) {
+    if (!isObject(item) || !isInteger(item.row) || !isInteger(item.blocker)) return fail()
+    const link = { row: item.row, blocker: item.blocker }
+    if (!links.some((l) => l.row === link.row && l.blocker === link.blocker)) links.push(link)
+  }
+  return links
 }
 
 export function parseReportOutcomeRequest(body: unknown): ReportOutcomeRequest {

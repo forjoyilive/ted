@@ -402,3 +402,127 @@ test('CI invalidation is synchronous and delayed hold effects cannot revoke newe
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+test('a failure question in Work is replaced with Run the checks again once the code moves, and a Comment wakes the exited Task Lead', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'ted-failure-rerun-'))
+  const store = await openStore({ directory })
+  try {
+    const created = await store.createTask({ title: 'Code moved after the ask' })
+    store.startTask({
+      taskId: created.id,
+      stage: 'work',
+      branch: 'code-moved',
+      worktree: directory,
+      entry: { layers: [], order: [{ stage: 'work', enabled: true }] },
+      repo: { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] },
+    })
+    store.startRun({ id: 'lead', taskId: created.id, agent: 'codex', prompt: '', cwd: directory })
+    const check = store.startChecks({
+      taskId: created.id,
+      trigger: 'validate',
+      stage: 'validate',
+      checks: [{ name: 'Tests', command: 'false', timeout: '1m', state: 'waiting' }],
+    })
+    store.checkFinished(check.id, 0, { state: 'failed', durationMs: 1000, exitCode: 1 })
+    store.finishChecks(check.id, 'failed')
+    const at = new Date().toISOString()
+    const tested = (head: string): FailureContext => ({
+      id: `context-${head}`,
+      taskId: created.id,
+      version: 2,
+      fingerprint: head,
+      repos: [{ repo: 'acme/widgets', head, base: 'base', tree: `tree-${head}`, mergeBase: 'mb' }],
+      checks: 'checks',
+      capturedAt: at,
+    })
+    store.failures.capture(tested('a'))
+    const value: FailureCase = {
+      id: 'case',
+      taskId: created.id,
+      source: { kind: 'factory-check', checkRunId: check.id, position: 0 },
+      evidence: 'Tests failed',
+      recordedBy: 'lead',
+      provenance: 'stored-check',
+      contextId: 'context-a',
+      createdAt: at,
+      validation: true,
+      assessments: [],
+      additions: [],
+      decisions: [],
+      resolutions: [],
+      invalidations: [],
+    }
+    store.failures.save(value, 'recorded')
+    const assessed = {
+      ...value,
+      assessments: [
+        {
+          id: 'assessment',
+          runId: 'lead',
+          assessment: 'unrelated' as const,
+          recommendation: 'It fails the same way on main.',
+          choice: 'accepted' as const,
+          contextId: 'context-a',
+          at,
+        },
+      ],
+    }
+    store.failures.save(assessed, 'assessed')
+    const asked = store.postFailureDecision(assessed, 'Accept?').decisions[0]
+    let current: FailureContext | undefined = tested('a')
+    let leaveWorkDuringRead = false
+    const service = createFailureCases({
+      store,
+      snapshot: async () => {
+        if (leaveWorkDuringRead) store.changeStage(created.id, 'validate')
+        if (!current) throw new Error('No worktree')
+        return current
+      },
+      assertLead: () => {},
+      drafts: () => [],
+      onHold: async () => {},
+      onInvalidated: async () => {},
+      tell: async () => {},
+    })
+    const task = () => {
+      const found = store.getTask(created.id)
+      if (!found) throw new Error('missing Task')
+      return found
+    }
+    expect(await service.refreshStale(task())).toBe(0)
+    expect(store.getComment(asked?.commentId ?? '')?.answer).toBeUndefined()
+
+    current = tested('b')
+    leaveWorkDuringRead = true
+    expect(await service.refreshStale(task())).toBe(0)
+    expect(store.getComment(asked?.commentId ?? '')?.answer).toBeUndefined()
+    leaveWorkDuringRead = false
+    store.changeStage(created.id, 'work')
+    expect(await service.refreshStale(task(), () => true)).toBe(0)
+    expect(store.getComment(asked?.commentId ?? '')?.answer).toBeUndefined()
+
+    expect(await service.refreshStale(task())).toBe(1)
+    expect(store.getComment(asked?.commentId ?? '')?.answer).toMatchObject({ kind: 'withdrawn' })
+    const replaced = store.failures.get('case')?.decisions.at(-1)
+    expect(replaced).toMatchObject({ rerun: true, acceptRefused: 'changed' })
+    const card = store.getComment(replaced?.commentId ?? '')
+    expect(card).toMatchObject({
+      purpose: { kind: 'failure' },
+      choices: ['Run the checks again on the new code'],
+    })
+    expect(card?.body).toContain('code changed after the Task Lead asked')
+    expect(await service.refreshStale(task())).toBe(0)
+
+    expect(task().wakesOnComment).toBeUndefined()
+    store.recordRunOutput('lead', {
+      toOffset: 0,
+      state: 'finished',
+      ending: { how: 'exited', errorLines: [], at: new Date().toISOString() },
+    })
+    expect(task()).toMatchObject({ wakesOnComment: true })
+    expect(task().canResume).toBeUndefined()
+  } finally {
+    await store.close()
+    await rm(directory, { recursive: true, force: true })
+  }
+})

@@ -13,6 +13,12 @@ export interface ElectronApp {
   name: string
 }
 
+export interface DeviceApp {
+  repo: string
+  name: string
+  group: 'ios-simulator' | 'android-emulator'
+}
+
 export interface SandboxOpeningsInput {
   permissions: PermissionMode
   appsOutsideSandbox: readonly OutsideSandboxApproval[]
@@ -20,6 +26,7 @@ export interface SandboxOpeningsInput {
   sockets: readonly NamedSocket[]
   socketsFrom?: LayerKind
   electronApps: readonly ElectronApp[]
+  deviceApps?: readonly DeviceApp[]
   networkFrom?: LayerKind
   access?: readonly AccessHolder[]
 }
@@ -30,6 +37,13 @@ export type SandboxOpening =
   | { kind: 'pi-unsandboxed'; unsandboxed: true }
   | { kind: 'socket'; unsandboxed: false; socket: string; path: string; from: LayerKind }
   | { kind: 'electron-app'; unsandboxed: false; repo: string; app: string }
+  | {
+      kind: 'device-app'
+      unsandboxed: false
+      repo: string
+      app: string
+      group: 'ios-simulator' | 'android-emulator'
+    }
   | { kind: 'network'; unsandboxed: false; from: LayerKind }
   | {
       kind: 'access-group'
@@ -66,6 +80,9 @@ export function sandboxOpenings(input: SandboxOpeningsInput): SandboxOpening[] {
   }
   for (const { repo, name } of input.electronApps) {
     openings.push({ kind: 'electron-app', unsandboxed: false, repo, app: name })
+  }
+  for (const { repo, name, group } of input.deviceApps ?? []) {
+    openings.push({ kind: 'device-app', unsandboxed: false, repo, app: name, group })
   }
   if (input.networkFrom !== undefined) {
     openings.push({ kind: 'network', unsandboxed: false, from: input.networkFrom })

@@ -9,6 +9,7 @@ import {
   launchApp,
   openAllTasks,
   setUpAppTests,
+  startDaemonAsApp,
   taskRow,
   ted,
 } from './app-harness.ts'
@@ -223,5 +224,97 @@ describe('Failed', () => {
     await thread.getByText('You retried the Task').waitFor()
     const comments = await client.listComments('NB-1')
     expect(comments.some((c) => c.body === 'Try a smaller change.')).toBe(true)
+  }, 90_000)
+})
+
+describe('Run chat', () => {
+  const bash = (id: string, command: string, description: string) => [
+    {
+      emit: {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id, name: 'Bash', input: { command, description } }],
+        },
+      },
+    },
+    {
+      emit: {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }],
+        },
+      },
+    },
+  ]
+
+  test('long tool-call descriptions stay on one line inside their row and show in full on hover', async () => {
+    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
+    await commitToOrigin(path.join(ctx.home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await startDaemonAsApp()
+    await addFactory(origin, 'NB')
+    const long =
+      'Find the renderer API used to answer a Task request and the preload route it goes through on its way to the daemon'
+    const steps = [
+      { everyMessage: [{ say: 'Noted.' }, { endTurn: true }] },
+      ...bash('t1', '', long),
+      ...bash(
+        't2',
+        `grep -n "answerRequest" ${'packages/app/src/renderer/ted.ts '.repeat(4)}`,
+        long,
+      ),
+      ...bash('t3', 'ls', long),
+      { say: 'Done.' },
+      { endTurn: true },
+    ]
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps }))
+    await ted('task', 'start', 'NB-1')
+    const client = await daemonClient()
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.runs[0]?.state, { timeout: 20_000 })
+      .toBe('idle')
+
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('tab', { name: 'Runs' }).click()
+    await details.getByRole('button', { name: /Task Lead/ }).click()
+    const chat = window.getByRole('region', { name: 'Run chat' })
+    await chat.getByText('Done.').waitFor()
+    await chat.getByRole('button', { name: /3 tool calls/ }).click()
+
+    const rows = chat.getByRole('button', { name: /^Bash/ })
+    await expect.poll(() => rows.count()).toBe(3)
+    for (const row of await rows.all()) {
+      const description = row.getByTitle(long)
+      await description.waitFor()
+      const layout = await row.evaluate((head) => {
+        const box = head.getBoundingClientRect()
+        const parts = [...head.querySelectorAll('span')].flatMap((part) =>
+          part.getClientRects().length > 0 ? [part.getBoundingClientRect()] : [],
+        )
+        return {
+          inside: parts.every((part) => part.left >= box.left && part.right <= box.right + 0.5),
+          scrolls: head.scrollWidth > head.clientWidth,
+        }
+      })
+      expect(layout).toEqual({ inside: true, scrolls: false })
+      const text = await description.evaluate((meta) => ({
+        lines: meta.getClientRects().length,
+        clipped: meta.scrollWidth > meta.clientWidth,
+        whiteSpace: getComputedStyle(meta).whiteSpace,
+      }))
+      expect(text).toEqual({ lines: 1, clipped: true, whiteSpace: 'nowrap' })
+    }
+
+    const both = rows.nth(1)
+    const command = both.locator('[title^="grep -n"]')
+    const commandWidth = (await command.boundingBox())?.width ?? 0
+    const descriptionWidth = (await both.getByTitle(long).boundingBox())?.width ?? 0
+    expect(commandWidth).toBeGreaterThan((commandWidth + descriptionWidth) * 0.4)
   }, 90_000)
 })

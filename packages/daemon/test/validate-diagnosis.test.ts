@@ -112,24 +112,80 @@ together(
         ).toBe('accepted')
         expect((await s.answer(decision, 'Accept this failure')).status).toBe(409)
       },
-    'Accept after a new commit is refused and the Task stays in Work': async (s) => {
-      const decision = await s.ask(s.one)
-      const { worktree } = required((await getTask(s.client, s.task.id)).repos[0])
-      await writeFile(path.join(worktree, 'later.txt'), 'later\n')
-      git(worktree, 'add', 'later.txt')
-      git(worktree, 'commit', '-qm', 'Later change')
-      const refused = await s.answer(decision, 'Accept this failure')
-      expect(refused.status).toBe(409)
-      expect(JSON.stringify(refused.body)).toContain('changed since this check ran')
-      expect((await getTask(s.client, s.task.id)).stage).toBe('work')
-      expect((await s.cases()).find((c) => c.id === s.one.id)?.resolutions).toEqual([])
-      const comment = (await s.client.ok<Comment[]>('GET', `${s.root}/comments`)).find(
-        (c) => c.id === decision.decisions.at(-1)?.commentId,
-      )
-      expect(comment?.answer).toBeUndefined()
-      expect(await s.backs()).toHaveLength(1)
-      expect((await s.runs()).length).toBe(1)
-    },
+    'Accept after a new commit is refused, and the replacement question runs the checks on the new code':
+      async (s) => {
+        const decision = await s.ask(s.one)
+        const asked = decision.decisions.at(-1)?.commentId
+        const { worktree } = required((await getTask(s.client, s.task.id)).repos[0])
+        await writeFile(path.join(worktree, 'later.txt'), 'later\n')
+        git(worktree, 'add', 'later.txt')
+        git(worktree, 'commit', '-qm', 'Later change')
+        const refused = await s.answer(decision, 'Accept this failure')
+        expect(refused.status).toBe(409)
+        expect(JSON.stringify(refused.body)).toContain('Run the checks again on the new code')
+        expect((await getTask(s.client, s.task.id)).stage).toBe('work')
+        const replaced = required((await s.cases()).find((c) => c.id === s.one.id))
+        expect(replaced.resolutions).toEqual([])
+        expect(replaced.decisions.at(-1)).toMatchObject({ rerun: true, acceptRefused: 'changed' })
+        const thread = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+        expect(thread.find((c) => c.id === asked)?.answer).toMatchObject({ kind: 'withdrawn' })
+        const card = thread.find((c) => c.id === replaced.decisions.at(-1)?.commentId)
+        expect(card).toMatchObject({
+          purpose: { kind: 'failure' },
+          choices: ['Run the checks again on the new code'],
+        })
+        expect(card?.answer).toBeUndefined()
+        expect(await s.backs()).toHaveLength(1)
+        expect((await s.runs()).length).toBe(1)
+        expect((await s.answer(replaced, 'Accept this failure')).status).toBe(400)
+        const chosen = await s.answer(replaced, 'Run the checks again on the new code')
+        expect(chosen.status, JSON.stringify(chosen.body)).toBe(200)
+        const [, rerun] = await waitUntil(async () => {
+          const runs = await s.runs()
+          return runs.length === 2 ? runs : undefined
+        }, 'the checks on the new code')
+        expect(rerun).toMatchObject({ trigger: 'validate', stage: 'validate' })
+        const after = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+        expect(after.find((c) => c.id === card?.id)?.answer).toMatchObject({
+          kind: 'answered',
+          choice: 'Run the checks again on the new code',
+        })
+        expect(
+          after.some(
+            (c) =>
+              c.author.kind === 'ted' &&
+              c.kind === 'note' &&
+              c.body.includes('to Validate to run the checks on the code as it is now'),
+          ),
+        ).toBe(true)
+      },
+    'a message typed on a question the new code made stale replaces the question and reaches the Task Lead':
+      async (s) => {
+        const decision = await s.ask(s.one)
+        const asked = decision.decisions.at(-1)?.commentId
+        const { worktree } = required((await getTask(s.client, s.task.id)).repos[0])
+        await writeFile(path.join(worktree, 'merged.txt'), 'merged\n')
+        git(worktree, 'add', 'merged.txt')
+        git(worktree, 'commit', '-qm', 'Merge the base branch')
+        const sent = await s.client.call('POST', `/comments/${asked}/answer`, {
+          action: 'answer',
+          text: 'I merged main; look at the failure again.',
+        })
+        expect(sent.status, JSON.stringify(sent.body)).toBe(200)
+        const thread = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+        expect(thread.find((c) => c.id === asked)?.answer).toMatchObject({ kind: 'withdrawn' })
+        expect(
+          thread.some(
+            (c) =>
+              c.author.kind === 'human' && c.body === 'I merged main; look at the failure again.',
+          ),
+        ).toBe(true)
+        const replaced = required((await s.cases()).find((c) => c.id === s.one.id))
+        expect(thread.find((c) => c.id === replaced.decisions.at(-1)?.commentId)?.choices).toEqual([
+          'Run the checks again on the new code',
+        ])
+        expect((await getTask(s.client, s.task.id)).stage).toBe('work')
+      },
     'Retry, Fix and closing the failure are refused from Work': async (s) => {
       const decision = await s.ask(s.one)
       const requestId = decision.decisions.at(-1)?.commentId

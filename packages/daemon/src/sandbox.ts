@@ -3,6 +3,7 @@ import { constants, type Stats } from 'node:fs'
 import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   accessGroups,
   accessSockets,
@@ -12,6 +13,7 @@ import {
   outsideTedEnv,
   type SandboxAccess,
 } from '@ted/protocol'
+import { nodeEntry } from './node-entry.ts'
 import { protectedPaths } from './protected-folders.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -23,10 +25,21 @@ export interface SandboxScope {
   sockets?: readonly NamedSocket[]
   reads?: readonly string[]
   network?: NetworkLevel
-  serves?: boolean
+  serves?: ServedPorts
   ownTempOnly?: boolean
   hideProtected?: boolean
   groups?: readonly SandboxAccess[]
+}
+
+export interface ServedPorts {
+  own?: number
+  reach: readonly number[]
+}
+
+interface Forwarded {
+  own?: number
+  reach: readonly string[]
+  outbound: boolean
 }
 
 export interface Sandboxed {
@@ -38,6 +51,12 @@ export interface Sandboxed {
 }
 
 export const firstBindFd = 3
+
+const forwardPortsMain = fileURLToPath(new URL('./forward-ports.ts', import.meta.url))
+
+export function forwardingFds(bindFds: number) {
+  return { status: firstBindFd + bindFds, block: firstBindFd + bindFds + 1 }
+}
 
 export interface SandboxGrants {
   sockets: readonly NamedSocket[]
@@ -111,6 +130,8 @@ export function createSandbox(options: {
   env: () => NodeJS.ProcessEnv
   platform?: NodeJS.Platform
   program?: string
+  pasta?: string
+  unshare?: string
   bindFds?: boolean
   unixSockets?: () => Promise<string>
   simulatorRuntimes?: string
@@ -189,6 +210,9 @@ export function createSandbox(options: {
       const groups = accessGroups(scope.groups)
       const electron = groups.includes('electron')
       const xcode = scope.ownTempOnly !== true && groups.includes('ios-xcode')
+      const simulator = groups.includes('ios-simulator')
+      const android = groups.includes('android-emulator')
+      const sdk = await androidSdkFolders(env)
       const asked = accessSockets(scope.groups)
       const named = new Map((scope.sockets ?? []).map((socket) => [socket.name, socket.path]))
       const missingSockets = asked.filter((name) => !named.has(name))
@@ -206,7 +230,8 @@ export function createSandbox(options: {
               paths.userTemp = perUserTemp
           }
         }
-        if (xcode) paths.simulatorRuntimes = options.simulatorRuntimes ?? simulatorRuntimeMounts
+        if (xcode || simulator)
+          paths.simulatorRuntimes = options.simulatorRuntimes ?? simulatorRuntimeMounts
         const logs = xcode ? await manifestLogFolder(env) : undefined
         if (logs !== undefined && !inside(paths.tedHome, logs) && !inside(logs, paths.tedHome))
           paths.manifestLogs = logs
@@ -251,12 +276,19 @@ export function createSandbox(options: {
               sockets,
               [
                 ...(await baseReads(env, perUserTemp)),
+                ...(android ? sdk : []),
                 ...(await listedPaths('sandbox_reads', scope.reads ?? [], env)),
               ],
-              electron,
+              [...(android ? [] : sdk), ...(simulator ? [] : await simulatorFolders(env))],
+              [
+                ...macServices,
+                ...(electron ? macElectronServices : []),
+                ...(simulator ? macSimulatorServices : []),
+              ],
               await personalFolders(env),
               pipeMode,
               networkOf(scope),
+              android,
             ),
             ...(pipeMode === undefined
               ? []
@@ -273,9 +305,28 @@ export function createSandbox(options: {
       const linux = await linuxSockets(table, paths, sockets, env)
       const binds = bwrapBinds(paths)
       const personal = await personalFolders(env)
-      const hidden = scope.hideProtected === true ? await existingFolders(personal) : []
+      const protectedHidden = scope.hideProtected === true ? await existingFolders(personal) : []
       const listed = await listedPaths('sandbox_reads', scope.reads ?? [], env)
-      const reads = await linuxReads(env, listed, [...personal, paths.tedHome])
+      const reads = await linuxReads(
+        env,
+        [...(android ? sdk : []), ...listed],
+        [...personal, paths.tedHome, ...(android ? [] : sdk)],
+      )
+      const sdkHidden = android
+        ? []
+        : sdk.filter((dir) => reads.binds.some(([, dest]) => dest !== dir && inside(dest, dir)))
+      const hidden = [...protectedHidden, ...sdkHidden]
+      const network = ownNetwork(scope, android)
+      const ports = network ? forwardedPorts(scope, android) : undefined
+      const forward =
+        ports === undefined
+          ? undefined
+          : await portForwarding(
+              options.pasta ?? (await onPath('pasta', env.PATH)),
+              options.unshare ?? (await onPath('unshare', env.PATH)),
+              ports,
+            )
+      const resolv = ports?.outbound === true ? await pastaResolv(paths.tedHome) : undefined
       const handles: FileHandle[] = []
       const close = async () => {
         await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
@@ -288,13 +339,42 @@ export function createSandbox(options: {
         await close()
         throw error
       }
+      const sandboxArgs = bwrapArgs(
+        paths,
+        env,
+        linux,
+        binds,
+        bindFds,
+        hidden,
+        reads,
+        network && forward === undefined,
+        resolv,
+      )
+      const fds = forwardingFds(handles.length)
       return {
-        argv: [
-          ready,
-          ...bwrapArgs(paths, env, linux, binds, bindFds, hidden, reads, ownNetwork(scope)),
-          '--',
-          ...argv,
-        ],
+        argv:
+          forward === undefined
+            ? [ready, ...sandboxArgs, '--', ...argv]
+            : launchWithForwarding(forward.pasta, forward.args, handles.length, [
+                forward.unshare,
+                '--user',
+                '--map-root-user',
+                '--net',
+                '--',
+                ready,
+                '--unshare-user',
+                '--uid',
+                String(process.getuid?.() ?? 0),
+                '--gid',
+                String(process.getgid?.() ?? 0),
+                '--json-status-fd',
+                String(fds.status),
+                '--block-fd',
+                String(fds.block),
+                ...sandboxArgs,
+                '--',
+                ...argv,
+              ]),
         env: added,
         fds: handles.map((handle) => handle.fd),
         missingSockets,
@@ -522,8 +602,34 @@ const toolchainReads = [
   '.bun/bin',
   'Library/pnpm',
   'Library/Developer',
-  'Library/Android/sdk',
 ]
+
+async function androidSdkFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
+  const home = await homeFolder(env)
+  const given = [
+    path.join(home, 'Library/Android/sdk'),
+    ...[env.ANDROID_HOME, env.ANDROID_SDK_ROOT].flatMap((value) =>
+      value?.startsWith('/') === true ? [value] : [],
+    ),
+  ]
+  return existingReals(given, home)
+}
+
+async function simulatorFolders(env: NodeJS.ProcessEnv): Promise<string[]> {
+  const home = await homeFolder(env)
+  return existingReals([path.join(home, 'Library/Developer/CoreSimulator')], home)
+}
+
+async function existingReals(candidates: readonly string[], home: string): Promise<string[]> {
+  const found = new Set<string>()
+  for (const candidate of candidates) {
+    if (/["\n\r\0]/.test(candidate)) continue
+    const resolved = await realpath(candidate).catch(() => undefined)
+    if (resolved === undefined || resolved === '/' || inside(resolved, home)) continue
+    found.add(resolved)
+  }
+  return [...found]
+}
 
 const linuxSystemReads = [
   '/usr',
@@ -552,8 +658,8 @@ async function readCandidates(
   userTemp: string | undefined,
 ): Promise<string[]> {
   const home = await homeFolder(env)
-  const fromEnv = ['DEVELOPER_DIR', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT'].flatMap(
-    (name) => (env[name]?.startsWith('/') === true ? [env[name]] : []),
+  const fromEnv = [env.DEVELOPER_DIR, env.JAVA_HOME].flatMap((value) =>
+    value?.startsWith('/') === true ? [value] : [],
   )
   const onPath = (env.PATH ?? '')
     .split(':')
@@ -624,10 +730,12 @@ function seatbeltArgs(
   paths: SandboxPaths,
   sockets: readonly string[],
   reads: readonly string[],
-  electron: boolean,
+  unread: readonly string[],
+  services: readonly MacService[],
   personal: readonly string[],
   pipeMode: number | undefined,
   network: NetworkLevel,
+  adb: boolean,
 ): string[] {
   const params: string[] = []
   const param = (prefix: string, values: readonly string[]) =>
@@ -659,6 +767,7 @@ function seatbeltArgs(
     '(deny file-write*)',
     '(deny file-read-data file-read-xattr)',
     `(allow file-read-data file-read-xattr (literal "/") ${param('B', reads)})`,
+    ...(unread.length === 0 ? [] : [`(deny file-read-data file-read-xattr ${param('X', unread)})`]),
     `(allow file-write* (literal "/dev/null") (literal "/dev/zero") (literal "/dev/ptmx") (literal "/dev/dtracehelper") (regex #"^/dev/tty") (regex #"^/dev/fd/") ${paths.sharedTmp === undefined ? '' : `(subpath "${paths.sharedTmp}")`})`,
     ...(paths.sharedTmp === undefined
       ? []
@@ -700,12 +809,15 @@ function seatbeltArgs(
     '(deny ipc-posix-shm* (ipc-posix-name-prefix "ib"))',
     '(deny appleevent-send)',
     '(deny mach-lookup)',
-    `(allow mach-lookup ${macServiceFilters(electron ? [...macServices, ...macElectronServices] : macServices)})`,
+    `(allow mach-lookup ${macServiceFilters(services)})`,
     '(deny user-preference-write)',
     '(deny network-outbound (remote unix-socket))',
     `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets(network), ...sockets])})`,
     ...(network === 'outbound' ? [] : ['(deny network-outbound (remote ip "*:*"))']),
     ...(network === 'localhost' ? ['(allow network-outbound (remote ip "localhost:*"))'] : []),
+    ...(adb || network === 'none'
+      ? []
+      : adbPorts.map((port) => `(deny network-outbound (remote ip "localhost:${port}"))`)),
   ].join('\n')
   return [...params, '-p', profile]
 }
@@ -737,6 +849,7 @@ function bwrapArgs(
   hidden: readonly string[],
   reads: LinuxReads,
   ownNetwork: boolean,
+  resolv?: { source: string; dest: string },
 ): string[] {
   const runtime = runtimeDir(env)
   const bind = (b: Bind, i: number) =>
@@ -750,6 +863,7 @@ function bwrapArgs(
     ...(ownNetwork ? ['--unshare-net'] : []),
     ...reads.binds.flatMap(([source, dest]) => ['--ro-bind', source, dest]),
     ...reads.links.flatMap(([target, dest]) => ['--symlink', target, dest]),
+    ...(resolv === undefined ? [] : ['--ro-bind', resolv.source, resolv.dest]),
     '--dev',
     '/dev',
     '--proc',
@@ -782,10 +896,102 @@ function networkOf(scope: SandboxScope): NetworkLevel {
   return scope.groups?.includes('network') === true ? 'outbound' : (scope.network ?? defaultNetwork)
 }
 
-// An App's port must stay reachable from the host, and bwrap can't share host loopback without host networking.
-function ownNetwork(scope: SandboxScope): boolean {
-  const network = networkOf(scope)
-  return network === 'none' || (network === 'localhost' && scope.serves !== true)
+// bwrap can't filter single ports, so only android-emulator at outbound shares host loopback, where adb listens.
+function ownNetwork(scope: SandboxScope, android: boolean): boolean {
+  return networkOf(scope) !== 'outbound' || !android
+}
+
+// The adb server and the console and adb ports apps/emulators.ts picks emulators from.
+const androidPorts = ['5037', '5554-5585']
+
+function forwardedPorts(scope: SandboxScope, android: boolean): Forwarded | undefined {
+  const outbound = networkOf(scope) === 'outbound'
+  const own = scope.serves?.own
+  const reach =
+    networkOf(scope) === 'none'
+      ? []
+      : [
+          ...new Set([
+            ...(scope.serves?.reach ?? []).filter((port) => port !== own).map(String),
+            ...(android ? androidPorts : []),
+          ]),
+        ]
+  if (own === undefined && reach.length === 0 && !outbound) return undefined
+  return { ...(own !== undefined && { own }), reach, outbound }
+}
+
+async function portForwarding(
+  pasta: string | undefined,
+  unshare: string | undefined,
+  { own, reach, outbound }: Forwarded,
+): Promise<{ pasta: string; unshare: string; args: string[] }> {
+  if (pasta === undefined) {
+    throw new SandboxUnavailable(
+      'pasta isn’t installed, so Ted can’t give this sandboxed command a network of its own. Install the passt package.',
+    )
+  }
+  if (unshare === undefined) {
+    throw new SandboxUnavailable(
+      'unshare isn’t installed, so Ted can’t give this sandboxed command a network of its own. Install the util-linux package.',
+    )
+  }
+  // Without --host-lo-to-ns-lo pasta delivers host connections to the namespace's own address, which an
+  // App listening on 127.0.0.1 resets. Pasta's UDP default forwards host loopback ports automatically.
+  return {
+    pasta,
+    unshare,
+    args: [
+      '-q',
+      '--host-lo-to-ns-lo',
+      ...(outbound ? ['--config-net', '--no-map-gw', '--dns-forward', pastaDns] : []),
+      '-t',
+      own === undefined ? 'none' : `127.0.0.1/${own}`,
+      '-T',
+      reach.length === 0 ? 'none' : reach.join(','),
+      '-u',
+      'none',
+      '-U',
+      'none',
+    ],
+  }
+}
+
+const pastaDns = '169.254.1.1'
+
+// Hosts that run their resolver on loopback (systemd-resolved, Docker) lose DNS in pasta's network without this.
+// It goes over the real file, because a linked /etc/resolv.conf may point outside the mounted folders.
+async function pastaResolv(tedHome: string): Promise<{ source: string; dest: string }> {
+  const home = await real(tedHome)
+  const dir = await plainFolder(home, path.resolve(tedHome), path.join(home, 'sandbox'), true)
+  const file = path.join(dir, 'resolv.conf')
+  const content = Buffer.from(`nameserver ${pastaDns}\n`)
+  const handle = await open(
+    file,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW,
+    0o644,
+  )
+  try {
+    if (!(await handle.stat()).isFile()) {
+      throw new SandboxUnavailable(
+        `${file} isn’t a plain file, so Ted won’t give it to the sandbox`,
+      )
+    }
+    await handle.write(content, 0, content.length, 0)
+    await handle.truncate(content.length)
+  } finally {
+    await handle.close()
+  }
+  return { source: file, dest: await realpath('/etc/resolv.conf').catch(() => '/etc/resolv.conf') }
+}
+
+function launchWithForwarding(
+  pasta: string,
+  pastaArgs: readonly string[],
+  bindFds: number,
+  bwrap: readonly string[],
+): [string, ...string[]] {
+  const entry = nodeEntry(forwardPortsMain, [pasta, String(bindFds), ...pastaArgs, '--', ...bwrap])
+  return ['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1', entry.command, ...entry.args]
 }
 
 type MacService = { name: string } | { prefix: string } | { regex: string }
@@ -803,9 +1009,13 @@ const macServices: readonly MacService[] = [
   { name: 'com.apple.trustd.agent' },
   { name: 'com.apple.lsd.mapdb' },
   { name: 'com.apple.FSEvents' },
-  { prefix: 'com.apple.CoreSimulator.' },
   { regex: '\\.MachPortRendezvousServer\\.[0-9]+$' },
 ]
+
+const macSimulatorServices: readonly MacService[] = [{ prefix: 'com.apple.CoreSimulator.' }]
+
+// Seatbelt matches one port or every port, so each emulator port gets its own rule.
+const adbPorts = [5037, ...Array.from({ length: 32 }, (_, i) => 5554 + i)]
 
 const macElectronServices: readonly MacService[] = [
   { name: 'com.apple.coreservices.launchservicesd' },

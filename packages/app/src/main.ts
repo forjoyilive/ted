@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile, rm, writeFile } from 'node:fs/promises'
-import { availableParallelism, homedir } from 'node:os'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { crashReporter, type ReportCrash } from '@ted/daemon/crash-report'
 import { executionHome } from '@ted/daemon/execution'
@@ -61,6 +61,7 @@ import {
   nativeTheme,
   net,
   type OpenDialogOptions,
+  powerMonitor,
   session,
   shell,
   Tray,
@@ -112,6 +113,7 @@ import {
   recordingNotifier,
   silentNotifier,
 } from './notifications.ts'
+import { type PresenceReporter, startPresenceReporter } from './presence.ts'
 import { type ReportSources, reportText, sendProblemReport } from './problem-report.ts'
 import {
   isFigmaLink,
@@ -279,8 +281,7 @@ const requests = {
   resourceUsage: async (client) => {
     const [usage, own] = await Promise.all([client.getProcessUsage(), appUsage()])
     return {
-      cpuPercent: (usage.cpuPercent + own.cpuPercent) / availableParallelism(),
-      memoryBytes: usage.memoryBytes + own.memoryBytes,
+      machine: usage.machine,
       memory: { ...usage.memory, app: { count: own.count, bytes: own.memoryBytes } },
     }
   },
@@ -498,6 +499,7 @@ function workerRequest(name: unknown, args: unknown[]) {
 
 let supervisor: DaemonSupervisor | undefined
 let client: DaemonClient | undefined
+let presenceReporter: PresenceReporter | undefined
 let taskBrowsers: ReturnType<typeof createTaskBrowsers> | undefined
 let window: BrowserWindow | undefined
 let tray: Tray | undefined
@@ -1151,6 +1153,7 @@ function onConnection(connection: DaemonConnection): void {
   if (connection.state === 'connected') {
     notifications.forget()
     client = supervisor?.client
+    presenceReporter?.reportNow()
     loadStateWhenReady().catch((error: unknown) => console.error('loading state failed:', error))
   } else if (connection.state === 'stopped' && !hiddenWindow && mayNotify()) {
     new Notification({ title: appName, body: keepsStopping }).show()
@@ -1225,6 +1228,10 @@ async function start(): Promise<void> {
   traceStartup('daemon-connected')
   supervisor = supervised
   client = supervised.client
+  presenceReporter = startPresenceReporter({
+    monitor: powerMonitor,
+    client: () => (supervised.connection.state === 'connected' ? supervised.client : undefined),
+  })
   taskBrowsers = createTaskBrowsers(
     () => window,
     () => supervised.client,

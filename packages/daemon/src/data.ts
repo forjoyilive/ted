@@ -11,6 +11,7 @@ import { tedPaths } from '@ted/protocol'
 import type { Automations } from './automations/automations.ts'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
+import type { Busy } from './busy.ts'
 import type { ChatArchiveCleanup } from './chat-expiry.ts'
 import type { CheckTries } from './check-tries.ts'
 import type { Coordinators } from './coordinators/coordinators.ts'
@@ -24,7 +25,9 @@ import type { Factories } from './factory-setup.ts'
 import type { AgentHealthMonitor } from './health/agent-health.ts'
 import type { Integrations } from './integrations.ts'
 import type { LibrarySettings } from './library-settings.ts'
+import type { Phones } from './phones/phones.ts'
 import type { Plans } from './plans/plans.ts'
+import type { Presence } from './presence.ts'
 import { redactSecrets } from './redact.ts'
 import type { Conversations } from './runs/conversations.ts'
 import type { RunManager } from './runs/run-manager.ts'
@@ -61,7 +64,10 @@ import type { Workflows } from './workflow/workflows.ts'
 
 export interface Services {
   agentAvailability: ReturnType<typeof import('./agent-availability.ts').createAgentAvailability>
+  busy: Busy
   execution: ExecutionController
+  phones: Phones
+  presence: Presence
   sideChats: SideChats
   store: TedStore
   automations: Automations

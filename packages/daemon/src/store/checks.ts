@@ -17,6 +17,7 @@ import {
   type FindingSeverity,
   failureChoiceLabels,
   namedRepairChoice,
+  rerunFailureChoice,
   type SendBack,
   type SendBackCause,
   type StageId,
@@ -153,6 +154,7 @@ export interface ChecksArea {
     acceptRefused?: AcceptRefusal,
     askedBy?: string,
     closable?: boolean,
+    rerun?: boolean,
   ): FailureCase
   resolveFailure(
     value: FailureCase,
@@ -296,7 +298,7 @@ export function checksArea(ctx: StoreContext): ChecksArea {
       updatedQueue(approval.failure.taskId)
       return next
     },
-    postFailureDecision(value, body, acceptRefused, askedBy, closable = false) {
+    postFailureDecision(value, body, acceptRefused, askedBy, closable = false, rerun = false) {
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
@@ -324,12 +326,13 @@ export function checksArea(ctx: StoreContext): ChecksArea {
           ...(value.validation && {
             title: `How should we handle the ${value.originalCheck?.name ?? (value.source.kind === 'github-ci' ? 'CI' : 'validation')} failure?`,
           }),
-          choices: offeredFailureChoices(value, stage, !acceptRefused, closable).flatMap(
-            (choice) =>
-              choice === 'repair' && repairTask
-                ? [namedRepairChoice(repairTask.displayId), failureChoiceLabels[choice]]
-                : [failureChoiceLabels[choice]],
-          ),
+          choices: rerun
+            ? [rerunFailureChoice]
+            : offeredFailureChoices(value, stage, !acceptRefused, closable).flatMap((choice) =>
+                choice === 'repair' && repairTask
+                  ? [namedRepairChoice(repairTask.displayId), failureChoiceLabels[choice]]
+                  : [failureChoiceLabels[choice]],
+              ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },
@@ -346,6 +349,7 @@ export function checksArea(ctx: StoreContext): ChecksArea {
             ...(assessment.contextId && { contextId: assessment.contextId }),
             ...(repairTask && { repairTask }),
             ...(acceptRefused && { acceptRefused }),
+            ...(rerun && { rerun: true as const }),
           },
         ],
       }

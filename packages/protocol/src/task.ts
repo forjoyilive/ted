@@ -623,6 +623,19 @@ export interface ProposalRow {
   description?: string
   priority: Priority
   blockedBy: number[]
+  files?: string[]
+  addedBlockedBy?: number[]
+  sharedFiles?: ProposalSharedFiles[]
+}
+
+export interface ProposalSharedFiles {
+  row: number
+  files: string[]
+}
+
+export interface ProposalLink {
+  row: number
+  blocker: number
 }
 
 export interface Proposal {
@@ -637,6 +650,7 @@ export interface ProposalRowInput {
   description?: string
   priority?: Priority
   blockedBy?: number[]
+  files: string[]
 }
 
 export interface ProposalInput {
@@ -647,12 +661,14 @@ export interface ProposalInput {
 
 export interface ProposalChoice {
   skip?: number[]
+  unlink?: ProposalLink[]
   startUnblocked?: boolean
 }
 
 export interface ProposalCreated {
   tasks: { row: number; id: string; displayId: string }[]
   skipped: number[]
+  unlinked?: ProposalLink[]
   startUnblocked: boolean
 }
 

@@ -15,7 +15,7 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { appAccess, electronEnv } from '../src/apps/apps.ts'
+import { appAccess, electronEnv, servedPorts } from '../src/apps/apps.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { tryLock } from '../src/lock.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -720,12 +720,30 @@ test('only a Run’s start of an Electron App gets a debugging port, hidden, wit
   )
 })
 
+test('an App serves its own port and reaches its Task’s other Apps', () => {
+  const ports = { 'web/api': 4100, 'web/site': 4101 }
+  expect(servedPorts(4100, ports)).toEqual({ own: 4100, reach: [4101] })
+  expect(servedPorts(undefined, ports)).toEqual({ reach: [4100, 4101] })
+})
+
 test('an Electron App gets the electron access group, once, beside the groups it lists', () => {
-  expect(appAccess({ electron: true })).toEqual(['electron'])
-  expect(appAccess({ electron: true, sandboxAccess: ['socket:db', 'electron'] })).toEqual([
-    'socket:db',
-    'electron',
+  expect(appAccess({ kind: 'command', electron: true })).toEqual(['electron'])
+  expect(
+    appAccess({ kind: 'command', electron: true, sandboxAccess: ['socket:db', 'electron'] }),
+  ).toEqual(['socket:db', 'electron'])
+  expect(appAccess({ kind: 'command', sandboxAccess: ['socket:db'] })).toEqual(['socket:db'])
+  expect(appAccess({ kind: 'web' })).toEqual([])
+})
+
+test('a simulator or emulator App gets its device’s access group, once, and no other App does', () => {
+  expect(appAccess({ kind: 'ios-simulator' })).toEqual(['ios-simulator'])
+  expect(
+    appAccess({ kind: 'ios-simulator', sandboxAccess: ['ios-xcode', 'ios-simulator'] }),
+  ).toEqual(['ios-xcode', 'ios-simulator'])
+  expect(appAccess({ kind: 'android-emulator', sandboxAccess: ['network'] })).toEqual([
+    'network',
+    'android-emulator',
   ])
-  expect(appAccess({ sandboxAccess: ['socket:db'] })).toEqual(['socket:db'])
-  expect(appAccess({})).toEqual([])
+  expect(appAccess({ kind: 'command' })).toEqual([])
+  expect(appAccess({ kind: 'web', sandboxAccess: ['ios-simulator'] })).toEqual(['ios-simulator'])
 })

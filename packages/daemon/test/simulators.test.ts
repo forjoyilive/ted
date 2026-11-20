@@ -134,7 +134,9 @@ async function start(
 
 type Client = Awaited<ReturnType<typeof start>>
 
-const workflow = (run = 'echo udid $TED_TASK $TED_SIMULATOR_UDID; exec sleep 600') =>
+const workflow = (
+  run = 'echo udid $TED_TASK $TED_SIMULATOR_UDID; echo TED_APP_READY; exec sleep 600',
+) =>
   [
     'version: 1',
     'order: [intake, work, merge]',
@@ -261,7 +263,10 @@ describe('iOS simulator Apps', () => {
     expect((await stubCalls()).some((c) => c[0] === 'simctl' && c[1] === 'clone')).toBe(true)
     expect(
       (await stubCalls()).some(
-        (c) => c.includes('-g') && c.includes('Simulator') && c.includes(clone?.udid ?? ''),
+        (c) =>
+          c.includes('-g') &&
+          c.includes('com.apple.iphonesimulator') &&
+          c.includes(clone?.udid ?? ''),
       ),
     ).toBe(true)
     const line = await waitUntil(
@@ -284,7 +289,8 @@ describe('iOS simulator Apps', () => {
     await client.ok('POST', `/tasks/${task.id}/apps/show`, { name: 'iPhone' })
     expect(
       (await stubCalls()).some(
-        (c) => c[0] === '-a' && c.includes(clone?.udid ?? '') && !c.includes('-g'),
+        (c) =>
+          c[0] === '-b' && c[1] === 'com.apple.iphonesimulator' && c.includes(clone?.udid ?? ''),
       ),
     ).toBe(true)
 
@@ -652,6 +658,66 @@ describe('iOS simulator Apps', () => {
     expect((await iPhone(client, first))?.simulator?.shutDown?.for).toBe('NB-2')
   })
 
+  test('ted run-app waits until the App prints TED_APP_READY', async () => {
+    const client = await start()
+    const built = path.join(scratch, 'built')
+    await addFactory(
+      client,
+      `echo compiling; until [ -f '${built}' ]; do sleep 0.1; done; echo TED_APP_READY; exec sleep 600`,
+    )
+    const task = await taskWithWorktree(
+      client,
+      JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'iPhone'] }, { endTurn: true }] }),
+    )
+    await waitForApp(
+      client,
+      task,
+      (a) => a.state === 'running' && a.builtAt === undefined,
+      'the App to start building',
+    )
+    const lead = (await taskNow(client, task)).leadRunId as string
+    expect(assistantTexts((await client.getRun(lead)).conversation)).toEqual([])
+
+    await writeFile(built, '')
+    const result = await leadResult(client, task)
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('iPhone is running on iPhone 17')
+    expect(result.stderr).toContain(
+      'Waiting for iPhone to finish building and launch on iPhone 17…',
+    )
+    expect((await iPhone(client, task))?.builtAt).toBeDefined()
+  })
+
+  test('ted run-app fails with the end of the log when the App exits before TED_APP_READY', async () => {
+    const client = await start()
+    await addFactory(client, 'echo pod install failed; sleep 1; exit 3')
+    const task = await taskWithWorktree(
+      client,
+      JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'iPhone'] }, { endTurn: true }] }),
+    )
+    const result = await leadResult(client, task)
+    expect(result.code).toBe(1)
+    expect(result.stdout).not.toContain('is running')
+    expect(result.stderr).toContain('iPhone exited with code 3. The end of its log:')
+    expect(result.stderr).toContain('pod install failed')
+  })
+
+  test('ted run-app gives up when the App runs past the build limit without TED_APP_READY, and leaves it running', async () => {
+    const client = await start({}, undefined, undefined, { buildTurnMs: 2_000 })
+    await addFactory(client, 'echo still compiling; exec sleep 600')
+    const task = await taskWithWorktree(
+      client,
+      JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'iPhone'] }, { endTurn: true }] }),
+    )
+    const result = await leadResult(client, task)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain(
+      'iPhone is running on iPhone 17 but didn’t print TED_APP_READY within the 15-minute build limit',
+    )
+    expect(result.stderr).toContain('still compiling')
+    expect(await iPhone(client, task)).toMatchObject({ state: 'running', notReady: true })
+  })
+
   test('an approved App that waits for another App’s build names it, and ted run-app says so', async () => {
     const client = await start()
     const built = path.join(scratch, 'built')
@@ -708,13 +774,23 @@ describe('iOS simulator Apps', () => {
       async () => (await readFile(said, 'utf8').catch(() => '')).includes(building),
       'ted run-app to say whose build it waits for',
     )
+    await rm(built)
     await client.ok('POST', `/tasks/${builder.id}/apps/stop`, { name: 'Watch' })
+    await waitUntil(
+      async () =>
+        (await readFile(said, 'utf8').catch(() => '')).includes(
+          'Waiting for iPhone to finish building and launch on iPhone 17…',
+        ),
+      'ted run-app to say it waits for NB-3’s own build',
+    )
+    await writeFile(built, '')
     const result = await leadResult(client, second)
     expect(result.code).toBe(0)
     const lines = (await readFile(said, 'utf8')).split('\n')
     expect(lines.filter((l) => l.includes('Waiting for'))).toEqual([
       'Every simulator and emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…',
       building,
+      'Waiting for iPhone to finish building and launch on iPhone 17…',
     ])
   })
 
@@ -755,6 +831,33 @@ describe('iOS simulator Apps', () => {
     expect(idle.simulator?.shutDown?.for).toBeUndefined()
     await eventText(client, task, 'Ted shut down iPhone’s simulator because it was idle')
     expect((await client.ok<SimulatorSlots>('GET', '/simulators')).booted).toEqual([])
+  })
+
+  test('Show falls back to Xcode’s DeviceHub when Simulator isn’t installed, and says so when neither opens', async () => {
+    const client = await start()
+    await addFactory(client)
+    const task = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
+    const setViewers = async (viewers: string[]) => {
+      const state = JSON.parse(await readFile(stubState, 'utf8')) as { viewers?: string[] }
+      await writeFile(stubState, JSON.stringify({ ...state, viewers }))
+    }
+
+    await setViewers(['com.apple.dt.Devices'])
+    await client.ok('POST', `/tasks/${task.id}/apps/show`, { name: 'iPhone' })
+    const udid = (await stubDevices()).find((d) => d.name === 'Ted Dev NB-1 iPhone')?.udid
+    expect((await stubCalls()).filter((call) => call[0] === '-b')).toContainEqual([
+      '-b',
+      'com.apple.dt.Devices',
+      `devices://device/open?id=${udid}`,
+    ])
+
+    await setViewers([])
+    const refused = await client.call('POST', `/tasks/${task.id}/apps/show`, { name: 'iPhone' })
+    expect(refused.status).toBe(409)
+    expect((refused.body as { error: string }).error).toBe(
+      'Ted couldn’t open Simulator or Xcode’s DeviceHub: Unable to find application with identifier com.apple.iphonesimulator; Unable to find application with identifier com.apple.dt.Devices',
+    )
   })
 
   test('ted app screenshot and record save files to the Task', async () => {
@@ -819,7 +922,7 @@ describe('iOS simulator Apps', () => {
         '      - name: iPhone',
         '        kind: ios-simulator',
         '        device: "iPhone 17"',
-        '        run: "exec sleep 600"',
+        '        run: "echo TED_APP_READY; exec sleep 600"',
       ].join('\n'),
     })
     await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })

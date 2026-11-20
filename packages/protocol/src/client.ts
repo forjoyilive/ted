@@ -113,7 +113,7 @@ import type {
   ShutdownRequest,
 } from './data.ts'
 import type { DeviceRequest, DeviceResult } from './device.ts'
-import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
+import type { Diagnostics, DiagnosticsUsage, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type {
   ApproveExecution,
@@ -194,6 +194,12 @@ import type {
 } from './outside-command.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
+  PairedPhones,
+  PhonePairingDecision,
+  PhonePairingOffer,
+  PhonePairingState,
+} from './phones.ts'
+import type {
   ChatArchiveExpiry,
   Plan,
   PlanDetail,
@@ -203,6 +209,7 @@ import type {
   ResumePlanRequest,
   StartPlanRequest,
 } from './plan.ts'
+import type { PresenceReport } from './presence.ts'
 import type {
   AgentKind,
   Run,
@@ -339,6 +346,30 @@ export class DaemonClient {
     this.#idleTimeoutMs = idleTimeoutMs
   }
 
+  createPhonePairing(): Promise<PhonePairingOffer> {
+    return this.#request('POST', '/phones/pairings')
+  }
+  currentPhonePairing(): Promise<PhonePairingState> {
+    return this.#request('GET', '/phones/pairings/current')
+  }
+  cancelPhonePairing(): Promise<PhonePairingState> {
+    return this.#request('DELETE', '/phones/pairings/current')
+  }
+  approvePhonePairing(input: PhonePairingDecision): Promise<PhonePairingState> {
+    return this.#request('POST', '/phones/pairings/current/approve', input)
+  }
+  refusePhonePairing(input: PhonePairingDecision): Promise<PhonePairingState> {
+    return this.#request('POST', '/phones/pairings/current/refuse', input)
+  }
+  pairedPhones(): Promise<PairedPhones> {
+    return this.#request('GET', '/phones')
+  }
+  removePhone(id: string): Promise<PairedPhones> {
+    return this.#request('DELETE', `/phones/${encodeURIComponent(id)}`)
+  }
+  reportPresence(input: PresenceReport): Promise<PresenceReport> {
+    return this.#request('POST', '/presence', input)
+  }
   executionMachines(): Promise<ExecutionMachines> {
     return this.#request('GET', '/execution/machines')
   }
@@ -1570,7 +1601,7 @@ export class DaemonClient {
     return this.#request('GET', '/diagnostics')
   }
 
-  getProcessUsage(): Promise<ProcessUsage> {
+  getProcessUsage(): Promise<DiagnosticsUsage> {
     return this.#request('GET', '/diagnostics/usage')
   }
 

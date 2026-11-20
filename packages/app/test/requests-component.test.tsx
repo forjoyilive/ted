@@ -1510,11 +1510,12 @@ test('Validate failure decisions display evidence and send the selected action',
 })
 
 test('a failure card without Accept says why and what the user can do instead', async () => {
-  const { handle } = requestApi()
+  const { answer, handle } = requestApi()
   const failure = (
     source: FailureCase['source'],
     validation: boolean,
     acceptRefused?: 'changed' | 'unknown',
+    rerun = false,
   ): FailureCase => ({
     id: 'failure-1',
     taskId: 'NB-1',
@@ -1541,6 +1542,7 @@ test('a failure card without Accept says why and what the user can do instead', 
         commentId: 'request-1',
         assessmentId: 'assessment-1',
         ...(acceptRefused && { acceptRefused }),
+        ...(rerun && { rerun: true as const }),
       },
     ],
   })
@@ -1580,6 +1582,33 @@ test('a failure card without Accept says why and what the user can do instead', 
     expect(screen.queryByRole('radio', { name: 'Accept this failure' })).toBeNull()
     cleanup()
   }
+  handle('listFailures', () => [failure(check, true, 'changed', true)])
+  render(
+    <RequestCard
+      request={comment({
+        id: 'request-1',
+        kind: 'question',
+        purpose: { kind: 'failure' },
+        choices: ['Run the checks again on the new code'],
+      })}
+      task={task()}
+    />,
+  )
+  expect(
+    await screen.findByText(
+      'This failure can’t be accepted: the Task’s code changed after the Task Lead asked about it. Run the checks again on the new code moves the Task to Validate, where Ted runs the checks on the code as it is now.',
+    ),
+  ).toBeTruthy()
+  expect(screen.queryByRole('radio', { name: 'Accept this failure' })).toBeNull()
+  expect(screen.getByRole('radio', { name: 'Send a message to the Task Lead' })).toBeTruthy()
+  await user().click(screen.getByRole('radio', { name: 'Run the checks again on the new code' }))
+  await user().click(
+    screen.getByRole('button', { name: 'Confirm Run the checks again on the new code' }),
+  )
+  expect(answer).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ action: 'answer', choice: 'Run the checks again on the new code' }),
+  )
 })
 
 test('a repair Task the Task Lead named is its own decision choice, with its title and Stage, and shows on the card', async () => {

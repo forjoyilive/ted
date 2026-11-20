@@ -1547,7 +1547,11 @@ export function createCoordinators(options: {
   ): Promise<void> {
     const proposal = asked.proposal
     if (!proposal) throw new RequestError(409, 'this proposal has no rows')
-    const { skip, shape } = approvedShape(proposal, answer.proposal?.skip)
+    const { skip, unlinked, shape } = approvedShape(
+      proposal,
+      answer.proposal?.skip,
+      answer.proposal?.unlink,
+    )
     const startUnblocked = answer.proposal?.startUnblocked === true
     const operation = (part: string) => `${c.id}:${asked.id}:${part}`
     const parent =
@@ -1573,7 +1577,12 @@ export function createCoordinators(options: {
         created.map((t) => t.id),
         'chat',
       )
-    const outcome: ProposalCreated = { tasks: created, skipped: skip, startUnblocked }
+    const outcome: ProposalCreated = {
+      tasks: created,
+      skipped: skip,
+      ...(unlinked.length > 0 && { unlinked }),
+      startUnblocked,
+    }
     const text = answer.text?.trim() ?? ''
     const approved: CommentAnswer = {
       kind: 'approved',
@@ -2872,7 +2881,10 @@ export function createCoordinators(options: {
           ...(input.proposal && {
             title: input.proposal.title,
             proposal: {
-              rows: proposalRows(input.proposal.tasks),
+              rows: proposalRows(
+                input.proposal.tasks,
+                requireFactory(c.factoryId).repos.map((r) => r.name),
+              ),
             },
           }),
           ...(draft && {

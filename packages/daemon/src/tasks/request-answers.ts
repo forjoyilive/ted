@@ -21,8 +21,10 @@ import {
   isTrackerClosedQuestion,
   keepArchiveChoice,
   namedRepairChoice,
+  rerunFailureChoice,
   sizeChoices,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import {
   bindsApproval,
   handsOff,
@@ -67,7 +69,7 @@ export interface RequestAnswerPort {
   find(id: string): StoredTask
   holding<T>(task: Task, work: () => Promise<T>): Promise<T>
   holdingSignoff<T>(task: Task, work: () => Promise<T>): Promise<T>
-  failures: Pick<ReturnType<typeof createFailureCases>, 'findDecision' | 'resolve'>
+  failures: Pick<ReturnType<typeof createFailureCases>, 'findDecision' | 'resolve' | 'refreshStale'>
   waitForRepair(
     taskId: string,
     failureId: string,
@@ -125,6 +127,7 @@ export interface RequestAnswerPort {
     sendBack: SendBack,
   ): string
   leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
+  leaveWorkToRerun(task: StoredTask): Promise<(message: string) => Promise<Task>>
   diagnoseInValidate(task: StoredTask, message: string): void
   stop(id: string): Promise<Task>
   settleDependents(id: string): void
@@ -219,6 +222,7 @@ export function createRequestAnswers(
     move,
     backMessage,
     leaveWorkToDiagnose,
+    leaveWorkToRerun,
     diagnoseInValidate,
     stop,
     settleDependents,
@@ -394,7 +398,11 @@ export function createRequestAnswers(
     if (request.action !== 'approve') {
       throw new RequestError(400, 'answer a proposal with Create Tasks or Request changes')
     }
-    const { skip, shape: plan } = approvedShape(proposal, request.proposal?.skip)
+    const {
+      skip,
+      unlinked,
+      shape: plan,
+    } = approvedShape(proposal, request.proposal?.skip, request.proposal?.unlink)
     const startUnblocked = request.proposal?.startUnblocked === true
     const result = await holding(task, async () => {
       unanswered(comment)
@@ -411,7 +419,12 @@ export function createRequestAnswers(
         created.map((c) => c.id),
         'split',
       )
-      const outcome = { tasks: created, skipped: skip, startUnblocked }
+      const outcome = {
+        tasks: created,
+        skipped: skip,
+        ...(unlinked.length > 0 && { unlinked }),
+        startUnblocked,
+      }
       const answered = answerRequest(task, comment, {
         kind: 'approved',
         at: new Date().toISOString(),
@@ -829,6 +842,48 @@ export function createRequestAnswers(
     return store.getComment(comment.id) ?? answered
   }
 
+  async function answerRerun(
+    task: StoredTask,
+    comment: Comment,
+    failure: FailureCase,
+    text: string,
+    sendDrafts: boolean,
+  ): Promise<Comment> {
+    await untilChecksReported(task.id)
+    await untilFree(task.id)
+    return holding(task, async () => {
+      const current = find(task.id)
+      if (!handsOff(current.stage)) throw new RequestError(409, `${task.displayId} has left Work`)
+      const enterValidate = await leaveWorkToRerun(current)
+      const safe = text === '' ? '' : failureText(text)
+      const answered = answerRequest(
+        task,
+        comment,
+        {
+          kind: 'answered',
+          at: new Date().toISOString(),
+          choice: rerunFailureChoice,
+          ...(safe !== '' && { text: safe }),
+        },
+        sendDrafts ? drafts(task.id) : [],
+      )
+      store.postComment({
+        taskId: task.id,
+        kind: 'note',
+        author: { kind: 'ted' },
+        body: `The user chose ${rerunFailureChoice} for failure ${shortReference(failure.id)}, so Ted moved ${task.displayId} to Validate to run the checks on the code as it is now.`,
+      })
+      if (!liveLead(current)) store.holdAnswer(comment.id)
+      await enterValidate(
+        [
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${rerunFailureChoice}: the Task’s code changed after you asked about failure ${shortReference(failure.id)}, so Ted moved the Task to Validate and runs the checks on the code as it is now. A check that fails there comes back to Work with its output.`,
+          ...(safe !== '' ? [`The human added:\n\n${safe}`] : []),
+        ].join('\n\n'),
+      )
+      return store.getComment(comment.id) ?? answered
+    })
+  }
+
   async function answerAs(
     id: string,
     request: AnswerRequest,
@@ -847,6 +902,10 @@ export function createRequestAnswers(
       if (!failure) throw new RequestError(409, 'this failure decision can’t be answered')
       if (comment.answer)
         throw new RequestError(409, 'this failure decision is stale or already answered')
+      if (handsOff(task.stage)) {
+        await untilFree(task.id)
+        await failures.refreshStale(find(task.id))
+      }
       if (request.action === 'answer' && request.choice === undefined && request.text?.trim()) {
         await holding(task, () =>
           humanComment(find(task.id), failureText(request.text ?? ''), [], sendDrafts),
@@ -855,6 +914,16 @@ export function createRequestAnswers(
       }
       if (request.action !== 'answer' || request.choice === undefined)
         throw new RequestError(400, 'choose a failure resolution')
+      if (store.getComment(id)?.answer)
+        throw new RequestError(
+          409,
+          `The Task’s code changed since this question was asked, so Ted replaced it with a new one. Choose “${rerunFailureChoice}” there to have Ted run the checks on the new code.`,
+        )
+      if (request.choice === rerunFailureChoice) {
+        if (!comment.choices?.includes(rerunFailureChoice))
+          throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
+        return answerRerun(task, comment, failure, request.text?.trim() ?? '', sendDrafts)
+      }
       const named = failure.decisions.find((d) => d.commentId === id)?.repairTask
       if (named && request.choice === namedRepairChoice(named.displayId)) {
         if (comment.choices && !comment.choices.includes(request.choice))

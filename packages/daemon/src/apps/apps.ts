@@ -40,7 +40,13 @@ import { workCommand } from '../priority.ts'
 import { markProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import { type LaunchAuthority, launchAuthority } from '../runs/launch-authority.ts'
-import { type Sandbox, type SandboxScope, SandboxUnavailable, withSandboxEnv } from '../sandbox.ts'
+import {
+  type Sandbox,
+  type SandboxScope,
+  SandboxUnavailable,
+  type ServedPorts,
+  withSandboxEnv,
+} from '../sandbox.ts'
 import { appendRefusalHints } from '../sandbox-hints.ts'
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { TedStore } from '../store/index.ts'
@@ -237,6 +243,7 @@ interface Instance {
   waitingFor?: string
   readyAt?: string
   builtAt?: string
+  notReadyAt?: string
   readyFrom?: number
   ended?: {
     at: string
@@ -528,7 +535,8 @@ export function createApps(options: AppsOptions): Apps {
       ...(state === 'running' &&
         isDeviceApp(app) &&
         instance?.builtAt === undefined &&
-        pool.building(keyOf(taskId, repo, app.name)) && { building: true as const }),
+        instance?.notReadyAt === undefined && { building: true as const }),
+      ...(live && instance?.notReadyAt !== undefined && { notReady: true }),
       ...(instance?.startedBy !== undefined && { startedBy: instance.startedBy }),
       ...(ended && { endedAt: ended.at }),
       ...(ended?.code !== undefined && { exitCode: ended.code }),
@@ -815,7 +823,8 @@ export function createApps(options: AppsOptions): Apps {
       task = await options.task(taskId)
       const dir = dirOf(taskId, repo.name, app.name)
       const key = keyOf(taskId, repo.name, app.name)
-      const vars = appVars(task, await allocate(taskId, task))
+      const ports = await allocate(taskId, task)
+      const vars = appVars(task, ports)
       const portVars: Record<string, string> = port === undefined ? {} : { PORT: String(port) }
       const scope = by === 'human' ? undefined : task.sandbox
       const electron = app.electron === true && port !== undefined
@@ -845,7 +854,11 @@ export function createApps(options: AppsOptions): Apps {
       )
       const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
       const sandboxed = await sandboxFor(
-        scope && { ...scope, serves: true, groups: appAccess(app) },
+        scope && {
+          ...scope,
+          serves: servedPorts(port, ports),
+          groups: appAccess(app),
+        },
         task,
         dir,
       )
@@ -1166,7 +1179,6 @@ export function createApps(options: AppsOptions): Apps {
     onHost: (pid: number, name: string) => Promise<void>,
   ): Promise<void> {
     let launchedAt = Date.now()
-    let wasBuilding = pool.building(key)
     while (!closed) {
       const instance = await readInstance(dir)
       if (!instance || instance.ended) return
@@ -1200,16 +1212,18 @@ export function createApps(options: AppsOptions): Apps {
         )
         return
       }
-      if (started && pool.building(key) && (await saidReady(dir, key))) {
-        pool.endTurn(key)
-        instance.builtAt = new Date().toISOString()
-        await writeInstance(dir, instance)
-        wasBuilding = false
-        changed(taskId)
+      if (started && isDeviceApp(instance) && instance.builtAt === undefined) {
+        const building = pool.building(key)
+        if (await saidReady(dir, key)) {
+          if (building) pool.endTurn(key)
+          const { notReadyAt: _, ...built } = instance
+          await writeInstance(dir, { ...built, builtAt: new Date().toISOString() })
+          changed(taskId)
+        } else if (!building && instance.notReadyAt === undefined) {
+          await writeInstance(dir, { ...instance, notReadyAt: new Date().toISOString() })
+          changed(taskId)
+        }
       }
-      const building = pool.building(key)
-      if (wasBuilding && !building) changed(taskId)
-      wasBuilding = building
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {
         const answer = await answers(readyUrl)
@@ -1661,11 +1675,22 @@ export async function portFree(port: number): Promise<boolean> {
   return !answered
 }
 
+export function servedPorts(own: number | undefined, ports: Record<string, number>): ServedPorts {
+  return {
+    ...(own !== undefined && { own }),
+    reach: Object.values(ports).filter((port) => port !== own),
+  }
+}
+
 export function appAccess(
-  app: Pick<AppDeclaration, 'electron' | 'sandboxAccess'>,
+  app: Pick<AppDeclaration, 'kind' | 'electron' | 'sandboxAccess'>,
 ): SandboxAccess[] {
+  const implied: SandboxAccess[] = [
+    ...(app.electron === true ? ['electron' as const] : []),
+    ...(app.kind === 'ios-simulator' || app.kind === 'android-emulator' ? [app.kind] : []),
+  ]
   const access = app.sandboxAccess ?? []
-  return app.electron === true && !access.includes('electron') ? [...access, 'electron'] : access
+  return [...access, ...implied.filter((group) => !access.includes(group))]
 }
 
 export function electronEnv(

@@ -4,7 +4,7 @@ Ted (“Totally Excellent Development”) runs software factories: agents carry 
 
 ## Language
 
-These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview, banner and sandbox opening. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
+These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview, banner, sandbox opening, paired phone and relay. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
 
 **Controller**:
 The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when Ted uses several machines.
@@ -23,6 +23,14 @@ _Avoid_: Job, remote command
 **Task assignment**:
 The durable ownership of a Task’s execution by one machine; losing contact does not move that ownership elsewhere.
 _Avoid_: Lease, placement hint
+
+**Paired phone**:
+An iPhone running the Ted phone app that the user approved in Settings → Phones. It reaches this Mac only through the relay, encrypted end to end, and only for the routes marked for phones.
+_Avoid_: Mobile client, device
+
+**Relay**:
+The server that passes encrypted messages between a paired phone and the Ted daemon, because the daemon listens only on this Mac. It cannot read the encrypted messages; it can see public keys, channel and connection identifiers, nonces, sizes and times.
+_Avoid_: Proxy, tunnel, phone server
 
 **Factory**:
 A largely automated process that carries software development tasks from creation to merge for one product, which may span several repos.
@@ -229,7 +237,7 @@ A command with a name that an Agent’s settings list under `outside_commands` i
 _Avoid_: Escape hatch, unsandboxed command
 
 **Sandbox access group**:
-A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` opens what Xcode writes outside its temp folder and lets it read iOS Simulator runtimes on macOS; this is shared access on the user’s Mac. `shared-tmp` opens the shared `/private/tmp` (`/tmp`) folder for reading and writing on macOS, for tools that ignore `TMPDIR`; on Linux it changes nothing, because `/tmp` is already the command’s own temp folder. `electron` opens the macOS services Electron needs to start and open windows; an App with `electron: true` gets it automatically. `network` lets the command connect to any host, overriding the Factory’s `sandbox_network` level for that command; network defaults and platform limits are in `docs/agents/platform.md`. The same access list can name a Library socket with `socket:<name>`; its path comes only from `sandbox_sockets` in the user’s Library.
+A named set of extra things the sandbox lets one command reach, defined only in Ted’s code and listed by `ted sandbox groups`. The Factory’s Workflow names groups under `sandbox_access` on an App, a command Check, or a repo’s worktree setup or teardown. `ios-xcode` opens what Xcode writes outside its temp folder and lets it read iOS Simulator runtimes on macOS; this is shared access on the user’s Mac. `ios-simulator` opens the CoreSimulator services and simulator device folders, and `android-emulator` opens the adb server and emulator ports on localhost and the Android SDK folders; an App of kind `ios-simulator` or `android-emulator` gets its group automatically, and anything else that uses a simulator or emulator lists it. `shared-tmp` opens the shared `/private/tmp` (`/tmp`) folder for reading and writing on macOS, for tools that ignore `TMPDIR`; on Linux it changes nothing, because `/tmp` is already the command’s own temp folder. `electron` opens the macOS services Electron needs to start and open windows; an App with `electron: true` gets it automatically. `network` lets the command connect to any host, overriding the Factory’s `sandbox_network` level for that command; network defaults and platform limits are in `docs/agents/platform.md`. The same access list can name a Library socket with `socket:<name>`; its path comes only from `sandbox_sockets` in the user’s Library.
 _Avoid_: Sandbox permission, allowance, entitlement
 
 **Chat**:
@@ -327,7 +335,7 @@ The wide column in the middle of the app’s window, left of a Task’s details.
 _Avoid_: Main pane, content area
 
 **Banner**:
-A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears. A banner either stops work (red, can’t be dismissed) or is a warning (amber, hidden for 24 hours by ×, except the repo-added warning, which × clears for good). Banners are never Inbox items.
+A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears. A banner either stops work (red, can’t be dismissed) or is a warning (amber, hidden for 24 hours by ×, except the repo-added warning, which × clears for good). Stops-work banners also appear in Problems on a paired phone, where they can be read but must be fixed on the Mac; warnings stay on the Mac. Banners are never Inbox items.
 _Avoid_: Alert, error bar, toast
 
 **Onboarding**:

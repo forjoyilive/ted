@@ -40,6 +40,7 @@ import { libraryRoutes } from './routes/library.ts'
 import { machineRoutes } from './routes/machine.ts'
 import { messageDraftRoutes } from './routes/message-drafts.ts'
 import { peerRoutes } from './routes/peers.ts'
+import { phoneAppRoutes } from './routes/phones.ts'
 import { planRoutes } from './routes/plans.ts'
 import {
   type BaseOptions,
@@ -73,6 +74,7 @@ const dataRoutes: Route<BaseOptions>[] = [
     path: /^\/caller$/,
     async handle({ req, caller }, { appToken }) {
       const nonce = parseAppAuth(req.headers.authorization)?.nonce
+      if (caller.kind === 'phone') throw new HttpError(403, 'phones don’t use this API')
       const info: CallerInfo = {
         kind: caller.kind,
         ...(caller.kind === 'app' &&
@@ -185,6 +187,7 @@ const routes: Route[] = [
   ...coordinatorRoutes,
   ...searchRoutes,
   ...messageDraftRoutes,
+  ...phoneAppRoutes,
 ]
 
 const drainTimeoutMs = 10_000
@@ -328,6 +331,9 @@ function find<O>(
       throw new HttpError(403, 'Not allowed from inside a Run')
     }
     if (caller.kind === 'file' && route.method !== 'GET' && !route.fileToken) {
+      throw new HttpError(403, 'only the Ted app can do this')
+    }
+    if (route.appOnly && caller.kind !== 'app') {
       throw new HttpError(403, 'only the Ted app can do this')
     }
     return {

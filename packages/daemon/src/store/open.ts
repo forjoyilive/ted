@@ -5,6 +5,7 @@ import { openContext } from './context.ts'
 import { factoriesArea } from './factories.ts'
 import { machineArea } from './machine.ts'
 import { mergeArea } from './merge.ts'
+import { phonesArea } from './phones.ts'
 import { requestsArea } from './requests.ts'
 import { runsArea } from './runs.ts'
 import { taskTreeArea } from './task-tree.ts'
@@ -24,6 +25,7 @@ export async function openStore(options: {
     ...factoriesArea(ctx),
     ...machineArea(ctx),
     ...mergeArea(ctx),
+    ...phonesArea(ctx),
     ...requestsArea(ctx),
     ...runsArea(ctx),
     ...taskTreeArea(ctx),

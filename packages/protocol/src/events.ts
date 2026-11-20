@@ -57,3 +57,4 @@ export type DaemonEvent =
   | { type: 'drift-changed'; drift: DriftCounts }
   | { type: 'line-comments-changed'; taskId: string }
   | { type: 'ted-stops-changed' }
+  | { type: 'phones-changed' }

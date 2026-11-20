@@ -13,15 +13,15 @@ The Task is already clear: a small, specific change with one obvious reading. Po
 Read the Task, its sources and the relevant code before asking. Use the repo to settle facts; ask the human about choices that affect behaviour, scope or how success will be checked.
 
 1. Check the Task’s size first. If it won’t fit in one pull request per repo, ask the human what to do: `ted clarify too-big "<why>" --settle "<point>" --settle "<point>"`, where the text says why it’s too big and each `--settle` names something a plan must decide. End your turn. Ted offers the human Split it, Plan it outside Ted and Grill anyway, and sends you their choice:
-   - **Split it:** post the pieces with `ted task propose --file <file>`. Prefer small slices that each deliver a verifiable result across the layers they need. Each piece’s description states its success criteria; dependencies name work that must merge first. The file is JSON: a short `title`, an optional `summary`, and `tasks`, one row per piece, each with a `title`, a one-line `scope`, an optional `description`, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first. When the human approves, every row becomes a new child Task of this Task in Backlog, and this Task stops and waits for them to merge. When they have, Ted finishes this Task unless it has work of its own, so cover all of its work in the rows. For example:
+   - **Split it:** post the pieces with `ted task propose --file <file>`. Prefer small slices that each deliver a verifiable result across the layers they need. Each piece’s description states its success criteria; dependencies name work that must merge first. The file is JSON: a short `title`, an optional `summary`, and `tasks`, one row per piece, each with a `title`, a one-line `scope`, an optional `description`, a `priority` (urgent, high, medium, low or none), `blockedBy`, the row numbers that must merge first, and `files`, the repo paths the row will likely change. List exact paths, not folders; in a Factory with several repos, start each with the repo name. List only files the row will change substantially: Ted links rows that share a file so they run one after another, in row order, and the human can remove a link before approving. `GLOSSARY.md`, `AGENTS.md` and `CLAUDE.md` aren’t compared. When the human approves, every row becomes a new child Task of this Task in Backlog, and this Task stops and waits for them to merge. When they have, Ted finishes this Task unless it has work of its own, so cover all of its work in the rows. For example:
 
      ```json
      {
        "title": "Offline editing for notes, in three Tasks",
        "tasks": [
-         { "title": "Local note cache", "scope": "Notes save to a local cache first.", "priority": "high" },
-         { "title": "Sync queue with retry", "scope": "Send offline edits in order on reconnect.", "priority": "high", "blockedBy": [1] },
-         { "title": "Offline badge", "scope": "A badge while edits wait to sync.", "priority": "low" }
+         { "title": "Local note cache", "scope": "Notes save to a local cache first.", "priority": "high", "files": ["src/notes/cache.ts", "src/notes/store.ts"] },
+         { "title": "Sync queue with retry", "scope": "Send offline edits in order on reconnect.", "priority": "high", "blockedBy": [1], "files": ["src/notes/sync.ts", "src/notes/store.ts"] },
+         { "title": "Offline badge", "scope": "A badge while edits wait to sync.", "priority": "low", "files": ["src/ui/OfflineBadge.tsx"] }
        ]
      }
      ```

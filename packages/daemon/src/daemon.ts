@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   DaemonClient,
+  type DaemonEvent,
   type DaemonInfo,
   type DataStatus,
   type PublicDaemonInfo,
@@ -49,7 +50,14 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
+import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
+import { createPhoneNotifier } from './phones/notifier.ts'
+import { createPhones } from './phones/phones.ts'
+import type { PhoneProblemSource } from './phones/problems.ts'
+import { noPush, type PushService } from './phones/push.ts'
+import { storeInbox } from './phones/requests.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
+import { createPresence } from './presence.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
 import { redactSecrets } from './redact.ts'
 import { pruneRunOutput, runOutputEnd } from './retention.ts'
@@ -65,7 +73,7 @@ import { listen } from './server.ts'
 import { createShells } from './shells.ts'
 import { createSideChats } from './side-chats/side-chats.ts'
 import { createSlowMonitor } from './slow-moments.ts'
-import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
+import { type HoldAwake, stayAwakeForPhones, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import { createArchiveCleanup } from './tasks/archive-expiry.ts'
@@ -109,6 +117,7 @@ export interface DaemonOptions {
   githubSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
+  holdOnPower?: HoldAwake
   commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
   clock?: Clock
@@ -124,6 +133,7 @@ export interface DaemonOptions {
   apps?: {
     pollMs?: number
     readyTimeoutMs?: number
+    buildTurnMs?: number
     hostStartMs?: number
     stopGraceMs?: number
     logBytes?: number
@@ -146,6 +156,19 @@ export interface DaemonOptions {
   slow?: { requestMs?: number; stallMs?: number }
   wrap?: DaemonWrappers
   mkdir?: MakeDirectory
+  phones?: DaemonPhonesOptions
+}
+
+export interface DaemonPhonesOptions {
+  keyrings?: PhoneKeyrings
+  relayUrl?: string
+  now?: () => number
+  macName?: () => Promise<string>
+  relayDelaysMs?: readonly number[]
+  relayAnswerMs?: number
+  relayListAckMs?: number
+  push?: PushService
+  presence?: { now?: () => number; staleMs?: number }
 }
 
 export interface DaemonWrappers {
@@ -342,7 +365,26 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.mkdir !== undefined && { mkdir: options.mkdir }),
       })
       const runs = options.wrap?.runs?.(startedRuns, store) ?? startedRuns
-      const banners = createBanners({ store, emit })
+      const bannerListeners = new Set<(event: DaemonEvent) => void>()
+      const banners = createBanners({
+        store,
+        emit: (event) => {
+          emit(event)
+          for (const listener of bannerListeners) listener(event)
+        },
+      })
+      const phoneProblemSource: PhoneProblemSource = {
+        banners: () => banners.list(),
+        factoryName: (factoryId) => store.getFactory(factoryId)?.name,
+        subscribe(listener) {
+          const unsubscribe = store.subscribe(listener)
+          bannerListeners.add(listener)
+          return () => {
+            unsubscribe()
+            bannerListeners.delete(listener)
+          }
+        },
+      }
       const diskOptions = options.disk ?? {}
       const fakeFree = tedEnv('TED_FREE_BYTES_FILE')
       let wake: () => void = () => undefined
@@ -851,6 +893,43 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
       })
       await execution.start()
+      const phonePlans = plans
+      const phones = createPhones({
+        phones: store.phones,
+        inbox: storeInbox(store, {
+          task: async (id, answer) => {
+            await tasks.answerFromPhone(id, answer)
+          },
+          plan: async (id, answer) => {
+            await phonePlans.answer(id, answer)
+          },
+          automation: async (id, answer) => {
+            await automations.answer(id, answer)
+          },
+        }),
+        problems: phoneProblemSource,
+        keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
+        version: options.version,
+        ...(options.phones?.relayUrl !== undefined && { relayUrl: options.phones.relayUrl }),
+        ...(options.phones?.now && { now: options.phones.now }),
+        ...(options.phones?.macName && { macName: options.phones.macName }),
+        ...(options.phones?.relayDelaysMs && { relayDelaysMs: options.phones.relayDelaysMs }),
+        ...(options.phones?.relayAnswerMs !== undefined && {
+          relayAnswerMs: options.phones.relayAnswerMs,
+        }),
+        ...(options.phones?.relayListAckMs !== undefined && {
+          relayListAckMs: options.phones.relayListAckMs,
+        }),
+      })
+      await phones.start()
+      const presence = createPresence(options.phones?.presence)
+      const phoneNotifier = createPhoneNotifier({
+        store,
+        presence,
+        push: options.phones?.push ?? noPush,
+        problems: phoneProblemSource,
+        ...(options.phones?.now && { now: options.phones.now }),
+      })
       const factoryRemovals = createFactoryRemovals({
         execution,
         factorySettings,
@@ -868,6 +947,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
+      const stayAwakeOnPower = options.holdOnPower && stayAwakeForPhones(store, options.holdOnPower)
       const conversations = createConversations({
         coordinators,
         steering,
@@ -951,7 +1031,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       const services = {
+        busy,
         execution,
+        phones,
+        presence,
         sideChats,
         coordinators,
         automations,
@@ -976,6 +1059,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         chatArchiveCleanup,
         async close() {
           openStore = undefined
+          phoneNotifier.close()
+          presence.close()
+          phones.close()
           await execution.close()
           const shellsClosed = shells.close()
           await sideChats.close()
@@ -991,6 +1077,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           workflows.close()
           await factorySettings.close()
           stayAwake?.close()
+          stayAwakeOnPower?.close()
           disk.close()
           clearInterval(pruneTimer)
           stopPruningOnChange()

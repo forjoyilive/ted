@@ -88,7 +88,7 @@ const clean = JSON.stringify({ problems: [] })
 describe('the Ted settings Check', () => {
   test('outside Ted’s own source it uses the installed checker and never runs branch code', async () => {
     await writeFile(path.join(worktree, 'package.json'), JSON.stringify({ name: 'other' }))
-    await useWorkflow(workflowWithGroup('network'))
+    await useWorkflow(workflowWithGroup('android-gradle'))
     const runner = writesResult(clean)
 
     const result = await checkSettings({
@@ -102,13 +102,13 @@ describe('the Ted settings Check', () => {
     expect(runner.commands).toEqual([])
     const text = await readFile(log, 'utf8')
     expect(text).toContain('.ted/workflow.yaml:7:')
-    expect(text).toContain('`network` isn’t a sandbox access group')
+    expect(text).toContain('`android-gradle` isn’t a sandbox access group')
     expect(text).not.toContain('this branch’s own')
   })
 
   test('in Ted’s own source the branch’s checker decides, and the installed checker’s errors become warnings', async () => {
     await makeTedSource('')
-    await useWorkflow(workflowWithGroup('network'))
+    await useWorkflow(workflowWithGroup('android-gradle'))
     await writeFile(
       path.join(library, 'workflow.yaml'),
       'version: 1\nsandbox_sockets: { docker: /private/sockets/docker.sock }\n',
@@ -144,7 +144,7 @@ describe('the Ted settings Check', () => {
     expect(text).toContain('No problems in .ted')
     expect(text).toContain('the Factory uses its last valid settings')
     expect(text).toMatch(
-      /\.ted\/workflow\.yaml:7:\d+: warning: `network` isn’t a sandbox access group/,
+      /\.ted\/workflow\.yaml:7:\d+: warning: `android-gradle` isn’t a sandbox access group/,
     )
   })
 
@@ -174,7 +174,7 @@ describe('the Ted settings Check', () => {
 
   test('when the branch’s checker gives no readable result, the installed checker decides and says why', async () => {
     await makeTedSource('')
-    await useWorkflow(workflowWithGroup('network'))
+    await useWorkflow(workflowWithGroup('android-gradle'))
 
     const missing = await checkSettings({
       worktree,
@@ -192,7 +192,7 @@ describe('the Ted settings Check', () => {
       'gave no result (it exited with code 1), so the installed checker was used',
     )
     expect(text).toContain('Cannot find package @ted/protocol')
-    expect(text).toContain('`network` isn’t a sandbox access group')
+    expect(text).toContain('`android-gradle` isn’t a sandbox access group')
 
     const garbled = await checkSettings({
       worktree,
@@ -207,7 +207,7 @@ describe('the Ted settings Check', () => {
 
   test('when Ted can’t prepare the branch’s checker, the installed checker decides and says why', async () => {
     await makeTedSource('')
-    await useWorkflow(workflowWithGroup('network'))
+    await useWorkflow(workflowWithGroup('android-gradle'))
     await mkdir(path.join(worktree, 'node_modules'))
     await writeFile(path.join(worktree, 'node_modules', '.cache'), 'not a folder')
     const runner = writesResult(clean)
@@ -224,7 +224,7 @@ describe('the Ted settings Check', () => {
     const text = await readFile(log, 'utf8')
     expect(text).toContain('gave no result (Ted couldn’t start it:')
     expect(text).toContain('so the installed checker was used')
-    expect(text).toContain('`network` isn’t a sandbox access group')
+    expect(text).toContain('`android-gradle` isn’t a sandbox access group')
   })
 
   test('an interrupted branch checker interrupts the Check', async () => {

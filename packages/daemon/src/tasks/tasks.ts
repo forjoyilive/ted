@@ -232,6 +232,7 @@ import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../
 import { maxTasksPerFiring } from '../automations/check-failures.ts'
 import type { Banners } from '../banners.ts'
 import { type Busy, busyCheckEveryMs, createBusyHold } from '../busy.ts'
+import { proposalRows } from '../chats/requests.ts'
 import type { InstructionTries } from '../check-tries.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
@@ -605,7 +606,11 @@ import {
 import { type CommandResult, outputTail } from './worktree.ts'
 import { readChanges, type WorktreeReads, worktreeReads } from './worktree-reads.ts'
 
-export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
+export type Caller =
+  | { kind: 'app' }
+  | { kind: 'file' }
+  | { kind: 'run'; runId: string }
+  | { kind: 'phone'; phoneId: string }
 
 export interface RunAppOwner {
   ready: Promise<void>
@@ -843,6 +848,7 @@ export interface Tasks {
   setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: OutcomeInput): Promise<OutcomeResult>
   answer(commentId: string, answer: AnswerRequest): Promise<Comment>
+  answerFromPhone(commentId: string, answer: AnswerRequest): Promise<Comment>
   coordinatorTell(ref: string, body: string): Promise<Comment>
   coordinatorAnswer(commentId: string, answer: AnswerRequest, mark: string): Promise<Comment>
   coordinatorResume(ref: string, comment?: string): Promise<Task>
@@ -994,7 +1000,10 @@ export function createTasks(options: {
   memory?: MemoryWatch
   appsDir?: string
   wrapApps?: (apps: Apps) => Apps
-  apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'hostStartMs' | 'stopGraceMs' | 'logBytes'>
+  apps?: Pick<
+    AppsOptions,
+    'pollMs' | 'readyTimeoutMs' | 'hostStartMs' | 'buildTurnMs' | 'stopGraceMs' | 'logBytes'
+  >
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
   emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
@@ -1212,10 +1221,13 @@ export function createTasks(options: {
     emit: (event) => {
       if (event.type === 'apps-changed' && store.getTask(event.taskId) !== undefined) {
         const taskId = event.taskId
-        void apps.list(taskId).then(
-          (list) => store.noteAppStarting(taskId, list.find(appStarting)?.name),
-          () => store.noteAppStarting(taskId, undefined),
-        )
+        void createdApps
+          .list(taskId)
+          .then(
+            (list) => store.noteAppStarting(taskId, list.find(appStarting)?.name),
+            () => store.noteAppStarting(taskId, undefined),
+          )
+          .catch(() => undefined)
       }
       if (event.type === 'apps-changed' && runBrowsers.opened(event.taskId)) {
         const runId = event.taskId
@@ -3369,9 +3381,9 @@ export function createTasks(options: {
 
   async function leaveWork(
     task: StoredTask,
-    why: 'diagnose' | 'accept',
+    why: 'diagnose' | 'accept' | 'rerun',
   ): Promise<(message: string, carried?: ValidationProgress) => Promise<Task>> {
-    const accepting = why === 'accept'
+    const accepting = why !== 'diagnose'
     const refuseHalted = (now: StoredTask) => {
       if (leftWork(now)) throw new RequestError(409, `${task.displayId} has left Work`)
       if (now.stopped || now.status?.kind === 'failed') {
@@ -6890,13 +6902,11 @@ export function createTasks(options: {
         author: { kind: 'run' as const, runId },
         proposal: {
           firstPiece: { id: task.id, displayId: task.displayId },
-          rows: input.tasks.map((row) => ({
-            title: row.title,
-            scope: row.scope,
-            ...(row.description !== undefined && { description: row.description }),
-            priority: row.priority ?? task.priority,
-            blockedBy: row.blockedBy ?? [],
-          })),
+          rows: proposalRows(
+            input.tasks,
+            (store.getFactory(task.factoryId)?.repos ?? []).map((r) => r.name),
+            task.priority,
+          ),
         },
       }
       return old ? store.supersedeComment(old.id, comment) : store.postComment(comment)
@@ -6999,7 +7009,12 @@ export function createTasks(options: {
         untilChecksReported,
         find,
         holding,
-        failures: { findDecision: failures.findDecision, resolve: validation.resolve },
+        failures: {
+          findDecision: failures.findDecision,
+          resolve: validation.resolve,
+          refreshStale: (task) =>
+            failures.refreshStale(task, () => inFlight.is(task.id, 'transition')),
+        },
         waitForRepair: async (taskId, failureId, input) => {
           await untilChecksReported(taskId)
           return holdingSignoff(find(taskId), () => waitForRepair(find(taskId), failureId, input))
@@ -7025,6 +7040,7 @@ export function createTasks(options: {
           move(task, resolution, next, message, { ...options, waitForSlot: 'answer' }),
         backMessage,
         leaveWorkToDiagnose,
+        leaveWorkToRerun: (task) => leaveWork(task, 'rerun'),
         diagnoseInValidate,
         stop: stopByHand,
         settleDependents,
@@ -7698,6 +7714,7 @@ export function createTasks(options: {
         : undefined
     const chosen = mergesHere(next) ? await mergeCommits(task, signedOff) : []
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+    if (handsOff(next)) refreshFailureCards(task.id)
     if (carried) validation.carryOver(find(task.id), carried)
     for (const { name, commit } of chosen) store.mergeCommitChosen(task.id, name, commit)
     const waitingLead = liveLead(find(task.id))
@@ -11412,6 +11429,22 @@ export function createTasks(options: {
     finished: (run) => retryAfterHandOff(run, undefined),
   })
 
+  function refreshFailureCards(taskId: string): void {
+    const task = store.getTask(taskId)
+    if (!task || task.archived || !handsOff(task.stage)) return
+    inBackground(`refresh ${task.displayId}’s failure questions`, async () => {
+      await untilFree(taskId)
+      await failures.refreshStale(find(taskId), () => inFlight.is(taskId, 'transition'))
+    })
+  }
+
+  function leadEnded(run: Run): void {
+    if (run.taskId === undefined || run.parentRunId !== undefined) return
+    if (store.getTask(run.taskId)?.leadRunId === run.id) refreshFailureCards(run.taskId)
+  }
+
+  runs.observe({ turnEnded: leadEnded, finished: leadEnded })
+
   health.onReady((agent) => {
     leadLifecycle.ready(agent)
     for (const run of store.liveRuns()) {
@@ -12322,6 +12355,7 @@ export function createTasks(options: {
         }
         await failures.obligations(find(task.id))
         incorporated = true
+        refreshFailureCards(task.id)
       } catch (error) {
         const current = store.getTask(task.id)
         if (!current || current.archived || stopping.signal.aborted) return false
@@ -13554,6 +13588,7 @@ export function createTasks(options: {
 
     isFailureDecision: (id) => failures.findDecision(id) !== undefined,
     answer: (id, request) => answerAs(id, request, true),
+    answerFromPhone: (id, request) => answerAs(id, request, false),
 
     coordinatorAnswer: (id, request, mark) => answerAs(id, request, false, mark),
 

@@ -52,6 +52,7 @@ import type { linearSteps } from './context.ts'
 import type { FactoriesArea } from './factories.ts'
 import type { MachineArea } from './machine.ts'
 import type { MergeArea } from './merge.ts'
+import type { PhonesArea } from './phones.ts'
 import type { RequestsArea } from './requests.ts'
 import type { RunsArea } from './runs.ts'
 import type { runs } from './schema.ts'
@@ -539,6 +540,7 @@ export interface TedStore
     FactoriesArea,
     MachineArea,
     MergeArea,
+    PhonesArea,
     RequestsArea,
     RunsArea,
     TaskTreeArea,

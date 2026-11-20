@@ -34,7 +34,7 @@ import {
   proposalRows,
   roundAnswerMessage,
 } from '../chats/requests.ts'
-import { RequestError } from '../errors.ts'
+import { AnswerSavedError, RequestError } from '../errors.ts'
 import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -642,7 +642,11 @@ export function createPlans(options: PlansOptions): Plans {
     const proposal = view(plan, request).proposal
     if (!proposal) throw new RequestError(409, 'this proposal has no rows')
     const task = proposal.firstPiece ? linkedTask(plan) : undefined
-    const { skip, shape } = approvedShape(proposal, answer.proposal?.skip)
+    const { skip, unlinked, shape } = approvedShape(
+      proposal,
+      answer.proposal?.skip,
+      answer.proposal?.unlink,
+    )
     const startUnblocked = answer.proposal?.startUnblocked === true
     const text = answer.text?.trim() ?? ''
     const lead = linkedTask(plan)?.lead
@@ -662,7 +666,12 @@ export function createPlans(options: PlansOptions): Plans {
       factoryId: plan.factoryId,
       fields: (row) => ({ ...(lead && { lead }), plan: { planId: plan.id, row } }),
     })
-    const outcome: ProposalCreated = { tasks: created, skipped: skip, startUnblocked }
+    const outcome: ProposalCreated = {
+      tasks: created,
+      skipped: skip,
+      ...(unlinked.length > 0 && { unlinked }),
+      startUnblocked,
+    }
     const answered = saved.answerRequest(request.id, {
       kind: 'approved',
       at: new Date().toISOString(),
@@ -940,7 +949,10 @@ export function createPlans(options: PlansOptions): Plans {
             body: proposal?.summary ?? '',
             proposal: {
               ...(task && { firstPiece: { id: task.id, displayId: task.displayId } }),
-              rows: proposalRows(proposal?.tasks ?? []),
+              rows: proposalRows(
+                proposal?.tasks ?? [],
+                (factoryOf(plan)?.repos ?? []).map((r) => r.name),
+              ),
             },
           })
       if (decided.supersedes !== undefined) {
@@ -1035,8 +1047,7 @@ export function createPlans(options: PlansOptions): Plans {
   async function resumeAfterAnswer(plan: StoredPlan): Promise<void> {
     if (plan.state !== 'ended' || retrying.has(plan.id)) return
     await resume(plan).catch((error: unknown) => {
-      throw new RequestError(
-        409,
+      throw new AnswerSavedError(
         `Your answer is saved, but the planner couldn’t resume: ${messageOf(error)}`,
       )
     })

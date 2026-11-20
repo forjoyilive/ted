@@ -477,12 +477,15 @@ export {
 export { parseDeviceRequest } from './device-parsers.ts'
 export type {
   Diagnostics,
+  DiagnosticsUsage,
   LogText,
+  MachineUsage,
   ProcessInfo,
   ProcessKind,
   ProcessRun,
   ProcessRunRole,
   ProcessUsage,
+  ResourceReading,
   RunDiagnostics,
   TokenUse,
 } from './diagnostics.ts'
@@ -666,6 +669,7 @@ export {
   failureChoiceLabels,
   failureChoices,
   namedRepairChoice,
+  rerunFailureChoice,
   validateFailureChoices,
   validationExecution,
 } from './failures.ts'
@@ -849,6 +853,9 @@ export type {
   PeerSummary,
   SendPeerMessage,
 } from './peers.ts'
+export * from './phone-problems.ts'
+export * from './phone-requests.ts'
+export * from './phones.ts'
 export type { PostPlanRequest, RenamePlanRequest, ResumePlanRequest } from './plan.ts'
 export {
   type ChatArchiveExpiry,
@@ -873,6 +880,7 @@ export {
   parseResumePlanRequest,
   parseStartPlanRequest,
 } from './plan-parsers.ts'
+export * from './presence.ts'
 export {
   type PreviewPreset,
   type PreviewSize,
@@ -895,10 +903,14 @@ export {
   parseProblemReportRequest,
 } from './problem-report.ts'
 export {
+  likelyFilesSection,
+  linkSharedFiles,
   type ProposalPlan,
   type ProposalPlanRow,
   planProposal,
   proposalCycle,
+  proposalFilesNote,
+  sharedFileIgnoreList,
 } from './proposal.ts'
 export { downloadUrl, newIssueUrl, releaseRepo, releasesUrl, sentryDsn } from './release.ts'
 export {
@@ -1166,8 +1178,10 @@ export {
   type ProposalChoice,
   type ProposalCreated,
   type ProposalInput,
+  type ProposalLink,
   type ProposalRow,
   type ProposalRowInput,
+  type ProposalSharedFiles,
   type PullRequestAdvice,
   type PullRequestCiMode,
   type PullRequestPreview,

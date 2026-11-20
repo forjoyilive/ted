@@ -41,30 +41,35 @@ const proposal = {
     {
       title: 'Local note cache',
       scope: 'Notes save to a local cache first and sync from a queue.',
+      files: ['src/notes/cache.ts', 'src/notes/store.ts'],
       description: 'Save every note to a local cache first; a queue syncs it later.',
       priority: 'high',
     },
     {
       title: 'Sync queue with retry',
       scope: 'Queue edits made offline and send them in order on reconnect.',
+      files: ['src/notes/queue.ts', 'src/notes/store.ts'],
       priority: 'high',
       blockedBy: [1],
     },
     {
       title: 'Line-level merge for clashing edits',
       scope: 'Merge edits to different lines; flag edits to the same line.',
+      files: ['src/notes/merge.ts'],
       priority: 'medium',
       blockedBy: [2],
     },
     {
       title: 'Conflict view for clashing lines',
       scope: 'Show both versions of a clashing line and let the user pick one.',
+      files: ['src/editor/ConflictView.tsx', 'src/editor/Editor.tsx', 'GLOSSARY.md'],
       priority: 'medium',
       blockedBy: [3],
     },
     {
       title: 'Offline badge in the editor',
       scope: 'A small badge while edits are waiting to sync.',
+      files: ['src/editor/Editor.tsx', 'src/notes/cache.ts', 'GLOSSARY.md'],
       priority: 'low',
     },
   ],
@@ -255,10 +260,24 @@ describe('Split it', () => {
         firstPiece: { id: task.id, displayId: task.displayId },
         rows: [
           { title: 'Local note cache', priority: 'high', blockedBy: [] },
-          { title: 'Sync queue with retry', priority: 'high', blockedBy: [1] },
+          {
+            title: 'Sync queue with retry',
+            priority: 'high',
+            blockedBy: [1],
+            sharedFiles: [{ row: 1, files: ['src/notes/store.ts'] }],
+          },
           { title: 'Line-level merge for clashing edits', priority: 'medium', blockedBy: [2] },
           { title: 'Conflict view for clashing lines', priority: 'medium', blockedBy: [3] },
-          { title: 'Offline badge in the editor', priority: 'low', blockedBy: [] },
+          {
+            title: 'Offline badge in the editor',
+            priority: 'low',
+            blockedBy: [1, 4],
+            addedBlockedBy: [1, 4],
+            sharedFiles: [
+              { row: 1, files: ['src/notes/cache.ts'] },
+              { row: 4, files: ['src/editor/Editor.tsx'] },
+            ],
+          },
         ],
       },
     })
@@ -271,7 +290,7 @@ describe('Split it', () => {
 
     const answered = await client.ok<Comment>('POST', `/comments/${item.request.id}/answer`, {
       action: 'approve',
-      proposal: { skip: [3], startUnblocked: false },
+      proposal: { skip: [3], unlink: [{ row: 5, blocker: 4 }], startUnblocked: false },
     })
     const tasks = await allTasks(client)
     const byTitle = (title: string) => {
@@ -294,19 +313,23 @@ describe('Split it', () => {
     }
     expect(cache).toMatchObject({
       blockedBy: [],
-      description: 'Save every note to a local cache first; a queue syncs it later.',
+      description:
+        'Save every note to a local cache first; a queue syncs it later.\n\n## Likely files\n\n- `src/notes/cache.ts`\n- `src/notes/store.ts`',
     })
     expect(sync).toMatchObject({
       priority: 'high',
       blockedBy: [cache.id],
-      description: 'Queue edits made offline and send them in order on reconnect.',
+      description: expect.stringMatching(
+        /^Queue edits made offline and send them in order on reconnect\.\n\n## Likely files\n/,
+      ),
     })
     expect(conflict.blockedBy).toEqual([])
-    expect(badge).toMatchObject({ priority: 'low', blockedBy: [] })
+    expect(badge).toMatchObject({ priority: 'low', blockedBy: [cache.id] })
     expect(answered.answer).toMatchObject({
       kind: 'approved',
       created: {
         skipped: [3],
+        unlinked: [{ row: 5, blocker: 4 }],
         startUnblocked: false,
         tasks: [
           { row: 1, id: cache.id, displayId: cache.displayId },
@@ -340,13 +363,25 @@ describe('Split it', () => {
       JSON.stringify({
         title: 'Two pieces',
         tasks: [
-          { title: 'First piece', scope: 'The first part.', description: toDone },
+          {
+            title: 'First piece',
+            scope: 'The first part.',
+            files: ['src/row-6.ts'],
+            description: toDone,
+          },
           {
             title: 'Second piece',
             scope: 'The second part.',
+            files: ['src/row-7.ts'],
             description: steps({ endTurn: true }),
           },
-          { title: 'Third piece', scope: 'The third part.', description: toDone, blockedBy: [1] },
+          {
+            title: 'Third piece',
+            scope: 'The third part.',
+            files: ['src/row-8.ts'],
+            description: toDone,
+            blockedBy: [1],
+          },
         ],
       }),
     )
@@ -434,10 +469,16 @@ describe('Split it', () => {
       JSON.stringify({
         title: 'Two pieces',
         tasks: [
-          { title: 'Merging piece', scope: 'The first part.', description: toDone },
+          {
+            title: 'Merging piece',
+            scope: 'The first part.',
+            files: ['src/row-9.ts'],
+            description: toDone,
+          },
           {
             title: 'Archived piece',
             scope: 'The second part.',
+            files: ['src/row-10.ts'],
             description: steps({ endTurn: true }),
           },
         ],
@@ -481,15 +522,15 @@ describe('Split it', () => {
       client,
       advance,
       await bad('range.json', [
-        { title: 'A', scope: 'a' },
-        { title: 'B', scope: 'b', blockedBy: [3] },
+        { title: 'A', scope: 'a', files: ['src/row-11.ts'] },
+        { title: 'B', scope: 'b', files: ['src/row-12.ts'], blockedBy: [3] },
       ]),
       await bad('cycle.json', [
-        { title: 'A', scope: 'a' },
-        { title: 'B', scope: 'b', blockedBy: [3] },
-        { title: 'C', scope: 'c', blockedBy: [2] },
+        { title: 'A', scope: 'a', files: ['src/row-13.ts'] },
+        { title: 'B', scope: 'b', files: ['src/row-14.ts'], blockedBy: [3] },
+        { title: 'C', scope: 'c', files: ['src/row-15.ts'], blockedBy: [2] },
       ]),
-      await bad('one.json', [{ title: 'A', scope: 'a' }]),
+      await bad('one.json', [{ title: 'A', scope: 'a', files: ['src/row-16.ts'] }]),
       { endTurn: true },
     )
     const results = await waitUntil(async () => {
@@ -503,8 +544,8 @@ describe('Split it', () => {
       proposal: {
         title: 'Mine',
         tasks: [
-          { title: 'A', scope: 'a' },
-          { title: 'B', scope: 'b' },
+          { title: 'A', scope: 'a', files: ['src/row-17.ts'] },
+          { title: 'B', scope: 'b', files: ['src/row-18.ts'] },
         ],
       },
     })

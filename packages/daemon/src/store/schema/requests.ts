@@ -170,6 +170,14 @@ export const requestSnoozes = State.SQLite.table({
   },
 })
 
+export const requestReturns = State.SQLite.table({
+  name: 'requestReturns',
+  columns: {
+    requestId: State.SQLite.text({ primaryKey: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 export const requestsEvents = {
   requestSnoozed: Events.synced({
     name: 'v1.RequestSnoozed',
@@ -503,7 +511,10 @@ export const requestsMaterializers = State.SQLite.materializers(requestsEvents, 
     requestSnoozes
       .insert({ requestId, ownerId, factoryId, until })
       .onConflict('requestId', 'replace'),
-  'v1.RequestSnoozeCleared': ({ requestId }) => requestSnoozes.delete().where({ requestId }),
+  'v1.RequestSnoozeCleared': ({ requestId, at }) => [
+    requestSnoozes.delete().where({ requestId }),
+    requestReturns.insert({ requestId, at }).onConflict('requestId', 'replace'),
+  ],
   'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
     taskAttachments
       .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })

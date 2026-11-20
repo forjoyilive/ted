@@ -12,7 +12,7 @@ import type {
   Task,
   ValidationProgress,
 } from '@ted/protocol'
-import { failureChoices, validationExecution } from '@ted/protocol'
+import { failureChoices, rerunFailureChoice, validationExecution } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { handsOff, mergesHere, stageWith, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
@@ -29,7 +29,7 @@ import {
   summary,
 } from './checks.ts'
 import type { CommandLaunch } from './command.ts'
-import { type createFailureCases, generatedFailureText, sameTested } from './failure-cases.ts'
+import { type createFailureCases, generatedFailureText } from './failure-cases.ts'
 import { sameCheckPlan, validationReport } from './validation-report.ts'
 import { type WorktreeReads, worktreeReads } from './worktree-reads.ts'
 
@@ -1021,13 +1021,19 @@ export function createValidation(options: ValidationOptions) {
         'Checks are still running; wait for their results before deciding this failure',
       )
     const enter = await options.leaveWork(task)
-    const tested = value.contextId ? store.failures.context(value.contextId) : undefined
-    const current = tested && (await failures.snapshot(find(task.id)).catch(() => undefined))
-    const progress = store.failures.progress(task.id)
-    if (!tested || !current || !sameTested(tested, current) || progress?.failureId !== value.id)
+    const current = await failures.snapshot(find(task.id)).catch(() => null)
+    if (!failures.decisionCurrent(task, value, current, input.requestId)) {
+      await failures.refreshStale(find(task.id))
       throw new RequestError(
         409,
-        'The Task’s code changed since this check ran, so Ted can’t accept the failure. Ask the Task Lead to report the outcome again: Ted runs the checks on the new code when the Task enters Validate.',
+        `The Task’s code changed since this check ran, so Ted can’t accept the failure. Choose “${rerunFailureChoice}” on the updated question: Ted moves the Task to Validate and runs the checks on the code as it is now.`,
+      )
+    }
+    const progress = store.failures.progress(task.id)
+    if (progress?.failureId !== value.id)
+      throw new RequestError(
+        409,
+        'This isn’t the check that stopped Validate, so Ted can’t accept the failure. Ask the Task Lead to report the outcome again: Ted runs the checks on the new code when the Task enters Validate.',
       )
     options.setChecking(task.id, true)
     let entered = false

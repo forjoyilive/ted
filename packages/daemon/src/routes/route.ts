@@ -48,6 +48,7 @@ export interface Route<O = ServerOptions> {
   path: RegExp
   runToken?: true
   fileToken?: true
+  appOnly?: true
   waits?: true
   handle(context: RequestContext, options: O): Promise<[number, unknown] | undefined>
 }

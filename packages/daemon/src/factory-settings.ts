@@ -741,6 +741,13 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             .filter((app) => app.electron === true)
             .map((app) => ({ repo: repos[i]?.name ?? '', name: app.name })),
         ),
+        deviceApps: (base.settings?.repos ?? []).flatMap((entry, i) =>
+          appDeclarations(entry.apps).flatMap((app) =>
+            app.kind === 'ios-simulator' || app.kind === 'android-emulator'
+              ? [{ repo: repos[i]?.name ?? '', name: app.name, group: app.kind }]
+              : [],
+          ),
+        ),
         ...networkView(base),
         notes: typeof notes === 'string' ? notes : '',
         ...(problem && { invalid: problem }),
