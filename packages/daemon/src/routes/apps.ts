@@ -64,8 +64,9 @@ export const appRoutes: Route[] = [
   jsonRoute(parseAppRef, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/apps\/stop$/,
-    async handle({ body: request, params: [ref = ''] }, { tasks }) {
-      return [200, await tasks.stopApp(ref, request)]
+    runToken: true,
+    async handle({ body: request, params: [ref = ''], caller }, { tasks }) {
+      return [200, await tasks.stopApp(ref, caller, request)]
     },
   }),
   jsonRoute(parseRestartAppRequest, {
