@@ -24,7 +24,7 @@ import {
   type WaitingRequest,
 } from '@ted/protocol'
 import { answerKind } from '@ted/protocol/task'
-import { RequestError } from '../errors.ts'
+import { AnswerSavedError, RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
@@ -465,6 +465,9 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       try {
         await send(match.waiting, answer)
       } catch (error) {
+        if (error instanceof AnswerSavedError) {
+          return { code: 'refused', message: redactSecrets(error.message) }
+        }
         if (!find(id)) return { code: 'gone' }
         if (error instanceof RequestError || error instanceof RequestValidationError) {
           return { code: 'refused', message: redactSecrets(error.message) }

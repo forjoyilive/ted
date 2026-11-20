@@ -5,3 +5,9 @@ export class RequestError extends Error {
     this.status = status
   }
 }
+
+export class AnswerSavedError extends RequestError {
+  constructor(message: string) {
+    super(409, message)
+  }
+}
