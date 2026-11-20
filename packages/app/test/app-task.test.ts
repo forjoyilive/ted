@@ -88,6 +88,30 @@ describe('Ted app', () => {
     expect(
       await header.getByRole('button', { name: 'Design, not yet' }).getAttribute('aria-pressed'),
     ).toBeNull()
+
+    await client.editTask('NB-1', { title: 'Deny network by default, with grants' })
+    await header.getByRole('heading', { name: 'Deny network by default, with grants' }).waitFor()
+    await window.setViewportSize({ width: 720, height: 800 })
+    const layout = () =>
+      header.evaluate((el) => {
+        const title = el.querySelector('h1')
+        const controls = title?.nextElementSibling
+        const row = title?.parentElement
+        if (!title || !controls || !row) throw new Error('the header has no title row')
+        const titleBox = title.getBoundingClientRect()
+        return {
+          titleWidth: titleBox.width,
+          rowWidth: row.getBoundingClientRect().width,
+          titleBottom: titleBox.bottom,
+          controlsTop: controls.getBoundingClientRect().top,
+          menuInControls: controls.querySelector('[aria-label="Task actions"]') !== null,
+        }
+      })
+    await expect.poll(async () => (await layout()).rowWidth).toBeLessThan(400)
+    const narrow = await layout()
+    expect(narrow.menuInControls).toBe(true)
+    expect(narrow.controlsTop).toBeGreaterThanOrEqual(narrow.titleBottom)
+    expect(narrow.titleWidth).toBeCloseTo(narrow.rowWidth, 0)
   })
 
   test('the Review sign-off card starts with the confirmation row, Review notes included', async () => {
