@@ -1,12 +1,14 @@
 import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { LayerKind, WorkflowProblem } from '@ted/protocol'
+import { reader, type Untyped } from '@ted/protocol/parse'
 import * as git from '../git.ts'
 import {
   type CheckedLayer,
   checkLayer,
   displayPath,
   githubRepoOf,
+  type InheritedStages,
   inheritedFrom,
   type LayerFiles,
 } from './check.ts'
@@ -18,9 +20,64 @@ export interface PathProblem extends WorkflowProblem {
 
 export class NothingToCheckError extends Error {}
 
+export interface LibraryNames {
+  stageFiles: string[]
+  order?: string[]
+  agentsDefined: string[]
+  agentsInstructed: string[]
+  sockets: string[]
+}
+
+export async function libraryNames(libraryDir: string): Promise<LibraryNames | undefined> {
+  const files = await readLayerDirectory(libraryDir).catch(() => undefined)
+  const library = files && checkLayer({ kind: 'library', files })
+  if (!library?.valid) return undefined
+  return {
+    stageFiles: Object.keys(library.stageFiles),
+    ...(library.settings.order && { order: [...library.settings.order] }),
+    agentsDefined: Object.keys(library.agentSettings),
+    agentsInstructed: Object.keys(library.agentFiles),
+    sockets: (library.settings.sandbox_sockets ?? []).map((socket) => socket.name),
+  }
+}
+
+export function parseLibraryNames(value: Untyped): LibraryNames | undefined {
+  if (value === null) return undefined
+  const read = reader()
+  const names = read.object(value, 'library names')
+  const strings = (field: string) =>
+    read
+      .list(names, field)
+      .map((item, i) => read.string({ item }, 'item', `${field}[${i}] must be text`))
+  const order = read.optional(names, 'order', (object, field) =>
+    read
+      .list(object, field)
+      .map((item, i) => read.string({ item }, 'item', `order[${i}] must be text`)),
+  )
+  return {
+    stageFiles: strings('stageFiles'),
+    ...(order !== undefined && { order }),
+    agentsDefined: strings('agentsDefined'),
+    agentsInstructed: strings('agentsInstructed'),
+    sockets: strings('sockets'),
+  }
+}
+
+function withLibrary(below: InheritedStages, names: LibraryNames): InheritedStages {
+  return {
+    files: [...new Set([...below.files, ...names.stageFiles])],
+    ...((names.order ?? below.order) && { order: names.order ?? below.order }),
+    agents: {
+      defined: [...new Set([...(below.agents?.defined ?? []), ...names.agentsDefined])],
+      instructed: [...new Set([...(below.agents?.instructed ?? []), ...names.agentsInstructed])],
+    },
+    sockets: names.sockets.length > 0 ? names.sockets : (below.sockets ?? []),
+  }
+}
+
 export async function checkWorkflowPath(
   target: string,
-  options: { libraryDir: string },
+  options: { libraryDir: string } | { libraryNames: LibraryNames | undefined },
 ): Promise<PathProblem[]> {
   const info = await stat(target).catch(() => undefined)
   if (!info) throw new NothingToCheckError(`there’s nothing at ${target}`)
@@ -55,18 +112,23 @@ export async function checkWorkflowPath(
     }
   }
 
-  const kind: LayerKind = (await sameDir(layerDir, options.libraryDir)) ? 'library' : 'factory'
+  const kind: LayerKind =
+    'libraryDir' in options && (await sameDir(layerDir, options.libraryDir)) ? 'library' : 'factory'
   const primaryRepo = kind === 'factory' ? await originRepo(path.dirname(layerDir)) : undefined
   const below: CheckedLayer[] = [await readDefaultLayer()]
-  if (kind === 'factory') {
+  if (kind === 'factory' && 'libraryDir' in options) {
     const libraryFiles = await readLayerDirectory(options.libraryDir).catch(() => undefined)
     const library = libraryFiles && checkLayer({ kind: 'library', files: libraryFiles })
     if (library?.valid) below.push(library)
   }
+  const inherited =
+    'libraryNames' in options && options.libraryNames !== undefined
+      ? withLibrary(inheritedFrom(below), options.libraryNames)
+      : inheritedFrom(below)
   const { problems } = checkLayer({
     kind,
     files,
-    inherited: inheritedFrom(below),
+    inherited,
     ...(primaryRepo !== undefined && { primaryRepo }),
   })
   const shown =
