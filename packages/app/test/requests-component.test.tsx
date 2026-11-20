@@ -1429,7 +1429,7 @@ test('empty Inbox opens New Task and Show answered opens the empty Answered view
   const a = appState()
   a.mount()
   const inbox = await screen.findByRole('region', { name: 'Inbox' })
-  await user().click(within(inbox).getByRole('button', { name: 'New Task…' }))
+  await user().click(await within(inbox).findByRole('button', { name: 'New Task…' }))
   const dialog = await screen.findByRole('dialog', { name: 'New Task' })
   await user().click(within(dialog).getByRole('button', { name: 'Close' }))
   await a.emitTask(task())

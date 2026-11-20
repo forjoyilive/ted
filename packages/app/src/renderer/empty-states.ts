@@ -12,11 +12,14 @@ export function inboxEmpty({
   showAnswered,
   anyTasks,
   factoryName,
+  loaded = true,
 }: {
   showAnswered: boolean
   anyTasks: boolean
   factoryName?: string | undefined
-}): InboxEmpty {
+  loaded?: boolean
+}): InboxEmpty | 'loading' {
+  if (!showAnswered && !loaded) return 'loading'
   if (showAnswered) {
     return {
       title:
@@ -35,7 +38,9 @@ export function boardEmpty(
   tasks: readonly Task[],
   filters: ListFilters,
   text = '',
-): 'no-tasks' | 'no-matches' | undefined {
+  loaded = true,
+): 'loading' | 'no-tasks' | 'no-matches' | undefined {
+  if (!loaded) return 'loading'
   if (!tasks.some((t) => !t.archived)) return 'no-tasks'
   if (filterTasks(tasks, filters, text).length === 0) return 'no-matches'
   return undefined

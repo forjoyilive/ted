@@ -40,6 +40,7 @@ import { FactoryIcon, FactoryName } from '../components/FactoryIcon.tsx'
 import { Help } from '../components/Help.tsx'
 import markerStyles from '../components/HierarchyMarker.module.css'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
+import { Skeleton } from '../components/Loading.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { PriorityButton } from '../components/PriorityMenu.tsx'
 import { tokenAmount } from '../components/RunChat.tsx'
@@ -563,6 +564,7 @@ export function TaskList({
   title,
   breadcrumb,
   tasks,
+  loaded = true,
   factories,
   layout = emptyLayout,
   settings,
@@ -579,6 +581,7 @@ export function TaskList({
   title: string
   breadcrumb?: string
   tasks: readonly Task[]
+  loaded?: boolean
   factories: readonly Factory[]
   layout?: FactoryLayout
   settings: MachineSettings | undefined
@@ -1057,6 +1060,7 @@ export function TaskList({
   }
 
   function empty() {
+    if (!loaded) return <Skeleton label="Loading Tasks…" />
     if (inScope.length === 0) {
       return (
         <EmptyState title="No Tasks yet">

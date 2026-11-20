@@ -383,7 +383,7 @@ test('live Task and Comment events update the List and an open thread through Do
   const a = appState()
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
-  expect(screen.getByText('No Tasks yet')).toBeTruthy()
+  expect(await screen.findByText('No Tasks yet')).toBeTruthy()
   await a.emitTask(task())
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
   a.handle('markCommentsRead', () => ({ read: 1 }))

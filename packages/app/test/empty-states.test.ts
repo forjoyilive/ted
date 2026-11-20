@@ -17,6 +17,13 @@ describe('Inbox empty state', () => {
     })
   })
 
+  test('says it is loading, not that nothing waits, before the Inbox and Tasks arrive', () => {
+    expect(inboxEmpty({ showAnswered: false, anyTasks: false, loaded: false })).toBe('loading')
+    expect(
+      inboxEmpty({ showAnswered: false, anyTasks: false, factoryName: 'Notebook', loaded: false }),
+    ).toBe('loading')
+  })
+
   test('filtered to one Factory, names it and offers Show all Factories', () => {
     expect(inboxEmpty({ showAnswered: false, anyTasks: true, factoryName: 'Notebook' })).toEqual({
       title: 'Nothing waiting in Notebook',
@@ -46,6 +53,11 @@ describe('Board empty state', () => {
         {},
       ),
     ).toBe('no-tasks')
+  })
+
+  test('a Board whose Tasks have not loaded yet is loading, not empty', () => {
+    expect(boardEmpty([], {}, '', false)).toBe('loading')
+    expect(boardEmpty([], {}, '', true)).toBe('no-tasks')
   })
 
   test('filters that hide every Task say so', () => {

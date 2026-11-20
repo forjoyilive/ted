@@ -25,6 +25,7 @@ import { EmptyState } from '../components/EmptyState.tsx'
 import { FactoryName } from '../components/FactoryIcon.tsx'
 import { Help } from '../components/Help.tsx'
 import { BellOffIcon, ChevronIcon, ClockIcon } from '../components/icons.tsx'
+import { Skeleton } from '../components/Loading.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { PriorityButton, priorityMenuItems } from '../components/PriorityMenu.tsx'
 import { ListPane } from '../components/ResizableSidebar.tsx'
@@ -70,6 +71,7 @@ export function Inbox({
   groupId,
   showAnswered,
   anyTasks,
+  loaded = true,
   selected,
   onOpen,
   onClear,
@@ -95,6 +97,7 @@ export function Inbox({
   groupId?: string | undefined
   showAnswered: boolean
   anyTasks: boolean
+  loaded?: boolean
   selected: string | undefined
   onOpen: (item: InboxItem) => void
   onClear: () => void
@@ -680,6 +683,7 @@ export function Inbox({
             empty={inboxEmpty({
               showAnswered,
               anyTasks,
+              loaded,
               factoryName:
                 groupName !== undefined
                   ? groupName
@@ -798,11 +802,12 @@ function InboxEmptyState({
   onShowAnswered,
   onShowAllFactories,
 }: {
-  empty: InboxEmpty
+  empty: InboxEmpty | 'loading'
   onNewTask: () => void
   onShowAnswered: () => void
   onShowAllFactories: () => void
 }) {
+  if (empty === 'loading') return <Skeleton label="Loading the Inbox…" shape="history" />
   const button = {
     'new-task': (
       <Button variant="primary" onClick={onNewTask}>
