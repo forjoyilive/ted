@@ -5,6 +5,7 @@ import {
   fromBase64Url,
   type MacReply,
   type PairingLink,
+  type PhoneAnswer,
   type PhoneRequest,
   parseMacReply,
   parseMacToRelay,
@@ -270,6 +271,18 @@ export class TestPhone {
 
   status(protocol = phoneProtocolVersion) {
     return this.send({ type: 'request', route: 'status' }, protocol)
+  }
+
+  requests() {
+    return this.send({ type: 'request', route: 'requests' })
+  }
+
+  request(requestId: string) {
+    return this.send({ type: 'request', route: 'request', requestId })
+  }
+
+  answer(requestId: string, answer: PhoneAnswer) {
+    return this.send({ type: 'request', route: 'answer', requestId, answer })
   }
 
   close(): void {
