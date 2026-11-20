@@ -24,6 +24,7 @@ import type { Factories } from './factory-setup.ts'
 import type { AgentHealthMonitor } from './health/agent-health.ts'
 import type { Integrations } from './integrations.ts'
 import type { LibrarySettings } from './library-settings.ts'
+import type { Phones } from './phones/phones.ts'
 import type { Plans } from './plans/plans.ts'
 import { redactSecrets } from './redact.ts'
 import type { Conversations } from './runs/conversations.ts'
@@ -62,6 +63,7 @@ import type { Workflows } from './workflow/workflows.ts'
 export interface Services {
   agentAvailability: ReturnType<typeof import('./agent-availability.ts').createAgentAvailability>
   execution: ExecutionController
+  phones: Phones
   sideChats: SideChats
   store: TedStore
   automations: Automations

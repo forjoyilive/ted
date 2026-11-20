@@ -604,7 +604,11 @@ import {
 import { type CommandResult, outputTail } from './worktree.ts'
 import { readChanges, type WorktreeReads, worktreeReads } from './worktree-reads.ts'
 
-export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
+export type Caller =
+  | { kind: 'app' }
+  | { kind: 'file' }
+  | { kind: 'run'; runId: string }
+  | { kind: 'phone'; phoneId: string }
 
 export interface RunAppOwner {
   ready: Promise<void>
