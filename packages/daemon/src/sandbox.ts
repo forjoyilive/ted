@@ -541,9 +541,12 @@ async function readCandidates(
   userTemp: string | undefined,
 ): Promise<string[]> {
   const home = await homeFolder(env)
-  const fromEnv = ['DEVELOPER_DIR', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT'].flatMap(
-    (name) => (env[name]?.startsWith('/') === true ? [env[name]] : []),
-  )
+  const fromEnv = [
+    env.DEVELOPER_DIR,
+    env.JAVA_HOME,
+    env.ANDROID_HOME,
+    env.ANDROID_SDK_ROOT,
+  ].flatMap((value) => (value?.startsWith('/') === true ? [value] : []))
   const onPath = (env.PATH ?? '')
     .split(':')
     .filter((dir) => dir.startsWith('/'))
