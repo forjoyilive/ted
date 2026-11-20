@@ -89,6 +89,7 @@ import {
   phoneNotifications,
   phoneRelayAck,
   phoneRelayResets,
+  phoneRelaySent,
   phones,
   phonesEvents,
   phonesMaterializers,
@@ -299,6 +300,7 @@ const state = State.SQLite.makeState({
     requestReturns,
     phoneRelayResets,
     phoneRelayAck,
+    phoneRelaySent,
   },
   materializers,
 })

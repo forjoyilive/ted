@@ -23,6 +23,16 @@ export const phoneRelayResets = State.SQLite.table({
   },
 })
 
+export const phoneRelaySent = State.SQLite.table({
+  name: 'phoneRelaySent',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    rev: State.SQLite.integer(),
+    keys: State.SQLite.json({ schema: Schema.Array(Schema.String) }),
+    base: State.SQLite.text({ nullable: true }),
+  },
+})
+
 export const phoneRelayAck = State.SQLite.table({
   name: 'phoneRelayAck',
   columns: {
@@ -73,6 +83,14 @@ export const phonesEvents = {
     name: 'v1.PhoneRelayReset',
     schema: Schema.Struct({ id: Schema.String, at: Schema.String, channel: Schema.String }),
   }),
+  phoneRelayListSent: Events.synced({
+    name: 'v1.PhoneRelayListSent',
+    schema: Schema.Struct({
+      rev: Schema.Number,
+      keys: Schema.Array(Schema.String),
+      base: Schema.NullOr(Schema.String),
+    }),
+  }),
   phoneRelayListAcked: Events.synced({
     name: 'v1.PhoneRelayListAcked',
     schema: Schema.Struct({ rev: Schema.Number, hash: Schema.String }),
@@ -103,7 +121,13 @@ export const phonesEvents = {
 export const phonesMaterializers = State.SQLite.materializers(phonesEvents, {
   'v1.PhonePaired': (row) => phones.insert(row),
   'v2.PhonePaired': (row) => phones.insert(row),
-  'v1.PhoneRelayReset': (row) => phoneRelayResets.insert(row),
+  'v1.PhoneRelayReset': (row) => [
+    phoneRelayResets.insert(row),
+    phoneRelaySent.delete().where({ id: 'relay' }),
+    phoneRelayAck.delete().where({ id: 'relay' }),
+  ],
+  'v1.PhoneRelayListSent': ({ rev, keys, base }) =>
+    phoneRelaySent.insert({ id: 'relay', rev, keys, base }).onConflict('id', 'replace'),
   'v1.PhoneRelayListAcked': ({ rev, hash }) =>
     phoneRelayAck.insert({ id: 'relay', rev, hash }).onConflict('id', 'replace'),
   'v1.PhoneRemoved': ({ id, removedAt }) => phones.update({ removedAt }).where({ id }),

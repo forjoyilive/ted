@@ -164,6 +164,7 @@ export interface DaemonPhonesOptions {
   macName?: () => Promise<string>
   relayDelaysMs?: readonly number[]
   relayAnswerMs?: number
+  relayListAckMs?: number
   push?: PushService
   presence?: { now?: () => number; staleMs?: number }
 }
@@ -893,6 +894,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.phones?.relayDelaysMs && { relayDelaysMs: options.phones.relayDelaysMs }),
         ...(options.phones?.relayAnswerMs !== undefined && {
           relayAnswerMs: options.phones.relayAnswerMs,
+        }),
+        ...(options.phones?.relayListAckMs !== undefined && {
+          relayListAckMs: options.phones.relayListAckMs,
         }),
       })
       await phones.start()

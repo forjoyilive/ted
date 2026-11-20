@@ -28,6 +28,7 @@ export interface PhonesOptions {
   macName?: () => Promise<string>
   relayDelaysMs?: readonly number[]
   relayAnswerMs?: number
+  relayListAckMs?: number
 }
 
 export interface Phones {
@@ -210,8 +211,11 @@ export function createPhones(options: PhonesOptions): Phones {
     relayClient = createRelayClient({
       url: relay,
       keys: loaded,
-      base: options.phones.relayAcked()?.hash ?? null,
+      acked: options.phones.relayAcked(),
+      pending: options.phones.relayPending(),
+      onListSent: (list) => options.phones.markRelaySent(list),
       onListAcked: (ack) => options.phones.markRelayAcked(ack),
+      ...(options.relayListAckMs !== undefined && { ackMs: options.relayListAckMs }),
       onMessage(conn, data) {
         bridge.handle(conn, data).catch((error: Error) => {
           console.error(redactSecrets(`a phone message failed: ${String(error)}`))

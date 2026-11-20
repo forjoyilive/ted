@@ -28,7 +28,9 @@ beforeEach(async () => {
   keychain = memoryKeyrings()
 })
 
-async function start(relayAnswerMs?: number): Promise<void> {
+async function start(
+  phoneOptions: { relayAnswerMs?: number; relayListAckMs?: number } = {},
+): Promise<void> {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
@@ -38,7 +40,7 @@ async function start(relayAnswerMs?: number): Promise<void> {
       relayUrl: relay.url,
       macName: async () => 'Studio Mac',
       relayDelaysMs: [50],
-      ...(relayAnswerMs !== undefined && { relayAnswerMs }),
+      ...phoneOptions,
     },
   })
   const info = await readDaemonInfo(home)
@@ -193,9 +195,67 @@ test('phone messages on a new Mac socket wait for the relay to take the list', a
 })
 
 test('creating a pairing fails when the relay doesn’t take the ticket in time', async () => {
-  await start(300)
+  await start({ relayAnswerMs: 300 })
   relay.unanswered.add('pairing')
   await expect(client.createPhonePairing()).rejects.toThrow('Ted can’t reach the phone relay.')
   await relay.macFrame((frame) => frame.t === 'pairing')
   expect(await client.currentPhonePairing()).toEqual({ state: 'none' })
+})
+
+const sentLists = () =>
+  relay.frames.filter(({ from, text }) => from === 'mac' && text.startsWith('{"t":"phones",'))
+
+async function removeAll(): Promise<void> {
+  for (const phone of (await client.pairedPhones()).phones) await client.removePhone(phone.id)
+}
+
+test('a list the relay stored without its answer reaching the Mac is sent again exactly, then the newest, with no reset', async () => {
+  await start()
+  const first = await approvedPhone('First Phone')
+  await approvedPhone('Second Phone')
+  relay.lostAnswers.add('phones')
+  const before = sentLists().length
+  await removeAll()
+  await expect.poll(() => relay.list(first.link.channel)?.rev).toBe(3)
+  const lost = sentLists()[before]?.text
+  relay.lostAnswers.delete('phones')
+  relay.dropMac()
+
+  await expect.poll(() => relay.list(first.link.channel)).toEqual({ rev: 4, keys: [] })
+  const after = sentLists().slice(before + 1)
+  expect(after[0]?.text).toBe(lost)
+  expect(await client.pairedPhones()).toMatchObject({ pairAgain: false })
+})
+
+test('after a restart the unanswered list is sent again first', async () => {
+  await start()
+  const phone = await approvedPhone('Only Phone')
+  relay.lostAnswers.add('phones')
+  const before = sentLists().length
+  await removeAll()
+  await expect.poll(() => relay.list(phone.link.channel)?.rev).toBe(2)
+  const lost = sentLists()[before]?.text
+  expect(lost).toContain(`"base":"${relayListHash(1, [phone.relayKey()])}"`)
+  await daemon?.stop()
+  relay.lostAnswers.delete('phones')
+
+  const restarted = sentLists().length
+  await start()
+  await expect.poll(() => sentLists().length).toBeGreaterThan(restarted)
+  expect(sentLists()[restarted]?.text).toBe(lost)
+  expect(await client.pairedPhones()).toMatchObject({ pairAgain: false, phones: [] })
+})
+
+test('a list with no answer in time drops the socket and reconnects, with no reset', async () => {
+  await start({ relayListAckMs: 300 })
+  const phone = await approvedPhone('Only Phone')
+  const macLogins = () =>
+    relay.logins.filter(({ mode, status }) => mode === 'mac' && status === 200).length
+  const logins = macLogins()
+  relay.unanswered.add('phones')
+  await removeAll()
+  await expect.poll(macLogins).toBeGreaterThan(logins)
+  relay.unanswered.delete('phones')
+  await expect.poll(() => relay.list(phone.link.channel)).toEqual({ rev: 2, keys: [] })
+  expect(await client.pairedPhones()).toMatchObject({ pairAgain: false })
 })

@@ -81,6 +81,7 @@ export interface RelayStub {
   frames: RecordedFrame[]
   logins: RecordedLogin[]
   unanswered: Set<MacToRelay['t']>
+  lostAnswers: Set<MacToRelay['t']>
   macReady(): Promise<void>
   macFrame(match: (frame: MacToRelay) => boolean): Promise<MacToRelay>
   list(channel: string): StoredList | undefined
@@ -96,6 +97,7 @@ export async function startRelayStub(): Promise<RelayStub> {
   const frames: RecordedFrame[] = []
   const logins: RecordedLogin[] = []
   const unanswered = new Set<MacToRelay['t']>()
+  const lostAnswers = new Set<MacToRelay['t']>()
   const seen = new Set<string>()
   const macWaiters: { match: (frame: MacToRelay) => boolean; resolve(frame: MacToRelay): void }[] =
     []
@@ -194,42 +196,45 @@ export async function startRelayStub(): Promise<RelayStub> {
   }
 
   const answerMac = (ws: RelaySocket, channel: Channel, frame: MacToRelay) => {
+    const answer = (reply: RelayToMac) => {
+      if (!lostAnswers.has(frame.t)) send(ws, reply)
+    }
     if (frame.t === 'phones') {
       const stored = channel.list
       const same =
         stored !== undefined &&
         frame.rev === stored.rev &&
         JSON.stringify([...stored.keys].sort()) === JSON.stringify([...frame.keys].sort())
-      if (same) return send(ws, { t: 'phones-ok', rev: frame.rev })
-      if (stored && frame.rev < stored.rev) return send(ws, { t: 'phones-stale', rev: stored.rev })
+      if (same) return answer({ t: 'phones-ok', rev: frame.rev })
+      if (stored && frame.rev < stored.rev) return answer({ t: 'phones-stale', rev: stored.rev })
       if (
         stored &&
         (frame.rev === stored.rev || frame.base !== relayListHash(stored.rev, stored.keys))
       )
-        return send(ws, { t: 'phones-conflict', rev: frame.rev })
+        return answer({ t: 'phones-conflict', rev: frame.rev })
       channel.list = { rev: frame.rev, keys: frame.keys }
       closeWhere(
         channel,
         (phone) => phone.ticketHash === undefined && !frame.keys.includes(phone.key),
       )
-      return send(ws, { t: 'phones-ok', rev: frame.rev })
+      return answer({ t: 'phones-ok', rev: frame.rev })
     }
     if (frame.t === 'pairing') {
       channel.tickets.set(frame.hash, { expiresAt: frame.expiresAt })
       for (const hash of [...channel.tickets.keys()].slice(0, -4)) channel.tickets.delete(hash)
-      return send(ws, { t: 'pairing-ok', hash: frame.hash })
+      return answer({ t: 'pairing-ok', hash: frame.hash })
     }
     if (frame.t === 'pairing-candidate') {
       const ticket = channel.tickets.get(frame.hash)
-      if (!ticket) return send(ws, { t: 'pairing-gone', hash: frame.hash })
+      if (!ticket) return answer({ t: 'pairing-gone', hash: frame.hash })
       ticket.candidate = frame.key
       closeWhere(channel, (phone) => phone.ticketHash === frame.hash && phone.key !== frame.key)
-      return send(ws, { t: 'pairing-candidate-ok', hash: frame.hash })
+      return answer({ t: 'pairing-candidate-ok', hash: frame.hash })
     }
     if (frame.t === 'pairing-end') {
       channel.tickets.delete(frame.hash)
       closeWhere(channel, (phone) => phone.ticketHash === frame.hash)
-      return send(ws, { t: 'pairing-end-ok', hash: frame.hash })
+      return answer({ t: 'pairing-end-ok', hash: frame.hash })
     }
     const phone = channel.phones.get(frame.conn)
     if (phone) send(phone.ws, { t: 'msg', data: frame.data })
@@ -313,6 +318,7 @@ export async function startRelayStub(): Promise<RelayStub> {
     frames,
     logins,
     unanswered,
+    lostAnswers,
     macReady: () => ready.promise,
     macFrame(match) {
       for (const { from, text } of frames) {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { queryDb } from '@livestore/livestore'
-import type { Edition } from '@ted/protocol'
+import { type Edition, relayListHash } from '@ted/protocol'
 import type { StoreContext } from './context.ts'
 import {
   events,
@@ -8,6 +8,7 @@ import {
   phoneNotifications,
   phoneRelayAck,
   phoneRelayResets,
+  phoneRelaySent,
   phones,
   requestReturns,
 } from './schema.ts'
@@ -29,6 +30,12 @@ export interface RelayPhoneList {
 export interface RelayListAck {
   rev: number
   hash: string
+}
+
+export interface RelaySentList {
+  rev: number
+  keys: string[]
+  base: string | null
 }
 
 export interface RelayReset {
@@ -53,6 +60,8 @@ export interface PhoneStore {
   relayList(): RelayPhoneList
   relayAcked(): RelayListAck | undefined
   markRelayAcked(ack: RelayListAck): void
+  relayPending(): RelaySentList | undefined
+  markRelaySent(list: RelaySentList): void
   resetRelay(reset: RelayReset): void
   latestReset(): RelayReset | undefined
   pairAgain(): boolean
@@ -131,6 +140,18 @@ export function phonesArea(ctx: StoreContext): PhonesArea {
         const row = store.query(queryDb(phoneRelayAck.where({ id: 'relay' })))[0]
         if (row?.rev === rev && row.hash === hash) return
         commit(events.phoneRelayListAcked({ rev, hash }))
+      },
+      relayPending() {
+        const sent = store.query(queryDb(phoneRelaySent.where({ id: 'relay' })))[0]
+        if (!sent) return undefined
+        const acked = store.query(queryDb(phoneRelayAck.where({ id: 'relay' })))[0]
+        if (acked?.rev === sent.rev && acked.hash === relayListHash(sent.rev, sent.keys)) {
+          return undefined
+        }
+        return { rev: sent.rev, keys: [...sent.keys], base: sent.base }
+      },
+      markRelaySent(list) {
+        commit(events.phoneRelayListSent({ ...list, keys: [...list.keys] }))
       },
       resetRelay({ at, channel }) {
         const ids = list().map((phone) => phone.id)

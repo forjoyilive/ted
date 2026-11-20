@@ -21,14 +21,25 @@ export interface RelayListAck {
   hash: string
 }
 
+export interface SentList {
+  rev: number
+  keys: string[]
+  base: string | null
+}
+
+export const relayListAckMs = 10_000
+
 export interface RelayClientOptions {
   url: string
   keys: PhoneKeys
-  base: string | null
+  acked: RelayListAck | undefined
+  pending: SentList | undefined
   onMessage(conn: number, data: string): void
+  onListSent(list: SentList): void
   onListAcked(ack: RelayListAck): void
   onListRefused(answer: ListRefusal, rev: number): void
   delaysMs?: readonly number[]
+  ackMs?: number
 }
 
 export interface RelayClient {
@@ -74,9 +85,12 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
   let forwarding = false
   let attempt = 0
   let timer: NodeJS.Timeout | undefined
-  let base = options.base
+  let base = options.acked?.hash ?? null
+  let ackedRev = options.acked?.rev
+  let pending = options.pending
   let desired: PhoneList | undefined
-  let inFlight: PhoneList | undefined
+  let inFlight: SentList | undefined
+  let ackTimer: NodeJS.Timeout | undefined
   let listWaiters: { rev: number; resolve(): void; reject(error: Error): void }[] = []
   const tickets = new Map<string, Unanswered<void>>()
   const candidates = new Map<string, Unanswered<CandidateAnswer>>()
@@ -86,10 +100,30 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame))
   }
 
+  const clearAckTimer = () => {
+    if (ackTimer) clearTimeout(ackTimer)
+    ackTimer = undefined
+  }
+
   const sendDesired = () => {
-    if (!loggedIn || inFlight || !desired) return
-    inFlight = desired
-    write({ t: 'phones', rev: desired.rev, keys: desired.keys, base })
+    if (!loggedIn || inFlight) return
+    let next = pending
+    if (!next) {
+      if (!desired) return
+      next = { rev: desired.rev, keys: desired.keys, base }
+      if (desired.rev !== ackedRev) {
+        options.onListSent(next)
+        pending = next
+      }
+    }
+    inFlight = next
+    write({ t: 'phones', rev: next.rev, keys: next.keys, base: next.base })
+    const waiting = socket
+    clearAckTimer()
+    ackTimer = setTimeout(() => {
+      if (socket === waiting) waiting?.close()
+    }, options.ackMs ?? relayListAckMs)
+    ackTimer.unref()
   }
 
   const ask = <T>(waiting: Map<string, Unanswered<T>>, hash: string, frame: MacToRelay) => {
@@ -111,17 +145,21 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
     waiting.delete(hash)
   }
 
-  const listAcked = (acked: PhoneList) => {
+  const listAcked = (acked: SentList) => {
+    clearAckTimer()
     inFlight = undefined
+    pending = undefined
     forwarding = true
+    ackedRev = acked.rev
     base = relayListHash(acked.rev, acked.keys)
     options.onListAcked({ rev: acked.rev, hash: base })
     for (const waiting of listWaiters) if (waiting.rev <= acked.rev) waiting.resolve()
     listWaiters = listWaiters.filter((waiting) => waiting.rev > acked.rev)
-    if (desired && desired.rev !== acked.rev) sendDesired()
+    if (desired && desired.rev !== ackedRev) sendDesired()
   }
 
   const halt = (why: string) => {
+    clearAckTimer()
     running = false
     loggedIn = false
     forwarding = false
@@ -206,6 +244,7 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
     })
     opened.addEventListener('close', () => {
       if (socket !== opened) return
+      clearAckTimer()
       socket = undefined
       loggedIn = false
       forwarding = false
