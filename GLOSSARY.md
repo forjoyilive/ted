@@ -29,7 +29,7 @@ An iPhone running the Ted phone app that the user approved in Settings → Phone
 _Avoid_: Mobile client, device
 
 **Relay**:
-The server that passes encrypted messages between a paired phone and the Ted daemon, because the daemon listens only on this Mac. It sees only ciphertext, sizes and times.
+The server that passes encrypted messages between a paired phone and the Ted daemon, because the daemon listens only on this Mac. It cannot read the encrypted messages; it can see public keys, channel and connection identifiers, nonces, sizes and times.
 _Avoid_: Proxy, tunnel, phone server
 
 **Factory**:
