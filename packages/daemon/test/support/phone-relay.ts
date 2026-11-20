@@ -70,6 +70,7 @@ interface Admission {
 
 interface Channel {
   mac?: RelaySocket | undefined
+  macStream?: Duplex
   phones: Map<number, PhoneSocket>
   nextConn: number
   list?: StoredList
@@ -87,6 +88,7 @@ export interface RelayStub {
   list(channel: string): StoredList | undefined
   storeList(channel: string, list: StoredList): void
   sendToMac(frame: RelayToMac): void
+  freezeMac(): void
   dropMac(): void
   close(): Promise<void>
 }
@@ -302,7 +304,10 @@ export async function startRelayStub(): Promise<RelayStub> {
     if (status !== 200 || !login) return refuse(socket, status)
     sockets.handleUpgrade(req, socket, head, (ws) => {
       const channel = channelOf(name)
-      if (route === 'mac') return openMac(ws, channel)
+      if (route === 'mac') {
+        channel.macStream = socket
+        return openMac(ws, channel)
+      }
       openPhone(ws, channel, {
         ws,
         key: login.key,
@@ -335,6 +340,9 @@ export async function startRelayStub(): Promise<RelayStub> {
     },
     sendToMac(frame) {
       for (const channel of channels.values()) if (channel.mac) send(channel.mac, frame)
+    },
+    freezeMac() {
+      for (const channel of channels.values()) channel.macStream?.pause()
     },
     dropMac() {
       for (const channel of channels.values()) channel.mac?.close(1012)

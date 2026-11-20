@@ -3,6 +3,7 @@ import nacl from 'tweetnacl'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import { phoneSignKeyAccount } from '../src/phones/keys.ts'
+import type { PhoneStore } from '../src/store/index.ts'
 import { appClient, killRunHosts, makeTempHome, stubClaudePath } from './helpers.ts'
 import {
   type MemoryKeyrings,
@@ -28,6 +29,9 @@ beforeEach(async () => {
   keychain = memoryKeyrings()
 })
 
+let failAcks = false
+let phoneStore: PhoneStore | undefined
+
 async function start(
   phoneOptions: { relayAnswerMs?: number; relayListAckMs?: number } = {},
 ): Promise<void> {
@@ -42,6 +46,17 @@ async function start(
       relayDelaysMs: [50],
       ...phoneOptions,
     },
+    wrap: {
+      store: (opened) => {
+        phoneStore = opened.phones
+        const record = opened.phones.markRelayAcked
+        opened.phones.markRelayAcked = (ack) => {
+          if (failAcks) throw new Error('the store refused the write')
+          record(ack)
+        }
+        return opened
+      },
+    },
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('No daemon.json')
@@ -50,6 +65,7 @@ async function start(
 
 afterEach(async () => {
   for (const phone of phones.splice(0)) phone.close()
+  failAcks = false
   await daemon?.stop()
   daemon = undefined
   await relay?.close()
@@ -249,13 +265,51 @@ test('after a restart the unanswered list is sent again first', async () => {
 test('a list with no answer in time drops the socket and reconnects, with no reset', async () => {
   await start({ relayListAckMs: 300 })
   const phone = await approvedPhone('Only Phone')
-  const macLogins = () =>
-    relay.logins.filter(({ mode, status }) => mode === 'mac' && status === 200).length
   const logins = macLogins()
   relay.unanswered.add('phones')
   await removeAll()
   await expect.poll(macLogins).toBeGreaterThan(logins)
   relay.unanswered.delete('phones')
+  await expect.poll(() => relay.list(phone.link.channel)).toEqual({ rev: 2, keys: [] })
+  expect(await client.pairedPhones()).toMatchObject({ pairAgain: false })
+})
+
+const macLogins = () =>
+  relay.logins.filter(({ mode, status }) => mode === 'mac' && status === 200).length
+
+const forwardedToMac = () =>
+  relay.frames.filter(({ from, text }) => from === 'relay' && text.startsWith('{"t":"msg","conn"'))
+    .length
+
+test('an acknowledgement the store fails to record leaves phone messages unforwarded and is retried', async () => {
+  await start()
+  const kept = await approvedPhone('Kept Phone')
+  await approvedPhone('Removed Phone')
+  failAcks = true
+  const logins = macLogins()
+  const [, removed] = (await client.pairedPhones()).phones
+  if (!removed) throw new Error('phone not listed')
+  await client.removePhone(removed.id)
+  await expect.poll(macLogins).toBeGreaterThan(logins + 1)
+
+  const early = kept.message({ type: 'request', route: 'status' })
+  const forwarded = forwardedToMac()
+  await kept.sendRaw(early.envelope)
+  await expect.poll(forwardedToMac).toBeGreaterThan(forwarded)
+  failAcks = false
+  await expect.poll(() => phoneStore?.relayAcked()?.rev).toBe(3)
+  expect(await kept.status()).toMatchObject({ ok: true })
+  expect(kept.replies.some((reply) => reply.id === early.id)).toBe(false)
+  expect(await client.pairedPhones()).toMatchObject({ pairAgain: false })
+})
+
+test('a missed acknowledgement deadline reconnects even when the old socket never closes', async () => {
+  await start({ relayListAckMs: 300 })
+  const phone = await approvedPhone('Only Phone')
+  const logins = macLogins()
+  relay.freezeMac()
+  await removeAll()
+  await expect.poll(macLogins).toBeGreaterThan(logins)
   await expect.poll(() => relay.list(phone.link.channel)).toEqual({ rev: 2, keys: [] })
   expect(await client.pairedPhones()).toMatchObject({ pairAgain: false })
 })

@@ -112,7 +112,13 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
       if (!desired) return
       next = { rev: desired.rev, keys: desired.keys, base }
       if (desired.rev !== ackedRev) {
-        options.onListSent(next)
+        try {
+          options.onListSent(next)
+        } catch {
+          console.error('Ted couldn’t record the phone list before sending it.')
+          detach()
+          return
+        }
         pending = next
       }
     }
@@ -121,7 +127,7 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
     const waiting = socket
     clearAckTimer()
     ackTimer = setTimeout(() => {
-      if (socket === waiting) waiting?.close()
+      if (socket === waiting) detach()
     }, options.ackMs ?? relayListAckMs)
     ackTimer.unref()
   }
@@ -147,15 +153,33 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
 
   const listAcked = (acked: SentList) => {
     clearAckTimer()
+    const hash = relayListHash(acked.rev, acked.keys)
+    try {
+      options.onListAcked({ rev: acked.rev, hash })
+    } catch {
+      console.error('Ted couldn’t record that the phone relay took the list.')
+      detach()
+      return
+    }
     inFlight = undefined
     pending = undefined
     forwarding = true
     ackedRev = acked.rev
-    base = relayListHash(acked.rev, acked.keys)
-    options.onListAcked({ rev: acked.rev, hash: base })
+    base = hash
     for (const waiting of listWaiters) if (waiting.rev <= acked.rev) waiting.resolve()
     listWaiters = listWaiters.filter((waiting) => waiting.rev > acked.rev)
     if (desired && desired.rev !== ackedRev) sendDesired()
+  }
+
+  const detach = () => {
+    clearAckTimer()
+    const old = socket
+    socket = undefined
+    loggedIn = false
+    forwarding = false
+    inFlight = undefined
+    old?.close()
+    retry()
   }
 
   const halt = (why: string) => {
@@ -243,13 +267,7 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
       else if (frame.t === 'pairing-end-ok') answer(ends, frame.hash, undefined)
     })
     opened.addEventListener('close', () => {
-      if (socket !== opened) return
-      clearAckTimer()
-      socket = undefined
-      loggedIn = false
-      forwarding = false
-      inFlight = undefined
-      retry()
+      if (socket === opened) detach()
     })
     opened.addEventListener('error', () => {
       if (socket === opened) opened.close()
