@@ -10,7 +10,7 @@ Make the change the Task asks for, on this Task’s branch.
 2. Build in small slices. For a behaviour change, write or update the test at an existing public boundary together with the change, following the testing rules in `AGENTS.md`; documentation-only changes need no artificial tests.
 3. Don’t run test files in Work: no `pnpm vitest`, `pnpm test` or `pnpm check`, for a new test either. Every test run shares this machine with every other Run, so Ted runs the tests the change affects itself, as the Affected tests check, when the Task enters Validate. Check your work with `pnpm typecheck` and `pnpm lint`, and by reading the code and the test against each other.
 4. Check every acceptance criterion against the result. Record the evidence and any remaining limitations in the brief; resolve missing behaviour before handing off.
-5. Commit your work. `ted outcome advance` moves the Task to Validate at once, and Ted runs the checks there as Validate’s first step.
+5. Commit your work. `ted outcome advance` moves the Task to Validate at once, and Ted runs the checks there as Validate’s first step. `ted checks` is refused in Work.
 6. Post a short note leading with the resulting behavior, then any remaining limitation. Ted works out which test files the change affects, so don’t list them. Attach detailed evidence when needed, following the preamble’s writing guidance.
 
 ## Done when

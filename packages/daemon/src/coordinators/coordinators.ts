@@ -127,6 +127,7 @@ import {
   carryOutAutomationCard,
   draftFingerprint,
 } from './automation-cards.ts'
+import { coordinatorReceipts, remembered } from './coordinator-receipts.ts'
 
 export const coordinatorOpening = '## Message from the human'
 export const coordinatorFromTed = '## Message from Ted'
@@ -436,7 +437,6 @@ export function createCoordinators(options: {
     if (deleting.has(id) || changing.has(id))
       throw new RequestError(409, 'This Coordinator chat is changing; send the message again')
   }
-  const chains = new Map<string, Promise<unknown>>()
   const background = new Set<Promise<unknown>>()
   let closed = false
   const pending = (id: string) => store.runMessages(id).filter((m) => m.queued === true)
@@ -1010,6 +1010,13 @@ export function createCoordinators(options: {
     ...(t.status && { status: t.status }),
     ...(t.archived && { archived: t.archived }),
   })
+  const receipts = coordinatorReceipts({
+    chat: requireChat,
+    save: (c) => save(c),
+    persisted: () => store.persisted(),
+    task: (id) => store.getTask(id),
+    snapshot,
+  })
   const version = (t: Task) =>
     createHash('sha256')
       .update(
@@ -1030,7 +1037,7 @@ export function createCoordinators(options: {
   const createdKey = (c: StoredCoordinator, operation: string) =>
     c.id === c.factoryId ? operation : `${c.id}:${operation}`
   const touch = (c: StoredCoordinator, ids: string[]) =>
-    save({ ...c, taskIds: [...new Set([...c.taskIds, ...ids])].slice(-100) })
+    save({ ...c, taskIds: remembered(c.taskIds, ids) })
   const waiting = (t: Task) =>
     !t.archived && (t.stage === 'backlog' || store.queue().some((q) => q.id === t.id))
   function neighbour(
@@ -1304,32 +1311,22 @@ export function createCoordinators(options: {
     removed: ReadonlySet<string>,
     guard?: () => string | undefined,
   ): Promise<{ receipt: CoordinatorReceipt; done: boolean; refusal?: string }> {
-    const receipt: CoordinatorReceipt = {
-      id: receiptId,
-      operation: kind,
-      taskId: task.id,
-      text: 'Action interrupted before its result was saved. Check the Task’s current state before deciding what to do next.',
-      at: new Date().toISOString(),
-      fingerprint,
-      before: snapshot(task),
-    }
-    const opened = requireChat(chatId)
-    save({ ...opened, receipts: [...opened.receipts, receipt] })
-    await store.persisted()
-    let done = false
     let refusal: string | undefined
-    try {
-      const current = store.getTask(task.id)
-      refusal = current ? guard?.() : `${task.displayId} no longer exists`
-      if (refusal) throw new Error(refusal)
-      const family = tasks.hierarchyPreview(task.id)
-      if (kind === 'unarchive') {
-        const result = await tasks.unarchive(task.id, {
-          ...(family.archivedWith.length > 0 && { children: 'restore' }),
-        })
-        const restored = family.archivedWith.length
-        receipt.text = `Unarchived ${result.displayId}${restored > 0 ? ` and ${restored} ${restored === 1 ? 'Task' : 'Tasks'} archived with it` : ''} · now ${state(snapshot(result))}`
-      } else {
+    const { receipt, done } = await receipts.record(
+      chatId,
+      { id: receiptId, operation: kind, fingerprint, task },
+      async () => {
+        const current = store.getTask(task.id)
+        refusal = current ? guard?.() : `${task.displayId} no longer exists`
+        if (refusal) throw new Error(refusal)
+        const family = tasks.hierarchyPreview(task.id)
+        if (kind === 'unarchive') {
+          const result = await tasks.unarchive(task.id, {
+            ...(family.archivedWith.length > 0 && { children: 'restore' }),
+          })
+          const restored = family.archivedWith.length
+          return `Unarchived ${result.displayId}${restored > 0 ? ` and ${restored} ${restored === 1 ? 'Task' : 'Tasks'} archived with it` : ''} · now ${state(snapshot(result))}`
+        }
         const under = family.descendants.length > 0
         const together =
           under &&
@@ -1356,28 +1353,16 @@ export function createCoordinators(options: {
             closePullRequests: choices.closePullRequests === true,
             ...(under && { children, hierarchyRevision: family.revision }),
           })
-          receipt.text = `Archived ${task.displayId}${under ? (children === 'detach' ? ' · the Tasks under it were detached' : ' and the Tasks under it') : ''}${choices.closePullRequests ? ' · closed its pull requests' : ''}${unblockedText()}`
-        } else {
-          const children = choices.children === 'delete' ? 'delete' : 'unparent'
-          await tasks.delete(task.id, {
-            ...(under && { children, hierarchyRevision: family.revision }),
-          })
-          receipt.text = redactSecrets(
-            `Deleted ${task.displayId} “${task.title.slice(0, 200)}”${under ? (children === 'delete' ? ' and the Tasks under it' : ' · the Tasks under it were detached') : ''}${unblockedText()}`,
-          )
+          return `Archived ${task.displayId}${under ? (children === 'detach' ? ' · the Tasks under it were detached' : ' and the Tasks under it') : ''}${choices.closePullRequests ? ' · closed its pull requests' : ''}${unblockedText()}`
         }
-      }
-      done = true
-    } catch (error) {
-      receipt.text = redactSecrets(
-        `Couldn’t ${kind} ${task.displayId}: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
-    const after = store.getTask(task.id)
-    if (after) receipt.after = snapshot(after)
-    const latest = requireChat(chatId)
-    save({ ...latest, receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)) })
-    await store.persisted()
+        const children = choices.children === 'delete' ? 'delete' : 'unparent'
+        await tasks.delete(task.id, {
+          ...(under && { children, hierarchyRevision: family.revision }),
+        })
+        return `Deleted ${task.displayId} “${task.title.slice(0, 200)}”${under ? (children === 'delete' ? ' and the Tasks under it' : ' · the Tasks under it were detached') : ''}${unblockedText()}`
+      },
+      (error) => `Couldn’t ${kind} ${task.displayId}: ${error.message}`,
+    )
     return { receipt, done, ...(refusal !== undefined && { refusal }) }
   }
   async function transferNow(
@@ -1396,48 +1381,32 @@ export function createCoordinators(options: {
       return refused(`${card.displayId} no longer exists here`)
     const changed = whatChanged(card, task, 'transfer', new Set([task.id]))
     if (changed) return refused(changed)
-    const receipt: CoordinatorReceipt = {
-      id: `${asked.operation}:${task.id}`,
-      operation: 'transfer',
-      taskId: task.id,
-      text: 'Action interrupted before its result was saved. Check the Task’s current state before deciding what to do next.',
-      at: new Date().toISOString(),
-      fingerprint: asked.fingerprint,
-      before: snapshot(task),
-    }
-    const opened = requireChat(chatId)
-    save({ ...opened, receipts: [...opened.receipts, receipt] })
-    await store.persisted()
-    let done = false
     let shown = ''
-    try {
-      const { moved } = await tasks.moveToFactory(
-        task.id,
-        plan.factoryId,
-        'coordinator',
-        movePlanKey(plan),
-      )
-      const to = moved.find((m) => m.id === task.id)?.to ?? task.displayId
-      const under = moved.length - 1
-      const along =
-        under > 0 ? ` ${under === 1 ? 'The Task' : `The ${under} Tasks`} under it moved too.` : ''
-      receipt.text = redactSecrets(
-        `Moved ${task.displayId} to ${plan.factoryName} as ${to}.${along}`,
-      )
-      shown = redactSecrets(`Moved to ${plan.factoryName} as ${to}.${along}`)
-      done = true
-    } catch (error) {
-      receipt.text = redactSecrets(
-        `Couldn’t move ${task.displayId} to ${plan.factoryName}: ${error instanceof Error ? error.message : String(error)}`,
-      )
-      shown = receipt.text
-    }
-    const after = store.getTask(task.id)
-    if (after) receipt.after = snapshot(after)
-    const latest = requireChat(chatId)
-    save({ ...latest, receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)) })
-    await store.persisted()
-    return { done, text: shown }
+    const { receipt, done } = await receipts.record(
+      chatId,
+      {
+        id: `${asked.operation}:${task.id}`,
+        operation: 'transfer',
+        fingerprint: asked.fingerprint,
+        task,
+      },
+      async () => {
+        const { moved } = await tasks.moveToFactory(
+          task.id,
+          plan.factoryId,
+          'coordinator',
+          movePlanKey(plan),
+        )
+        const to = moved.find((m) => m.id === task.id)?.to ?? task.displayId
+        const under = moved.length - 1
+        const along =
+          under > 0 ? ` ${under === 1 ? 'The Task' : `The ${under} Tasks`} under it moved too.` : ''
+        shown = redactSecrets(`Moved to ${plan.factoryName} as ${to}.${along}`)
+        return `Moved ${task.displayId} to ${plan.factoryName} as ${to}.${along}`
+      },
+      (error) => `Couldn’t move ${task.displayId} to ${plan.factoryName}: ${error.message}`,
+    )
+    return { done, text: done ? shown : receipt.text }
   }
   const requestChains = new Map<string, Promise<unknown>>()
   function oneRequest<T>(chatId: string, work: () => Promise<T>): Promise<T> {
@@ -1447,18 +1416,12 @@ export function createCoordinators(options: {
       if (requestChains.get(chatId) === next) requestChains.delete(chatId)
     })
   }
-  function serial<T>(factoryId: string, work: () => Promise<T>): Promise<T> {
-    const next = (chains.get(factoryId) ?? Promise.resolve()).catch(() => {}).then(work)
-    chains.set(factoryId, next)
-    return next.finally(() => {
-      if (chains.get(factoryId) === next) chains.delete(factoryId)
-    })
-  }
+  const serial = receipts.serial
 
   async function settle(c: StoredCoordinator): Promise<void> {
     await launching.wait(c.id)?.catch(() => {})
     await requestChains.get(c.id)?.catch(() => {})
-    await chains.get(c.factoryId)?.catch(() => {})
+    await receipts.settled(c.factoryId)
     await steering.drain(c.runId)
     for (const runId of (saved.get(c.id) ?? c).runIds) {
       const run = store.getRun(runId)
@@ -1945,102 +1908,83 @@ export function createCoordinators(options: {
     },
     async act(caller, ref, kind, input) {
       const c = admit(caller)
-      const next = (chains.get(c.factoryId) ?? Promise.resolve())
-        .catch(() => {})
-        .then(async () => {
-          const current = actor(caller),
-            task = target(current, ref)
-          const fingerprint = createHash('sha256')
-            .update(
-              JSON.stringify([
-                task.id,
-                kind,
-                input.version,
-                input.after,
-                input.before,
-                input.neighbours,
-                ...(kind === 'parent' ? [input.parentId, input.hierarchyRevision] : []),
-                ...(kind === 'tell' || kind === 'answer' || kind === 'resume'
-                  ? [
-                      createHash('sha256')
-                        .update(input.message ?? '')
-                        .digest('hex'),
-                      input.request,
-                      input.choice,
-                      input.choices,
-                    ]
-                  : []),
-                ...(input.decision !== undefined ||
-                input.answers !== undefined ||
-                input.recommended !== undefined
-                  ? [
-                      input.decision,
-                      input.answers,
-                      input.recommended,
-                      input.skipRows,
-                      input.startUnblocked,
-                    ]
-                  : []),
-                ...(input.closePullRequests !== undefined ? [input.closePullRequests] : []),
-              ]),
+      return serial(c.factoryId, async () => {
+        const current = actor(caller),
+          task = target(current, ref)
+        const fingerprint = createHash('sha256')
+          .update(
+            JSON.stringify([
+              task.id,
+              kind,
+              input.version,
+              input.after,
+              input.before,
+              input.neighbours,
+              ...(kind === 'parent' ? [input.parentId, input.hierarchyRevision] : []),
+              ...(kind === 'tell' || kind === 'answer' || kind === 'resume'
+                ? [
+                    createHash('sha256')
+                      .update(input.message ?? '')
+                      .digest('hex'),
+                    input.request,
+                    input.choice,
+                    input.choices,
+                  ]
+                : []),
+              ...(input.decision !== undefined ||
+              input.answers !== undefined ||
+              input.recommended !== undefined
+                ? [
+                    input.decision,
+                    input.answers,
+                    input.recommended,
+                    input.skipRows,
+                    input.startUnblocked,
+                  ]
+                : []),
+              ...(input.closePullRequests !== undefined ? [input.closePullRequests] : []),
+            ]),
+          )
+          .digest('hex')
+        const old = receipts.replay(current, input.operation, fingerprint)
+        if (old) return old
+        const validate = () => {
+          const current = actor(caller)
+          const task = target(current, ref)
+          if (version(task) !== input.version)
+            throw new RequestError(
+              409,
+              'Task changed; read its current state before deciding again',
             )
-            .digest('hex')
-          const old = current.receipts.find((r) => r.id === input.operation)
-          if (old) {
-            if (old.fingerprint !== fingerprint)
-              throw new RequestError(409, 'operation ID already used for another action')
-            return old
+          if (kind === 'parent') {
+            if (input.parentId !== null) target(current, input.parentId ?? '')
+            return
           }
-          const validate = () => {
-            const current = actor(caller)
-            const task = target(current, ref)
-            if (version(task) !== input.version)
+          if (kind === 'done') {
+            if (task.archived || !mergesHere(task.stage))
+              throw new RequestError(409, 'This action only applies to Tasks at Merge')
+            return
+          }
+          if (kind === 'tell' || kind === 'answer' || kind === 'resume') {
+            if (task.archived || task.stage === 'done')
               throw new RequestError(
                 409,
-                'Task changed; read its current state before deciding again',
+                'This action only applies to Tasks that are not archived and not Done',
               )
-            if (kind === 'parent') {
-              if (input.parentId !== null) target(current, input.parentId ?? '')
-              return
-            }
-            if (kind === 'done') {
-              if (task.archived || !mergesHere(task.stage))
-                throw new RequestError(409, 'This action only applies to Tasks at Merge')
-              return
-            }
-            if (kind === 'tell' || kind === 'answer' || kind === 'resume') {
-              if (task.archived || task.stage === 'done')
-                throw new RequestError(
-                  409,
-                  'This action only applies to Tasks that are not archived and not Done',
-                )
-              if (kind === 'answer') answering = request(task, input)
-              return
-            }
-            if (!waiting(task) || (kind === 'start' && task.stage !== 'backlog'))
-              throw new RequestError(409, 'This action only applies to waiting Tasks')
-            fits(current, task, input, kind === 'move')
-            if (kind === 'move' && !input.after && !input.before)
-              throw new RequestError(400, 'name a neighbour')
+            if (kind === 'answer') answering = request(task, input)
+            return
           }
-          const receipt: CoordinatorReceipt = {
-            id: input.operation,
-            operation: kind,
-            taskId: task.id,
-            text: 'Action interrupted before its result was saved. Check the Task’s current state before deciding what to do next.',
-            at: new Date().toISOString(),
-            fingerprint,
-            before: snapshot(task),
-          }
-          save({
-            ...current,
-            receipts: [...current.receipts, receipt],
-            taskIds: [...new Set([...current.taskIds, task.id])],
-          })
-          await store.persisted()
-          let refused: RequestError | undefined
-          let answering: ReturnType<typeof request> | undefined
-          try {
+          if (!waiting(task) || (kind === 'start' && task.stage !== 'backlog'))
+            throw new RequestError(409, 'This action only applies to waiting Tasks')
+          fits(current, task, input, kind === 'move')
+          if (kind === 'move' && !input.after && !input.before)
+            throw new RequestError(400, 'name a neighbour')
+        }
+        let answering: ReturnType<typeof request> | undefined
+        const { receipt, error } = await receipts.record(
+          current.id,
+          { id: input.operation, operation: kind, fingerprint, task },
+          async (receipt) => {
             validate()
             if (kind === 'parent') {
               if (input.parentId === undefined || !input.hierarchyRevision)
@@ -2052,17 +1996,15 @@ export function createCoordinators(options: {
                 parentId: input.parentId,
                 revision: input.hierarchyRevision,
               })
-              receipt.text =
-                input.parentId === null
-                  ? `Unlinked ${result.displayId} from its parent`
-                  : `Set ${result.displayId}’s parent to ${target(current, input.parentId).displayId}`
+              return input.parentId === null
+                ? `Unlinked ${result.displayId} from its parent`
+                : `Set ${result.displayId}’s parent to ${target(current, input.parentId).displayId}`
             } else if (kind === 'tell') {
               await tasks.coordinatorTell(task.id, through(input.message))
               const lead = task.stage !== 'backlog' && store.getRun(task.leadRunId ?? '')
-              receipt.text =
-                lead && lead.state !== 'finished'
-                  ? `Told ${task.displayId}’s Task Lead`
-                  : `Left a comment on ${task.displayId} · no Task Lead is running; its next Run reads it`
+              return lead && lead.state !== 'finished'
+                ? `Told ${task.displayId}’s Task Lead`
+                : `Left a comment on ${task.displayId} · no Task Lead is running; its next Run reads it`
             } else if (kind === 'answer' && answering) {
               const { asked, answer } = answering
               await tasks.coordinatorAnswer(asked.id, answer, coordinatorLine)
@@ -2081,129 +2023,91 @@ export function createCoordinators(options: {
                   : answer.action === 'request-changes'
                     ? `Requested changes on ${task.displayId}’s ${what}${heading}`
                     : `Answered ${task.displayId}’s ${what}${heading}${answer.action === 'accept-recommended' ? ' with every recommended answer' : ''}${input.choice !== undefined ? ` with “${input.choice}”` : ''}${input.choices !== undefined ? ` with ${input.choices.map((c) => `“${c}”`).join(', ')}` : ''}`
-              receipt.text = `${did} · was ${state(receipt.before)} · now ${state(snapshot(store.getTask(task.id) ?? task))}`
+              return `${did} · was ${state(receipt.before)} · now ${state(snapshot(store.getTask(task.id) ?? task))}`
             } else if (kind === 'done') {
               const result = await tasks.markDone(task.id, 'coordinator')
-              receipt.text = `Marked ${result.displayId} done · its pull requests merged on GitHub`
+              return `Marked ${result.displayId} done · its pull requests merged on GitHub`
             } else if (kind === 'resume') {
               const result = await tasks.coordinatorResume(
                 task.id,
                 input.message ? through(input.message) : undefined,
               )
-              receipt.text = `Resumed ${result.displayId} · ${result.status?.kind === 'queued' ? 'Queued for a free slot' : (result.status?.kind ?? result.stage)}`
+              return `Resumed ${result.displayId} · ${result.status?.kind === 'queued' ? 'Queued for a free slot' : (result.status?.kind ?? result.stage)}`
             } else {
               const result =
                 kind === 'start'
                   ? await tasks.start(task.id, {}, { cause: 'coordinator' })
                   : tasks.move(task.id, input)
-              receipt.text =
-                kind === 'start'
-                  ? result.stage === 'backlog'
-                    ? `Requested start for ${result.displayId} · waiting on blockers`
-                    : `Started ${result.displayId} · ${result.status?.kind === 'queued' ? 'Queued at Intake' : (result.status?.kind ?? result.stage)}`
-                  : `Moved ${result.displayId}${input.after ? ` after ${input.after}` : ''}${input.before ? ` before ${input.before}` : ''}${result.priority !== task.priority ? ` · Priority changed to ${result.priority}` : ''}`
+              return kind === 'start'
+                ? result.stage === 'backlog'
+                  ? `Requested start for ${result.displayId} · waiting on blockers`
+                  : `Started ${result.displayId} · ${result.status?.kind === 'queued' ? 'Queued at Intake' : (result.status?.kind ?? result.stage)}`
+                : `Moved ${result.displayId}${input.after ? ` after ${input.after}` : ''}${input.before ? ` before ${input.before}` : ''}${result.priority !== task.priority ? ` · Priority changed to ${result.priority}` : ''}`
             }
-          } catch (error) {
-            if (error instanceof RequestError) refused = error
-            receipt.text = redactSecrets(
-              `Couldn’t ${kind === 'done' ? 'mark' : kind} ${task.displayId}${kind === 'done' ? ' done' : ''}: ${error instanceof Error ? error.message : String(error)}`,
-            )
-          }
-          const after = store.getTask(task.id)
-          if (after) receipt.after = snapshot(after)
-          const latest = requireChat(current.id)
-          save({
-            ...latest,
-            receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)),
-          })
-          await store.persisted()
-          if (refused) throw refused
-          return receipt
-        })
-      chains.set(c.factoryId, next)
-      try {
-        return await next
-      } finally {
-        if (chains.get(c.factoryId) === next) chains.delete(c.factoryId)
-      }
+          },
+          (error) =>
+            `Couldn’t ${kind === 'done' ? 'mark' : kind} ${task.displayId}${kind === 'done' ? ' done' : ''}: ${error.message}`,
+        )
+        if (error instanceof RequestError) throw error
+        return receipt
+      })
     },
-    async create(caller, input) {
+    create(caller, input) {
       const c = admit(caller)
-      const next = (chains.get(c.factoryId) ?? Promise.resolve())
-        .catch(() => {})
-        .then(async () => {
+      return serial(c.factoryId, async () => {
+        const current = actor(caller)
+        const fingerprint = createHash('sha256')
+          .update(
+            JSON.stringify([
+              'create',
+              input.title,
+              createHash('sha256')
+                .update(input.description ?? '')
+                .digest('hex'),
+              input.parentId,
+              input.blockedBy,
+              input.source,
+              input.priority,
+              input.clarifyDepth,
+              input.lead,
+              input.start,
+              input.after,
+              input.before,
+              input.neighbours,
+            ]),
+          )
+          .digest('hex')
+        const old = receipts.replay(current, input.operation, fingerprint)
+        if (old) {
+          const made =
+            old.taskId === undefined &&
+            store.coordinatorCreated(current.factoryId, createdKey(current, input.operation))
+          if (!made) return old
+          const recovered: CoordinatorReceipt = {
+            ...old,
+            taskId: made.id,
+            text: `Created ${made.displayId} “${made.title.slice(0, 200)}” · ${state(snapshot(made))} · the rest of the action was interrupted; check its parent, blockers and place before deciding what to do next`,
+            after: snapshot(made),
+          }
+          await receipts.rewrite(current.id, recovered)
+          return recovered
+        }
+        const check = () => {
           const current = actor(caller)
-          const fingerprint = createHash('sha256')
-            .update(
-              JSON.stringify([
-                'create',
-                input.title,
-                createHash('sha256')
-                  .update(input.description ?? '')
-                  .digest('hex'),
-                input.parentId,
-                input.blockedBy,
-                input.source,
-                input.priority,
-                input.clarifyDepth,
-                input.lead,
-                input.start,
-                input.after,
-                input.before,
-                input.neighbours,
-              ]),
-            )
-            .digest('hex')
-          const finish = (receipt: CoordinatorReceipt) => {
-            const latest = requireChat(current.id)
-            save({
-              ...latest,
-              receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)),
-              ...(receipt.taskId && {
-                taskIds: [...new Set([...latest.taskIds, receipt.taskId])].slice(-100),
-              }),
-            })
+          for (const ref of [input.parentId, ...(input.blockedBy ?? [])])
+            if (ref !== undefined) target(current, ref)
+          for (const ref of [input.after, input.before]) {
+            if (ref === undefined) continue
+            const found = neighbour(current, ref, input)
+            if (!waiting(found)) throw new RequestError(409, 'Neighbours must be waiting Tasks')
           }
-          const old = current.receipts.find((r) => r.id === input.operation)
-          if (old) {
-            if (old.fingerprint !== fingerprint)
-              throw new RequestError(409, 'operation ID already used for another action')
-            const made =
-              old.taskId === undefined &&
-              store.coordinatorCreated(current.factoryId, createdKey(current, input.operation))
-            if (!made) return old
-            const recovered: CoordinatorReceipt = {
-              ...old,
-              taskId: made.id,
-              text: `Created ${made.displayId} “${made.title.slice(0, 200)}” · ${state(snapshot(made))} · the rest of the action was interrupted; check its parent, blockers and place before deciding what to do next`,
-              after: snapshot(made),
-            }
-            finish(recovered)
-            await store.persisted()
-            return recovered
-          }
-          const check = () => {
-            const current = actor(caller)
-            for (const ref of [input.parentId, ...(input.blockedBy ?? [])])
-              if (ref !== undefined) target(current, ref)
-            for (const ref of [input.after, input.before]) {
-              if (ref === undefined) continue
-              const found = neighbour(current, ref, input)
-              if (!waiting(found)) throw new RequestError(409, 'Neighbours must be waiting Tasks')
-            }
-            return current
-          }
-          const receipt: CoordinatorReceipt = {
-            id: input.operation,
-            operation: 'create',
-            text: 'Action interrupted before its result was saved. Read the Factory’s Tasks before deciding what to do next.',
-            at: new Date().toISOString(),
-            fingerprint,
-          }
-          save({ ...current, receipts: [...current.receipts, receipt] })
-          await store.persisted()
-          let refused: RequestError | undefined
-          try {
+          return current
+        }
+        let refused: RequestError | undefined
+        const { receipt } = await receipts.record(
+          current.id,
+          { id: input.operation, operation: 'create', fingerprint },
+          async (receipt) => {
             const latest = check()
             const created = await tasks.coordinatorCreate(
               latest.factoryId,
@@ -2259,40 +2163,27 @@ export function createCoordinators(options: {
                   : input.start
                     ? `Backlog · start requested${now.blockedBy.length > 0 ? ', waiting on blockers' : ''}`
                     : 'Backlog'
-            receipt.text = redactSecrets(
-              [
-                `Created ${now.displayId} “${now.title.slice(0, 200)}” · ${where}${now.priority !== 'none' ? ` · Priority ${now.priority}` : ''}`,
-                ...missed,
-              ].join(' · '),
-            )
-          } catch (error) {
-            const why = error instanceof Error ? error.message : String(error)
+            return [
+              `Created ${now.displayId} “${now.title.slice(0, 200)}” · ${where}${now.priority !== 'none' ? ` · Priority ${now.priority}` : ''}`,
+              ...missed,
+            ].join(' · ')
+          },
+          (error, receipt) => {
+            const why = error.message
             const made = receipt.taskId
               ? store.getTask(receipt.taskId)
               : store.coordinatorCreated(current.factoryId, createdKey(current, input.operation))
             if (made) {
               receipt.taskId = made.id
-              receipt.text = redactSecrets(
-                `Created ${made.displayId} “${made.title.slice(0, 200)}” · ${state(snapshot(made))} · couldn’t finish: ${why}`,
-              )
-            } else {
-              if (error instanceof RequestError) refused = error
-              receipt.text = redactSecrets(`Couldn’t create “${input.title.slice(0, 200)}”: ${why}`)
+              return `Created ${made.displayId} “${made.title.slice(0, 200)}” · ${state(snapshot(made))} · couldn’t finish: ${why}`
             }
-          }
-          const after = receipt.taskId && store.getTask(receipt.taskId)
-          if (after) receipt.after = snapshot(after)
-          finish(receipt)
-          await store.persisted()
-          if (refused) throw refused
-          return receipt
-        })
-      chains.set(c.factoryId, next)
-      try {
-        return await next
-      } finally {
-        if (chains.get(c.factoryId) === next) chains.delete(c.factoryId)
-      }
+            if (error instanceof RequestError) refused = error
+            return `Couldn’t create “${input.title.slice(0, 200)}”: ${why}`
+          },
+        )
+        if (refused) throw refused
+        return receipt
+      })
     },
     remove(caller, kind, input) {
       const c = admit(caller)
@@ -2304,20 +2195,8 @@ export function createCoordinators(options: {
             JSON.stringify([kind, input.tasks, input.children, undefined, input.closePullRequests]),
           )
           .digest('hex')
-        const prefix = `${input.operation}:`
-        const earlier = current.receipts.filter((r) => r.id.startsWith(prefix))
-        const asked = (current.confirmations ?? []).find((x) => x.operation === input.operation)
-        const used = asked?.fingerprint ?? earlier[0]?.fingerprint
-        if (used !== undefined) {
-          if (used !== fingerprint)
-            throw new RequestError(409, 'operation ID already used for another action')
-          return {
-            receipts: earlier,
-            ...(asked && { confirmation: { id: asked.id, waiting: asked.answer === undefined } }),
-          }
-        }
-        if (current.receipts.some((r) => r.id === input.operation))
-          throw new RequestError(409, 'operation ID already used for another action')
+        const earlier = receipts.replayGroup(current, input.operation, fingerprint)
+        if (earlier) return earlier
         const found = input.tasks.map(({ id, version: read }) => {
           const task = target(current, id)
           if (version(task) !== read)
@@ -2332,7 +2211,10 @@ export function createCoordinators(options: {
             )
           return task
         })
-        const taskIds = [...new Set([...current.taskIds, ...found.map((t) => t.id)])].slice(-100)
+        const taskIds = remembered(
+          current.taskIds,
+          found.map((t) => t.id),
+        )
         const removed: ReadonlySet<string> =
           kind === 'unarchive'
             ? new Set()
@@ -2372,7 +2254,7 @@ export function createCoordinators(options: {
           }
         }
         save({ ...current, taskIds })
-        const receipts: CoordinatorReceipt[] = []
+        const done: CoordinatorReceipt[] = []
         for (const task of found) {
           const now = store.getTask(task.id)
           if (!now) continue
@@ -2381,7 +2263,7 @@ export function createCoordinators(options: {
             kind,
             now,
             input,
-            `${prefix}${task.id}`,
+            `${input.operation}:${task.id}`,
             fingerprint,
             removed,
             kind === 'archive'
@@ -2394,9 +2276,9 @@ export function createCoordinators(options: {
                 }
               : undefined,
           )
-          receipts.push(receipt)
+          done.push(receipt)
         }
-        return { receipts }
+        return { receipts: done }
       })
     },
     tellChat,
@@ -2407,20 +2289,8 @@ export function createCoordinators(options: {
         const fingerprint = createHash('sha256')
           .update(JSON.stringify(['transfer', input.task, input.factory, input.reason]))
           .digest('hex')
-        const prefix = `${input.operation}:`
-        const earlier = current.receipts.filter((r) => r.id.startsWith(prefix))
-        const asked = (current.confirmations ?? []).find((x) => x.operation === input.operation)
-        const used = asked?.fingerprint ?? earlier[0]?.fingerprint
-        if (used !== undefined) {
-          if (used !== fingerprint)
-            throw new RequestError(409, 'operation ID already used for another action')
-          return {
-            receipts: earlier,
-            ...(asked && { confirmation: { id: asked.id, waiting: asked.answer === undefined } }),
-          }
-        }
-        if (current.receipts.some((r) => r.id === input.operation))
-          throw new RequestError(409, 'operation ID already used for another action')
+        const earlier = receipts.replayGroup(current, input.operation, fingerprint)
+        if (earlier) return earlier
         const task = target(current, input.task.id)
         if (version(task) !== input.task.version)
           throw new RequestError(
@@ -2441,13 +2311,7 @@ export function createCoordinators(options: {
           fingerprint,
           before: snapshot(task),
         }
-        const latest = requireChat(current.id)
-        save({
-          ...latest,
-          receipts: [...latest.receipts, receipt],
-          taskIds: [...new Set([...latest.taskIds, task.id])].slice(-100),
-        })
-        await store.persisted()
+        await receipts.append(current.id, receipt)
         return { receipts: [receipt] }
       })
     },
@@ -3126,7 +2990,7 @@ export function createCoordinators(options: {
       await outside.close()
       await Promise.allSettled([
         ...launching.all(),
-        ...chains.values(),
+        ...receipts.queued(),
         ...background,
         ...saved.list().map((c) => steering.drain(c.runId)),
       ])
