@@ -99,7 +99,7 @@ test('a sign-off answered from the phone: the brief shows and is cut to fit, req
   expect(changed?.answer).toMatchObject({ kind: 'changes-requested', text: 'A bigger button' })
   expect(changed?.lineComments ?? []).toEqual([])
   expect(store.lineCommentDrafts(task.id).map((c) => c.id)).toContain(draft.id)
-  expect(changed?.autopilotAnswered).toBeUndefined()
+  expect(changed?.autopilotAnswered).toBe(false)
 
   const again = await reviewSignoff(client, task.id)
   expect(again.id).not.toBe(signoff.id)

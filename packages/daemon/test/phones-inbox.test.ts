@@ -161,7 +161,10 @@ async function sameAnswer(
   const desk = answerOf(pair.desk.id)
   expect(desk, title).toBeDefined()
   expect(answerOf(pair.pocket.id), title).toEqual(desk)
-  expect(store.getComment(pair.pocket.id)?.autopilotAnswered, title).toBeUndefined()
+  expect(store.getComment(pair.pocket.id)?.autopilotAnswered, title).toBe(
+    store.getComment(pair.desk.id)?.autopilotAnswered,
+  )
+  expect(store.getComment(pair.pocket.id)?.autopilotAnswered, title).not.toBe(true)
   return pair
 }
 
