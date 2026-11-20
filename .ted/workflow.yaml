@@ -4,27 +4,28 @@ repos:
     remote: https://github.com/forjoyilive/ted.git
     merge_method: merge
     worktree:
-      setup: { run: pnpm install --frozen-lockfile, sandbox_access: [electron] }
+      setup: { run: pnpm install --frozen-lockfile, sandbox_access: [electron, network] }
     apps:
       - name: Ted Dev
         kind: command
         electron: true
+        sandbox_access: [network]
         run: MAC_CHROMIUM_TMPDIR="$TMPDIR" TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app $TED_ELECTRON_ARGS
   - name: ted-mobile
     remote: https://github.com/forjoyilive/ted-mobile.git
     worktree:
-      setup: { run: pnpm install --frozen-lockfile, sandbox_access: [ios-xcode] }
+      setup: { run: pnpm install --frozen-lockfile, sandbox_access: [ios-xcode, network] }
     apps:
       - name: Ted iPhone
         kind: ios-simulator
         run: pnpm ios release
         device: iPhone 17
-        sandbox_access: [ios-xcode]
+        sandbox_access: [ios-xcode, network]
       - name: Ted Dev iPhone
         kind: ios-simulator
         run: pnpm ios dev
         device: iPhone 17
-        sandbox_access: [ios-xcode]
+        sandbox_access: [ios-xcode, network]
 order: [intake, clarify, design, work, validate, review, merge]
 stages:
   design: { gate: true, based_on: f7500a6 }
@@ -59,4 +60,3 @@ stages:
       - name: File follow-ups
         instruction: >-
           File a Task with `ted task create` only for a real bug or missing behaviour this Task found and didn’t fix. Don’t file reviewer nits, design details, extra tests or docs wording. Before filing a test that failed on the base branch, check that it still fails on current `origin/main`; it is often fixed already. Skip anything a Task already covers (`ted peers`). Name each Task you filed in your final note. Report skipped when there is nothing to file.
-sandbox_network: outbound
