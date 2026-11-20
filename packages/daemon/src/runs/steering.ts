@@ -134,7 +134,7 @@ export function createSteering(options: {
     )
   }
 
-  const handedOver = new Set<string>()
+  const boundaryOpen = new Set<string>()
   const hasPending = (runId: string) =>
     deliverable(runId).length > 0 || pendingSources(runId).length > 0
 
@@ -438,7 +438,8 @@ export function createSteering(options: {
         syncFlag(runId)
         return { delivered: 0 }
       }
-      if (handedOver.has(runId)) return { delivered: 0 }
+      if (boundaryOpen.has(runId)) return { delivered: 0 }
+      boundaryOpen.add(runId)
       let handOver: (result: { delivered: number }) => void = () => {}
       const handed = new Promise<{ delivered: number }>((resolve) => {
         handOver = resolve
@@ -462,7 +463,6 @@ export function createSteering(options: {
         const delivered = await deliver(run, messages, {
           forwarded: () => {
             early = true
-            handedOver.add(runId)
             handOver({ delivered: messages.length + extra.length })
           },
         })
@@ -473,9 +473,7 @@ export function createSteering(options: {
         .catch((error: Error) => {
           if (early) logFailure(runId)(error)
         })
-        .finally(() => {
-          if (early) handedOver.delete(runId)
-        })
+        .finally(() => boundaryOpen.delete(runId))
       return Promise.race([work, handed])
     },
   }

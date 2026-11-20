@@ -1011,3 +1011,36 @@ test('a chat whose Run ends as a follow-up arrives resumes and reads it', async 
   }, 'resumed follow-up')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'follow-up settled')
 })
+
+test('two boundary calls that overlap both return once the host has the message', async () => {
+  const s = await setup()
+  const c = await s.message([
+    { say: 'Working' },
+    { waitFor: path.join(scratch, 'end') },
+    { endTurn: true },
+  ])
+  await waitUntil(async () => {
+    const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`).catch(() => undefined)
+    return chat?.items.some((i) => i.kind === 'agent' && i.text === 'Working')
+  }, 'working response')
+  await s.send({
+    text: JSON.stringify({ steps: [{ say: 'Read the steered message' }, { endTurn: true }] }),
+  })
+  if (!daemon) throw new Error('missing daemon')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const run = api(daemon.port, tokens.issue(c.runId))
+  const started = Date.now()
+  const results = await Promise.all([
+    run.call('POST', `/runs/${c.runId}/boundary`),
+    run.call('POST', `/runs/${c.runId}/boundary`),
+  ])
+  expect(Date.now() - started).toBeLessThan(5_000)
+  expect(results.map((result) => result.status)).toEqual([200, 200])
+  expect((await s.chat()).status).toBe('working')
+  await writeFile(path.join(scratch, 'end'), '')
+  await waitUntil(async () => {
+    const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'Read the steered message')
+  }, 'steered message read after the turn')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'turn end')
+})
