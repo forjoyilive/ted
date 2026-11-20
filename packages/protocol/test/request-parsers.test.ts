@@ -45,7 +45,15 @@ const round = {
 const proposal = {
   title: 'Pieces',
   summary: 'Plan',
-  tasks: [{ title: 'One', scope: 'Scope', description: 'Details', priority: 'high' }],
+  tasks: [
+    {
+      title: 'One',
+      scope: 'Scope',
+      files: ['src/row-1.ts'],
+      description: 'Details',
+      priority: 'high',
+    },
+  ],
 } satisfies P.ProposalInput
 roundTrip(P.parsePostPlanRequest, { round, proposal, supersedes: 'old' })
 roundTrip(P.parseSendPeerMessage, { operation: 'unique', text: 'Coordinate' })

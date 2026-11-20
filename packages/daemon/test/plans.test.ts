@@ -93,8 +93,18 @@ const round = {
 const proposal = {
   title: 'Sharing, in two Tasks',
   tasks: [
-    { title: 'Notebook owners', scope: 'Give every notebook an owner.', priority: 'high' },
-    { title: 'Share dialog', scope: 'Let the owner share.', blockedBy: [1] },
+    {
+      title: 'Notebook owners',
+      scope: 'Give every notebook an owner.',
+      files: ['src/row-1.ts'],
+      priority: 'high',
+    },
+    {
+      title: 'Share dialog',
+      scope: 'Let the owner share.',
+      files: ['src/row-2.ts'],
+      blockedBy: [1],
+    },
   ],
 }
 

@@ -379,6 +379,7 @@ test('Planning requests stay inline and keep drafts while the chat updates', asy
             {
               title: 'Retry offline work',
               scope: 'Resume sync on reconnect.',
+              files: ['src/row-1.ts'],
               priority: 'medium',
               blockedBy: [],
             },

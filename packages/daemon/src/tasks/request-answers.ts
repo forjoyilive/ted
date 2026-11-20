@@ -398,7 +398,11 @@ export function createRequestAnswers(
     if (request.action !== 'approve') {
       throw new RequestError(400, 'answer a proposal with Create Tasks or Request changes')
     }
-    const { skip, shape: plan } = approvedShape(proposal, request.proposal?.skip)
+    const {
+      skip,
+      unlinked,
+      shape: plan,
+    } = approvedShape(proposal, request.proposal?.skip, request.proposal?.unlink)
     const startUnblocked = request.proposal?.startUnblocked === true
     const result = await holding(task, async () => {
       unanswered(comment)
@@ -415,7 +419,12 @@ export function createRequestAnswers(
         created.map((c) => c.id),
         'split',
       )
-      const outcome = { tasks: created, skipped: skip, startUnblocked }
+      const outcome = {
+        tasks: created,
+        skipped: skip,
+        ...(unlinked.length > 0 && { unlinked }),
+        startUnblocked,
+      }
       const answered = answerRequest(task, comment, {
         kind: 'approved',
         at: new Date().toISOString(),

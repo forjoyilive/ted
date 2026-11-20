@@ -63,6 +63,7 @@ describe('planning chat text', () => {
     const rows = Array.from({ length: 5 }, (_, i) => ({
       title: `T${i}`,
       scope: 's',
+      files: ['src/row-1.ts'],
       priority: 'none' as const,
       blockedBy: [],
     }))

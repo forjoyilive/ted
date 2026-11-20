@@ -1,8 +1,26 @@
-import type { AnswerRequest, MessageBox, Proposal, ProposalCreated } from '@ted/protocol'
+import type {
+  AnswerRequest,
+  MessageBox,
+  Proposal,
+  ProposalCreated,
+  ProposalLink,
+} from '@ted/protocol'
+import { isArray, isInteger, isObject, type Untyped } from '@ted/protocol/parse'
 import { planProposal } from '@ted/protocol/proposal'
 import { sendOnEnter, signOffEnter } from '../composer-keys.ts'
 import { draftField, useMessageDraft } from '../message-drafts.ts'
-import { blockedByText, createLabel, droppedWarning, parentLine, wouldStart } from '../proposal.ts'
+import {
+  blockedByText,
+  createLabel,
+  droppedWarning,
+  hasLink,
+  linkReason,
+  parentLine,
+  tedLinkLead,
+  tedLinks,
+  tedLinksIntro,
+  wouldStart,
+} from '../proposal.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { Button } from './Button.tsx'
 import { PriorityIcon } from './PriorityIcon.tsx'
@@ -12,19 +30,25 @@ import grow from './TextGrow.module.css'
 export function ProposalRows({
   proposal,
   skip,
+  unlink,
   created,
   disabled,
   onToggle,
+  onToggleLink,
   onOpenTask,
 }: {
   proposal: Proposal
   skip: readonly number[]
+  unlink?: readonly ProposalLink[] | undefined
   created?: ProposalCreated | undefined
   disabled: boolean
   onToggle?: (row: number) => void
+  onToggleLink?: (link: ProposalLink) => void
   onOpenTask?: ((id: string) => void) | undefined
 }) {
-  const plan = planProposal(proposal, skip)
+  const removed = unlink ?? created?.unlinked ?? []
+  const plan = planProposal(proposal, skip, removed)
+  const added = tedLinks(proposal, skip)
   const idOf = (row: number) => created?.tasks.find((t) => t.row === row)?.displayId
   const parent = proposal.firstPiece
   return (
@@ -47,6 +71,31 @@ export function ProposalRows({
           )}
         </p>
       )}
+      {added.length > 0 && (
+        <div className={styles.tedLinks} data-ted-links>
+          <p className={styles.tedLinksIntro}>
+            {tedLinksIntro(onToggleLink !== undefined && !created)}
+          </p>
+          <ul className={styles.tedLinkList}>
+            {added.map((link) => (
+              <li
+                key={`${link.row}-${link.blocker}`}
+                className={
+                  hasLink(removed, link.row, link.blocker) ? styles.removedLink : undefined
+                }
+              >
+                {tedLinkLead(link)}
+                {link.files.map((file, i) => (
+                  <span key={file}>
+                    {i > 0 && ', '}
+                    <code className={styles.file}>{file}</code>
+                  </span>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <ol className={styles.rows} aria-label="Proposed Tasks">
         {proposal.rows.map((row, i) => {
           const planned = plan.rows[i]
@@ -54,8 +103,12 @@ export function ProposalRows({
           const kept = !skip.includes(number)
           const warning = planned && droppedWarning(planned)
           const madeId = created ? idOf(number) : undefined
-          const blockers = kept ? (planned?.blockedBy ?? []) : row.blockedBy
           const dropped = planned?.dropped ?? []
+          const shown = kept
+            ? row.blockedBy.filter(
+                (b) => planned?.blockedBy.includes(b) || planned?.unlinked.includes(b),
+              )
+            : []
           return (
             <li
               key={`${number}-${row.title}`}
@@ -79,13 +132,56 @@ export function ProposalRows({
                     {priorityLabels[row.priority]}
                   </span>
                   <span className={styles.blockers}>
-                    {blockers.length === 0 && dropped.length > 0
-                      ? null
-                      : created && kept
-                        ? blockers.length === 0
-                          ? '—'
-                          : `blocked by ${blockers.map((b) => idOf(b) ?? b).join(', ')}`
-                        : blockedByText(blockers)}
+                    {!kept ? (
+                      blockedByText(row.blockedBy)
+                    ) : shown.length === 0 ? (
+                      dropped.length > 0 ? null : (
+                        '—'
+                      )
+                    ) : (
+                      <>
+                        blocked by
+                        {shown.map((blocker) => {
+                          const gone = hasLink(removed, number, blocker)
+                          const byTed = row.addedBlockedBy?.includes(blocker) === true
+                          const label = created
+                            ? (idOf(blocker) ?? String(blocker))
+                            : String(blocker)
+                          return (
+                            <span
+                              key={blocker}
+                              className={[
+                                styles.chip,
+                                byTed && styles.tedChip,
+                                gone && styles.removedChip,
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              title={linkReason(row, blocker)}
+                              data-link={`${number}-${blocker}`}
+                            >
+                              {label}
+                              {onToggleLink && !created && (
+                                <button
+                                  type="button"
+                                  className={styles.chipButton}
+                                  disabled={disabled}
+                                  aria-label={
+                                    gone
+                                      ? `Put back row ${number}’s link to row ${blocker}`
+                                      : `Remove row ${number}’s link to row ${blocker}`
+                                  }
+                                  title={gone ? 'Put this link back' : 'Remove this link'}
+                                  onClick={() => onToggleLink({ row: number, blocker })}
+                                >
+                                  {gone ? '↺' : '×'}
+                                </button>
+                              )}
+                            </span>
+                          )
+                        })}
+                      </>
+                    )}
                     {dropped.length > 0 && (
                       <s className={styles.struck}>{blockedByText(dropped)}</s>
                     )}
@@ -137,24 +233,32 @@ export function ProposalAnswer({
     false,
     (value): value is boolean => typeof value === 'boolean',
   )
-  const plan = planProposal(proposal, skip)
+  const [unlink, setUnlink] = draftField(kept, 'unlink', [], isLinkList)
+  const plan = planProposal(proposal, skip, unlink)
   const typed = text.trim() !== ''
   const enter = signOffEnter(typed)
   const approve = () =>
     onSend({
       action: 'approve',
       ...(typed && { text }),
-      proposal: { skip, startUnblocked },
+      proposal: { skip, ...(unlink.length > 0 && { unlink }), startUnblocked },
     })
   const toggle = (row: number) =>
     setSkip(skip.includes(row) ? skip.filter((r) => r !== row) : [...skip, row])
+  const toggleLink = (link: ProposalLink) =>
+    setUnlink(
+      hasLink(unlink, link.row, link.blocker)
+        ? unlink.filter((l) => l.row !== link.row || l.blocker !== link.blocker)
+        : [...unlink, link],
+    )
   return (
     <>
       <ProposalRows
         proposal={proposal}
         skip={skip}
+        unlink={unlink}
         disabled={readOnly || sending}
-        {...(!readOnly && { onToggle: toggle })}
+        {...(!readOnly && { onToggle: toggle, onToggleLink: toggleLink })}
         onOpenTask={onOpenTask}
       />
       {!readOnly && (
@@ -205,5 +309,12 @@ export function ProposalAnswer({
         </>
       )}
     </>
+  )
+}
+
+function isLinkList(value: Untyped): value is ProposalLink[] {
+  return (
+    isArray(value) &&
+    value.every((link) => isObject(link) && isInteger(link.row) && isInteger(link.blocker))
   )
 }

@@ -13,12 +13,14 @@ const proposal = {
     {
       title: 'First',
       scope: 'First scope',
+      files: ['src/row-1.ts'],
       description: 'Details',
       priority: 'high',
     },
     {
       title: 'Second',
       scope: 'Second scope',
+      files: ['src/row-2.ts'],
       description: 'Details',
       priority: 'low',
       blockedBy: [1],
@@ -293,7 +295,7 @@ for (const answer of [
     action: 'approve',
     text: 'Approved',
     simulator: 'sim',
-    proposal: { skip: [2], startUnblocked: true },
+    proposal: { skip: [2], unlink: [{ row: 3, blocker: 1 }], startUnblocked: true },
     removeAgents: ['release'],
   },
   { action: 'request-changes', text: 'Change this' },
@@ -357,7 +359,7 @@ for (const [proposal, message] of [
   ],
   [
     { ...setup, checks: [{ ...setup.checks[0], sandboxAccess: 'ios-xcode' }] },
-    'Typecheck’s sandboxAccess must be a list of access groups: ios-xcode, network',
+    'Typecheck’s sandboxAccess must be a list of access groups: ios-xcode, ios-simulator',
   ],
   [{ ...setup, worktree: [{ step: 'build', sandboxAccess: [] }] }, 'setup or teardown'],
   [{ ...setup, worktree: [{ step: 'setup' }] }, 'the worktree setup lists its sandboxAccess'],
@@ -553,6 +555,29 @@ rejects(
   P.parseProposalInput,
   { ...proposal, tasks: [{ ...proposal.tasks[0], blockedBy: [1] }] },
   'itself',
+)
+for (const [files, message] of [
+  [undefined, 'row 1 needs `files`'],
+  [[], 'row 1 needs at least one file'],
+  [['src/'], 'is a folder'],
+  [['src/*.ts'], 'without wildcards'],
+  [['/etc/hosts'], 'must be a path inside the repo'],
+  [['src/../secret.ts'], 'without ".."'],
+  [Array.from({ length: 51 }, (_, i) => `src/${i}.ts`), 'at most 50 files'],
+] as const) {
+  rejects(P.parseProposalInput, { ...proposal, tasks: [{ ...proposal.tasks[0], files }] }, message)
+}
+test('a proposal row’s files drop a leading ./ and repeats', () => {
+  const parsed = P.parseProposalInput({
+    ...proposal,
+    tasks: [{ ...proposal.tasks[0], files: ['./src/a.ts', 'src/a.ts', ' src/b.ts '] }],
+  })
+  expect(parsed.tasks[0]?.files).toEqual(['src/a.ts', 'src/b.ts'])
+})
+rejects(
+  P.parseAnswerRequest,
+  { action: 'approve', proposal: { unlink: [{ row: 2 }] } },
+  'unlink must list links',
 )
 rejects(P.parseSizeCheckInput, { why: '' }, 'why')
 rejects(

@@ -49,11 +49,22 @@ const proposal = {
     {
       title: 'Local note cache',
       scope: 'Notes save to a local cache first.',
+      files: ['src/row-1.ts'],
       description: 'Save every note to a local cache first; a queue syncs it later.',
       priority: 'high',
     },
-    { title: 'Sync queue', scope: 'Send offline edits in order.', blockedBy: [1] },
-    { title: 'Offline badge', scope: 'A badge while edits wait to sync.', priority: 'low' },
+    {
+      title: 'Sync queue',
+      scope: 'Send offline edits in order.',
+      files: ['src/row-2.ts'],
+      blockedBy: [1],
+    },
+    {
+      title: 'Offline badge',
+      scope: 'A badge while edits wait to sync.',
+      files: ['src/row-3.ts'],
+      priority: 'low',
+    },
   ],
 }
 

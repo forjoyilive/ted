@@ -301,7 +301,10 @@ describe('importable CLI execution', () => {
       const proposal = path.join(home, 'proposal.json')
       await writeFile(
         proposal,
-        JSON.stringify({ title: 'Split', tasks: [{ title: 'One', scope: 'First' }] }),
+        JSON.stringify({
+          title: 'Split',
+          tasks: [{ title: 'One', scope: 'First', files: ['src/row-1.ts'] }],
+        }),
       )
       expect(
         await Promise.all([
@@ -345,7 +348,12 @@ describe('importable CLI execution', () => {
           expect.objectContaining({ url: '/tasks/NB-2/comments', body: { round } }),
           expect.objectContaining({
             url: '/plan-runs/requests',
-            body: { proposal: { title: 'Split', tasks: [{ title: 'One', scope: 'First' }] } },
+            body: {
+              proposal: {
+                title: 'Split',
+                tasks: [{ title: 'One', scope: 'First', files: ['src/row-1.ts'] }],
+              },
+            },
           }),
           expect.objectContaining({
             url: '/automation-runs/tasks/NB-3/note',

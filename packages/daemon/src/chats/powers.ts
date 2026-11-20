@@ -1,3 +1,4 @@
+import { proposalFilesNote } from '@ted/protocol'
 import { type AgentCommand, type AgentPower, agentPowerNames } from '@ted/protocol/agent-files'
 import { RequestError } from '../errors.ts'
 
@@ -22,7 +23,8 @@ export const roundFormat =
   'The file is JSON: a short `title` that names the topic and doesn’t say how many questions there are, an optional `summary` in Markdown, one or two short sentences with only the context the user needs to answer, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. When a choice needs explaining, start it with a short line that names it, then a line break and the explanation; the app shows the first line as the choice’s label. Without `choices`, the human edits your recommended answer as text. When the human may pick several choices, add `"multiple": true` and make `recommended` a list of the choices you recommend; the app shows checkboxes.'
 
 export const proposalFormat =
-  'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per Task. Each row has a `title`, a one-line `scope`, an optional `description` that becomes the Task’s description, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first.'
+  'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per Task. Each row has a `title`, a one-line `scope`, an optional `description` that becomes the Task’s description, a `priority` (urgent, high, medium, low or none), `blockedBy`, the row numbers that must merge first, and `files`, the repo paths the row will likely change. ' +
+  proposalFilesNote
 
 export function chatAskCommands(): string {
   return [

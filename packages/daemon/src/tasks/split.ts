@@ -1,9 +1,16 @@
-import type { Proposal, ProposalCreated, SizeCheck } from '@ted/protocol'
+import {
+  type Proposal,
+  type ProposalCreated,
+  proposalFilesNote,
+  type SizeCheck,
+} from '@ted/protocol'
 
 export const sizeCheckTitle = 'Too big for one pull request per repo'
 
 export const proposalFormat =
-  'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per piece. Each row has a `title`, a one-line `scope`, an optional `description` for the Task, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first. On approval every row, row 1 included, becomes a new child Task of this Task, and this Task waits for them to merge. When they have, Ted finishes this Task unless it has commits or changes of its own.'
+  'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per piece. Each row has a `title`, a one-line `scope`, an optional `description` for the Task, a `priority` (urgent, high, medium, low or none), `blockedBy`, the row numbers that must merge first, and `files`, the repo paths the row will likely change. ' +
+  proposalFilesNote +
+  ' On approval every row, row 1 included, becomes a new child Task of this Task, and this Task waits for them to merge. When they have, Ted finishes this Task unless it has commits or changes of its own.'
 
 export function splitChosenMessage(text: string): string {
   return [
@@ -45,10 +52,18 @@ export function splitApprovedMessage(input: {
       skipped.length > 0
         ? ` ${skipped.length === 1 ? 'Row' : 'Rows'} ${skipped.join(', ')} weren’t created.`
         : ''
-    }`,
+    }${unlinkedLine(created)}`,
     ...(text !== '' ? [`They added:\n\n${text}`] : []),
     parentWaitsNote,
   ].join('\n\n')
+}
+
+function unlinkedLine(created: ProposalCreated): string {
+  const unlinked = created.unlinked ?? []
+  if (unlinked.length === 0) return ''
+  return ` They removed ${unlinked.length === 1 ? 'a link' : 'links'}: ${unlinked
+    .map((l) => `row ${l.row} no longer waits for row ${l.blocker}`)
+    .join(', ')}.`
 }
 
 export function splitApprovedSummary(created: ProposalCreated, text: string | undefined): string {

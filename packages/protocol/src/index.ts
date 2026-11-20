@@ -903,10 +903,14 @@ export {
   parseProblemReportRequest,
 } from './problem-report.ts'
 export {
+  likelyFilesSection,
+  linkSharedFiles,
   type ProposalPlan,
   type ProposalPlanRow,
   planProposal,
   proposalCycle,
+  proposalFilesNote,
+  sharedFileIgnoreList,
 } from './proposal.ts'
 export { downloadUrl, newIssueUrl, releaseRepo, releasesUrl, sentryDsn } from './release.ts'
 export {
@@ -1174,8 +1178,10 @@ export {
   type ProposalChoice,
   type ProposalCreated,
   type ProposalInput,
+  type ProposalLink,
   type ProposalRow,
   type ProposalRowInput,
+  type ProposalSharedFiles,
   type PullRequestAdvice,
   type PullRequestCiMode,
   type PullRequestPreview,
