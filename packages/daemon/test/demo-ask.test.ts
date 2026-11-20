@@ -48,12 +48,20 @@ async function openRequest(client: DaemonClient, taskId: string, kind: Comment['
 }
 
 async function note(client: DaemonClient, taskId: string, text: string) {
-  return until(
-    async () =>
-      (await client.listComments(taskId)).find((c) => c.kind === 'note' && c.body.includes(text)),
-    `a note saying ${text}`,
-    60_000,
-  )
+  try {
+    return await until(
+      async () =>
+        (await client.listComments(taskId)).find((c) => c.kind === 'note' && c.body.includes(text)),
+      `a note saying ${text}`,
+      60_000,
+    )
+  } catch {
+    const lead = (await client.listTasks()).find((t) => t.id === taskId)?.leadRunId
+    const seen = lead ? (await client.getRun(lead)).conversation.slice(-8) : []
+    throw new Error(
+      `No note saying ${text}. The Task Lead’s last lines: ${JSON.stringify(seen.map((e) => e.line.slice(0, 400)))}`,
+    )
+  }
 }
 
 test('ted dev ask posts new demo requests and the Task Lead carries on after each answer', async () => {

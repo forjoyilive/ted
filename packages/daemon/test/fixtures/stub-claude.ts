@@ -516,11 +516,9 @@ async function runDemoScript(script: string, content: string) {
 }
 
 function demoReply(content: string): string | undefined {
-  const [first = '', ...rest] = content.split('\n\n')
-  const asked = /^(?:The user|Autopilot) replied to “(.*)”:$/s.exec(first)?.[1]
-  if (asked === undefined) return undefined
-  const answer = rest.slice(0, -1).join('\n\n').trim()
-  return `You answered “${asked}” with “${answer}”. Carrying on.`
+  const found = /(?:The user|Autopilot) replied to “([^\n]*)”:\n\n([^\n]+)/.exec(content)
+  if (!found) return undefined
+  return `You answered “${found[1]}” with “${found[2]?.trim()}”. Carrying on.`
 }
 
 function stepsIn(content: string): Step[] {
