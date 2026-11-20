@@ -146,6 +146,69 @@ test('a request answered or snoozed before the user goes away is never sent', as
   expect(sent).toEqual([])
 })
 
+test('a request answered, or a user back at the Mac, after the request was picked but before its send is not sent', async () => {
+  pairPhone('iPhone', token)
+  presence.report(false)
+  startNotifier()
+  const answered = await ask('Answered', 'Ship it?')
+  await settled()
+
+  presence.report(true)
+  store.answerComment(answered, { kind: 'answered', at: new Date().toISOString(), text: 'Yes' })
+  await settled()
+  expect(sent).toEqual([])
+
+  presence.report(false)
+  const back = await ask('Back at the Mac', 'Rename it?')
+  await settled()
+  presence.report(true)
+  presence.report(false)
+  await settled()
+  expect(sent).toEqual([])
+
+  presence.report(true)
+  await settled()
+  expect(sent.map((message) => message.requestId)).toEqual([back])
+})
+
+test('a send in progress isn’t started again, and is recorded once it finishes', async () => {
+  pairPhone('iPhone', token)
+  presence.report(false)
+  startNotifier()
+  const id = await ask('Slow send', 'Wait for Expo?')
+  let finish: (result: PushResult) => void = () => undefined
+  const gated: PushService = {
+    send(message) {
+      sent.push(message)
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    },
+  }
+  notifier?.close()
+  notifier = createPhoneNotifier({ store, presence, push: gated, log: () => undefined })
+
+  presence.report(true)
+  await new Promise((resolve) => setImmediate(resolve))
+  presence.report(false)
+  presence.report(true)
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(sent.map((message) => message.requestId)).toEqual([id])
+  const waiting = store.waiting().find((request) => request.id === id)
+  expect(waiting).toBeDefined()
+  const since = store.phones.waitingSince(waiting ?? { id, createdAt: '' })
+  const phoneId = store.phones.list()[0]?.id ?? ''
+  expect(store.phones.notified(phoneId, id, since)).toBe(false)
+
+  finish({ kind: 'sent' })
+  await settled()
+  expect(store.phones.notified(phoneId, id, since)).toBe(true)
+  presence.report(false)
+  presence.report(true)
+  await settled()
+  expect(sent).toHaveLength(1)
+})
+
 test('nothing is sent with Inbox notifications off, globally or for the request’s Factory', async () => {
   pairPhone('iPhone', token)
   presence.report(true)
