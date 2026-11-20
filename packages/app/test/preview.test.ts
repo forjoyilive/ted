@@ -113,13 +113,20 @@ describe('iOS simulator Apps', () => {
     waiting: [],
   })
 
-  test('the row says whether its simulator is booted or why it was shut down', () => {
+  test('the row says whether its App is still building, its simulator is booted, or why it was shut down', () => {
+    const booted17 = { device: 'iPhone 17', booted: true }
+    expect(
+      appStatusLine(iPhone({ state: 'running', simulator: booted17, building: true }), now),
+    ).toBe('iPhone 17 · building')
     expect(
       appStatusLine(
-        iPhone({ state: 'running', simulator: { device: 'iPhone 17', booted: true } }),
+        iPhone({ state: 'running', simulator: booted17, builtAt: '2026-11-09T10:20:00Z' }),
         now,
       ),
     ).toBe('iPhone 17 · booted')
+    expect(
+      appStatusLine(iPhone({ state: 'running', simulator: booted17, notReady: true }), now),
+    ).toBe('iPhone 17 · didn’t print TED_APP_READY within 15 minutes')
     expect(
       appStatusLine(
         iPhone({
@@ -210,12 +217,19 @@ describe('Android emulator Apps', () => {
 
   test('the row says whether the emulator has a window, and ▶ asks only when every slot is taken', () => {
     const device = 'Pixel_8_API_35'
+    const builtAt = '2026-11-09T10:20:00Z'
     expect(
-      appStatusLine(phone({ state: 'running', simulator: { device, booted: true } }), now),
+      appStatusLine(
+        phone({ state: 'running', building: true, simulator: { device, booted: true } }),
+        now,
+      ),
+    ).toBe('Pixel_8_API_35 · building')
+    expect(
+      appStatusLine(phone({ state: 'running', builtAt, simulator: { device, booted: true } }), now),
     ).toBe('Pixel_8_API_35 · running, no window')
     expect(
       appStatusLine(
-        phone({ state: 'running', simulator: { device, booted: true, window: true } }),
+        phone({ state: 'running', builtAt, simulator: { device, booted: true, window: true } }),
         now,
       ),
     ).toBe('Pixel_8_API_35 · running in a window')

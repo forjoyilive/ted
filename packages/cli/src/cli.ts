@@ -9,6 +9,7 @@ import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
   type AgentKind,
   type AgentStageId,
+  type AppLog,
   type AutomationCardKind,
   type AutomationDraftRequest,
   agentKinds,
@@ -668,7 +669,14 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     }
     for (const app of apps) {
       const where = app.url ?? (app.port !== undefined ? `port ${app.port}` : app.simulator?.device)
-      const state = app.state === 'failed' && app.problem ? `failed: ${app.problem}` : app.state
+      const state =
+        app.state === 'failed' && app.problem
+          ? `failed: ${app.problem}`
+          : app.building === true
+            ? 'building'
+            : app.state === 'running' && app.notReady === true
+              ? 'not ready'
+              : app.state
       console.log(
         printable(
           [app.name, app.repo, app.electron ? 'electron' : app.kind, state, where]
@@ -708,7 +716,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         said = why
       }
       sayWhy()
-      while (app.state === 'starting' || app.state === 'waiting') {
+      while (app.state === 'starting' || app.state === 'waiting' || app.building === true) {
         await sleep(500)
         const current = app
         const found = (await owner.list(client)).find(
@@ -723,12 +731,20 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         sayWhy()
       }
       const log =
-        app.state === 'running'
+        app.state === 'running' && app.notReady !== true
           ? undefined
           : await owner.log(client, { repo: app.repo, name: app.name })
       return { app, log }
     })
     const name = printable(app.name)
+    if (app.state === 'running' && app.notReady === true) {
+      const on = app.simulator === undefined ? '' : ` on ${printable(app.simulator.device)}`
+      console.error(
+        `${name} is running${on} but didn’t print TED_APP_READY within the 15-minute build limit, so the app may not have launched. It keeps running until ${owner.ends}.${logEnd(log)}`,
+      )
+      exitCode = 1
+      return
+    }
     if (app.state === 'running' && app.simulator !== undefined) {
       console.log(
         `${name} is running on ${printable(app.simulator.device)}. It keeps running until ${owner.ends}.`,
@@ -755,11 +771,13 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         : app.exitCode !== undefined
           ? `exited with code ${app.exitCode}`
           : 'stopped'
-    const tail = (log?.text ?? '').split('\n').slice(-40).join('\n')
-    console.error(
-      `${name} ${printable(why)}.${tail.trim() === '' ? '' : ` The end of its log:\n${printable(tail)}`}`,
-    )
+    console.error(`${name} ${printable(why)}.${logEnd(log)}`)
     exitCode = 1
+  }
+
+  function logEnd(log: AppLog | undefined): string {
+    const tail = (log?.text ?? '').split('\n').slice(-40).join('\n')
+    return tail.trim() === '' ? '' : ` The end of its log:\n${printable(tail)}`
   }
 
   function printable(text: string): string {

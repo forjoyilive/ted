@@ -237,6 +237,7 @@ interface Instance {
   waitingFor?: string
   readyAt?: string
   builtAt?: string
+  notReadyAt?: string
   readyFrom?: number
   ended?: {
     at: string
@@ -528,7 +529,8 @@ export function createApps(options: AppsOptions): Apps {
       ...(state === 'running' &&
         isDeviceApp(app) &&
         instance?.builtAt === undefined &&
-        pool.building(keyOf(taskId, repo, app.name)) && { building: true as const }),
+        instance?.notReadyAt === undefined && { building: true as const }),
+      ...(live && instance?.notReadyAt !== undefined && { notReady: true }),
       ...(instance?.startedBy !== undefined && { startedBy: instance.startedBy }),
       ...(ended && { endedAt: ended.at }),
       ...(ended?.code !== undefined && { exitCode: ended.code }),
@@ -1166,7 +1168,6 @@ export function createApps(options: AppsOptions): Apps {
     onHost: (pid: number, name: string) => Promise<void>,
   ): Promise<void> {
     let launchedAt = Date.now()
-    let wasBuilding = pool.building(key)
     while (!closed) {
       const instance = await readInstance(dir)
       if (!instance || instance.ended) return
@@ -1200,16 +1201,18 @@ export function createApps(options: AppsOptions): Apps {
         )
         return
       }
-      if (started && pool.building(key) && (await saidReady(dir, key))) {
-        pool.endTurn(key)
-        instance.builtAt = new Date().toISOString()
-        await writeInstance(dir, instance)
-        wasBuilding = false
-        changed(taskId)
+      if (started && isDeviceApp(instance) && instance.builtAt === undefined) {
+        const building = pool.building(key)
+        if (await saidReady(dir, key)) {
+          if (building) pool.endTurn(key)
+          const { notReadyAt: _, ...built } = instance
+          await writeInstance(dir, { ...built, builtAt: new Date().toISOString() })
+          changed(taskId)
+        } else if (!building && instance.notReadyAt === undefined) {
+          await writeInstance(dir, { ...instance, notReadyAt: new Date().toISOString() })
+          changed(taskId)
+        }
       }
-      const building = pool.building(key)
-      if (wasBuilding && !building) changed(taskId)
-      wasBuilding = building
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {
         const answer = await answers(readyUrl)

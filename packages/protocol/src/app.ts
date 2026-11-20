@@ -18,6 +18,7 @@ export interface TaskApp {
   startedAt?: string
   builtAt?: string
   building?: true
+  notReady?: true
   endedAt?: string
   exitCode?: number
   signal?: string
