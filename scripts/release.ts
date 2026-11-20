@@ -14,10 +14,24 @@ import os from 'node:os'
 import path from 'node:path'
 import { releaseRepo } from '../packages/protocol/src/release.ts'
 import { checkAndRecord, hasPassed } from './check.ts'
+import {
+  builderIdentity,
+  builtAppIn,
+  checkSignature,
+  chosenSigningIdentity,
+  copyIntoApplications,
+  installedApp,
+  installedRunning,
+  packageApp,
+  releaseDirIn,
+  sideCheckout,
+  signingRefusal,
+  smokeTest,
+} from './mac-app.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 const manifests = ['package.json', 'packages/app/package.json']
-const releaseDir = path.join(root, 'packages/app/dist/release')
+const releaseDir = releaseDirIn(root)
 const recordFile = path.join(releaseDir, 'ted-release.json')
 const notesFile = path.join(releaseDir, 'release-notes.md')
 const repo = `${releaseRepo.owner}/${releaseRepo.repo}`
@@ -73,54 +87,20 @@ function setVersion(version: string): void {
   }
 }
 
-const installed = '/Applications/Ted.app'
-const built = path.join(releaseDir, 'mac-arm64/Ted.app')
-
-function running(): boolean {
-  return spawnSync('pgrep', ['-i', '-f', `${installed}/Contents/MacOS/`]).status === 0
-}
+const installed = installedApp
+const built = builtAppIn(root)
 
 function install(): void {
   console.log(`\n== Install into ${installed}`)
   if (!existsSync(built)) fail(`the build isn’t at ${built}`)
-  if (running()) fail(`quit Ted first (Ted menu → Quit), then run: pnpm release --install`)
-  rmSync(installed, { recursive: true, force: true })
-  step('Copy', 'ditto', [built, installed])
-}
-
-const developerId = 'Developer ID Application: '
-
-export function pickSigningIdentity(listing: string): string | undefined {
-  return [...listing.matchAll(/"(Developer ID Application: [^"]+)"/g)].map((match) => match[1])[0]
-}
-
-// electron-builder refuses a CSC_NAME that starts with the certificate type and picks the
-// Developer ID Application certificate for the name itself.
-export function builderIdentity(name: string): string {
-  return name.startsWith(developerId) ? name.slice(developerId.length) : name
-}
-
-export function signingRefusal(env: NodeJS.ProcessEnv): string | undefined {
-  if (env.CSC_LINK) {
-    return 'pnpm release signs from the keychain and can’t check a CSC_LINK certificate; unset CSC_LINK'
-  }
-  for (const name of ['CSC_NAME', 'TED_SIGN_IDENTITY'] as const) {
-    const chosen = env[name]
-    if (chosen && !chosen.startsWith(developerId)) {
-      return `${name} must name a “${developerId}…” certificate, not “${chosen}”`
-    }
-  }
-  return undefined
+  if (installedRunning()) fail(`quit Ted first (Ted menu → Quit), then run: pnpm release --install`)
+  copyIntoApplications(step, built)
 }
 
 function useSigningIdentity(): void {
   const refusal = signingRefusal(process.env)
   if (refusal !== undefined) fail(refusal)
-  const chosen = process.env.CSC_NAME || process.env.TED_SIGN_IDENTITY
-  const listing = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
-    encoding: 'utf8',
-  })
-  const name = chosen || pickSigningIdentity(listing)
+  const name = chosenSigningIdentity(process.env)
   if (name === undefined) {
     fail(
       'no Developer ID Application certificate in the keychain. Other Macs only open Ted, and ' +
@@ -585,7 +565,7 @@ function discard(): void {
 }
 
 function verifyBuild(): void {
-  step('Check the signature', 'codesign', ['--verify', '--deep', '--strict', '--verbose=2', built])
+  checkSignature(step, built)
   step('Check Gatekeeper accepts it', 'spctl', [
     '--assess',
     '--type',
@@ -640,9 +620,9 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
   rmSync(releaseDir, { recursive: true, force: true })
   const record: ReleaseRecord = { version, base, commit: git('rev-parse', 'HEAD'), files: {} }
   writeRecord(record)
-  step('Build', 'pnpm', ['package', '--mac', '--arm64'])
+  packageApp(step, { installers: true })
   verifyBuild()
-  step('Smoke test the build', 'pnpm', ['--filter', '@ted/app', 'smoke'])
+  smokeTest(step)
   const files = releaseFiles(readdirSync(releaseDir))
   if (!files.includes('latest-mac.yml') || !files.some((name) => name.endsWith('.zip'))) {
     fail(`the build made no latest-mac.yml or .zip in ${releaseDir}`)
@@ -665,8 +645,7 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
 }
 
 function releaseCheckout(): string {
-  const main = path.dirname(path.resolve(root, git('rev-parse', '--git-common-dir')))
-  return `${main}-release`
+  return sideCheckout(root, 'release')
 }
 
 function inReleaseCheckout(): boolean {
@@ -681,8 +660,7 @@ function inCheckout(checkout: string, title: string, command: string, args: stri
 }
 
 // Builds happen in their own detached worktree of origin/main, so main can keep moving here and
-// on GitHub while a release is tested, built and published. It sits beside the repo, not in .git,
-// because Vite refuses to serve files from inside a .git folder.
+// on GitHub while a release is tested, built and published.
 function forward(args: string[], fresh: boolean): never {
   const checkout = releaseCheckout()
   if (fresh) {
