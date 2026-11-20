@@ -124,6 +124,7 @@ export interface DaemonOptions {
   apps?: {
     pollMs?: number
     readyTimeoutMs?: number
+    buildTurnMs?: number
     hostStartMs?: number
     stopGraceMs?: number
     logBytes?: number

@@ -66,6 +66,10 @@ function simulatorLine(app: TaskApp, now: number): string | undefined {
     return `Waiting for ${android ? 'an emulator' : 'a simulator'} · ${simulator.device}`
   }
   if (simulator.booted) {
+    if (app.building === true) return `${simulator.device} · building`
+    if (app.state === 'running' && app.notReady === true) {
+      return `${simulator.device} · didn’t print TED_APP_READY within 15 minutes`
+    }
     if (android) {
       return `${simulator.device} · ${simulator.window ? 'running in a window' : 'running, no window'}`
     }
