@@ -36,6 +36,7 @@ Every stage, check and sign-off can be changed per project. Turn sign-offs off a
 - **Autopilot.** Ted answers routine questions with the agent’s recommended answer and approves routine sign-offs. Permission requests and failures still come to you. Check your services’ terms of service before leaving it on overnight.
 - **Automations.** Run on a schedule to bring in new issues, audit your apps or run checks, and file tasks for what they find.
 - **A dashboard.** Measure how the factory itself is doing, and improve it.
+- **Your Inbox on your iPhone.** Pair a phone and answer most requests while you’re away from your Mac; see [Ted on your iPhone](docs/phone.md).
 - **A sandbox.** Checks, setup commands and apps run in a macOS sandbox that can write only to the task’s own folders.
 
 ## Install
