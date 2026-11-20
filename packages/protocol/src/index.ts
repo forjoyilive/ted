@@ -15,6 +15,7 @@ export {
   type AppStarter,
   type AppState,
   appEnvName,
+  appStarting,
   appStates,
   type BootedSimulator,
   type DevicePlatform,

@@ -840,6 +840,8 @@ describe('Automations', () => {
       factoryIds: [factory?.id],
     })
     const make = (...args: string[]) => ({ run: ['ted', 'task', 'create', ...args] })
+    const shot = path.join(scratch, 'narrow-pane.png')
+    await writeFile(shot, 'narrow')
     const childTitle = steps(
       make('--child', 'Grandchild'),
       { endTurn: true },
@@ -854,7 +856,7 @@ describe('Automations', () => {
         make('--description', 'Found while working', 'Separate work'),
         make('--start', 'Started at once'),
         make('--factory', 'OTHER', 'Elsewhere'),
-        make('--child', childTitle),
+        make('--child', '--attach', shot, childTitle),
         make('Third'),
         make('Fourth'),
         ...['Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'].map((title) => make(title)),
@@ -915,10 +917,17 @@ describe('Automations', () => {
       const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
       return found?.status?.kind === 'blocked' ? found : undefined
     }, 'the creating Task to wait for its child')
-    await waitUntil(async () => {
+    const started = await waitUntil(async () => {
       const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === child?.id)
-      return found && found.stage !== 'backlog' ? found : undefined
+      return found && found.stage !== 'backlog' && found.leadRunId ? found : undefined
     }, 'the child to start without the user')
+    expect(started.attachments.map((a) => [a.name, a.mediaType])).toEqual([
+      ['narrow-pane.png', 'image/png'],
+    ])
+    const childLead = await client.ok<RunWithConversation>('GET', `/runs/${started.leadRunId}`)
+    expect(childLead.run.prompt, 'the child’s Task Lead sees the screenshot').toContain(
+      `Attached files:\n- narrow-pane.png: ${path.join(tedPaths(home).attachments, `${started.attachments[0]?.hash}.png`)}`,
+    )
     expect(await threadTexts(client, child as Task)).toContain(
       'Started because the Task Lead of the Task above it filed it',
     )

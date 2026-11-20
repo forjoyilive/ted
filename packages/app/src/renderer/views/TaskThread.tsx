@@ -983,7 +983,7 @@ export function TaskThread({
                   {'  ·  '}
                 </>
               )}
-              {task.displayId}
+              <span className={styles.metaItem}>{task.displayId}</span>
               {onOpenBrief && (
                 <>
                   {'  ·  '}
@@ -992,34 +992,52 @@ export function TaskThread({
                   </ActionButton>
                 </>
               )}
-              {task.backToWork &&
-                `  ·  Back to Work ${task.backToWork.count}${task.backToWork.limit === undefined ? '' : ` of ${task.backToWork.limit}`}`}
+              {task.backToWork && (
+                <>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>
+                    {`Back to Work ${task.backToWork.count}${task.backToWork.limit === undefined ? '' : ` of ${task.backToWork.limit}`}`}
+                  </span>
+                </>
+              )}
               {task.followUpOf ? (
                 <>
-                  {'  ·  Follow-up to '}
-                  <ActionButton
-                    type="button"
-                    className={styles.metaLink}
-                    onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
-                  >
-                    {task.followUpOf.displayId}
-                  </ActionButton>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>
+                    {'Follow-up to '}
+                    <ActionButton
+                      type="button"
+                      className={styles.metaLink}
+                      onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
+                    >
+                      {task.followUpOf.displayId}
+                    </ActionButton>
+                  </span>
                 </>
               ) : task.setup ? (
-                '  ·  Created by Ted'
+                <>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>Created by Ted</span>
+                </>
               ) : task.splitFrom ? (
                 <>
-                  {'  ·  Split from '}
-                  <ActionButton
-                    type="button"
-                    className={styles.metaLink}
-                    onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
-                  >
-                    {task.splitFrom.displayId}
-                  </ActionButton>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>
+                    {'Split from '}
+                    <ActionButton
+                      type="button"
+                      className={styles.metaLink}
+                      onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
+                    >
+                      {task.splitFrom.displayId}
+                    </ActionButton>
+                  </span>
                 </>
               ) : task.fromPlan?.deleted ? (
-                '  ·  From a deleted planning chat'
+                <>
+                  {'  ·  '}
+                  <span className={styles.metaItem}>From a deleted planning chat</span>
+                </>
               ) : task.fromPlan ? (
                 <>
                   {'  ·  From planning chat '}
@@ -1034,25 +1052,27 @@ export function TaskThread({
               ) : null}
             </span>
             {task.setup && <span className={styles.setupTag}>Setup</span>}
-            <StageTrack
-              track={task.track}
-              factoryId={task.factoryId}
-              selected={stage}
-              onSelect={(chosen) => setFilter(chosen && { taskId: task.id, stage: chosen })}
-            />
-            <span className={styles.stageName}>{stages.name(task.stage, task.factoryId)}</span>
-            {task.archived ? (
-              <span className={styles.activity}>
-                · {archivedFrom(task.archived.ended, (id) => stages.name(id, task.factoryId))}
-              </span>
-            ) : (
-              activity !== undefined && (
+            <span className={styles.stageGroup}>
+              <StageTrack
+                track={task.track}
+                factoryId={task.factoryId}
+                selected={stage}
+                onSelect={(chosen) => setFilter(chosen && { taskId: task.id, stage: chosen })}
+              />
+              <span className={styles.stageName}>{stages.name(task.stage, task.factoryId)}</span>
+              {task.archived ? (
                 <span className={styles.activity}>
-                  · {withoutStageName(activity, stages.name(task.stage, task.factoryId))}
+                  · {archivedFrom(task.archived.ended, (id) => stages.name(id, task.factoryId))}
                 </span>
-              )
-            )}
-            <RunIcons runs={task.runs} />
+              ) : (
+                activity !== undefined && (
+                  <span className={styles.activity}>
+                    · {withoutStageName(activity, stages.name(task.stage, task.factoryId))}
+                  </span>
+                )
+              )}
+              <RunIcons runs={task.runs} />
+            </span>
           </div>
         </header>
         <TaskConversationTabs

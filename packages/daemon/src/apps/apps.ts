@@ -525,6 +525,10 @@ export function createApps(options: AppsOptions): Apps {
       ...(live && instance?.url !== undefined && { url: instance.url }),
       ...(instance && { startedAt: instance.startedAt }),
       ...(instance?.builtAt !== undefined && { builtAt: instance.builtAt }),
+      ...(state === 'running' &&
+        isDeviceApp(app) &&
+        instance?.builtAt === undefined &&
+        pool.building(keyOf(taskId, repo, app.name)) && { building: true as const }),
       ...(instance?.startedBy !== undefined && { startedBy: instance.startedBy }),
       ...(ended && { endedAt: ended.at }),
       ...(ended?.code !== undefined && { exitCode: ended.code }),
@@ -1158,6 +1162,7 @@ export function createApps(options: AppsOptions): Apps {
     onHost: (pid: number, name: string) => Promise<void>,
   ): Promise<void> {
     let launchedAt = Date.now()
+    let wasBuilding = pool.building(key)
     while (!closed) {
       const instance = await readInstance(dir)
       if (!instance || instance.ended) return
@@ -1195,8 +1200,12 @@ export function createApps(options: AppsOptions): Apps {
         pool.endTurn(key)
         instance.builtAt = new Date().toISOString()
         await writeInstance(dir, instance)
+        wasBuilding = false
         changed(taskId)
       }
+      const building = pool.building(key)
+      if (wasBuilding && !building) changed(taskId)
+      wasBuilding = building
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {
         const answer = await answers(readyUrl)
@@ -1392,7 +1401,12 @@ export function createApps(options: AppsOptions): Apps {
   })
 
   void (async () => {
-    for (const { taskId, key, dir } of await restored) watch(taskId, key, dir)
+    const restoredTasks = new Set<string>()
+    for (const { taskId, key, dir } of await restored) {
+      watch(taskId, key, dir)
+      restoredTasks.add(taskId)
+    }
+    for (const taskId of restoredTasks) changed(taskId)
     for (const taskId of safeDirs(appsDir)) {
       if (options.keep(taskId)) continue
       await stopAll(taskId).catch(() => undefined)
