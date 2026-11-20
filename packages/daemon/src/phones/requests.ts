@@ -349,12 +349,12 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     const bare: PhoneRequestDetail = {
       ...whole,
       body: '',
-      cut: true,
+      cut: false,
       form:
         form.type === 'signoff'
-          ? { ...form, brief: '', cut: true }
+          ? { ...form, brief: '', cut: false }
           : form.type === 'permission'
-            ? { ...form, command: '', cut: true }
+            ? { ...form, command: '', cut: false }
             : form,
     }
     const room = Math.max(0, phoneReplyBodyMax - jsonBytes({ request: bare }))
