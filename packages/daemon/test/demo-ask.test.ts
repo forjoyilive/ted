@@ -83,7 +83,7 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
     start: false,
   })
   const { revision } = await client.taskGates(task.id)
-  await client.setTaskGates(task.id, { overrides: { clarify: true }, revision })
+  await client.setTaskGates(task.id, { overrides: { intake: true }, revision })
   await client.startTask(task.id)
   const leadWaiting = async () => {
     const lead = async () => {
@@ -124,8 +124,8 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
   const signoff = await openRequest(client, task.id, 'signoff')
   await client.answerRequest(signoff.id, { action: 'approve' })
   await until(
-    async () => (await client.listTasks()).find((t) => t.id === task.id)?.stage === 'design',
-    'the Task to move to Design',
+    async () => (await client.listTasks()).find((t) => t.id === task.id)?.stage === 'clarify',
+    'the Task to move to Clarify',
     60_000,
   )
 }, 300_000)

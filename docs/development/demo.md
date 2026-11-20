@@ -20,7 +20,7 @@ The seeded requests all exist before the app opens. To get a fresh one while the
 pnpm ted dev ask question      # or permission, or sign-off
 ```
 
-It picks a demo Task whose Task Lead is waiting and has no open request, has that Task Lead post the request, waits until it reaches the Inbox and prints the Task. `--task <ID>` picks the Task. A sign-off goes only to a Task in Clarify or Design with its sign-off on. The command needs the demo app open and never starts a daemon itself.
+It picks a demo Task whose Task Lead is waiting and has no open request, has that Task Lead post the request, waits until it reaches the Inbox and prints the Task. `--task <ID>` picks the Task. A sign-off goes only to a Task in Intake, Clarify or Design with its sign-off on. The command needs the demo app open and never starts a daemon itself.
 
 After you answer, the Task Lead posts a note naming your answer and carries on: a question or permission request continues its Stage, and an approved sign-off moves the Task to the next Stage. When no Task can take a request, answer an open one or rebuild the demo with `pnpm ted dev seed --reset`.
 

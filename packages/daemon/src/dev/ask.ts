@@ -12,6 +12,8 @@ export function isDemoAskKind(value: string): value is DemoAskKind {
   return demoAskKinds.some((kind) => kind === value)
 }
 
+const signOffStages: readonly string[] = ['intake', 'clarify', 'design']
+
 const commentKind: Record<DemoAskKind, CommentKind> = {
   question: 'question',
   permission: 'permission',
@@ -56,7 +58,7 @@ async function idleLead(client: DaemonClient, task: Task): Promise<string | unde
 }
 
 async function signOffStage(client: DaemonClient, task: Task): Promise<boolean> {
-  if (task.stage !== 'clarify' && task.stage !== 'design') return false
+  if (!signOffStages.includes(task.stage)) return false
   const { rows } = await client.taskGates(task.id)
   return rows.some((row) => row.stage === task.stage && row.effective)
 }
@@ -83,12 +85,12 @@ async function pick(
   if (wanted)
     throw new Error(
       kind === 'sign-off'
-        ? `${wanted} can’t ask for a sign-off now: it needs a waiting Task Lead, no open request, and a sign-off in its Stage (Clarify or Design).`
+        ? `${wanted} can’t ask for a sign-off now: it needs a waiting Task Lead, no open request, and a sign-off in its Stage (Intake, Clarify or Design).`
         : `${wanted} can’t ask now: it needs a waiting Task Lead and no open request.`,
     )
   throw new Error(
     kind === 'sign-off'
-      ? 'No demo Task in Clarify or Design is waiting with its sign-off on. Answer an open request, or rebuild the demo with pnpm ted dev seed --reset.'
+      ? 'No demo Task in Intake, Clarify or Design is waiting with its sign-off on. Answer an open request, or rebuild the demo with pnpm ted dev seed --reset.'
       : 'No demo Task Lead is waiting without an open request. Answer one, or rebuild the demo with pnpm ted dev seed --reset.',
   )
 }
