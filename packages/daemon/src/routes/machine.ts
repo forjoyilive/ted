@@ -28,6 +28,7 @@ import {
   parseBannerActionInput,
   parseChangeAgentAvailabilityRequest,
   parseOutsideSandboxApprovalsRequest,
+  parsePresenceReport,
   parseSetBacklogStartsRequest,
   priorities,
   quitChoices,
@@ -153,6 +154,14 @@ export const machineRoutes: Route[] = [
     path: /^\/storage\/remove-clones$/,
     handle: async (_, { storage }) => [200, await storage.removeUnusedClones()],
   },
+  jsonRoute(parsePresenceReport, {
+    method: 'POST',
+    path: /^\/presence$/,
+    async handle({ body }, { presence }) {
+      presence.report(body.away)
+      return [200, { away: presence.away() }]
+    },
+  }),
 ]
 
 function settingsChanges(body: unknown, current: MachineSettings): Partial<MachineSettings> {

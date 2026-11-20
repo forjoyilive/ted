@@ -209,6 +209,7 @@ import type {
   ResumePlanRequest,
   StartPlanRequest,
 } from './plan.ts'
+import type { PresenceReport } from './presence.ts'
 import type {
   AgentKind,
   Run,
@@ -365,6 +366,9 @@ export class DaemonClient {
   }
   removePhone(id: string): Promise<PairedPhones> {
     return this.#request('DELETE', `/phones/${encodeURIComponent(id)}`)
+  }
+  reportPresence(input: PresenceReport): Promise<PresenceReport> {
+    return this.#request('POST', '/presence', input)
   }
   executionMachines(): Promise<ExecutionMachines> {
     return this.#request('GET', '/execution/machines')

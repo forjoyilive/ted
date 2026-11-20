@@ -50,9 +50,12 @@ import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
 import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
+import { createPhoneNotifier } from './phones/notifier.ts'
 import { createPhones } from './phones/phones.ts'
+import { createExpoPush, type PushService } from './phones/push.ts'
 import { storeInbox } from './phones/requests.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
+import { createPresence } from './presence.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
 import { redactSecrets } from './redact.ts'
 import { pruneRunOutput, runOutputEnd } from './retention.ts'
@@ -68,7 +71,7 @@ import { listen } from './server.ts'
 import { createShells } from './shells.ts'
 import { createSideChats } from './side-chats/side-chats.ts'
 import { createSlowMonitor } from './slow-moments.ts'
-import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
+import { type HoldAwake, stayAwakeForPhones, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import { createArchiveCleanup } from './tasks/archive-expiry.ts'
@@ -112,6 +115,7 @@ export interface DaemonOptions {
   githubSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
+  holdOnPower?: HoldAwake
   commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
   clock?: Clock
@@ -159,6 +163,8 @@ export interface DaemonPhonesOptions {
   now?: () => number
   macName?: () => Promise<string>
   relayDelaysMs?: readonly number[]
+  push?: PushService
+  presence?: { now?: () => number; staleMs?: number }
 }
 
 export interface DaemonWrappers {
@@ -886,6 +892,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.phones?.relayDelaysMs && { relayDelaysMs: options.phones.relayDelaysMs }),
       })
       await phones.start()
+      const presence = createPresence(options.phones?.presence)
+      const phoneNotifier = createPhoneNotifier({
+        store,
+        presence,
+        push: options.phones?.push ?? createExpoPush(),
+        ...(options.phones?.now && { now: options.phones.now }),
+      })
       const factoryRemovals = createFactoryRemovals({
         execution,
         factorySettings,
@@ -903,6 +916,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
+      const stayAwakeOnPower = options.holdOnPower && stayAwakeForPhones(store, options.holdOnPower)
       const conversations = createConversations({
         coordinators,
         steering,
@@ -989,6 +1003,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         busy,
         execution,
         phones,
+        presence,
         sideChats,
         coordinators,
         automations,
@@ -1013,6 +1028,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         chatArchiveCleanup,
         async close() {
           openStore = undefined
+          phoneNotifier.close()
+          presence.close()
           phones.close()
           await execution.close()
           const shellsClosed = shells.close()
@@ -1029,6 +1046,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           workflows.close()
           await factorySettings.close()
           stayAwake?.close()
+          stayAwakeOnPower?.close()
           disk.close()
           clearInterval(pruneTimer)
           stopPruningOnChange()
