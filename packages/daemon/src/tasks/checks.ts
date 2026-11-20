@@ -1,5 +1,4 @@
-import { mkdir, open, writeFile } from 'node:fs/promises'
-import path from 'node:path'
+import { open } from 'node:fs/promises'
 import {
   type CheckResult,
   type CheckState,
@@ -12,11 +11,10 @@ import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import { type MemoryWatch, memoryKill } from '../memory-kills.ts'
 import { redactSecrets } from '../redact.ts'
 import type { PlannedCheck } from '../store/index.ts'
-import { plural } from '../text.ts'
 import { type CheckSettings, isInstructionCheck } from '../workflow/check.ts'
-import { checkWorkflowPath } from '../workflow/check-path.ts'
 import { checkCpusEnv } from './check-slots.ts'
 import { type CommandLaunch, runTaskCommand } from './command.ts'
+import { checkSettings } from './settings-check.ts'
 import { durationMs } from './worktree.ts'
 import { readChanges, type WorktreeReads } from './worktree-reads.ts'
 
@@ -229,30 +227,37 @@ export async function runChecks(input: {
     const reporting =
       (await input.reportingEnv?.(position, supportsTestReporting(command)).catch(() => ({}))) ?? {}
     const watching = check.builtIn === 'ted-settings' ? undefined : input.memory?.watch()
+    const runCommand = (run: string, access: readonly SandboxAccess[] | undefined) =>
+      runTaskCommand({
+        label: 'this check',
+        owner: `the Check “${check.name}”`,
+        command: { run, timeoutMs: durationMs(check.timeout) },
+        cwd,
+        env: {
+          ...checkEnv(input.taskDisplayId, env ?? {}, input.env),
+          ...(input.cpus && checkCpusEnv(input.cpus())),
+          ...reporting,
+        },
+        log,
+        shell: [loginShell(input.env), '-lc'],
+        lowPriority: input.lowPriority,
+        ...(input.signal !== undefined && { signal: input.signal }),
+        prepareLaunch: input.prepareLaunch,
+        ...(access !== undefined && { groups: access }),
+        root: {
+          kind: 'check',
+          ...(input.taskDisplayId !== undefined && { task: input.taskDisplayId }),
+        },
+      })
     const ran =
       check.builtIn === 'ted-settings'
-        ? checkSettings(cwd, log, input.libraryDir)
-        : runTaskCommand({
-            label: 'this check',
-            owner: `the Check “${check.name}”`,
-            command: { run: command, timeoutMs: durationMs(check.timeout) },
-            cwd,
-            env: {
-              ...checkEnv(input.taskDisplayId, env ?? {}, input.env),
-              ...(input.cpus && checkCpusEnv(input.cpus())),
-              ...reporting,
-            },
+        ? checkSettings({
+            worktree: cwd,
             log,
-            shell: [loginShell(input.env), '-lc'],
-            lowPriority: input.lowPriority,
-            ...(input.signal !== undefined && { signal: input.signal }),
-            prepareLaunch: input.prepareLaunch,
-            ...(groups !== undefined && { groups }),
-            root: {
-              kind: 'check',
-              ...(input.taskDisplayId !== undefined && { task: input.taskDisplayId }),
-            },
+            libraryDir: input.libraryDir,
+            runBranchChecker: (run) => runCommand(run, undefined),
           })
+        : runCommand(command, groups)
     const result = await ran.finally(() => watching?.finish())
     const lowestMemory = await watching?.finish()
     if (result.outcome === 'interrupted') {
@@ -298,39 +303,6 @@ export function checkEnv(
     { CI: '1', ...(taskDisplayId !== undefined && { TED_TASK: taskDisplayId }) },
     base,
   )
-}
-
-async function checkSettings(
-  worktree: string,
-  log: string,
-  libraryDir: string,
-): Promise<{ outcome: 'passed' | 'failed'; exitCode: number }> {
-  const target = path.join(worktree, '.ted')
-  const lines: string[] = []
-  let errors = 0
-  try {
-    const problems = await checkWorkflowPath(target, { libraryDir })
-    for (const p of problems) {
-      lines.push(
-        `${path.relative(worktree, p.path)}:${p.line}:${p.column}: ${p.severity}: ${p.message}`,
-      )
-    }
-    errors = problems.filter((p) => p.severity === 'error').length
-    const warnings = problems.length - errors
-    lines.push(
-      problems.length === 0
-        ? 'No problems in .ted'
-        : [errors > 0 && plural(errors, 'error'), warnings > 0 && plural(warnings, 'warning')]
-            .filter(Boolean)
-            .join(', '),
-    )
-  } catch (error) {
-    errors = 1
-    lines.push(error instanceof Error ? error.message : String(error))
-  }
-  await mkdir(path.dirname(log), { recursive: true, mode: 0o700 })
-  await writeFile(log, `${lines.join('\n')}\n`, { mode: 0o600 })
-  return errors > 0 ? { outcome: 'failed', exitCode: 1 } : { outcome: 'passed', exitCode: 0 }
 }
 
 async function tailOf(log: string, bytes: number): Promise<{ lines: string[]; cut: boolean }> {
