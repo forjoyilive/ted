@@ -762,6 +762,7 @@ describe('iOS simulator Apps', () => {
     expect(lines.filter((l) => l.includes('Waiting for'))).toEqual([
       'Every simulator and emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…',
       building,
+      'Waiting for iPhone to finish building and launch on iPhone 17…',
     ])
   })
 

@@ -217,12 +217,16 @@ describe('Android emulator Apps', () => {
 
   test('the row says whether the emulator has a window, and ▶ asks only when every slot is taken', () => {
     const device = 'Pixel_8_API_35'
+    const builtAt = '2026-11-09T10:20:00Z'
     expect(
       appStatusLine(phone({ state: 'running', simulator: { device, booted: true } }), now),
+    ).toBe('Pixel_8_API_35 · building')
+    expect(
+      appStatusLine(phone({ state: 'running', builtAt, simulator: { device, booted: true } }), now),
     ).toBe('Pixel_8_API_35 · running, no window')
     expect(
       appStatusLine(
-        phone({ state: 'running', simulator: { device, booted: true, window: true } }),
+        phone({ state: 'running', builtAt, simulator: { device, booted: true, window: true } }),
         now,
       ),
     ).toBe('Pixel_8_API_35 · running in a window')
