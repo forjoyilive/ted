@@ -30,6 +30,16 @@ test('the user is away until the app reports otherwise, and again once reports s
   presence.close()
 })
 
+test('a first report of away moves the time the user left back by the 2 idle minutes', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-11-19T10:00:00Z'))
+  const presence = createPresence({ now: () => Date.now() })
+  await vi.advanceTimersByTimeAsync(10_000)
+  presence.report(true)
+  expect(presence.leftAt()).toBe(Date.now() - idleBeforeAwayMs)
+  presence.close()
+})
+
 test('the user left when the daemon started, 2 idle minutes before an away report, or at the last report before reports stopped', async () => {
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-11-19T10:00:00Z'))

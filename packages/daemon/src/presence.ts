@@ -57,6 +57,7 @@ export function createPresence(options: PresenceOptions = {}): Presence {
       return current ? left : undefined
     },
     report(away) {
+      if (reported === undefined && away) left = Math.min(left, now() - idleBeforeAwayMs)
       reported = { away, at: now() }
       update()
       watch()

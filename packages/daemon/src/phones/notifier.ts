@@ -100,8 +100,8 @@ export function createPhoneNotifier(options: PhoneNotifierOptions): PhoneNotifie
   const inFlight = new Set<string>()
   let closed = false
 
-  const keyOf = (item: Pick<Due, 'phoneId' | 'request' | 'waitingSince'>) =>
-    JSON.stringify([item.phoneId, item.request.id, item.waitingSince])
+  const keyOf = (item: Pick<Due, 'phoneId' | 'request'>) =>
+    JSON.stringify([item.phoneId, item.request.id])
 
   const problems = options.problems
   const away = () => !closed && presence.away()

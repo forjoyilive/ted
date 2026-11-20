@@ -291,6 +291,35 @@ test('a send in progress isn’t started again, and is recorded once it finishes
   expect(sent).toHaveLength(1)
 })
 
+test('a request back from snooze while its first send is still in progress isn’t sent again', async () => {
+  startClock('2026-11-19T10:00:00Z')
+  pairPhone('iPhone', token)
+  presence.report(true)
+  let finish: (result: PushResult) => void = () => undefined
+  const gated: PushService = {
+    send(message) {
+      sent.push(message)
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    },
+  }
+  notifier = createPhoneNotifier({ store, presence, push: gated, log: () => undefined })
+  const id = await ask('Slow send', 'Wait for Expo?')
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(sent.map((message) => message.requestId)).toEqual([id])
+
+  store.snoozeRequest(id, '2026-11-19T11:00:00.000Z')
+  vi.setSystemTime(new Date('2026-11-19T11:00:01Z'))
+  expect(store.returnDueRequests(Date.now())).toEqual([id])
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(sent).toHaveLength(1)
+
+  finish({ kind: 'sent' })
+  await settled()
+  expect(sent).toHaveLength(1)
+})
+
 test('nothing is sent with Inbox notifications off, globally or for the request’s Factory', async () => {
   pairPhone('iPhone', token)
   presence.report(true)
