@@ -13,6 +13,7 @@ import type {
 import { scheduledCheckPrompt } from '@ted/protocol/automation'
 import { billingNames } from '@ted/protocol/health'
 import { agentBilling } from '@ted/protocol/settings'
+import { statusLabel } from '@ted/protocol/task-status'
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   agentModel,
@@ -50,7 +51,6 @@ import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RunAppLog, RunAppRows } from '../components/RunApps.tsx'
 import { ChatBody, type ChatExtra, runMeta } from '../components/RunChat.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
-import { statusLabel } from '../components/TaskStatus.tsx'
 import grow from '../components/TextGrow.module.css'
 import { sendOnEnter } from '../composer-keys.ts'
 import {

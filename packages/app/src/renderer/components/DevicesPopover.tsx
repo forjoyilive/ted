@@ -1,11 +1,11 @@
 import type { BootedSimulator, SimulatorSlots, WaitingDevice } from '@ted/protocol'
+import { ordinal } from '@ted/protocol/task-status'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { deviceWaitText } from '../slots.ts'
 import { ActionButton } from './ActionButton.tsx'
 import styles from './DevicesPopover.module.css'
 import { Help } from './Help.tsx'
 import { OpenIcon, StopIcon } from './icons.tsx'
-import { ordinal } from './TaskStatus.tsx'
 import runs from './WorkingRuns.module.css'
 
 const machine = navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'
