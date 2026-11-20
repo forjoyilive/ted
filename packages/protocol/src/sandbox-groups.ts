@@ -50,7 +50,7 @@ export const sandboxGroups: readonly SandboxGroupInfo[] = [
     opens: [
       'localhost TCP 5037 (the adb server) and 5554–5585 (emulator console and adb ports)',
       '~/Library/Android/sdk, $ANDROID_HOME and $ANDROID_SDK_ROOT: read',
-      'Host networking (Linux)',
+      'Linux: host networking, which also reaches outside hosts, unless the Factory sets sandbox_network: none',
     ],
   },
   {

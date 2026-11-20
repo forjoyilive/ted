@@ -314,7 +314,7 @@ export function createSandbox(options: {
             bindFds,
             hidden,
             reads,
-            ownNetwork(scope) && !android,
+            ownNetwork(scope, android),
           ),
           '--',
           ...argv,
@@ -839,9 +839,9 @@ function networkOf(scope: SandboxScope): NetworkLevel {
 }
 
 // An App's port must stay reachable from the host, and bwrap can't share host loopback without host networking.
-function ownNetwork(scope: SandboxScope): boolean {
+function ownNetwork(scope: SandboxScope, adb: boolean): boolean {
   const network = networkOf(scope)
-  return network === 'none' || (network === 'localhost' && scope.serves !== true)
+  return network === 'none' || (network === 'localhost' && scope.serves !== true && !adb)
 }
 
 type MacService = { name: string } | { prefix: string } | { regex: string }

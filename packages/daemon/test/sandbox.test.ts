@@ -1362,6 +1362,7 @@ describe('the folders a sandbox opens', () => {
     expect(await ownNetwork({ serves: true })).toBe(false)
     expect(await ownNetwork({ network: 'none', serves: true })).toBe(true)
     expect(await ownNetwork({ groups: ['android-emulator'] })).toBe(false)
+    expect(await ownNetwork({ network: 'none', groups: ['android-emulator'] })).toBe(true)
   })
 
   test('on Linux, only android-emulator mounts the Android SDK, even when a folder in it is on PATH', async () => {
