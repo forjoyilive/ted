@@ -83,6 +83,17 @@ test('demo children receive only local fixtures and no inherited credentials or 
   expect(env.TED_LOW_PRIORITY).toBe('off')
   expect(env.GIT_ALLOW_PROTOCOL).toBe('file')
   expect(env.NODE_OPTIONS).toBeUndefined()
+  expect(env.PATH).toBe([path.dirname(process.execPath), '/usr/bin'].join(path.delimiter))
+  expect(demoEnvironment(folder, {}).PATH).toBe(
+    [path.dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(path.delimiter),
+  )
+})
+
+test('the demo keeps a phone relay override so a phone can pair with it', () => {
+  expect(demoEnvironment(folder, { TED_RELAY_URL: 'http://127.0.0.1:9999' }).TED_RELAY_URL).toBe(
+    'http://127.0.0.1:9999',
+  )
+  expect(demoEnvironment(folder, {}).TED_RELAY_URL).toBeUndefined()
 })
 
 test('refuses a demo daemon pointer linked to another home', async () => {

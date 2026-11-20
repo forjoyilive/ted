@@ -1938,6 +1938,24 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       await seedDemoFromCli(demo, options.reset)
       console.log(`Demo ready in ${demo} (${Date.now() - started} ms)`)
     },
+    askDemo: async () => {
+      if (
+        tedEnv('TED_RUN', env) ||
+        tedEnv('TED_TASK', env) ||
+        tedEnv('TED_PLAN', env) ||
+        runTokenFrom(env)
+      )
+        throw new UsageError('Run demo requests from a local terminal, outside a Run.')
+      const { askDemo, demoAskKinds, demoHome, isDemoAskKind } = await import('@ted/daemon/demo')
+      const kind = args[0] ?? ''
+      if (!isDemoAskKind(kind))
+        throw new UsageError(`Choose what to ask: ${demoAskKinds.join(', ')}.`)
+      const demo = runtime.home ?? demoHome(env)
+      const { task } = await askDemo(demo, kind, {
+        ...(options.task !== undefined && { task: options.task }),
+      })
+      console.log(`${task.displayId} (${task.title}) posted a ${kind} to the demo’s Inbox.`)
+    },
     stopDemo: async () => {
       if (
         tedEnv('TED_RUN', env) ||
