@@ -37,7 +37,7 @@ export const relayAuthHeader = 'Ted-Relay-Auth'
 export const relayAuthMax = 1_024
 export const relayPhonesMax = 64
 
-export const defaultRelayUrl = 'https://ted-relay.invalid'
+export const defaultRelayUrl = 'https://ted-relay.forjoyilive.workers.dev'
 export const devRelayUrl = 'http://127.0.0.1:8787'
 
 export function relayUrl(env: NodeJS.ProcessEnv = process.env, which: Edition = edition): string {
