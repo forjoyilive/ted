@@ -6,6 +6,7 @@ import {
   events,
   phoneNotificationId,
   phoneNotifications,
+  phoneRelayResets,
   phones,
   requestReturns,
 } from './schema.ts'
@@ -16,6 +17,12 @@ export interface StoredPhone {
   publicKey: string
   edition: Edition
   pairedAt: string
+  relayKey?: string
+}
+
+export interface RelayPhoneList {
+  rev: number
+  keys: string[]
 }
 
 export interface PhoneStore {
@@ -23,8 +30,18 @@ export interface PhoneStore {
   everPaired(): boolean
   get(id: string): StoredPhone | undefined
   byKey(publicKey: string): StoredPhone | undefined
-  pair(input: { name: string; publicKey: string; edition: Edition; pairedAt: string }): StoredPhone
+  byRelayKey(relayKey: string): StoredPhone | undefined
+  pair(input: {
+    name: string
+    publicKey: string
+    relayKey: string
+    edition: Edition
+    pairedAt: string
+  }): StoredPhone
   remove(id: string, removedAt: string): boolean
+  relayList(): RelayPhoneList
+  resetRelay(at: string): void
+  pairAgain(): boolean
   setPushToken(id: string, token: string): boolean
   clearPushToken(id: string): void
   pushToken(id: string): string | undefined
@@ -46,12 +63,19 @@ export function phonesArea(ctx: StoreContext): PhonesArea {
   const { store, commit, emit } = ctx
   const rows = () => store.query(queryDb(phones.orderBy('pairedAt', 'asc')))
   const live = () => rows().filter((row) => row.removedAt === null)
+  const resets = () => store.query(queryDb(phoneRelayResets.orderBy('at', 'asc')))
   const list = (): StoredPhone[] =>
-    live().map(({ removedAt: _, pushToken: __, ...row }) => ({
+    live().map(({ removedAt: _, pushToken: __, relayKey, ...row }) => ({
       ...row,
       edition: row.edition === 'release' ? 'release' : 'dev',
+      ...(relayKey !== null && { relayKey }),
     }))
   const pushToken = (id: string) => live().find((row) => row.id === id)?.pushToken ?? undefined
+  const removals = (ids: string[], removedAt: string) =>
+    ids.flatMap((id) => [
+      events.phoneRemoved({ id, removedAt }),
+      ...(pushToken(id) === undefined ? [] : [events.phonePushTokenCleared({ phoneId: id })]),
+    ])
   const notified = (phoneId: string, requestId: string, waitingSince: string) =>
     store.query(
       queryDb(
@@ -64,20 +88,36 @@ export function phonesArea(ctx: StoreContext): PhonesArea {
       everPaired: () => rows().length > 0,
       get: (id) => list().find((phone) => phone.id === id),
       byKey: (publicKey) => list().find((phone) => phone.publicKey === publicKey),
+      byRelayKey: (relayKey) => list().find((phone) => phone.relayKey === relayKey),
       pair(input) {
         const phone = { id: randomUUID(), ...input }
-        commit(events.phonePaired(phone))
+        commit(events.phonePairedV2(phone))
         emit({ type: 'phones-changed' })
         return phone
       },
       remove(id, removedAt) {
         if (!list().some((phone) => phone.id === id)) return false
-        commit(
-          events.phoneRemoved({ id, removedAt }),
-          ...(pushToken(id) === undefined ? [] : [events.phonePushTokenCleared({ phoneId: id })]),
-        )
+        commit(...removals([id], removedAt))
         emit({ type: 'phones-changed' })
         return true
+      },
+      relayList() {
+        const all = rows()
+        const removed = all.filter((row) => row.removedAt !== null).length
+        return {
+          rev: all.length + removed + resets().length,
+          keys: list().flatMap((phone) => (phone.relayKey === undefined ? [] : [phone.relayKey])),
+        }
+      },
+      resetRelay(at) {
+        const ids = list().map((phone) => phone.id)
+        commit(...removals(ids, at), events.phoneRelayReset({ id: randomUUID(), at }))
+        emit({ type: 'phones-changed' })
+      },
+      pairAgain() {
+        const reset = resets().at(-1)
+        const paired = rows().at(-1)
+        return reset !== undefined && (paired === undefined || reset.at > paired.pairedAt)
       },
       setPushToken(id, token) {
         const phones = live()

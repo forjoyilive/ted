@@ -11,14 +11,19 @@ import {
   pairingLifetimeMs,
   pairingLinkVersion,
   phoneProtocolVersion,
+  relayKeyProofText,
+  relayTicket,
+  relayTicketHash,
   shortCode,
   toBase64Url,
 } from '@ted/protocol'
+import nacl from 'tweetnacl'
 import { RequestError } from '../errors.ts'
 import type { PhoneKeys } from './keys.ts'
 
 interface WaitingPhone {
   key: string
+  relayKey: string
   name: string
   edition: Edition
 }
@@ -26,11 +31,15 @@ interface WaitingPhone {
 interface LivePairing {
   id: string
   secret: Uint8Array
+  ticketHash: string
   expiresAt: number
   link: string
   state: 'live' | 'waiting' | 'approved' | 'refused' | 'spent'
   phone?: WaitingPhone
   code?: string
+  listRev?: number
+  listed: boolean
+  ended: boolean
 }
 
 export interface PairAttempt {
@@ -39,20 +48,44 @@ export interface PairAttempt {
   name: string
   edition: Edition
   protocol: number
+  relayKey?: string
+  relayProof?: string
 }
 
-export type PairResult = { ok: true; code: string } | { ok: false; code: PhoneErrorCode }
+export type PairResult =
+  | { ok: true; code: string; relayKey: string }
+  | { ok: false; code: PhoneErrorCode }
+
+export interface CreatedPairing {
+  offer: PhonePairingOffer
+  ticketHash: string
+}
+
+export interface PairingTicket {
+  pairing: string
+  ticketHash: string
+  expiresAt: number
+  used: boolean
+}
 
 export interface Pairings {
-  create(keys: PhoneKeys, relay: string): PhonePairingOffer
+  create(keys: PhoneKeys, relay: string): CreatedPairing
   cancel(): void
   current(): PhonePairingState
+  ticket(): PairingTicket | undefined
   live(): boolean
-  expiresAt(): number | undefined
-  take(attempt: PairAttempt, phoneKey: string, macKey: Uint8Array): PairResult
-  status(pairing: string, phoneKey: string): PairStatusBody
-  approve(pairing: string): WaitingPhone
+  take(
+    attempt: PairAttempt,
+    phoneKey: string,
+    macKey: Uint8Array,
+    relayKeyTaken: (relayKey: string) => boolean,
+  ): PairResult
+  status(pairing: string, phoneKey: string): PairStatusBody | undefined
+  candidate(phoneKey: string): boolean
+  approve(pairing: string, listRev: number): WaitingPhone
+  listed(rev: number): void
   refuse(pairing: string): void
+  ended(pairing: string): void
 }
 
 export function createPairings(now: () => number, ourEdition: Edition): Pairings {
@@ -75,6 +108,7 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
     create(keys, relay) {
       const id = toBase64Url(randomBytes(16))
       const secret = new Uint8Array(randomBytes(32))
+      const ticketHash = relayTicketHash(relayTicket(secret, keys.channel, id))
       const expiresAt = now() + pairingLifetimeMs
       const link = encodePairingLink({
         v: pairingLinkVersion,
@@ -86,8 +120,17 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
         secret: toBase64Url(secret),
         expiresAt,
       })
-      current = { id, secret, expiresAt, link, state: 'live' }
-      return { pairing: id, link, expiresAt, edition: ourEdition }
+      current = {
+        id,
+        secret,
+        ticketHash,
+        expiresAt,
+        link,
+        state: 'live',
+        listed: false,
+        ended: false,
+      }
+      return { offer: { pairing: id, link, expiresAt, edition: ourEdition }, ticketHash }
     },
     cancel() {
       current = undefined
@@ -120,6 +163,16 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
       }
       return { state: pairing.state, pairing: pairing.id, phoneName }
     },
+    ticket() {
+      const pairing = current
+      if (!pairing) return undefined
+      return {
+        pairing: pairing.id,
+        ticketHash: pairing.ticketHash,
+        expiresAt: pairing.expiresAt,
+        used: pairing.phone !== undefined,
+      }
+    },
     live() {
       const pairing = current
       return (
@@ -128,10 +181,7 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
         (pairing.state === 'live' || pairing.state === 'waiting')
       )
     },
-    expiresAt() {
-      return current?.expiresAt
-    },
-    take(attempt, phoneKey, macKey) {
+    take(attempt, phoneKey, macKey, relayKeyTaken) {
       const pairing = matching(attempt.pairing)
       const secret = fromBase64Url(attempt.secret, 32)
       if (!pairing || !secret || expired(pairing)) return { ok: false, code: 'expired' }
@@ -144,30 +194,55 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
       if (attempt.protocol < minPhoneProtocolVersion) return { ok: false, code: 'too-old' }
       if (attempt.protocol > phoneProtocolVersion) return { ok: false, code: 'too-new' }
       const key = fromBase64Url(phoneKey, 32)
-      if (!key) return { ok: false, code: 'bad-request' }
+      const relayKey = attempt.relayKey && fromBase64Url(attempt.relayKey, 32)
+      const proof = attempt.relayProof && fromBase64Url(attempt.relayProof, 64)
+      if (!key || !relayKey || !proof || !attempt.relayKey)
+        return { ok: false, code: 'bad-request' }
+      const proven = nacl.sign.detached.verify(
+        new TextEncoder().encode(relayKeyProofText(pairing.id, phoneKey)),
+        proof,
+        relayKey,
+      )
+      if (!proven || relayKeyTaken(attempt.relayKey)) return { ok: false, code: 'bad-request' }
       pairing.state = 'waiting'
-      pairing.phone = { key: phoneKey, name: attempt.name, edition: attempt.edition }
+      pairing.phone = {
+        key: phoneKey,
+        relayKey: attempt.relayKey,
+        name: attempt.name,
+        edition: attempt.edition,
+      }
       pairing.code = shortCode(macKey, key, secret)
-      return { ok: true, code: pairing.code }
+      return { ok: true, code: pairing.code, relayKey: attempt.relayKey }
     },
     status(id, phoneKey) {
       const pairing = matching(id)
-      if (!pairing || pairing.phone?.key !== phoneKey || expired(pairing)) {
-        return { state: 'expired' }
-      }
-      if (pairing.state === 'waiting') return { state: 'waiting' }
+      if (!pairing || pairing.phone?.key !== phoneKey) return undefined
+      if (expired(pairing)) return { state: 'expired' }
       if (pairing.state === 'refused') return { state: 'refused' }
-      if (pairing.state === 'approved') return { state: 'approved', mac: '' }
+      if (pairing.state === 'approved' && pairing.listed) return { state: 'approved', mac: '' }
+      if (pairing.state === 'waiting' || pairing.state === 'approved') return { state: 'waiting' }
       return { state: 'expired' }
     },
-    approve(id) {
+    candidate(phoneKey) {
+      return current !== undefined && !current.ended && current.phone?.key === phoneKey
+    },
+    approve(id, listRev) {
       const pairing = decidable(id)
-      if (current) current.state = 'approved'
+      if (current) {
+        current.state = 'approved'
+        current.listRev = listRev
+      }
       return pairing.phone
+    },
+    listed(rev) {
+      if (current?.listRev !== undefined && current.listRev <= rev) current.listed = true
     },
     refuse(id) {
       decidable(id)
       if (current) current.state = 'refused'
+    },
+    ended(id) {
+      if (current?.id === id) current.ended = true
     },
   }
 }

@@ -10,6 +10,15 @@ export const phones = State.SQLite.table({
     pairedAt: State.SQLite.text(),
     removedAt: State.SQLite.text({ nullable: true }),
     pushToken: State.SQLite.text({ nullable: true }),
+    relayKey: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const phoneRelayResets = State.SQLite.table({
+  name: 'phoneRelayResets',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    at: State.SQLite.text(),
   },
 })
 
@@ -39,6 +48,21 @@ export const phonesEvents = {
       pairedAt: Schema.String,
     }),
   }),
+  phonePairedV2: Events.synced({
+    name: 'v2.PhonePaired',
+    schema: Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      publicKey: Schema.String,
+      relayKey: Schema.String,
+      edition: Schema.String,
+      pairedAt: Schema.String,
+    }),
+  }),
+  phoneRelayReset: Events.synced({
+    name: 'v1.PhoneRelayReset',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
   phoneRemoved: Events.synced({
     name: 'v1.PhoneRemoved',
     schema: Schema.Struct({ id: Schema.String, removedAt: Schema.String }),
@@ -64,6 +88,8 @@ export const phonesEvents = {
 
 export const phonesMaterializers = State.SQLite.materializers(phonesEvents, {
   'v1.PhonePaired': (row) => phones.insert(row),
+  'v2.PhonePaired': (row) => phones.insert(row),
+  'v1.PhoneRelayReset': (row) => phoneRelayResets.insert(row),
   'v1.PhoneRemoved': ({ id, removedAt }) => phones.update({ removedAt }).where({ id }),
   'v1.PhonePushTokenSet': ({ phoneId, token }) =>
     phones.update({ pushToken: token }).where({ id: phoneId }),

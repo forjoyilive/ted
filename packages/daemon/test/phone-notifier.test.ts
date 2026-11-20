@@ -62,6 +62,7 @@ function pairPhone(name: string, pushToken?: string): string {
   const phone = store.phones.pair({
     name,
     publicKey: `${name}-key`,
+    relayKey: `${name}-relay-key`,
     edition: 'dev',
     pairedAt: new Date().toISOString(),
   })
@@ -299,6 +300,39 @@ test('removing a phone clears its token', () => {
   expect(store.phones.remove(phoneId, new Date().toISOString())).toBe(true)
   expect(store.phones.pushToken(phoneId)).toBeUndefined()
   expect(store.phones.setPushToken(phoneId, token)).toBe(false)
+})
+
+test('the relay list holds paired phones’ relay keys, and its revision only grows', () => {
+  expect(store.phones.relayList()).toEqual({ rev: 0, keys: [] })
+  expect(store.phones.pairAgain()).toBe(false)
+  const pair = (name: string, pairedAt: string) =>
+    store.phones.pair({
+      name,
+      publicKey: `${name}-key`,
+      relayKey: `${name}-relay`,
+      edition: 'dev',
+      pairedAt,
+    }).id
+  const first = pair('First', '2026-11-19T10:00:00.000Z')
+  pair('Second', '2026-11-19T10:01:00.000Z')
+  expect(store.phones.byRelayKey('Second-relay')).toMatchObject({ name: 'Second' })
+  expect(store.phones.relayList()).toEqual({ rev: 2, keys: ['First-relay', 'Second-relay'] })
+  store.phones.setPushToken(first, token)
+  store.phones.remove(first, '2026-11-19T10:02:00.000Z')
+  expect(store.phones.relayList()).toEqual({ rev: 3, keys: ['Second-relay'] })
+  expect(store.phones.byRelayKey('First-relay')).toBeUndefined()
+
+  const kept = pair('Kept', '2026-11-19T10:03:00.000Z')
+  store.phones.setPushToken(kept, otherToken)
+  store.phones.resetRelay('2026-11-19T10:04:00.000Z')
+  expect(store.phones.list()).toEqual([])
+  expect(store.phones.pushToken(kept)).toBeUndefined()
+  expect(store.phones.relayList()).toEqual({ rev: 7, keys: [] })
+  expect(store.phones.pairAgain()).toBe(true)
+
+  pair('Again', '2026-11-19T10:05:00.000Z')
+  expect(store.phones.pairAgain()).toBe(false)
+  expect(store.phones.relayList()).toEqual({ rev: 8, keys: ['Again-relay'] })
 })
 
 test('a token moves to the phone that registered it last', () => {

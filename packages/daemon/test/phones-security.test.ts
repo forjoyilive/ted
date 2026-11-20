@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { fromBase64Url, readDaemonInfo, toBase64Url } from '@ted/protocol'
+import { fromBase64Url, phoneProtocolVersion, readDaemonInfo, toBase64Url } from '@ted/protocol'
 import nacl from 'tweetnacl'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
@@ -134,6 +134,7 @@ test('nothing in TED_HOME holds the Mac’s keys or the secret, or lets a phone 
   phones.push(phone)
   await phone.pair('Real Phone')
   await client.approvePhonePairing({ pairing: phone.link.pairing })
+  await phone.approved()
   expect(await phone.status()).toMatchObject({ ok: true, body: { mac: macName } })
 
   const boxSecret = fromBase64Url(keychain.secrets.get(phoneBoxKeyAccount) ?? '', 32)
@@ -144,10 +145,11 @@ test('nothing in TED_HOME holds the Mac’s keys or the secret, or lets a phone 
   const needles = [boxSecret, signSeed, signSecret, pairingSecret].flatMap(encodings)
 
   const attacker = nacl.box.keyPair()
+  const forgedId = toBase64Url(nacl.randomBytes(16))
   const forged = phone.seal(
     {
-      protocol: 1,
-      id: toBase64Url(nacl.randomBytes(16)),
+      protocol: phoneProtocolVersion,
+      id: forgedId,
       at: Date.now(),
       type: 'request',
       route: 'status',
@@ -156,13 +158,14 @@ test('nothing in TED_HOME holds the Mac’s keys or the secret, or lets a phone 
   )
   const asPhone = JSON.stringify({ ...JSON.parse(forged), from: phone.publicKey() })
   const outsider = new TestPhone(offer.link, { keys: attacker })
-  phones.push(outsider)
-  await outsider.online
-  outsider.sendRaw(asPhone)
-  const refused = await outsider.status()
+  await phone.sendRaw(asPhone)
+  const refused = await outsider.send(
+    { type: 'request', route: 'status' },
+    phoneProtocolVersion,
+    phone,
+  )
   expect(refused).toMatchObject({ ok: false, error: { code: 'not-paired' } })
-  expect(outsider.replies).toHaveLength(1)
-  expect(outsider.replies.every((reply) => !reply.ok)).toBe(true)
+  expect(phone.replies.some((reply) => reply.id === forgedId)).toBe(false)
 
   await daemon.stop()
   daemon = undefined

@@ -40,6 +40,8 @@ export interface PhoneBridgeOptions {
   now: () => number
   send(conn: number, data: string): void
   reached(phoneId: string): void
+  candidate(pairing: string, relayKey: string): void
+  pairingAnswered(pairing: string): void
 }
 
 export interface PhoneBridge {
@@ -100,13 +102,20 @@ export function createPhoneBridge(options: PhoneBridgeOptions): PhoneBridge {
         options.send(conn, seal(message, senderKey, keys.box))
       }
 
+      if (pairings.candidate(opened.from) && header.type !== 'pair-status') return
+
       if (header.type === 'pair') {
         const pair = request(opened.message)
         if (pair?.type !== 'pair') return reply({ code: 'bad-request' })
-        const result = pairings.take(pair, opened.from, keys.box.publicKey)
-        return reply(
-          result.ok ? { body: { state: 'waiting', code: result.code } } : { code: result.code },
+        const result = pairings.take(
+          pair,
+          opened.from,
+          keys.box.publicKey,
+          (relayKey) => phones.byRelayKey(relayKey) !== undefined,
         )
+        if (!result.ok) return reply({ code: result.code })
+        options.candidate(pair.pairing, result.relayKey)
+        return reply({ body: { state: 'waiting', code: result.code } })
       }
 
       const paired = phones.byKey(opened.from)
@@ -115,11 +124,15 @@ export function createPhoneBridge(options: PhoneBridgeOptions): PhoneBridge {
         if (problem) return reply({ code: problem })
         const status = request(opened.message)
         if (status?.type !== 'pair-status') return reply({ code: 'bad-request' })
-        if (paired)
-          return reply({ body: { state: 'approved', mac: await options.routes.macName() } })
-        const state = pairings.status(status.pairing, opened.from)
-        if (state.state === 'approved') return reply({ body: { state: 'expired' } })
-        return reply({ body: state })
+        const known = pairings.status(status.pairing, opened.from)?.state
+        const state =
+          known === undefined || known === 'approved' ? (paired ? 'approved' : 'expired') : known
+        if (state === 'waiting') return reply({ body: { state } })
+        reply({
+          body: state === 'approved' ? { state, mac: await options.routes.macName() } : { state },
+        })
+        options.pairingAnswered(status.pairing)
+        return
       }
 
       if (!paired) return reply({ code: 'not-paired' })

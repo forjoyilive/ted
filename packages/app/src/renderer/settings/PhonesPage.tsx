@@ -286,6 +286,7 @@ export function PhonesPage() {
           ))
         )}
       </SettingsGroup>
+      {phones.value?.pairAgain && <p className={styles.footnote}>Pair your phones again.</p>}
       {list.length > 0 && (
         <p className={styles.footnote}>
           Each phone pairs with one Mac. Removing a phone stops its requests and notifications at

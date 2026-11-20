@@ -1,7 +1,8 @@
-import { createHash } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { type Edition, edition } from './edition.ts'
 import { tedEnv } from './env.ts'
 import {
+  isArray,
   isInteger,
   isObject,
   isOneOf,
@@ -21,8 +22,8 @@ import {
 } from './phone-requests.ts'
 import { RequestValidationError } from './validation.ts'
 
-export const phoneProtocolVersion = 2
-export const minPhoneProtocolVersion = 1
+export const phoneProtocolVersion = 3
+export const minPhoneProtocolVersion = 3
 export const phoneEnvelopeVersion = 1
 export const pairingLinkVersion = 1
 export const pairingLinkPrefix = 'ted-pair:'
@@ -30,6 +31,10 @@ export const pairingLifetimeMs = 5 * 60_000
 export const phoneMessageWindowMs = 120_000
 export const phoneNameMax = 100
 export const phoneRequestIdMax = 200
+export const relayLoginVersion = 2
+export const relayAuthHeader = 'Ted-Relay-Auth'
+export const relayAuthMax = 1_024
+export const relayPhonesMax = 64
 
 export const defaultRelayUrl = 'https://ted-relay.invalid'
 export const devRelayUrl = 'http://127.0.0.1:8787'
@@ -88,6 +93,8 @@ export type PhoneRequest =
       secret: string
       name: string
       edition: Edition
+      relayKey?: string
+      relayProof?: string
     })
   | (PhoneMessageHeader & { type: 'pair-status'; pairing: string })
   | (PhoneMessageHeader & {
@@ -140,14 +147,41 @@ export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
   )
 
 export type RelayToMac =
-  | { t: 'challenge'; nonce: string }
   | { t: 'ready' }
   | { t: 'msg'; conn: number; data: string }
   | { t: 'closed'; conn: number }
+  | { t: 'phones-ok' | 'phones-stale' | 'phones-conflict'; rev: number }
+  | { t: 'pairing-ok' | 'pairing-candidate-ok' | 'pairing-gone' | 'pairing-end-ok'; hash: string }
 
 export type MacToRelay =
-  | { t: 'login'; key: string; sig: string }
   | { t: 'msg'; conn: number; data: string }
+  | { t: 'phones'; rev: number; keys: string[] }
+  | { t: 'pairing'; hash: string; expiresAt: number }
+  | { t: 'pairing-candidate'; hash: string; key: string }
+  | { t: 'pairing-end'; hash: string }
+
+export type RelayLoginMode = 'mac' | 'phone' | 'pairing'
+export type RelayRoute = 'mac' | 'phone' | 'check'
+
+export interface RelayLogin {
+  v: number
+  mode: RelayLoginMode
+  key: string
+  at: number
+  nonce: string
+  sig: string
+  ticket?: string
+}
+
+export interface RelayLoginFields {
+  mode: RelayLoginMode
+  route: RelayRoute
+  host: string
+  channel: string
+  at: number
+  nonce: string
+  ticketHash?: string
+}
 
 export type RelayToPhone = { t: 'msg'; data: string } | { t: 'mac-online' } | { t: 'mac-offline' }
 
@@ -186,6 +220,7 @@ export interface PairedPhone {
 
 export interface PairedPhones {
   phones: PairedPhone[]
+  pairAgain: boolean
 }
 
 export function toBase64Url(bytes: Uint8Array): string {
@@ -204,8 +239,44 @@ export function relayChannel(signPublicKey: Uint8Array): string {
   return toBase64Url(createHash('sha256').update(signPublicKey).digest())
 }
 
-export function relayLoginText(channel: string, nonce: string): string {
-  return `ted-relay-login:v1:${channel}:${nonce}`
+export function relayLoginText(fields: RelayLoginFields): string {
+  const { mode, route, host, channel, at, nonce, ticketHash } = fields
+  return `ted-relay-login:v${relayLoginVersion}:${mode}:${route}:${host}:${channel}:${at}:${nonce}:${ticketHash ?? '-'}`
+}
+
+export function relayAuth(
+  fields: RelayLoginFields & {
+    key: Uint8Array
+    ticket?: Uint8Array
+    sign(text: Uint8Array): Uint8Array
+  },
+): string {
+  const ticketHash = fields.ticket && relayTicketHash(fields.ticket)
+  const text = relayLoginText({ ...fields, ...(ticketHash !== undefined && { ticketHash }) })
+  const login: RelayLogin = {
+    v: relayLoginVersion,
+    mode: fields.mode,
+    key: toBase64Url(fields.key),
+    at: fields.at,
+    nonce: fields.nonce,
+    sig: toBase64Url(fields.sign(new TextEncoder().encode(text))),
+    ...(fields.ticket && { ticket: toBase64Url(fields.ticket) }),
+  }
+  return Buffer.from(JSON.stringify(login), 'utf8').toString('base64url')
+}
+
+export function relayTicket(secret: Uint8Array, channel: string, pairing: string): Uint8Array {
+  return new Uint8Array(
+    createHmac('sha256', secret).update(`ted-relay-pairing:v1:${channel}:${pairing}`).digest(),
+  )
+}
+
+export function relayTicketHash(ticket: Uint8Array): string {
+  return toBase64Url(createHash('sha256').update(ticket).digest())
+}
+
+export function relayKeyProofText(pairing: string, phoneBoxKey: string): string {
+  return `ted-relay-key:v1:${pairing}:${phoneBoxKey}`
 }
 
 export function shortCode(macKey: Uint8Array, phoneKey: Uint8Array, secret: Uint8Array): string {
@@ -301,6 +372,10 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       secret: base64Field(object, 'secret', 32),
       name: phoneName(object),
       edition: read.oneOf(object, 'edition', ['release', 'dev']),
+      ...(object.relayKey !== undefined && { relayKey: base64Field(object, 'relayKey', 32) }),
+      ...(object.relayProof !== undefined && {
+        relayProof: base64Field(object, 'relayProof', 64),
+      }),
     }
   }
   if (type === 'pair-status') {
@@ -359,27 +434,73 @@ export function parseMacReply(value: Untyped): MacReply {
   }
 }
 
+const relayHashAnswers = [
+  'pairing-ok',
+  'pairing-candidate-ok',
+  'pairing-gone',
+  'pairing-end-ok',
+] as const
+const relayListAnswers = ['phones-ok', 'phones-stale', 'phones-conflict'] as const
+
+function isRelayBytes(value: Untyped, length: number): value is string {
+  return isString(value) && fromBase64Url(value, length) !== undefined
+}
+
 export function parseRelayToMac(value: Untyped): RelayToMac | undefined {
   if (!isObject(value)) return undefined
-  if (value.t === 'challenge' && isString(value.nonce))
-    return { t: 'challenge', nonce: value.nonce }
   if (value.t === 'ready') return { t: 'ready' }
   if (value.t === 'msg' && isInteger(value.conn) && isString(value.data)) {
     return { t: 'msg', conn: value.conn, data: value.data }
   }
   if (value.t === 'closed' && isInteger(value.conn)) return { t: 'closed', conn: value.conn }
+  if (isOneOf(value.t, relayListAnswers) && isInteger(value.rev)) {
+    return { t: value.t, rev: value.rev }
+  }
+  if (isOneOf(value.t, relayHashAnswers) && isRelayBytes(value.hash, 32)) {
+    return { t: value.t, hash: value.hash }
+  }
   return undefined
 }
 
 export function parseMacToRelay(value: Untyped): MacToRelay | undefined {
   if (!isObject(value)) return undefined
-  if (value.t === 'login' && isString(value.key) && isString(value.sig)) {
-    return { t: 'login', key: value.key, sig: value.sig }
-  }
   if (value.t === 'msg' && isInteger(value.conn) && isString(value.data)) {
     return { t: 'msg', conn: value.conn, data: value.data }
   }
+  if (value.t === 'phones' && isInteger(value.rev) && value.rev >= 0 && isArray(value.keys)) {
+    const keys = value.keys.filter((key): key is string => isRelayBytes(key, 32))
+    if (keys.length !== value.keys.length || keys.length > relayPhonesMax) return undefined
+    return { t: 'phones', rev: value.rev, keys }
+  }
+  if (!isRelayBytes(value.hash, 32)) return undefined
+  if (value.t === 'pairing' && isInteger(value.expiresAt)) {
+    return { t: 'pairing', hash: value.hash, expiresAt: value.expiresAt }
+  }
+  if (value.t === 'pairing-candidate' && isRelayBytes(value.key, 32)) {
+    return { t: 'pairing-candidate', hash: value.hash, key: value.key }
+  }
+  if (value.t === 'pairing-end') return { t: 'pairing-end', hash: value.hash }
   return undefined
+}
+
+export function parseRelayAuth(text: string): RelayLogin {
+  if (text.length > relayAuthMax) {
+    throw new ParseError('login', `the login is longer than ${relayAuthMax} characters`)
+  }
+  const bytes = fromBase64Url(text)
+  const object = read.object(bytes && parseJson(Buffer.from(bytes).toString('utf8')), 'login')
+  const mode = read.oneOf(object, 'mode', ['mac', 'phone', 'pairing'])
+  const login: RelayLogin = {
+    v: read.integer(object, 'v'),
+    mode,
+    key: base64Field(object, 'key', 32),
+    at: read.integer(object, 'at'),
+    nonce: base64Field(object, 'nonce', 16),
+    sig: base64Field(object, 'sig', 64),
+  }
+  if (mode === 'pairing') return { ...login, ticket: base64Field(object, 'ticket', 32) }
+  if (object.ticket !== undefined) throw new ParseError('ticket', 'only pairing mode has a ticket')
+  return login
 }
 
 export function parseRelayToPhone(value: Untyped): RelayToPhone | undefined {
