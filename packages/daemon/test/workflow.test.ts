@@ -397,6 +397,22 @@ describe('layers', () => {
     }
   })
 
+  test('sandbox_network sets the Factory’s network level, and the later layer’s level wins', async () => {
+    const good = factory({ 'workflow.yaml': 'version: 1\nsandbox_network: none\n' })
+    const { settings } = resolveWorkflow([
+      await defaults(),
+      library({ 'workflow.yaml': 'version: 1\nsandbox_network: outbound\n' }),
+      good,
+    ])
+    expect(good.problems).toEqual([])
+    expect(settings.sandbox_network).toBe('none')
+
+    const bad = factory({ 'workflow.yaml': 'version: 1\nsandbox_network: all\n' })
+    expect(bad.problems.map((p) => p.message)).toEqual([
+      '`sandbox_network` must be none, localhost or outbound',
+    ])
+  })
+
   test('Factory notes come from the Factory layer', async () => {
     const workflow = resolveWorkflow([
       await defaults(),
@@ -724,9 +740,9 @@ describe('checking a layer', () => {
     ].join('\n')
     const checked = checkLayer({ kind: 'factory', files: { 'workflow.yaml': yaml } })
     expect(problems({ 'workflow.yaml': yaml })).toEqual([
-      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode, shared-tmp, electron, or socket:<name> for a socket your Library names',
-      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, or socket:<name> for a socket your Library names',
-      'error .ted/workflow.yaml 13 78 `socket:Bad` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 8 25 `sandbox_access` must be a list of access groups: ios-xcode, shared-tmp, electron, network, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 13 37 `android-gradle` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, network, or socket:<name> for a socket your Library names',
+      'error .ted/workflow.yaml 13 78 `socket:Bad` isn’t a sandbox access group. Ted’s groups: ios-xcode, shared-tmp, electron, network, or socket:<name> for a socket your Library names',
       'error .ted/workflow.yaml 22 9 an instruction check runs no command in the sandbox, so it takes no `sandbox_access`',
     ])
     expect(checked.settings.repos?.[0]?.worktree?.setup).toEqual({

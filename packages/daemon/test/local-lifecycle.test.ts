@@ -37,7 +37,7 @@ function backend(program = process.env.TED_SANDBOX_BIN) {
     worktreesDir: path.join(home, 'worktrees'),
     logsDir: path.join(home, 'logs'),
     sandbox: createSandbox({ tedHome: home, env: () => process.env, ...(program && { program }) }),
-    sandboxGrants: async () => ({ sockets: [], reads: [] }),
+    sandboxGrants: async () => ({ sockets: [], reads: [], network: 'localhost' }),
     startCache: async () => {},
     env: () => process.env,
   })

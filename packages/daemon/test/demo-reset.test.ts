@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 import { portFree } from '../src/apps/apps.ts'
@@ -13,8 +13,13 @@ const original = { ...process.env }
 let home: string | undefined
 let appPids: number[] = []
 
-afterEach(async () => {
+afterEach(async ({ task }) => {
   if (home) {
+    if (task.result?.state === 'fail') {
+      const kept = path.resolve('node_modules/.cache/ted-test-captures', path.basename(home))
+      await cp(path.join(home, 'logs'), kept, { recursive: true }).catch(() => undefined)
+      console.error(`demo-reset kept the failed test home’s logs in ${kept}`)
+    }
     await stopDaemonIn(home)
     await killAppHosts(home)
     await killRunHosts(home)

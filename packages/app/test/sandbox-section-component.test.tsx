@@ -13,6 +13,7 @@ const view: Pick<
   | 'sandboxSockets'
   | 'sandboxSocketsFrom'
   | 'electronApps'
+  | 'sandboxNetworkFrom'
   | 'repos'
   | 'checks'
 > = {
@@ -151,6 +152,32 @@ test('access groups on Apps, Checks and setup widen the sandbox and link to wher
   expect(links.onOpenChecks).toHaveBeenCalled()
   await user().click(within(rows[1] as HTMLElement).getByRole('button', { name: 'Open Repos' }))
   expect(links.onOpenRepos).toHaveBeenCalled()
+})
+
+test('outbound network for the whole Factory is a row, and the network group says what it opens', async () => {
+  bridge({})
+  render(
+    <SandboxSection
+      view={{
+        ...view,
+        sandboxNetworkFrom: 'factory',
+        checks: [{ was: 0, name: 'E2E', run: 'node e2e.js', sandboxAccess: ['network'] }],
+      }}
+      {...links}
+    />,
+  )
+  expect(
+    await screen.findByText('2 settings widen what sandboxed commands can reach.'),
+  ).toBeTruthy()
+  const rows = within(screen.getByRole('list', { name: 'Sandbox openings' }))
+    .getAllByRole('listitem')
+    .map((row) => row.textContent)
+  expect(rows).toEqual([
+    expect.stringContaining('From sandbox_network: outbound in .ted/workflow.yaml.'),
+    expect.stringContaining('E2E Check has network'),
+  ])
+  expect(rows[0]).toContain('Network for every sandboxed command')
+  expect(rows[1]).toContain('Its commands can connect to any host')
 })
 
 test('shared-tmp on a Check says its commands can reach the shared /tmp', async () => {

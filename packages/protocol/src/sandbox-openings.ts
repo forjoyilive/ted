@@ -4,6 +4,10 @@ import type { AccessHolder, AccessHolderKind } from './sandbox-access.ts'
 import type { NamedSocket, SandboxAccess } from './sandbox-groups.ts'
 import type { LayerKind } from './workflow.ts'
 
+export const networkLevels = ['none', 'localhost', 'outbound'] as const
+export type NetworkLevel = (typeof networkLevels)[number]
+export const defaultNetwork: NetworkLevel = 'localhost'
+
 export interface ElectronApp {
   repo: string
   name: string
@@ -16,6 +20,7 @@ export interface SandboxOpeningsInput {
   sockets: readonly NamedSocket[]
   socketsFrom?: LayerKind
   electronApps: readonly ElectronApp[]
+  networkFrom?: LayerKind
   access?: readonly AccessHolder[]
 }
 
@@ -25,6 +30,7 @@ export type SandboxOpening =
   | { kind: 'pi-unsandboxed'; unsandboxed: true }
   | { kind: 'socket'; unsandboxed: false; socket: string; path: string; from: LayerKind }
   | { kind: 'electron-app'; unsandboxed: false; repo: string; app: string }
+  | { kind: 'network'; unsandboxed: false; from: LayerKind }
   | {
       kind: 'access-group'
       unsandboxed: false
@@ -60,6 +66,9 @@ export function sandboxOpenings(input: SandboxOpeningsInput): SandboxOpening[] {
   }
   for (const { repo, name } of input.electronApps) {
     openings.push({ kind: 'electron-app', unsandboxed: false, repo, app: name })
+  }
+  if (input.networkFrom !== undefined) {
+    openings.push({ kind: 'network', unsandboxed: false, from: input.networkFrom })
   }
   for (const holder of input.access ?? []) {
     for (const group of new Set(holder.groups)) {
