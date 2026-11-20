@@ -28,6 +28,7 @@ export interface AppsArea {
     signal?: string
   }): void
   appStartFailed(input: { taskId: string; repo: string; name: string; problem: string }): void
+  noteAppStarting(taskId: string, app: string | undefined): void
   simulatorShutDown(input: {
     taskId: string
     repo: string
@@ -71,6 +72,7 @@ export function appsArea(ctx: StoreContext): AppsArea {
     commentPosted,
     updatedTask,
     noteActivity,
+    appsStarting,
   } = ctx
   const automationStore = createAutomationStore({
     store,
@@ -115,6 +117,12 @@ export function appsArea(ctx: StoreContext): AppsArea {
         }),
       )
       updatedTask(taskId)
+    },
+    noteAppStarting(taskId, app) {
+      if (appsStarting.get(taskId) === app) return
+      if (app === undefined) appsStarting.delete(taskId)
+      else appsStarting.set(taskId, app)
+      if (taskRow(taskId)) updatedTask(taskId)
     },
     appStartFailed({ taskId, repo, name, problem }) {
       commit(events.appStartFailed({ taskId, repo, name, problem, at: new Date().toISOString() }))

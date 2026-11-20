@@ -525,6 +525,10 @@ export function createApps(options: AppsOptions): Apps {
       ...(live && instance?.url !== undefined && { url: instance.url }),
       ...(instance && { startedAt: instance.startedAt }),
       ...(instance?.builtAt !== undefined && { builtAt: instance.builtAt }),
+      ...(state === 'running' &&
+        isDeviceApp(app) &&
+        instance?.builtAt === undefined &&
+        pool.building(keyOf(taskId, repo, app.name)) && { building: true as const }),
       ...(instance?.startedBy !== undefined && { startedBy: instance.startedBy }),
       ...(ended && { endedAt: ended.at }),
       ...(ended?.code !== undefined && { exitCode: ended.code }),
