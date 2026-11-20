@@ -18,13 +18,25 @@ function harness(taskIds: string[] = []) {
   }
   const tasks = new Map<string, Task>()
   const onDisk: StoredCoordinator[] = []
+  const pending: (() => void)[] = []
+  let holding = false
   const receipts = coordinatorReceipts({
     chat: () => chat,
     save: (next) => {
       chat = next
     },
-    persisted: async () => {
-      onDisk.push(structuredClone(chat))
+    persisted: () => {
+      const saved = structuredClone(chat)
+      if (!holding) {
+        onDisk.push(saved)
+        return Promise.resolve()
+      }
+      return new Promise<void>((resolve) => {
+        pending.push(() => {
+          onDisk.push(saved)
+          resolve()
+        })
+      })
     },
     task: (id) => tasks.get(id),
     snapshot: (t) => ({ stage: t.stage, priority: t.priority, rank: t.rank, childIds: [] }),
@@ -34,7 +46,10 @@ function harness(taskIds: string[] = []) {
     tasks.set(id, task)
     return task
   }
-  return { receipts, tasks, onDisk, addTask, chat: () => chat }
+  const hold = () => {
+    holding = true
+  }
+  return { receipts, tasks, onDisk, pending, hold, addTask, chat: () => chat }
 }
 
 test('a recorded action saves a placeholder first, then the redacted result and the Task after', async () => {
@@ -59,6 +74,37 @@ test('a recorded action saves a placeholder first, then the redacted result and 
   })
   expect(h.onDisk.at(-1)?.receipts).toEqual([receipt])
   expect(h.chat().taskIds).toEqual(['task-1'])
+})
+
+test('an action starts only once its placeholder is on disk, and returns only once its result is', async () => {
+  const h = harness()
+  h.hold()
+  const task = h.addTask('task-1')
+  let started = false
+  let finished = false
+  const recording = h.receipts
+    .record(
+      'chat-1',
+      { id: 'op-1', operation: 'start', fingerprint: 'f1', task },
+      async () => {
+        started = true
+        return 'Started TASK-1'
+      },
+      () => 'never',
+    )
+    .then((result) => {
+      finished = true
+      return result
+    })
+  await expect.poll(() => h.pending.length).toBe(1)
+  expect(started).toBe(false)
+  h.pending.shift()?.()
+  await expect.poll(() => h.pending.length).toBe(1)
+  expect(started).toBe(true)
+  expect(finished).toBe(false)
+  h.pending.shift()?.()
+  await recording
+  expect(h.onDisk.map((c) => c.receipts[0]?.text)).toEqual([interrupted.task, 'Started TASK-1'])
 })
 
 test('an action that throws leaves its “Couldn’t …” receipt and returns the error', async () => {
