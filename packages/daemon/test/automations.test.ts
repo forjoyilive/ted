@@ -973,6 +973,33 @@ describe('Automations', () => {
     }, 'Tasks a Task Lead filed to start on their own, but not a follow-up of a deleted follow-up')
   }, 90_000)
 
+  test('a screenshot a Task Lead attaches to a Task it files reaches that Task’s Task Lead', async () => {
+    const client = await startTed()
+    const shot = path.join(scratch, 'narrow-pane.png')
+    await writeFile(shot, 'narrow')
+    const childTitle = steps({ endTurn: true }, { everyMessage: [{ endTurn: true }] })
+    const task = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      start: true,
+      title: steps(
+        { run: ['ted', 'task', 'create', '--child', '--attach', shot, childTitle] },
+        { endTurn: true },
+        { everyMessage: [{ endTurn: true }] },
+      ),
+    })
+    const child = await waitUntil(async () => {
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.parentId === task.id)
+      return found?.leadRunId ? found : undefined
+    }, 'the child’s Task Lead to start')
+    expect(child.attachments.map((a) => [a.name, a.mediaType])).toEqual([
+      ['narrow-pane.png', 'image/png'],
+    ])
+    const lead = await client.ok<RunWithConversation>('GET', `/runs/${child.leadRunId}`)
+    expect(lead.run.prompt).toContain(
+      `Attached files:\n- narrow-pane.png: ${path.join(tedPaths(home).attachments, `${child.attachments[0]?.hash}.png`)}`,
+    )
+  })
+
   test('a failed Run is resumed once, then fails with Retry; three failures in a row raise a banner', async () => {
     const client = await startTed()
     await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ resumeFails: true }))
