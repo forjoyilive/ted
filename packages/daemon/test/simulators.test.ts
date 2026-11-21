@@ -264,7 +264,7 @@ describe('iOS simulator Apps', () => {
     const client = await start()
     await addFactory(
       client,
-      'test -d $TED_DERIVED_DATA && echo udid $TED_TASK $TED_SIMULATOR_UDID $TED_DERIVED_DATA; exec sleep 600',
+      'test -d $TED_DERIVED_DATA && echo udid $TED_TASK $TED_SIMULATOR_UDID $TED_DERIVED_DATA && echo TED_APP_READY; exec sleep 600',
     )
     const task = await taskWithWorktree(client)
 
@@ -289,6 +289,7 @@ describe('iOS simulator Apps', () => {
     )
     const taskCache = path.join(await realpath(home), 'sandbox', 'NB-1')
     expect(line).toBe(`udid NB-1 ${clone?.udid} ${taskCache}/cache/xcode/DerivedData`)
+    await waitForApp(client, task, (a) => !!a.builtAt, 'the first iPhone App build to finish')
 
     const slots = await client.ok<SimulatorSlots>('GET', '/simulators')
     expect(slots).toMatchObject({ supported: true, limit: 2 })
@@ -316,6 +317,7 @@ describe('iOS simulator Apps', () => {
       name: 'iPhone',
     })
     expect(again.simulator?.booted).toBe(true)
+    await waitForApp(client, task, (a) => !!a.builtAt, 'the restarted iPhone App build to finish')
     expect((await stubDevices()).filter((d) => d.name === 'Ted Dev NB-1 iPhone')).toHaveLength(1)
 
     await client.ok('POST', `/tasks/${task.id}/archive`)
@@ -335,7 +337,7 @@ describe('iOS simulator Apps', () => {
         )),
       'the Task’s sandbox folder to be removed',
     )
-  })
+  }, 90_000)
 
   test('one simulator App builds at a time: the next waits until the first prints TED_APP_READY, stays listed as waiting across a restart while new work is held, and still waits for that build after the restart', async () => {
     let free = 500e9
@@ -1274,7 +1276,10 @@ describe('iOS simulator Apps', () => {
       )
     await results(3, 'the Audit to open Details and read its screen')
     await results(10, 'the Audit to file the Task with its screenshot')
-    const before = await results(16, 'the Audit to return from Details and finish resizing iPhone')
+    await results(11, 'the Audit to return from Details')
+    await results(13, 'the Audit to resize iPhone to iPhone SE')
+    await results(15, 'the Audit to recover from the failed iPhone 6 resize')
+    const before = await results(16, 'the Audit to reset iPhone to iPhone 17')
     const refused = await client.call('POST', `/runs/${runId}/apps/device`, {
       action: 'screen',
       app: { name: 'iPhone' },
