@@ -48,6 +48,46 @@ const forms: PhoneForm[] = [
   { type: 'permission', command: 'rm -rf build', cut: false },
   { type: 'signoff', stage: 'Review', brief: '## Goal\n\nShip it.', cut: true },
   {
+    type: 'design',
+    stage: 'Design',
+    brief: '## Goal\n\nOnboarding.',
+    cut: false,
+    design: {
+      summary: 'Three steps.',
+      worthYourEye: ['The skip link', 'Dark mode'],
+      screenshots: [{ image: 'aW1n', caption: 'Step 1 · Welcome' }, { image: 'aW1o' }],
+      figma: { url: 'https://www.figma.com/design/x', label: 'Onboarding v2' },
+      prototype: { name: 'onboarding.html', caption: 'Click through' },
+      video: { name: 'flow.mov' },
+      setup: {
+        workflow: [{ stage: 'Clarify', setting: 'few questions' }, { stage: 'Work' }],
+        checks: [
+          {
+            name: 'Tests',
+            command: 'pnpm test',
+            repo: 'app',
+            passed: false,
+            seconds: 41,
+            reason: 'One failed',
+          },
+          { name: 'Lint', command: 'pnpm lint', passed: true, seconds: 3 },
+        ],
+        apps: [
+          { name: 'Web', kind: 'web', run: 'pnpm dev', repo: 'app', passed: true, reason: 'Up' },
+          { name: 'CLI', kind: 'command', passed: false },
+        ],
+        agents: [{ name: 'Reviewer', about: 'Reads the diff' }],
+        worktree: [
+          { repo: 'app', step: 'setup', access: ['network'] },
+          { step: 'teardown', access: [] },
+        ],
+        files: [{ path: '.ted/workflow.yaml', about: 'The Workflow' }],
+        defaults: 'Stages as they are.',
+      },
+    },
+  },
+  { type: 'design', stage: 'Design', brief: '', cut: true, design: {} },
+  {
     type: 'proposal',
     title: 'Sharing, in two Tasks',
     summary: 'Owners first.',
@@ -106,6 +146,25 @@ test('every form round-trips, and each refuses a bad field', () => {
     { type: 'round', questions: 'none' },
     { type: 'permission', command: 'ls' },
     { type: 'signoff', stage: 'Review', brief: 3, cut: false },
+    { type: 'design', stage: 'Design', brief: '', cut: false },
+    { type: 'design', stage: 'Design', brief: '', cut: false, design: { worthYourEye: [1] } },
+    { type: 'design', stage: 'Design', brief: '', cut: false, design: { screenshots: [{}] } },
+    { type: 'design', stage: 'Design', brief: '', cut: false, design: { figma: { label: 'x' } } },
+    { type: 'design', stage: 'Design', brief: '', cut: false, design: { video: { caption: 'x' } } },
+    {
+      type: 'design',
+      stage: 'Design',
+      brief: '',
+      cut: false,
+      design: { setup: { checks: [{ name: 'T', command: 'c', passed: true, seconds: 1.5 }] } },
+    },
+    {
+      type: 'design',
+      stage: 'Design',
+      brief: '',
+      cut: false,
+      design: { setup: { worktree: [{ step: 'later', access: [] }] } },
+    },
     { type: 'proposal', title: 'T', summary: 'S', rows: [{ title: 'R', scope: 'S' }] },
     {
       type: 'proposal',
@@ -126,9 +185,13 @@ test('every form round-trips, and each refuses a bad field', () => {
   }
 })
 
-test('a detail is a summary with body, cut, attachments and form', () => {
+test('a detail is a summary with body, cut, attachments, images and form', () => {
   expect(parsePhoneRequestDetail(detail)).toEqual(detail)
+  const withImages = { ...detail, images: [{ image: 'aW1n', caption: 'sidebar.png' }] }
+  expect(parsePhoneRequestDetail(withImages)).toEqual(withImages)
   for (const [field, value] of [
+    ['images', [{ caption: 'no id' }]],
+    ['images', 'none'],
     ['body', 1],
     ['cut', 'no'],
     ['attachments', 1.5],
@@ -207,6 +270,7 @@ test('one list decides which requests the phone may answer, with a reason for th
     ['permission', task({ kind: 'permission', purpose: { kind: 'permission' } })],
     ['signoff', task({ kind: 'signoff', purpose: { kind: 'gate' } })],
     ['proposal', task({ kind: 'proposal', purpose: { kind: 'proposal' } })],
+    ['design review', task({ kind: 'review', purpose: { kind: 'gate' } })],
     ['failure decision', task({ kind: 'question', purpose: { kind: 'failure' } })],
     ['failed Run', task({ kind: 'question', purpose: { kind: 'failed-run' } })],
     ['stuck CI', task({ kind: 'question', purpose: { kind: 'ci-stuck' } })],
@@ -229,7 +293,6 @@ test('one list decides which requests the phone may answer, with a reason for th
     expect(phoneAnswerability(subject), name).toEqual({ onPhone: true })
 
   const onMac: [string, PhoneAnswerSubject, RegExp][] = [
-    ['design review', task({ kind: 'review', purpose: { kind: 'gate' } }), /design review/],
     ['simulator', task({ kind: 'permission', purpose: { kind: 'simulator' } }), /simulator/],
     ['move', task({ kind: 'question', purpose: { kind: 'move' } }), /Factory/],
     ['Linear team', task({ kind: 'question', purpose: { kind: 'linear-team' } }), /team/],

@@ -1,8 +1,10 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createHash, randomBytes } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type AnswerRequest,
+  type Attachment,
   type Automation,
   type AutomationDetail,
   type Banner,
@@ -17,19 +19,23 @@ import {
   type PhoneRequestSummary,
   type Plan,
   type PlanDetail,
+  parsePhoneImageBody,
   parsePhoneProblemsBody,
   parsePhoneRequestBody,
   parsePhoneRequestsBody,
+  phoneImagePartBytes,
   phoneProblemFactoryMax,
   phoneProblemsMax,
   phoneProblemTextMax,
   phoneReplyBodyMax,
   readDaemonInfo,
   type Task,
+  tedPaths,
 } from '@ted/protocol'
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { phoneImageId } from '../src/phones/images.ts'
 import { phoneProblems } from '../src/phones/problems.ts'
 import type { PushMessage } from '../src/phones/push.ts'
 import type { NewComment, TedStore } from '../src/store/index.ts'
@@ -57,6 +63,7 @@ let factory: Factory
 let phone: TestPhone
 const phones: TestPhone[] = []
 const pushed: PushMessage[] = []
+const shrunk: string[] = []
 
 const ok = async <T>(method: string, route: string, body?: JsonObject): Promise<T> => {
   const res = await http.call(method, route, body)
@@ -84,6 +91,12 @@ beforeAll(async () => {
           pushed.push(message)
           return { kind: 'sent' }
         },
+      },
+      async shrinkImage(input, output) {
+        shrunk.push(input)
+        const bytes = await readFile(input)
+        if (bytes.subarray(0, 6).toString() === 'broken') throw new Error('sips: not an image')
+        await writeFile(output, bytes)
       },
     },
     wrap: {
@@ -216,7 +229,7 @@ test('the phone lists what the desktop Inbox waits on, newest first, without sno
     createdAt: first.createdAt,
     onPhone: true,
   })
-  expect(requests.find((r) => r.id === review.id)).toMatchObject({ kind: 'review', onPhone: false })
+  expect(requests.find((r) => r.id === review.id)).toMatchObject({ kind: 'review', onPhone: true })
   expect(await opened(first.id)).toMatchObject({
     body: 'Which repo?',
     cut: false,
@@ -362,14 +375,8 @@ test('each answerable Task request answered from the phone ends as the desktop a
   expect(answerOf(archive.pocket.id)).toEqual(answerOf(archive.desk.id))
 }, 60_000)
 
-test('a design review and a move request stay on the Mac, and the phone can’t answer them', async () => {
+test('a move request stays on the Mac, and the phone can’t answer it', async () => {
   const task = await newTask('Mac-only requests')
-  const review = ask(task.id, {
-    kind: 'review',
-    title: 'Design review',
-    body: 'Look at the screenshots.',
-    gate: { approveLabel: 'Approve' },
-  })
   const move = ask(task.id, {
     kind: 'question',
     title: 'Move to another Factory?',
@@ -377,17 +384,277 @@ test('a design review and a move request stay on the Mac, and the phone can’t 
     choices: ['Move', 'Keep it'],
     move: { factoryId: factory.id, reason: 'Wrong repo', askedBy: 'task-lead' },
   })
-  const summaries = (await listed()).requests
-  for (const id of [review.id, move.id]) {
-    expect(summaries.find((r) => r.id === id)?.onPhone).toBe(false)
-    expect((await opened(id)).form).toMatchObject({ type: 'mac', reason: expect.any(String) })
-  }
-  expect(failure(await phone.answer(review.id, { action: 'approve' }))).toBe('answer-on-mac')
+  expect((await listed()).requests.find((r) => r.id === move.id)?.onPhone).toBe(false)
+  expect((await opened(move.id)).form).toMatchObject({ type: 'mac', reason: expect.any(String) })
   expect(failure(await phone.answer(move.id, { action: 'answer', choice: 'Keep it' }))).toBe(
     'answer-on-mac',
   )
-  expect(store.getComment(review.id)?.answer).toBeUndefined()
   expect(store.getComment(move.id)?.answer).toBeUndefined()
+})
+
+async function attach(name: string, bytes: Buffer, mediaType = 'image/png'): Promise<Attachment> {
+  const hash = createHash('sha256').update(bytes).digest('hex')
+  const dir = tedPaths(home).attachments
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, `${hash}${path.extname(name)}`), bytes)
+  return { hash, name, size: bytes.length, mediaType }
+}
+
+function image(id: string, part: number) {
+  return phone.send({ type: 'request', route: 'image', image: id, part })
+}
+
+async function sameOutcome(
+  request: Omit<NewComment, 'taskId' | 'author'>,
+  title: string,
+  desktop: AnswerRequest,
+  fromPhone: PhoneAnswer,
+) {
+  const pair = await twins(request, title)
+  expect((await opened(pair.pocket.id)).onPhone, title).toBe(true)
+  const desk = await client.answerRequest(pair.desk.id, desktop).then(
+    () => undefined,
+    (error: Error) => error.message,
+  )
+  const reply = await phone.answer(pair.pocket.id, fromPhone)
+  if (desk === undefined) {
+    expect(reply, title).toMatchObject({ ok: true, body: { answered: true } })
+    expect(answerOf(pair.pocket.id), title).toEqual(answerOf(pair.desk.id))
+  } else {
+    expect(failure(reply), `${title}: ${desk}`).toBe('refused')
+    expect(store.getComment(pair.pocket.id)?.answer, title).toBeUndefined()
+  }
+  return pair
+}
+
+test('a design review opens on the phone with its design, setup and images, and is answered as on the Mac', async () => {
+  const shot = await attach('step-1.png', randomBytes(2_000))
+  const prototype = await attach('onboarding.html', Buffer.from('<html></html>'), 'text/html')
+  const extra = await attach('extra.png', randomBytes(1_000))
+  const notes = await attach('notes.txt', Buffer.from('notes'), 'text/plain')
+  const task = await newTask('Onboarding design')
+  store.writeBrief({ taskId: task.id, text: '## Goal\n\nA friendlier start.' })
+  const review = ask(task.id, {
+    kind: 'review',
+    title: 'Design review',
+    body: 'Onboarding\n\nThree steps.',
+    gate: { approveLabel: 'Approve' },
+    attachments: [shot, prototype, extra, notes],
+    design: {
+      summary: 'Three steps.',
+      worthYourEye: ['The skip link'],
+      screenshots: [{ hash: shot.hash, name: shot.name, caption: 'Step 1 · Welcome' }],
+      prototype: { hash: prototype.hash, name: prototype.name },
+      figma: { url: 'https://www.figma.com/design/abc', label: 'Onboarding v2' },
+      setup: {
+        workflow: [{ stage: 'clarify', setting: 'few questions' }],
+        checks: [{ name: 'Tests', command: 'pnpm test', passed: false, durationMs: 41_400 }],
+        apps: [],
+        agents: [
+          {
+            id: 'reviewer',
+            name: 'Reviewer',
+            about: 'Reads the diff',
+            powers: [],
+            instructions: 'Read it.',
+          },
+        ],
+        worktree: [{ repo: 'app', step: 'setup', sandboxAccess: ['network'] }],
+        files: [{ path: '.ted/workflow.yaml', about: 'The Workflow' }],
+      },
+    },
+  })
+  expect((await listed()).requests.find((r) => r.id === review.id)).toMatchObject({
+    kind: 'review',
+    onPhone: true,
+  })
+  const shown = await opened(review.id)
+  expect(shown).toMatchObject({
+    kind: 'review',
+    onPhone: true,
+    cut: false,
+    attachments: 1,
+    images: [{ image: phoneImageId(review.id, extra.hash), caption: 'extra.png' }],
+    form: {
+      type: 'design',
+      stage: expect.any(String),
+      brief: '## Goal\n\nA friendlier start.',
+      cut: false,
+      design: {
+        summary: 'Three steps.',
+        worthYourEye: ['The skip link'],
+        screenshots: [{ image: phoneImageId(review.id, shot.hash), caption: 'Step 1 · Welcome' }],
+        figma: { url: 'https://www.figma.com/design/abc', label: 'Onboarding v2' },
+        prototype: { name: 'onboarding.html' },
+      },
+    },
+  })
+  expect(shown.form.type === 'design' && shown.form.design.setup).toEqual({
+    workflow: [{ stage: 'Clarify', setting: 'few questions' }],
+    checks: [{ name: 'Tests', command: 'pnpm test', passed: false, seconds: 41 }],
+    agents: [{ name: 'Reviewer', about: 'Reads the diff' }],
+    worktree: [{ repo: 'app', step: 'setup', access: ['network'] }],
+    files: [{ path: '.ted/workflow.yaml', about: 'The Workflow' }],
+  })
+  const screenshot = shown.form.type === 'design' ? shown.form.design.screenshots?.[0] : undefined
+  const reply = await image(screenshot?.image ?? '', 0)
+  expect(reply.ok && parsePhoneImageBody(reply.body)).toMatchObject({ parts: 1, part: 0 })
+
+  const design = { summary: 'Plain.', worthYourEye: ['Colours'] }
+  await sameOutcome(
+    {
+      kind: 'review',
+      title: 'Design review',
+      body: 'Plain.',
+      gate: { approveLabel: 'Approve' },
+      design,
+    },
+    'A design review sent back',
+    { action: 'request-changes', text: 'Bigger buttons' },
+    { action: 'request-changes', text: 'Bigger buttons' },
+  )
+  await sameOutcome(
+    {
+      kind: 'review',
+      title: 'Design review',
+      body: 'Plain.',
+      gate: { approveLabel: 'Approve' },
+      design,
+    },
+    'A design review approved',
+    { action: 'approve' },
+    { action: 'approve' },
+  )
+  await sameOutcome(
+    {
+      kind: 'review',
+      title: 'Setup proposal',
+      body: 'Setup.',
+      gate: { approveLabel: 'Approve' },
+      design: {
+        setup: {
+          workflow: [],
+          checks: [],
+          apps: [],
+          files: [],
+          agents: [
+            { id: 'reviewer', name: 'Reviewer', about: 'Reads', powers: [], instructions: 'Read.' },
+          ],
+        },
+      },
+    },
+    'A Setup proposal approved',
+    { action: 'approve' },
+    { action: 'approve' },
+  )
+}, 60_000)
+
+test('a design review too long for one reply cuts the brief, then the points worth your eye, then the summary', async () => {
+  const line = 'Look closely at the spacing between the cards. '
+  const task = await newTask('A long design')
+  store.writeBrief({ taskId: task.id, text: `## Goal\n\n${line.repeat(1_000)}` })
+  const review = (design: NonNullable<NewComment['design']>) =>
+    ask(task.id, {
+      kind: 'review',
+      title: 'Design review',
+      body: 'Short.',
+      gate: { approveLabel: 'Approve' },
+      design,
+    })
+  const fits = async (id: string) => {
+    const reply = await phone.request(id)
+    expect(Buffer.byteLength(JSON.stringify(reply.ok && reply.body))).toBeLessThanOrEqual(
+      phoneReplyBodyMax,
+    )
+    const shown = await opened(id)
+    if (shown.form.type !== 'design') throw new Error(`form is ${shown.form.type}`)
+    return shown.form
+  }
+
+  const briefOnly = await fits(review({ summary: 'Small.', worthYourEye: ['One point'] }).id)
+  expect(briefOnly.cut).toBe(true)
+  expect(briefOnly.brief.length).toBeGreaterThan(0)
+  expect(briefOnly.design).toEqual({ summary: 'Small.', worthYourEye: ['One point'] })
+
+  const points = Array.from({ length: 1_200 }, (_, n) => `${n}. ${line}`)
+  const manyPoints = await fits(review({ summary: 'Small.', worthYourEye: points }).id)
+  expect(manyPoints).toMatchObject({ cut: true, brief: '', design: { summary: 'Small.' } })
+  expect(manyPoints.design.worthYourEye?.length).toBeGreaterThan(0)
+  expect(manyPoints.design.worthYourEye?.length).toBeLessThan(points.length)
+  expect(manyPoints.design.worthYourEye?.[0]).toBe(points[0])
+
+  const summary = line.repeat(1_200)
+  const all = await fits(review({ summary, worthYourEye: points }).id)
+  expect(all).toMatchObject({ cut: true, brief: '' })
+  expect(all.design.worthYourEye).toBeUndefined()
+  expect(all.design.summary?.length).toBeGreaterThan(0)
+  expect(summary.startsWith(all.design.summary ?? 'x')).toBe(true)
+})
+
+test('a request’s image attachments load through the image route in parts, and nothing else does', async () => {
+  const big = randomBytes(phoneImagePartBytes * 2 + 500)
+  const photo = await attach('before.png', big)
+  const broken = await attach('broken.png', Buffer.from('broken image'))
+  const notes = await attach('notes.txt', Buffer.from('notes'), 'text/plain')
+  const task = await newTask('Pictures')
+  const question = ask(task.id, {
+    kind: 'question',
+    body: 'Which looks better?',
+    choices: ['Before', 'After'],
+    attachments: [photo, broken, notes],
+  })
+  const shown = await opened(question.id)
+  expect(shown).toMatchObject({
+    attachments: 1,
+    images: [
+      { image: expect.any(String), caption: 'before.png' },
+      { image: expect.any(String), caption: 'broken.png' },
+    ],
+  })
+  const [first, second] = shown.images ?? []
+  const id = first?.image ?? ''
+  expect(id.length).toBeLessThanOrEqual(200)
+
+  const before = shrunk.length
+  const [zero, one] = await Promise.all([image(id, 0), image(id, 1)])
+  expect(shrunk.length - before).toBe(1)
+  const two = await image(id, 2)
+  const bodies = [zero, one, two].map((reply) => {
+    if (!reply.ok) throw new Error(`image failed: ${reply.error.code}`)
+    expect(Buffer.byteLength(JSON.stringify(reply.body))).toBeLessThanOrEqual(phoneReplyBodyMax)
+    return parsePhoneImageBody(reply.body)
+  })
+  expect(bodies.map((body) => [body.mediaType, body.parts, body.part])).toEqual([
+    ['image/jpeg', 3, 0],
+    ['image/jpeg', 3, 1],
+    ['image/jpeg', 3, 2],
+  ])
+  expect(Buffer.concat(bodies.map((body) => Buffer.from(body.data, 'base64url')))).toEqual(big)
+  expect(shrunk.length - before).toBe(1)
+
+  expect(failure(await image(id, 3))).toBe('bad-request')
+  expect(failure(await phone.send({ type: 'request', route: 'image', image: id, part: -1 }))).toBe(
+    'bad-request',
+  )
+  expect(await image(second?.image ?? '', 0)).toMatchObject({
+    ok: false,
+    error: {
+      code: 'refused',
+      message: 'This image can’t be shown on your phone. Open it on your Mac.',
+    },
+  })
+
+  const other = ask(task.id, { kind: 'note', body: 'Unrelated' })
+  for (const unknown of [
+    'nope',
+    phoneImageId(other.id, photo.hash) ?? '',
+    phoneImageId(question.id, notes.hash) ?? '',
+    phoneImageId(question.id, 'a'.repeat(64)) ?? '',
+  ]) {
+    expect(failure(await image(unknown, 0)), unknown).toBe('gone')
+  }
+  store.archiveTask(task.id)
+  expect(failure(await image(id, 0))).toBe('gone')
 })
 
 test('a request answered on the Mac is gone for the phone, and a refused answer says why', async () => {
