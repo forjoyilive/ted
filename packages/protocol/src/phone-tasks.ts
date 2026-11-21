@@ -163,11 +163,11 @@ export interface PhoneCommentsCursor {
 
 const read = reader()
 
-function encodeCursor(value: Json): string {
+export function encodePhoneCursor(value: Json): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
 }
 
-function cursorParts(text: string): JsonArray | undefined {
+export function phoneCursorParts(text: string): JsonArray | undefined {
   if (text.length === 0 || text.length > phoneCursorMax || !/^[A-Za-z0-9_-]+$/.test(text)) {
     return undefined
   }
@@ -182,7 +182,7 @@ function shortText(value: Json | undefined): value is string {
 }
 
 export function encodeTasksCursor(cursor: PhoneTasksCursor): string {
-  return encodeCursor([
+  return encodePhoneCursor([
     cursor.section,
     cursor.priority,
     cursor.rank,
@@ -192,7 +192,7 @@ export function encodeTasksCursor(cursor: PhoneTasksCursor): string {
 }
 
 export function parseTasksCursor(text: string): PhoneTasksCursor | undefined {
-  const parts = cursorParts(text)
+  const parts = phoneCursorParts(text)
   if (parts?.length !== 5) return undefined
   const [section, priority, rank, createdAt, taskId] = parts
   if (!isInteger(section) || section < 0) return undefined
@@ -203,11 +203,11 @@ export function parseTasksCursor(text: string): PhoneTasksCursor | undefined {
 }
 
 export function encodeCommentsCursor(cursor: PhoneCommentsCursor): string {
-  return encodeCursor([cursor.createdAt, cursor.id])
+  return encodePhoneCursor([cursor.createdAt, cursor.id])
 }
 
 export function parseCommentsCursor(text: string): PhoneCommentsCursor | undefined {
-  const parts = cursorParts(text)
+  const parts = phoneCursorParts(text)
   if (parts?.length !== 2) return undefined
   const [createdAt, id] = parts
   if (!shortText(createdAt) || !shortText(id)) return undefined

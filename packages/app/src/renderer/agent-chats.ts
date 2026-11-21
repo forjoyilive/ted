@@ -1,15 +1,15 @@
-import type { ChatRequestKind, Coordinator, CoordinatorChatSummary, Plan } from '@ted/protocol'
+import type { Coordinator, CoordinatorChatSummary, Plan } from '@ted/protocol'
+import {
+  chatArchivedLabel,
+  chatWaitingLabel,
+  coordinatorStatusLabels,
+  planWaiting,
+} from '@ted/protocol/agent-chat-view'
 import { useCallback, useState } from 'react'
 import type { StatusGlyph, StatusTone } from './components/StatusChip.tsx'
 import { planEnded, planStatusChip, planTasksLabel } from './plans.ts'
 
-export const chatRequestLabels: Readonly<Record<ChatRequestKind, string>> = {
-  question: 'Question',
-  round: 'Round',
-  proposal: 'Proposal',
-  agent: 'Agent draft',
-  'outside-command': 'Outside command',
-}
+export { chatRequestLabels } from '@ted/protocol/agent-chat-view'
 
 export type AgentChatRef = { agent: 'coordinator'; id: string } | { agent: 'planner'; id: string }
 
@@ -113,14 +113,14 @@ export const coordinatorStatus: Record<
   Coordinator['status'],
   { label: string; tone: StatusTone; glyph?: StatusGlyph }
 > = {
-  ready: { label: 'Ready', tone: 'neutral' },
-  queued: { label: 'Queued', tone: 'neutral', glyph: 'queued' },
-  working: { label: 'Working', tone: 'working', glyph: 'working' },
-  paused: { label: 'Paused', tone: 'neutral', glyph: 'paused' },
-  failed: { label: 'Failed', tone: 'failed', glyph: 'failed' },
+  ready: { label: coordinatorStatusLabels.ready, tone: 'neutral' },
+  queued: { label: coordinatorStatusLabels.queued, tone: 'neutral', glyph: 'queued' },
+  working: { label: coordinatorStatusLabels.working, tone: 'working', glyph: 'working' },
+  paused: { label: coordinatorStatusLabels.paused, tone: 'neutral', glyph: 'paused' },
+  failed: { label: coordinatorStatusLabels.failed, tone: 'failed', glyph: 'failed' },
 }
 
-const archivedChip = { label: 'Archived', tone: 'neutral' as const }
+const archivedChip = { label: chatArchivedLabel, tone: 'neutral' as const }
 
 function coordinatorRow(chat: CoordinatorChatSummary): AgentChatRow {
   const archived = chat.endedAt !== undefined
@@ -137,7 +137,7 @@ function coordinatorRow(chat: CoordinatorChatSummary): AgentChatRow {
   }
 }
 
-const waitingChip = { label: 'Waiting on you', tone: 'waiting' as const, glyph: 'waiting' as const }
+const waitingChip = { label: chatWaitingLabel, tone: 'waiting' as const, glyph: 'waiting' as const }
 
 function planRow(plan: Plan): AgentChatRow {
   const archived = plan.archivedAt !== undefined
@@ -147,7 +147,7 @@ function planRow(plan: Plan): AgentChatRow {
     title: plan.title,
     chip: archived ? archivedChip : planStatusChip(plan),
     lastAt: plan.lastAt,
-    waiting: !archived && (plan.status === 'waiting' || plan.openRequest === true),
+    waiting: planWaiting(plan),
     ...(plan.archivedAt !== undefined && { archivedAt: plan.archivedAt }),
     meta: plan.fromTask
       ? `From ${plan.fromTask.displayId}`

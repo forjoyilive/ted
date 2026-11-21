@@ -1,5 +1,7 @@
 import type { ChatItem, ConversationTab, Task } from '@ted/protocol'
 
+export { conversationRows } from '@ted/protocol/agent-chat-view'
+
 type TabTask = Pick<Task, 'tabs'> & Partial<Pick<Task, 'runs' | 'leadRunId'>>
 
 export function taskConversationTabs(task: TabTask, selected?: string): ConversationTab[] {
@@ -18,32 +20,6 @@ export function taskConversationTabs(task: TabTask, selected?: string): Conversa
     if (tab.state !== 'finished' || tab.runId === selected) tabs.set(tab.runId, tab)
   }
   return [...tabs.values()]
-}
-
-export function conversationRows<T extends { at: string }>(
-  items: readonly ChatItem[],
-  extra: readonly T[],
-  startedAt: string,
-): ({ item: ChatItem } | { extra: T })[] {
-  let lastAt = startedAt
-  const rows = items.map((item) => {
-    if (item.at !== undefined && item.at > lastAt) lastAt = item.at
-    return { item, at: lastAt, queued: item.kind === 'human' && item.queued === true }
-  })
-  const additions = [...extra].sort((a, b) => a.at.localeCompare(b.at))
-  const merged: ({ item: ChatItem } | { extra: T })[] = []
-  let index = 0
-  for (const row of rows) {
-    while (index < additions.length) {
-      const added = additions[index]
-      if (!added || (!row.queued && added.at >= row.at)) break
-      merged.push({ extra: added })
-      index++
-    }
-    merged.push({ item: row.item })
-  }
-  for (const added of additions.slice(index)) merged.push({ extra: added })
-  return merged
 }
 
 export function conversationInStage(
