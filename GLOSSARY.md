@@ -144,6 +144,9 @@ _Avoid_: preview server, environment
 The one place to look at a Task’s work: the hosted preview its pull request reports, or else its running App.
 _Avoid_: Demo, staging
 
+**Paired preview**:
+An isolated desktop App and local relay Ted starts before an iOS simulator App so the Task Lead can verify screens that need a paired Mac in Validate. A Task with only the phone repo gets a desktop checkout from the default branch without adding that repo to the Task. Stopping the phone App also stops these dependencies and removes their scratch storage.
+
 **Library**:
 A user’s own Stage files and Workflow settings, which apply to all of that user’s Factories; they override Ted’s defaults and are overridden by a Factory’s own files.
 _Avoid_: Templates, presets
