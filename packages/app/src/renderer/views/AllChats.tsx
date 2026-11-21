@@ -208,7 +208,11 @@ export function AllChats({
         </Button>
       </header>
       <div className={views.body}>
-        {!loaded && <Skeleton label="Loading chats…" />}
+        {!loaded && (
+          <div className={styles.loading}>
+            <Skeleton label="Loading chats…" />
+          </div>
+        )}
         {error !== undefined && <LoadingError error={error} retry={chats.retry} />}
         {view.grouping === 'None'
           ? open.map(renderRow)

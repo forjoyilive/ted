@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import {
   mkdir,
   mkdtemp,
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -24,6 +26,7 @@ import {
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { parse } from 'yaml'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import type { LibraryWatchOptions } from '../src/library-watch.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
   api,
@@ -69,13 +72,16 @@ function blobHash(text: string): string {
     .slice(0, 7)
 }
 
-async function start(options: { healthCheck?: boolean; codex?: boolean } = {}) {
+async function start(
+  options: { healthCheck?: boolean; codex?: boolean; libraryWatch?: LibraryWatchOptions } = {},
+) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: options.codex ? stubCodexPath : path.join(scratch, 'no-codex-here'),
     ...(options.healthCheck && { checkAgentsOnStart: true }),
+    ...(options.libraryWatch && { libraryWatch: options.libraryWatch }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -404,6 +410,54 @@ describe('Library settings', () => {
       expect(events.filter((e) => e.type === 'library-changed')).toEqual([
         { type: 'library-changed', version: fixed.version },
       ])
+    } finally {
+      subscription.close()
+    }
+  })
+
+  test('external edits refresh an inherited Workflow after the Library watcher fails', async () => {
+    const watcher = new EventEmitter()
+    let watcherClosed = false
+    const client = await start({
+      libraryWatch: {
+        watchDirectory: () => ({
+          on: (event, listener) => watcher.on(event, listener),
+          close: () => {
+            watcherClosed = true
+          },
+        }),
+        pollMs: 20,
+      },
+    })
+    const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'LW' })
+    const route = `/factories/${factory.id}/settings`
+    await waitUntil(async () => (await client.call('GET', route)).status === 200, 'the clone')
+    const design = async () =>
+      (await client.ok<FactorySettingsView>('GET', route)).stages.find((s) => s.id === 'design')
+    expect(await design()).toMatchObject({ from: 'ted' })
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const events: DaemonEvent[] = []
+    const subscription = await appClient(info, daemon?.appToken).subscribe((e) => events.push(e))
+    try {
+      watcher.emit(
+        'error',
+        Object.assign(new Error('too many open files, watch'), { code: 'EMFILE' }),
+      )
+      expect(watcherClosed).toBe(true)
+      await mkdir(path.join(libraryDir(), 'stages'), { recursive: true })
+      const stage = path.join(libraryDir(), 'stages', 'design.md')
+      for (const text of ['# First external edit\n', '# Second external edit\n']) {
+        events.length = 0
+        const pending = path.join(home, 'pending-design.md')
+        await writeFile(pending, text)
+        await rename(pending, stage)
+        await waitUntil(
+          async () => events.some((e) => e.type === 'library-changed') || undefined,
+          'library-changed',
+        )
+        expect(await design()).toMatchObject({ from: 'library', inherited: { text } })
+      }
     } finally {
       subscription.close()
     }
