@@ -37,6 +37,7 @@ import {
   phoneMediaTypeMax,
 } from './phone-files.ts'
 import { type PhoneImageBody, phoneImageIdMax } from './phone-images.ts'
+import type { PhonePlanUsageBody } from './phone-plan-usage.ts'
 import type { PhoneProblemsBody } from './phone-problems.ts'
 import {
   type PhoneAnswer,
@@ -108,6 +109,7 @@ export const phoneRouteNames = [
   'answer',
   'push-token',
   'problems',
+  'plan-usage',
   'problem-dismiss',
   'tasks',
   'task',
@@ -250,6 +252,7 @@ export type PhoneReplyBody =
   | PhoneAnsweredBody
   | PhonePushTokenBody
   | PhoneProblemsBody
+  | PhonePlanUsageBody
   | PhoneTasksBody
   | PhoneTaskBody
   | PhoneTaskCommentsBody
