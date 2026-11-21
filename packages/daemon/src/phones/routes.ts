@@ -41,6 +41,32 @@ export interface PhoneRoute {
   ): Promise<PhoneOutcome>
 }
 
+const createTask: PhoneRoute['handle'] = async (
+  caller,
+  { route, createId, factory, title, description, priority, start, files, overrides },
+  { newTask },
+) => {
+  if (
+    createId === undefined ||
+    factory === undefined ||
+    priority === undefined ||
+    start === undefined ||
+    (route === 'task-create-with-options' && overrides === undefined)
+  ) {
+    return { code: 'bad-request' }
+  }
+  return newTask.create(caller, {
+    createId,
+    factory,
+    ...(title !== undefined && { title }),
+    ...(description !== undefined && { description }),
+    priority,
+    start,
+    ...(files !== undefined && { files }),
+    ...(overrides !== undefined && { overrides }),
+  })
+}
+
 export const phoneRoutes: readonly PhoneRoute[] = [
   {
     name: 'status',
@@ -200,29 +226,13 @@ export const phoneRoutes: readonly PhoneRoute[] = [
       return newTask.factories()
     },
   },
+  { name: 'task-create', handle: createTask },
+  { name: 'task-create-with-options', handle: createTask },
   {
-    name: 'task-create',
-    async handle(
-      caller,
-      { createId, factory, title, description, priority, start, files },
-      { newTask },
-    ) {
-      if (
-        createId === undefined ||
-        factory === undefined ||
-        priority === undefined ||
-        start === undefined
-      )
-        return { code: 'bad-request' }
-      return newTask.create(caller, {
-        createId,
-        factory,
-        ...(title !== undefined && { title }),
-        ...(description !== undefined && { description }),
-        priority,
-        start,
-        ...(files !== undefined && { files }),
-      })
+    name: 'task-create-options',
+    async handle(_, { factory, includePiModels }, { newTask }) {
+      if (factory === undefined) return { code: 'bad-request' }
+      return newTask.options(factory, includePiModels === true)
     },
   },
   {

@@ -249,6 +249,48 @@ test('task-create makes a Backlog Task in the chosen Factory with the given fiel
   expect(reply.task.stage.id).toBe('backlog')
 })
 
+test('New Task options expose Factory defaults and save validated overrides under the same retry key', async () => {
+  const defaults = await client.taskDefaults(notebook.id)
+  expect(
+    await send({ type: 'request', route: 'task-create-options', factory: 'NB' }),
+  ).toMatchObject({
+    ok: true,
+    body: {
+      taskOptions: {
+        clarifyDepth: defaults.clarifyDepth,
+        lead: defaults.lead,
+        providers: expect.arrayContaining([
+          { agent: 'claude', models: expect.arrayContaining(['opus']) },
+        ]),
+      },
+    },
+  })
+  const task = {
+    type: 'request',
+    createId: createId(),
+    factory: 'NB',
+    title: 'Set advanced options',
+    priority: 'none',
+    start: false,
+  } as const
+  expect(
+    await send({
+      ...task,
+      route: 'task-create-with-options',
+      overrides: { lead: { agent: 'claude', model: '--invalid' } },
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+  expect(named(task.title)).toHaveLength(0)
+  const overrides = {
+    clarifyDepth: 'grilling',
+    lead: { agent: 'claude', model: 'sonnet', effort: 'medium', effortMode: 'stage' },
+  } as const
+  const result = created(await send({ ...task, route: 'task-create-with-options', overrides }))
+  expect(store.getTask(result.task.id)).toMatchObject(overrides)
+  expect(created(await send({ ...task, route: 'task-create' })).task.id).toBe(result.task.id)
+  expect(named(task.title)).toHaveLength(1)
+})
+
 test('the same task-create sent again, or twice at once, makes one Task and answers with it', async () => {
   const request = {
     type: 'request',
@@ -346,6 +388,8 @@ test('factories stops before the reply would pass the size limit and cuts long n
   const newTask = createPhoneNewTask(
     {
       factories: () => many,
+      enabledProviders: () => [],
+      piModels: () => Promise.resolve([]),
       defaults: () => Promise.reject(new Error('unused')),
       task: () => undefined,
       create: () => Promise.reject(new Error('unused')),
@@ -378,6 +422,8 @@ test('Start now that finds the Task already started answers without a refusal, a
             createdAt: '2026-11-20T09:00:00.000Z',
           },
         ],
+        enabledProviders: () => [],
+        piModels: () => Promise.resolve([]),
         defaults: () => Promise.resolve({} as TaskDefaults),
         task: () => undefined,
         create: () => Promise.resolve({ id: 't1', displayId: 'NB-1' } as Task),

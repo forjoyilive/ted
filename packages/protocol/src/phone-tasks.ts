@@ -15,7 +15,23 @@ import {
 import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
 import { type PhoneImage, parsePhoneImage } from './phone-images.ts'
 import { type PhoneRequestKind, phoneRequestKinds } from './phone-requests.ts'
-import { type Priority, priorities } from './task.ts'
+import type { AgentKind } from './run.ts'
+import { type ClarifyDepth, type Priority, priorities, type TaskLead } from './task.ts'
+
+export interface PhoneTaskOverrides {
+  clarifyDepth?: ClarifyDepth
+  lead?: TaskLead
+}
+
+export interface PhoneTaskOptionsBody {
+  taskOptions: {
+    clarifyDepth: ClarifyDepth
+    lead: TaskLead
+    providers: { agent: AgentKind; models: string[] }[]
+  }
+}
+
+export const phoneTaskModelsMax = 100
 
 export const phoneTaskGroups = ['status', 'factory', 'stage'] as const
 export type PhoneTaskGroup = (typeof phoneTaskGroups)[number]

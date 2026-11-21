@@ -986,6 +986,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           hierarchyRevision: (ref) => tasks.hierarchy(ref).revision,
         },
         taskCreation: {
+          enabledProviders: () => store.settings().enabledAgents,
+          piModels: () => health.models('pi'),
           factories: () => store.listFactories(),
           defaults: (factoryId) => tasks.defaults(factoryId),
           task: (ref) => store.getTask(ref),

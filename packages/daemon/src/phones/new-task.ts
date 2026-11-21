@@ -1,18 +1,24 @@
 import type {
+  AgentKind,
   Attachment,
   ClarifyDepth,
   Factory,
   PhoneFactory,
+  PhoneTaskOptionsBody,
+  PhoneTaskOverrides,
   Priority,
   Task,
   TaskDefaults,
   TaskLead,
 } from '@ted/protocol'
 import {
+  defaultModelChoices,
+  isModelName,
   phoneFileMissing,
   phoneLabelMax,
   phoneNewTaskPriority,
   phoneReplyBodyMax,
+  phoneTaskModelsMax,
   RequestValidationError,
 } from '@ted/protocol'
 import { AlreadyStartedError, RequestError } from '../errors.ts'
@@ -36,10 +42,13 @@ export interface PhoneNewTaskInput {
   priority: Priority
   start: boolean
   files?: readonly string[]
+  overrides?: PhoneTaskOverrides
 }
 
 export interface PhoneTaskCreation {
   factories(): readonly Pick<Factory, 'id' | 'key' | 'name' | 'icon' | 'position' | 'createdAt'>[]
+  enabledProviders(): readonly AgentKind[]
+  piModels(): Promise<readonly string[]>
   defaults(factoryId: string): Promise<TaskDefaults>
   task(ref: string): Task | undefined
   create(
@@ -65,6 +74,7 @@ export interface PhoneCreatedTasks {
 
 export interface PhoneNewTask {
   factories(): PhoneOutcome
+  options(factoryKey: string, includePiModels: boolean): Promise<PhoneOutcome>
   factoryImage(factoryId: string): PhoneOutcome
   create(caller: PhoneCaller, input: PhoneNewTaskInput): Promise<PhoneOutcome>
 }
@@ -99,8 +109,15 @@ export function createPhoneNewTask(
     }
     let task: Task
     try {
+      if (
+        input.overrides?.lead &&
+        !changes.enabledProviders().includes(input.overrides.lead.agent)
+      ) {
+        return { code: 'refused', message: 'That Provider is off on your Mac.' }
+      }
       const attachments = input.files ? await files.attach(caller.phoneId, input.files) : []
       if (!attachments) return { code: 'refused', message: phoneFileMissing }
+      const overrides = input.overrides
       const defaults = await changes.defaults(factory.id)
       task = await changes.create(
         {
@@ -108,8 +125,8 @@ export function createPhoneNewTask(
           title,
           description: input.description ?? '',
           priority: input.priority,
-          lead: defaults.lead,
-          clarifyDepth: defaults.clarifyDepth,
+          lead: overrides?.lead ?? defaults.lead,
+          clarifyDepth: overrides?.clarifyDepth ?? defaults.clarifyDepth,
           phoneCreate: { phoneId: caller.phoneId, createId: input.createId },
           ...(attachments.length > 0 && { attachments }),
         },
@@ -164,6 +181,31 @@ export function createPhoneNewTask(
         factories.push(entry)
       }
       return { body: { factories } }
+    },
+    async options(factoryKey, includePiModels) {
+      const factory = changes.factories().find((each) => each.key === factoryKey)
+      if (!factory) return { code: 'gone' }
+      const { lead, clarifyDepth } = await changes.defaults(factory.id)
+      const enabled = changes.enabledProviders()
+      const piModels = includePiModels && enabled.includes('pi') ? await changes.piModels() : []
+      const providers = enabled.map((agent) => ({
+        agent,
+        models: [...new Set(agent === 'pi' ? piModels : defaultModelChoices[agent])]
+          .filter((model) => isModelName(model) && redactSecrets(model) === model)
+          .slice(0, phoneTaskModelsMax),
+      }))
+      const { model, ...rest } = lead
+      const body: PhoneTaskOptionsBody = {
+        taskOptions: {
+          clarifyDepth,
+          lead: {
+            ...rest,
+            ...(model && isModelName(model) && redactSecrets(model) === model && { model }),
+          },
+          providers,
+        },
+      }
+      return { body }
     },
     factoryImage(factoryId) {
       return phoneFactoryImage(changes.factories(), factoryId)
