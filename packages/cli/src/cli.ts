@@ -1746,6 +1746,10 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     startTask: async () => {
       const ref = args[0] ?? ''
       const task = await withDaemon(home, (client) => client.startTask(ref))
+      if (task.stage === 'backlog') {
+        console.log(`Queued ${task.displayId} · It’ll start automatically once its blockers clear.`)
+        return
+      }
       console.log(
         task.status?.kind === 'queued'
           ? `Queued ${task.displayId} · ${'place' in task.status ? `${ordinal(task.status.place)} in line for a slot` : task.status.hold}`
