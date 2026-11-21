@@ -12,6 +12,7 @@ import {
 import { displayPath } from './backups.ts'
 import type { Data } from './data.ts'
 import type { DiskWatch } from './disk.ts'
+import { RequestError } from './errors.ts'
 import { isCloning, removeClone } from './factories.ts'
 import { storeFileSizes } from './store/files.ts'
 import type { TedStore } from './store/index.ts'
@@ -25,12 +26,13 @@ export interface Storage {
 const largestShown = 10
 const safeSegment = /^[A-Za-z0-9_.-]+$/
 const walkers = 32
+const measurementTimeoutMs = 30_000
 const partialClone = /\.partial-[0-9a-f]+$/
 
 export function createStorage(options: {
   home: string
-  store: TedStore
-  disk: DiskWatch
+  store: Pick<TedStore, 'listTasks' | 'listFactories'>
+  disk: Pick<DiskWatch, 'check'>
   data: Pick<Data, 'summary'>
   volumeName: () => Promise<string>
   now?: () => number
@@ -38,7 +40,7 @@ export function createStorage(options: {
   const { store, disk } = options
   const now = options.now ?? Date.now
   const paths = tedPaths(options.home)
-  let volume: Promise<string> | undefined
+  let volume: string | undefined
   let saved: StorageSummary | undefined
   let measuring: Promise<StorageSummary> | undefined
   let viewedAt = 0
@@ -86,67 +88,77 @@ export function createStorage(options: {
     )
   }
 
-  async function measure(): Promise<StorageSummary> {
+  async function measure(signal: AbortSignal): Promise<StorageSummary> {
     const measuredAt = new Date(now()).toISOString()
-    const counter = createCounter()
-    const [categories, usedBytes, reading, backups, storeFiles] = await Promise.all([
-      Promise.all(
-        storageCategories.map(async ({ id, label }) => ({
-          id,
-          label,
-          bytes: (await Promise.all(categoryDirs[id].map((dir) => counter.size(dir)))).reduce(
-            (a, b) => a + b,
-            0,
-          ),
-        })),
-      ),
-      diskUsage(paths.home),
+    const [reading, backups, storeFiles, names, removable, volumeName] = await Promise.all([
       disk.check(),
       options.data.summary(),
       storeFileSizes(paths.store),
+      childDirs(paths.worktrees),
+      unusedClones(),
+      volume ?? options.volumeName().catch(() => ''),
     ])
+    signal.throwIfAborted()
+    volume = volumeName
+
+    const totals = new Map<string, UsageTotal>()
+    const home = path.resolve(paths.home)
+    const used = usageTotal()
+    totals.set(home, used)
+    const categoryLinks = new Set<string>()
+    const categories = storageCategories.map(({ id, label }) => {
+      const total = usageTotal(categoryLinks)
+      for (const dir of categoryDirs[id]) totals.set(path.resolve(dir), total)
+      return { id, label, total }
+    })
     const tasks = new Map(store.listTasks().map((t) => [t.displayId, t]))
     const factories = new Map(store.listFactories().map((f) => [f.id, f]))
-    const worktrees: WorktreeUse[] = []
-    for (const name of await childDirs(paths.worktrees)) {
+    const worktrees = names.flatMap((name) => {
       const task = tasks.get(name)
-      if (!task) continue
-      worktrees.push({
-        taskId: task.id,
-        displayId: task.displayId,
-        title: task.title,
-        factoryId: task.factoryId,
-        factoryName: factories.get(task.factoryId)?.name ?? '',
-        bytes: await diskUsage(path.join(paths.worktrees, name)),
-      })
-    }
-    const removable = await unusedClones()
-    volume ??= options.volumeName().catch(() => '')
+      if (!task) return []
+      const total = usageTotal()
+      totals.set(path.resolve(paths.worktrees, name), total)
+      return [{ task, total }]
+    })
+    const cloneTotals = removable.map(({ dir }) => {
+      const total = usageTotal()
+      totals.set(path.resolve(dir), total)
+      return total
+    })
+    const backupTotals = backups.backups.map((backup) => {
+      const total = usageTotal()
+      totals.set(path.resolve(paths.backups, backup.name), total)
+      return { backup, total }
+    })
+    await scanUsage(home, totals, signal)
+
+    const largestWorktrees: WorktreeUse[] = worktrees.map(({ task, total }) => ({
+      taskId: task.id,
+      displayId: task.displayId,
+      title: task.title,
+      factoryId: task.factoryId,
+      factoryName: factories.get(task.factoryId)?.name ?? '',
+      bytes: total.bytes,
+    }))
     return {
       home: `${displayPath(paths.home)}${path.sep}`,
-      usedBytes,
+      usedBytes: used.bytes,
       freeBytes: reading?.freeBytes ?? 0,
-      volume: await volume,
-      categories: categories.sort((a, b) => b.bytes - a.bytes),
-      largestWorktrees: worktrees.sort((a, b) => b.bytes - a.bytes).slice(0, largestShown),
+      volume: volumeName,
+      categories: categories
+        .map(({ id, label, total }) => ({ id, label, bytes: total.bytes }))
+        .sort((a, b) => b.bytes - a.bytes),
+      largestWorktrees: largestWorktrees.sort((a, b) => b.bytes - a.bytes).slice(0, largestShown),
       removableClones: {
         count: removable.length,
-        bytes: (await Promise.all(removable.map(({ dir }) => diskUsage(dir)))).reduce(
-          (a, b) => a + b,
-          0,
-        ),
+        bytes: cloneTotals.reduce((bytes, total) => bytes + total.bytes, 0),
       },
       simulators: { count: 0, bytes: 0 },
-      backups: await Promise.all(
-        backups.backups.map(async (backup) => ({
-          ...backup,
-          bytes: await diskUsage(path.join(paths.backups, backup.name)),
-        })),
-      ),
+      backups: backupTotals.map(({ backup, total }) => ({ ...backup, bytes: total.bytes })),
       backupsDir: `${displayPath(paths.backups)}${path.sep}`,
       storeFiles: {
         ...storeFiles,
-        backupsBytes: categories.find((c) => c.id === 'backups')?.bytes ?? 0,
+        backupsBytes: categories.find((c) => c.id === 'backups')?.total.bytes ?? 0,
       },
       measuredAt,
     }
@@ -155,7 +167,7 @@ export function createStorage(options: {
   function remeasure(): Promise<StorageSummary> {
     if (measuring) return measuring
     const started = generation
-    const run = measure()
+    const run = withMeasurementDeadline(measure)
       .then((summary) => {
         if (started === generation) saved = summary
         return summary
@@ -176,7 +188,7 @@ export function createStorage(options: {
       }
       if (measuring) return measuring
       const kept = saved
-      const reading = await disk.check()
+      const reading = await withMeasurementDeadline(() => disk.check())
       return { ...kept, freeBytes: reading?.freeBytes ?? kept.freeBytes }
     },
     viewed() {
@@ -224,38 +236,67 @@ async function childDirs(dir: string): Promise<string[]> {
   return entries.filter((e) => e.isDirectory() && isSafeSegment(e.name)).map((e) => e.name)
 }
 
-export function diskUsage(dir: string): Promise<number> {
-  return createCounter().size(dir)
+async function withMeasurementDeadline<T>(
+  measure: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController()
+  const deadline = new Promise<never>((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(controller.signal.reason), {
+      once: true,
+    })
+  })
+  const timer = setTimeout(() => {
+    controller.abort(
+      new RequestError(504, 'Storage measurement took too long. Open Storage again to retry.'),
+    )
+  }, measurementTimeoutMs)
+  try {
+    return await Promise.race([measure(controller.signal), deadline])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
-function createCounter() {
-  const seen = new Set<string>()
-  let running = 0
-  const waiting: (() => void)[] = []
+type UsageTotal = { bytes: number; seen: Set<string> }
 
-  async function slot<T>(work: () => Promise<T>): Promise<T> {
-    if (running >= walkers) await new Promise<void>((resolve) => waiting.push(resolve))
-    running++
-    try {
-      return await work()
-    } finally {
-      running--
-      waiting.shift()?.()
-    }
+function usageTotal(seen = new Set<string>()): UsageTotal {
+  return { bytes: 0, seen }
+}
+
+export async function diskUsage(dir: string): Promise<number> {
+  const total = usageTotal()
+  await scanUsage(dir, new Map([[dir, total]]))
+  return total.bytes
+}
+
+async function scanUsage(dir: string, totals: Map<string, UsageTotal>, signal?: AbortSignal) {
+  const pending: { file: string; parents: UsageTotal[] }[] = [{ file: dir, parents: [] }]
+
+  async function visit({ file, parents }: (typeof pending)[number]) {
+    const info = await lstat(file, { bigint: true }).catch(() => undefined)
+    if (!info || signal?.aborted) return
+    const total = totals.get(file)
+    const scopes = total ? [...parents, total] : parents
+    const directory = info.isDirectory()
+    const key = directory || info.nlink > 1n ? `${info.dev}:${info.ino}` : undefined
+    const bytes = Number(info.blocks) * 512
+    const counted =
+      key === undefined
+        ? scopes
+        : scopes.filter((scope) => {
+            if (scope.seen.has(key)) return false
+            scope.seen.add(key)
+            return true
+          })
+    for (const scope of counted) scope.bytes += bytes
+    if (!directory || counted.length === 0) return
+    const names = await readdir(file).catch(() => [])
+    if (signal?.aborted) return
+    for (const name of names) pending.push({ file: path.join(file, name), parents: counted })
   }
 
-  async function size(file: string): Promise<number> {
-    const info = await slot(() => lstat(file, { bigint: true })).catch(() => undefined)
-    if (!info) return 0
-    const key = `${info.dev}:${info.ino}`
-    if (seen.has(key)) return 0
-    seen.add(key)
-    const own = Number(info.blocks) * 512
-    if (!info.isDirectory()) return own
-    const names = await slot(() => readdir(file)).catch(() => [])
-    const children = await Promise.all(names.map((name) => size(path.join(file, name))))
-    return children.reduce((a, b) => a + b, own)
+  while (pending.length > 0) {
+    signal?.throwIfAborted()
+    await Promise.all(pending.splice(-walkers).map(visit))
   }
-
-  return { size }
 }
