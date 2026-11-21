@@ -53,7 +53,7 @@ import { createMemoryWatch } from './memory-kills.ts'
 import { phoneMoveApprovals } from './phones/approvals.ts'
 import { serviceChatSource } from './phones/chats.ts'
 import { createPhoneImages, type ImageShrinker } from './phones/images.ts'
-import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
+import { type PhoneKeyrings, phoneKeyringsForHome } from './phones/keys.ts'
 import { createPhoneNotifier } from './phones/notifier.ts'
 import { createPhones } from './phones/phones.ts'
 import type { PhoneProblemSource } from './phones/problems.ts'
@@ -1070,7 +1070,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           }
         },
         dismissProblem: banners.dismissProblem,
-        keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
+        keyrings:
+          options.phones?.keyrings ?? phoneKeyringsForHome(paths.home, options.phones?.relayUrl),
         version: options.version,
         ...(options.phones?.relayUrl !== undefined && { relayUrl: options.phones.relayUrl }),
         ...(options.phones?.now && { now: options.phones.now }),

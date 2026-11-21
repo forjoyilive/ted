@@ -10,12 +10,14 @@ All binary values are base64url without padding. All frames are UTF-8 JSON text 
 
 | Key | Kind | Where it lives |
 | - | - | - |
-| Mac box key | X25519 key pair | Daemon, in the OS Keychain (keyring accounts `phone-relay-box-key`). Never in `TED_HOME`. |
-| Mac relay key | Ed25519 key pair | Daemon, in the OS Keychain (`phone-relay-sign-key`). Used only to log in to the relay. |
+| Mac box key | X25519 key pair | Daemon, in the OS Keychain (`phone-relay-box-key`) or in memory for windowless Task pairing. Never in `TED_HOME`. |
+| Mac relay key | Ed25519 key pair | Daemon, in the OS Keychain (`phone-relay-sign-key`) or in memory for windowless Task pairing. Used only to log in to the relay. |
 | Phone box key | X25519 key pair | Made on the phone, kept in `expo-secure-store` (`WHEN_UNLOCKED_THIS_DEVICE_ONLY`). Never leaves the phone. |
 | Phone relay key | Ed25519 key pair | Made on the phone with the box key, kept the same way. Used only to log in to the relay. The Mac stores its public key with the pairing. |
 | Pairing secret | 32 random bytes | Daemon memory only, and the QR code. Never written to disk or logs. |
 | Pairing ticket | 32 bytes | `HMAC-SHA256(key = pairing secret, "ted-relay-pairing:v1:<channel>:<pairing ID>")`, worked out by both sides. Lets a pairing phone reach the relay. The relay stores only `SHA-256(ticket)`, the **ticket hash**. |
+
+A hidden Ted Dev App with a Task home and loopback relay generates both Mac keys in daemon memory. A daemon restart requires pairing again. Release Ted uses the OS Keychain.
 
 The **channel** is `base64url(SHA-256(Mac relay public key))`. It names the Mac at the relay.
 
