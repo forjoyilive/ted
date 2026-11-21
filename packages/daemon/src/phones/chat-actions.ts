@@ -3,6 +3,7 @@ import type {
   Coordinator,
   Factory,
   PhoneChatAgent,
+  PhoneChatChangeRoute,
   PhoneChatKind,
   Plan,
   StartPlanRequest,
@@ -34,6 +35,11 @@ export interface PhoneChatChanges {
     retry: PhoneChatRetry,
   ): Promise<Coordinator>
   stopCoordinator(chatId: string): Promise<Coordinator>
+  retryCoordinator(chatId: string): Promise<Coordinator>
+  archiveCoordinator(chatId: string): Promise<Coordinator>
+  unarchiveCoordinator(chatId: string): Promise<Coordinator>
+  renameCoordinator(chatId: string, title: string): Promise<Coordinator>
+  deleteCoordinator(chatId: string): Promise<void>
   startCoordinator(
     factoryId: string,
     input: { text: string; agentId: string },
@@ -44,10 +50,14 @@ export interface PhoneChatChanges {
   resumePlan(
     planId: string,
     caller: PhoneCaller,
-    message: MessageWithFiles,
-    retry: PhoneChatRetry,
+    message?: MessageWithFiles,
+    retry?: PhoneChatRetry,
   ): Promise<Plan>
   stopPlan(planId: string, caller: PhoneCaller): Promise<Plan>
+  archivePlan(planId: string, caller: PhoneCaller): Promise<Plan>
+  unarchivePlan(planId: string, caller: PhoneCaller): Promise<Plan>
+  renamePlan(planId: string, title: string, caller: PhoneCaller): Promise<Plan>
+  deletePlan(planId: string, caller: PhoneCaller): Promise<void>
   startPlan(input: StartPlanRequest, caller: PhoneCaller, retry: PhoneChatRetry): Promise<Plan>
 }
 
@@ -73,6 +83,13 @@ export interface PhoneChatCreateInput {
 export interface PhoneChatActions {
   message(caller: PhoneCaller, input: PhoneChatMessageInput): Promise<PhoneOutcome>
   stop(caller: PhoneCaller, kind: PhoneChatKind, chatId: string): Promise<PhoneOutcome>
+  change(
+    caller: PhoneCaller,
+    kind: PhoneChatKind,
+    chatId: string,
+    route: PhoneChatChangeRoute,
+    title: string | undefined,
+  ): Promise<PhoneOutcome>
   agents(factory: string): Promise<PhoneOutcome>
   create(caller: PhoneCaller, input: PhoneChatCreateInput): Promise<PhoneOutcome>
 }
@@ -201,6 +218,45 @@ export function createPhoneChatActions(
     )
   }
 
+  async function change(
+    caller: PhoneCaller,
+    kind: PhoneChatKind,
+    id: string,
+    route: PhoneChatChangeRoute,
+    title: string | undefined,
+  ): Promise<PhoneOutcome> {
+    const coordinator = kind === 'coordinator'
+    return guarded(
+      async (): Promise<PhoneOutcome> => {
+        switch (route) {
+          case 'chat-retry':
+            await (coordinator ? changes.retryCoordinator(id) : changes.resumePlan(id, caller))
+            break
+          case 'chat-archive':
+            await (coordinator ? changes.archiveCoordinator(id) : changes.archivePlan(id, caller))
+            break
+          case 'chat-unarchive':
+            await (coordinator
+              ? changes.unarchiveCoordinator(id)
+              : changes.unarchivePlan(id, caller))
+            break
+          case 'chat-rename':
+            if (title === undefined) return { code: 'bad-request' }
+            await (coordinator
+              ? changes.renameCoordinator(id, title)
+              : changes.renamePlan(id, title, caller))
+            break
+          case 'chat-delete':
+            await (coordinator ? changes.deleteCoordinator(id) : changes.deletePlan(id, caller))
+            break
+        }
+        return { body: { changed: true } }
+      },
+      always,
+      `apply ${route} to ${kind} chat ${id}`,
+    )
+  }
+
   async function agents(key: string): Promise<PhoneOutcome> {
     const factory = factoryByKey(key)
     if (!factory) return { code: 'gone' }
@@ -260,6 +316,7 @@ export function createPhoneChatActions(
           : sendToPlan(caller, input.chatId, input.text, retry),
       ),
     stop,
+    change,
     agents,
     create: (caller, input) =>
       once(caller, input.createId, 'create', (retry) => startChat(caller, input, retry)),

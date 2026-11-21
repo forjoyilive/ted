@@ -68,6 +68,16 @@ export function planStoppable(plan: Pick<Plan, 'status' | 'archivedAt'>): boolea
   return plan.archivedAt === undefined && !planHasEnded(plan)
 }
 
+export function coordinatorRetryable(
+  chat: Pick<CoordinatorChatSummary, 'status' | 'endedAt' | 'chatAgent'>,
+): boolean {
+  return chat.endedAt === undefined && !chat.chatAgent.removed && chat.status === 'failed'
+}
+
+export function planMenuResumable(plan: Pick<Plan, 'status' | 'archivedAt'>): boolean {
+  return plan.archivedAt === undefined && (plan.status === 'failed' || plan.status === 'stopped')
+}
+
 const builtInSummaries = {
   coordinator: 'Recommends what to do next and acts on Tasks when you ask.',
   planner: 'Talks a large piece of work through with you, then proposes Tasks.',

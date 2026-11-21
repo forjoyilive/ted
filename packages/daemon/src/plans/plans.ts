@@ -127,10 +127,6 @@ export interface Plans {
 const maxTitleLength = planTitleLength
 const maxMessageLength = 100_000
 
-const refuseRun = (caller: Caller) => {
-  if (caller.kind !== 'app') throw new RequestError(403, 'Only the human changes planning chats')
-}
-
 const refuseUnlessHuman = (caller: Caller) => {
   if (caller.kind !== 'app' && caller.kind !== 'phone')
     throw new RequestError(403, 'Only the human changes planning chats')
@@ -885,7 +881,7 @@ export function createPlans(options: PlansOptions): Plans {
       }
     },
     async rename(id, title, caller) {
-      refuseRun(caller)
+      refuseUnlessHuman(caller)
       const plan = find(id)
       saved.rename(plan.id, chatTitle(title))
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
@@ -904,7 +900,7 @@ export function createPlans(options: PlansOptions): Plans {
       return resume(find(id), message, phoneRetry)
     },
     async archive(id, caller) {
-      refuseRun(caller)
+      refuseUnlessHuman(caller)
       const plan = find(id)
       if (plan.archivedAt !== undefined) return describe(plan, await slotsNow())
       if (retrying.has(plan.id)) throw new RequestError(409, 'this planning chat is resuming')
@@ -915,13 +911,13 @@ export function createPlans(options: PlansOptions): Plans {
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
     async unarchive(id, caller) {
-      refuseRun(caller)
+      refuseUnlessHuman(caller)
       const plan = find(id)
       if (plan.archivedAt !== undefined) saved.unarchive(plan.id)
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
     async delete(id, caller) {
-      refuseRun(caller)
+      refuseUnlessHuman(caller)
       await remove(find(id), 'keep')
     },
     async removeFactory(factoryId) {

@@ -975,6 +975,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           messageCoordinator: (chatId, message, retry) =>
             coordinators.message(chatId, message, retry),
           stopCoordinator: (chatId) => coordinators.stop(chatId),
+          retryCoordinator: (chatId) => coordinators.retry(chatId),
+          archiveCoordinator: (chatId) => coordinators.archiveChat(chatId),
+          unarchiveCoordinator: (chatId) => coordinators.unarchiveChat(chatId),
+          renameCoordinator: (chatId, title) => coordinators.renameChat(chatId, title),
+          deleteCoordinator: (chatId) => coordinators.deleteChat(chatId),
           startCoordinator: (factoryId, input, retry) =>
             coordinators.start(factoryId, input, retry),
           plan: async (planId) => (await phonePlans.detail(planId)).plan,
@@ -987,6 +992,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           resumePlan: (planId, caller, message, retry) =>
             phonePlans.resume(planId, caller, message, retry),
           stopPlan: (planId, caller) => phonePlans.stop(planId, caller),
+          archivePlan: (planId, caller) => phonePlans.archive(planId, caller),
+          unarchivePlan: (planId, caller) => phonePlans.unarchive(planId, caller),
+          renamePlan: (planId, title, caller) => phonePlans.rename(planId, title, caller),
+          deletePlan: (planId, caller) => phonePlans.delete(planId, caller),
           startPlan: (input, caller, retry) => phonePlans.start(input, caller, retry),
         },
         images: phoneImages,

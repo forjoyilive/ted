@@ -16,6 +16,7 @@ import {
 import {
   type PhoneChatAgentsBody,
   type PhoneChatBody,
+  type PhoneChatChangedBody,
   type PhoneChatCreatedBody,
   type PhoneChatItemBody,
   type PhoneChatItemsBody,
@@ -23,6 +24,7 @@ import {
   type PhoneChatMessageBody,
   type PhoneChatStoppedBody,
   type PhoneChatsBody,
+  phoneChatChangeRoutes,
   phoneChatIdMax,
   phoneChatKinds,
 } from './phone-chats.ts'
@@ -128,6 +130,7 @@ export const phoneRouteNames = [
   'factory-icon',
   'chat-message',
   'chat-stop',
+  ...phoneChatChangeRoutes,
   'chat-agents',
   'chat-create',
 ] as const
@@ -257,6 +260,7 @@ export type PhoneReplyBody =
   | PhoneChatItemBody
   | PhoneChatMessageBody
   | PhoneChatStoppedBody
+  | PhoneChatChangedBody
   | PhoneChatAgentsBody
   | PhoneChatCreatedBody
 
@@ -707,7 +711,12 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       createId: base64Field(object, 'createId', 16),
     }
   }
-  if (route === 'chat-stop') return { ...header, type, route, ...chatRef(object) }
+  if (route === 'chat-rename') {
+    return { ...header, type, route, ...chatRef(object), title: read.string(object, 'title') }
+  }
+  if (route === 'chat-stop' || isOneOf(route, phoneChatChangeRoutes)) {
+    return { ...header, type, route, ...chatRef(object) }
+  }
   if (route === 'chat-agents') return { ...header, type, route, factory: factoryKey(object) }
   if (route === 'chat-create') {
     const text = read.string(object, 'text')

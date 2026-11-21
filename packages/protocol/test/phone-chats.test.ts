@@ -165,9 +165,19 @@ test('parsePhoneChatsBody and parsePhoneChatBody read every field', () => {
 
 const createId = toBase64Url(new Uint8Array(16).fill(7))
 
-test('the four chat write routes are phone routes', () => {
+test('the chat write routes are phone routes', () => {
   expect(phoneRouteNames).toEqual(
-    expect.arrayContaining(['chat-message', 'chat-stop', 'chat-agents', 'chat-create']),
+    expect.arrayContaining([
+      'chat-message',
+      'chat-stop',
+      'chat-agents',
+      'chat-create',
+      'chat-retry',
+      'chat-archive',
+      'chat-unarchive',
+      'chat-rename',
+      'chat-delete',
+    ]),
   )
 })
 
@@ -183,6 +193,13 @@ test('parsePhoneRequest reads every field of the chat write routes', () => {
   expect(parsePhoneRequest(message)).toEqual(message)
   const stop = { ...header, route: 'chat-stop', chatKind: 'coordinator', chatId: 'c' }
   expect(parsePhoneRequest(stop)).toEqual(stop)
+  for (const route of ['chat-retry', 'chat-archive', 'chat-unarchive', 'chat-delete']) {
+    const change = { ...stop, route }
+    expect(parsePhoneRequest(change)).toEqual(change)
+  }
+  const rename = { ...stop, route: 'chat-rename', title: 'New title' }
+  expect(parsePhoneRequest(rename)).toEqual(rename)
+  expect(() => parsePhoneRequest({ ...rename, title: undefined })).toThrow(/title/)
   const agents = { ...header, route: 'chat-agents', factory: 'TED' }
   expect(parsePhoneRequest(agents)).toEqual(agents)
   const create = {

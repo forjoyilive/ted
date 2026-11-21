@@ -1,5 +1,5 @@
 import type { Edition, PhoneProblemsBody, PhoneRequest, PhoneRouteName } from '@ted/protocol'
-import { phoneProtocolVersion } from '@ted/protocol'
+import { phoneChatChangeRoutes, phoneProtocolVersion } from '@ted/protocol'
 import type { Caller } from '../tasks/tasks.ts'
 import type { PhoneActions } from './actions.ts'
 import type { PhoneChatActions } from './chat-actions.ts'
@@ -277,6 +277,15 @@ export const phoneRoutes: readonly PhoneRoute[] = [
       return chatActions.stop(caller, chatKind, chatId)
     },
   },
+  ...phoneChatChangeRoutes.map(
+    (name): PhoneRoute => ({
+      name,
+      async handle(caller, { chatKind, chatId, title }, { chatActions }) {
+        if (chatKind === undefined || chatId === undefined) return { code: 'bad-request' }
+        return chatActions.change(caller, chatKind, chatId, name, title)
+      },
+    }),
+  ),
   {
     name: 'chat-agents',
     async handle(_, { factory }, { chatActions }) {

@@ -19,6 +19,26 @@ import {
 export const phoneChatKinds = ['coordinator', 'plan'] as const
 export type PhoneChatKind = (typeof phoneChatKinds)[number]
 
+export const phoneChatActions = [
+  'stop',
+  'retry',
+  'resume',
+  'rename',
+  'archive',
+  'unarchive',
+  'delete',
+] as const
+export type PhoneChatAction = (typeof phoneChatActions)[number]
+
+export const phoneChatChangeRoutes = [
+  'chat-retry',
+  'chat-archive',
+  'chat-unarchive',
+  'chat-rename',
+  'chat-delete',
+] as const
+export type PhoneChatChangeRoute = (typeof phoneChatChangeRoutes)[number]
+
 export const phoneChatIdMax = 200
 export const phoneChatTitleMax = 500
 export const phoneChatTextMax = 4_000
@@ -74,6 +94,7 @@ export interface PhoneChatRow {
   send: PhoneChatSend
   offReason?: string
   canStop: boolean
+  actions?: PhoneChatAction[]
 }
 
 export interface PhoneChatsBody {
@@ -89,6 +110,10 @@ export interface PhoneChatBody {
 
 export interface PhoneChatMessageBody {
   queued: boolean
+}
+
+export interface PhoneChatChangedBody {
+  changed: true
 }
 
 export interface PhoneChatStoppedBody {
@@ -247,6 +272,9 @@ function parseChatFactory(value: Json | undefined): PhoneChatFactory {
 export function parsePhoneChatRow(value: Untyped): PhoneChatRow {
   const object = read.object(value, 'chat')
   const offReason = read.optional(object, 'offReason', read.string)
+  const actions = read
+    .optional(object, 'actions', read.list)
+    ?.filter((action) => isOneOf(action, phoneChatActions))
   return {
     kind: read.oneOf(object, 'kind', phoneChatKinds),
     id: read.string(object, 'id'),
@@ -261,6 +289,7 @@ export function parsePhoneChatRow(value: Untyped): PhoneChatRow {
     send: read.oneOf(object, 'send', phoneChatSendStates),
     ...(offReason !== undefined && { offReason }),
     canStop: read.boolean(object, 'canStop'),
+    ...(actions !== undefined && { actions }),
   }
 }
 
