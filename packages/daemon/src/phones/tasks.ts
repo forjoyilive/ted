@@ -41,6 +41,7 @@ import { statusLabel } from '@ted/protocol/task-status'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { cutChars, fitText, jsonBytes } from './fit.ts'
+import { isImage, phoneImageList } from './images.ts'
 import { commentRequestKind, type PhoneOutcome } from './requests.ts'
 
 export type PhoneTaskFactory = Pick<Factory, 'id' | 'name' | 'icon' | 'position' | 'createdAt'>
@@ -440,7 +441,8 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     const redacted = redactSecrets(comment.peer?.text ?? comment.body)
     const text = cutChars(redacted, phoneCommentTextMax)
     const files = comment.attachments ?? []
-    const images = files.filter((file) => file.mediaType.startsWith('image/')).length
+    const images = files.filter(isImage).length
+    const imageList = phoneImageList(comment.id, files).images
     const common = {
       id: comment.id,
       author: plain(authorOf(comment), phoneLabelMax),
@@ -448,6 +450,7 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
       text,
       cut: text !== redacted,
       images,
+      ...(imageList.length > 0 && { imageList }),
       attachments: files.length - images,
       formattedBlocks: formattedBlocks(redacted),
     }

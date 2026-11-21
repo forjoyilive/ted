@@ -227,7 +227,7 @@ One request with what the phone needs to answer it. The **detail** is the summar
 
 - `body`: the request’s text as Markdown. `cut` is `true` when the daemon shortened it to fit; the phone then shows “The rest is on your Mac”. Images linked in the Markdown show as “Open on your Mac”.
 - `images`: the request’s image attachments, in order, each with its file name as `caption` (cut to 200 characters). The phone loads each one through the `image` route. Left out when there are none; an older Mac never sends it.
-- `attachments` counts the attached files that aren’t in `images`; the phone shows them as “Open on your Mac”.
+- `attachments` counts the attached files that aren’t in `images`; the phone shows them as “Open on your Mac”. For a design review, the files its `design` form names (screenshots, prototype, video) are in neither.
 - `form` is one of:
   - `{"type":"choices","choices":[…],"multiple":false,"text":true}`: pick one choice (or several with `multiple`), and when `text` is `true`, optionally add text.
   - `{"type":"text"}`: free text only.
