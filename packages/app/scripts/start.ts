@@ -15,7 +15,13 @@ const demo = args.includes('--demo')
 const forwarded = args.filter((arg) => arg !== '--demo')
 const cwd = fileURLToPath(new URL('..', import.meta.url))
 const started = Date.now()
-let env = process.env
+let env =
+  process.env.TED_SANDBOX === '1'
+    ? {
+        ...process.env,
+        electron_config_cache: path.resolve(cwd, '../../node_modules/.cache/electron'),
+      }
+    : process.env
 const executable = demo ? await installedElectron() : undefined
 if (demo) {
   if (
