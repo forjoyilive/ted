@@ -474,6 +474,125 @@ test('Agents lists two Coordinator chats and a planning chat in one list, newest
   expect(within(list).getByRole('heading', { name: 'Planner · 1' })).toBeTruthy()
 })
 
+test('All Chats lists chats across Factories, restores filters and opens or starts either kind of chat', async () => {
+  const { a, shown } = withCoordinator()
+  a.state.factories.push(factory({ id: 'f2', key: 'ST', name: 'Studio' }))
+  const plan: Plan = {
+    id: 'p1',
+    factoryId: 'f2',
+    factoryKey: 'ST',
+    title: 'Plan the Studio launch',
+    message: 'Plan the Studio launch',
+    agent: 'claude',
+    status: 'finished',
+    createdAt,
+    lastAt: later(5),
+    createdTasks: 0,
+    chatAgent: plannerAgent,
+  }
+  const startedPlan = { ...plan, id: 'p2', title: 'Plan the next release' }
+  const studioPlans = [plan]
+  const startPlan = vi.fn(() => {
+    studioPlans.push(startedPlan)
+    return startedPlan
+  })
+  const startChat = vi.fn(() => shown.coordinator)
+  a.handle('listPlans', (id) => (id === undefined || id === 'f2' ? studioPlans : []))
+  a.handle('getPlan', (id) => ({
+    plan: id === startedPlan.id ? startedPlan : plan,
+    requests: [],
+    tasks: [],
+  }))
+  a.handle('coordinatorChats', (id) => (id === 'f1' ? [summary(), ended] : []))
+  a.handle('startPlan', startPlan)
+  a.handle('startCoordinatorChat', startChat)
+  a.mount()
+
+  const sidebar = within(nav())
+  const links = sidebar.getAllByRole('button')
+  expect(links[links.indexOf(sidebar.getByRole('button', { name: 'All Tasks' })) + 1]).toBe(
+    sidebar.getByRole('button', { name: 'All Chats' }),
+  )
+  const user_ = user()
+  await user_.click(sidebar.getByRole('button', { name: 'All Chats' }))
+  const all = () => within(screen.getByRole('region', { name: 'All Chats' }))
+  await all().findByRole('button', { name: /Plan the Studio launch.*Studio/ })
+  const rows = all()
+    .getAllByRole('button')
+    .filter((button) => button.hasAttribute('data-nav-item'))
+  expect(rows.map((row) => row.textContent)).toEqual([
+    expect.stringMatching(/Plan the Studio launch.*Studio/),
+    expect.stringMatching(/What should we work on next.*widgets/),
+  ])
+  await user_.click(all().getByRole('button', { name: 'Display' }))
+  await user_.click(screen.getByRole('menuitemradio', { name: 'Factory' }))
+  expect(all().getByRole('heading', { name: 'Studio · 1' })).toBeTruthy()
+  await user_.click(all().getByRole('button', { name: 'Filter' }))
+  const filter = within(screen.getByRole('menu', { name: 'Filter' }))
+  await user_.click(filter.getByRole('button', { name: 'Studio' }))
+  await user_.click(filter.getByRole('button', { name: 'Planner' }))
+  await user_.click(filter.getByRole('button', { name: 'Finished' }))
+  expect(all().queryByRole('heading', { name: 'widgets · 1' })).toBeNull()
+  await user_.click(all().getByRole('button', { name: /Plan the Studio launch/ }))
+  const existing = within(await screen.findByRole('region', { name: 'Planning chat' }))
+  expect(await existing.findByRole('heading', { name: 'Plan the Studio launch' })).toBeTruthy()
+  await user_.click(screen.getByRole('button', { name: '← All Chats' }))
+  expect(await all().findByRole('heading', { name: 'Studio · 1' })).toBeTruthy()
+  expect(all().queryByRole('heading', { name: 'widgets · 1' })).toBeNull()
+  await user_.click(all().getByRole('button', { name: /Filter/ }))
+  await user_.click(screen.getByRole('button', { name: 'Clear filters' }))
+  expect(all().getByRole('heading', { name: 'widgets · 1' })).toBeTruthy()
+
+  expect(all().queryByRole('button', { name: /Archive what merged/ })).toBeNull()
+  await user_.click(all().getByRole('button', { name: 'Archived · 1' }))
+  await user_.click(all().getByRole('button', { name: /Archive what merged/ }))
+  expect(await screen.findByRole('region', { name: 'Coordinator' })).toBeTruthy()
+  await user_.click(screen.getByRole('button', { name: '← All Chats' }))
+
+  const choose = async (name: string, agent: RegExp) => {
+    await user_.click(all().getByRole('button', { name: 'New chat' }))
+    const chooser = within(screen.getByRole('region', { name: 'Choose a Factory' }))
+    await user_.click(chooser.getByRole('button', { name }))
+    const picker = within(await screen.findByRole('region', { name: 'New chat' }))
+    await user_.click(await picker.findByRole('button', { name: agent }))
+  }
+
+  await choose('Studio', /^Planner/)
+  const planning = within(await screen.findByRole('region', { name: 'New planning chat' }))
+  const planBox = planning.getByRole('textbox', { name: 'What do you want to plan?' })
+  await user_.type(planBox, 'Plan the next release')
+  fireEvent.keyDown(planBox, { key: 'Enter' })
+  await vi.waitFor(() =>
+    expect(startPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        factory: 'f2',
+        message: 'Plan the next release',
+      }),
+    ),
+  )
+  const created = within(await screen.findByRole('region', { name: 'Planning chat' }))
+  expect(await created.findByRole('heading', { name: 'Plan the next release' })).toBeTruthy()
+  await user_.click(screen.getByRole('button', { name: '← All Chats' }))
+  expect(await all().findByRole('button', { name: /Plan the next release.*Studio/ })).toBeTruthy()
+
+  await choose('widgets', /^Coordinator/)
+  const coord = within(await screen.findByRole('region', { name: 'Coordinator' }))
+  await coord.findByRole('heading', { name: /What needs your attention/ })
+  const chatBox = coord.getByRole('textbox', { name: 'Message to the Coordinator' })
+  await user_.type(chatBox, 'Review the queue')
+  fireEvent.keyDown(chatBox, { key: 'Enter' })
+  await vi.waitFor(() =>
+    expect(startChat).toHaveBeenCalledWith(
+      'f1',
+      expect.objectContaining({
+        agentId: 'coordinator',
+        text: 'Review the queue',
+      }),
+    ),
+  )
+  expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
+})
+
 test('the chat list names the Agent and status, marks a chat that waits for you, lists archived chats in their own section, and its right-click menu offers the chat’s actions', async () => {
   const { a, shown, open } = withCoordinator()
   shown.coordinator = coordinator({ status: 'working' })
