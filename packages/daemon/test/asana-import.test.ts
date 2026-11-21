@@ -13,7 +13,7 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
-import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { type DaemonWrappers, type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import type { Keyring } from '../src/linear/keyring.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import type { TrackersArea } from '../src/store/trackers.ts'
@@ -69,12 +69,13 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function start(asanaSyncMs?: number): Promise<DaemonClient> {
+async function start(asanaSyncMs?: number, wrap?: DaemonWrappers): Promise<DaemonClient> {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     asana: { keyring, oauthOrigin: stub.url, apiOrigin: stub.url, callbackPort },
     ...(asanaSyncMs !== undefined && { asanaSyncMs }),
+    ...(wrap !== undefined && { wrap }),
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('No daemon info')
@@ -402,7 +403,13 @@ test('import preserves a title override and a Task Sync decision when missing it
 })
 
 test('Add them as Tasks imports new Asana items under a merged parent, which then waits for their Tasks', async () => {
-  let client = await start()
+  let store: TedStore | undefined
+  const client = await start(100, {
+    store(opened) {
+      store = opened
+      return opened
+    },
+  })
   await connect(client)
   await client.addFactory({ repo: origin, key: 'NB' })
   stub.setPageSize(100)
@@ -421,27 +428,23 @@ test('Add them as Tasks imports new Asana items under a merged parent, which the
     { gid: '1503', name: 'Refunds' },
     { gid: '1504', name: 'Tax report' },
   ])
-  await daemon?.stop()
-  daemon = undefined
-  const store = await openStore({ directory: tedPaths(home).store })
+  if (!store || !repo) throw new Error('Expected an open store and Factory repo')
   store.startTask({
     taskId: parent.id,
     stage: 'work',
     branch: 'ted/billing',
     worktree: path.join(scratch, 'billing'),
     entry: { layers: [], order: [{ stage: 'work', enabled: true }] },
-    repo: { name: repo?.name ?? '', repo: repo?.repo ?? '', copied: [], skipped: [] },
+    repo: { name: repo.name, repo: repo.repo, copied: [], skipped: [] },
   })
-  store.pullRequestOpened(parent.id, repo?.name ?? '', {
+  store.pullRequestOpened(parent.id, repo.name, {
     number: 15,
     url: 'https://github.com/acme/notes/pull/15',
     base: 'main',
   })
-  store.pullRequestMerged(parent.id, repo?.name ?? '', { noCi: true, byTed: true })
+  store.pullRequestMerged(parent.id, repo.name, { noCi: true, byTed: true })
   store.changeStage(parent.id, 'done')
-  await store.close()
 
-  client = await start(100)
   const question = await waitUntil(
     async () => (await client.listComments(parent.id)).find((c) => c.asanaUnfinished && !c.answer),
     'the merged parent asks about the new Asana item',
