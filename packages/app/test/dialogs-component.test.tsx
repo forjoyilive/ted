@@ -207,23 +207,29 @@ test('Task Lead saves each pick without a Save button and follows external updat
   expect(model().value).toBe('')
   expect(listed()).toEqual([
     'Default model',
-    'gpt-6-astra',
-    'gpt-6.1-sol',
+    'gpt-6.2-astra',
+    'gpt-6.2-sol',
     'gpt-6.1-terra',
     'gpt-6-luna',
     'Other…',
   ])
-  await u.selectOptions(model(), 'gpt-6.1-sol')
+  for (const id of ['gpt-6.2-astra', 'gpt-6.2-sol']) {
+    await u.selectOptions(model(), id)
+    expect(api.request).toHaveBeenLastCalledWith('setTaskLead', 'NB-1', {
+      agent: 'codex',
+      model: id,
+    })
+  }
   const saves = save.mock.calls.length
   await u.selectOptions(model(), 'Other…')
   await u.type(screen.getByLabelText('Model'), 'not-kept{Escape}')
-  expect(model().value).toBe('gpt-6.1-sol')
+  expect(model().value).toBe('gpt-6.2-sol')
   await u.selectOptions(model(), 'Other…')
   await u.type(screen.getByLabelText('Model'), 'also-not-kept')
   await u.tab()
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Back to the list' }))
   await u.keyboard('{Enter}')
-  expect(model().value).toBe('gpt-6.1-sol')
+  expect(model().value).toBe('gpt-6.2-sol')
   await u.selectOptions(model(), 'Other…')
   expect(save).toHaveBeenCalledTimes(saves)
   await u.type(screen.getByLabelText('Model'), ' gpt-6-mini {Enter}')
