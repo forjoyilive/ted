@@ -9,6 +9,7 @@ import {
   type InboxItem,
   type MacReply,
   type PhoneTaskDetail,
+  type PlanDetail,
   parsePhoneTaskBody,
   phoneProtocolVersion,
   readDaemonInfo,
@@ -134,6 +135,43 @@ afterAll(async () => {
 })
 
 const send = (body: PhoneBody): Promise<MacReply> => phone.send(body)
+
+test('a paired phone renames, archives, unarchives and deletes a real planning chat', async () => {
+  const plan = store.plans.start({
+    factoryId: notebook.id,
+    title: 'Plan the release',
+    message: 'Plan the release',
+    agent: 'claude',
+  })
+  store.plans.ended(plan.id, { outcome: 'stopped' })
+  const ref = { type: 'request', chatKind: 'plan', chatId: plan.id } as const
+  const path = `/plans/${plan.id}`
+  const read = async () => (await ok<PlanDetail>('GET', path)).plan
+
+  expect(await send({ ...ref, route: 'chat-rename', title: 'Review the release' })).toMatchObject({
+    ok: true,
+    body: { changed: true },
+  })
+  expect((await read()).title).toBe('Review the release')
+
+  expect(await send({ ...ref, route: 'chat-archive' })).toMatchObject({
+    ok: true,
+    body: { changed: true },
+  })
+  expect((await read()).archivedAt).toBeDefined()
+
+  expect(await send({ ...ref, route: 'chat-unarchive' })).toMatchObject({
+    ok: true,
+    body: { changed: true },
+  })
+  expect((await read()).archivedAt).toBeUndefined()
+
+  expect(await send({ ...ref, route: 'chat-delete' })).toMatchObject({
+    ok: true,
+    body: { changed: true },
+  })
+  expect((await http.call('GET', path)).status).toBe(404)
+})
 
 function shown(reply: MacReply): PhoneTaskDetail {
   if (!reply.ok) throw new Error(`refused: ${reply.error.code} ${reply.error.message}`)
