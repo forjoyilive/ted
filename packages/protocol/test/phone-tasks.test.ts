@@ -82,9 +82,15 @@ test('parsePhoneTasksBody reads every field, with and without a cursor and an ic
   expect(() =>
     parsePhoneTasksBody({
       ...body,
-      rows: [{ ...row, factory: { ...row.factory, icon: { kind: 'image', dataUrl: 'x' } } }],
+      rows: [{ ...row, factory: { ...row.factory, icon: { kind: 'sticker' } } }],
     }),
   ).toThrow(/kind/)
+  expect(() =>
+    parsePhoneTasksBody({
+      ...body,
+      rows: [{ ...row, factory: { ...row.factory, icon: { kind: 'image', dataUrl: 'x' } } }],
+    }),
+  ).toThrow(/version/)
   expect(() => parsePhoneTasksBody({ ...body, rows: [{ ...row, actions: ['edit'] }] })).toThrow(
     /actions/,
   )
