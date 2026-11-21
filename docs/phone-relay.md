@@ -604,10 +604,6 @@ Chat management mutations, Stop included, are sent only over an open connection 
 
 `createId` is 16 random bytes in base64url, made once per message or new chat the user sends and reused on every resend of it.
 
-### `task-create-with-options`
-
-Accepts the same fields as `task-create` plus an `overrides` object containing at least one of `clarifyDepth` or `lead`. Omitted settings use the Factory defaults. Clarify depth is `auto`, `none`, `few` or `grilling`. A lead includes `agent` and may include `model`, `effort` and `effortMode`. The Mac checks the model name and accepts the same effort values as the Mac form. Set `effortMode` to `stage` for Follow Stage settings. A wrong type or invalid value gets `bad-request`, and a Provider that is off gets `refused`. This route shares the basic route’s retry key and reply. If the Mac answers `unknown-route`, the phone keeps the draft and asks the user to update Ted.
-
 **Sending twice.** When a reply is lost, the phone sends the same `chat-message` or `chat-create` again as a new message with the same `createId`. Two sends with the same `createId` at once share one call. The daemon saves the retry record under the phone and `createId` in the same store commit as the chat change, and waits for it to reach disk before answering. A resend, even after the Mac restarts, gets the original recorded reply without posting again. If the action fails before saving a record, the phone may send it again. A `createId` already used by the other route gets `bad-request`. The `createId` belongs to one phone.
 
 ## Pairing
