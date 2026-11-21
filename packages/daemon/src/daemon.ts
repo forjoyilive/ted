@@ -51,7 +51,7 @@ import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
 import { serviceChatSource } from './phones/chats.ts'
-import type { ImageShrinker } from './phones/images.ts'
+import { createPhoneImages, type ImageShrinker } from './phones/images.ts'
 import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
 import { createPhoneNotifier } from './phones/notifier.ts'
 import { createPhones } from './phones/phones.ts'
@@ -801,6 +801,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         .catch((error: unknown) =>
           console.error('couldn’t exclude folders from Time Machine:', error),
         )
+      const phoneImages = createPhoneImages({
+        home: paths.home,
+        comment: (id) => store.getComment(id),
+        task: (id) => store.getTask(id),
+        file: (attachment) => attachments.file(attachment),
+        ...(options.phones?.shrinkImage && { shrink: options.phones.shrinkImage }),
+      })
+      const prunePhoneImages = () =>
+        phoneImages
+          .prune(options.retention?.now?.())
+          .catch((error: Error) => console.error('pruning cached phone images failed:', error))
       const prune = () =>
         pruneRunOutput({
           runsDir: paths.runs,
@@ -824,6 +835,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           console.error('deleting archived Tasks or chats failed:', error),
         )
       void prune()
+      void prunePhoneImages()
       void sweepArchived()
       let keptDays = store.settings().runOutputDays
       let archivedDays = store.settings().deleteArchivedAfterDays
@@ -844,6 +856,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       const pruneTimer = setInterval(() => {
         void prune()
+        void prunePhoneImages()
         void sweepArchived()
       }, options.retention?.checkEveryMs ?? pruneEveryMs)
       pruneTimer.unref()
@@ -965,13 +978,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           stopPlan: (planId, caller) => phonePlans.stop(planId, caller),
           startPlan: (input, caller) => phonePlans.start(input, caller),
         },
-        images: {
-          comment: (id) => store.getComment(id),
-          task: (id) => store.getTask(id),
-          file: (attachment) => attachments.file(attachment),
-          cacheDir: paths.phoneImages,
-          ...(options.phones?.shrinkImage && { shrink: options.phones.shrinkImage }),
-        },
+        images: phoneImages,
         problems: phoneProblemSource,
         keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
         version: options.version,
