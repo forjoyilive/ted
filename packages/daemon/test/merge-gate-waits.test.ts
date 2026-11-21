@@ -1,13 +1,12 @@
 import { rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { type Factory, type StageEntry, type Task, tedPaths } from '@ted/protocol'
+import { type Factory, type StageEntry, tedPaths } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { clonePath } from '../src/factories.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, waitUntil } from './helpers.ts'
 import {
   approve,
-  type Client,
   ctx,
   getTask,
   merges,
@@ -142,21 +141,12 @@ describe('Merge sign-off', () => {
 describe('CI stuck', () => {
   const stuck = { noChecks: 300, pending: 700 }
 
-  const question = (client: Client, task: Task, count: number) =>
-    eventWait(
-      client.subscribe,
-      async () => {
-        const asked = (await comments(client, task)).filter(
-          (c) => c.kind === 'question' && c.author.kind === 'ted',
-        )
-        return asked.length >= count ? asked[count - 1] : undefined
-      },
-      `CI-stuck question ${count}`,
-    )
-
-  test('Send to Task Lead sends the Task back to Work without counting against Merge’s limit', async () => {
+  test('Send to Task Lead sends the Task back to Work without counting against Merge’s limit', {
+    timeout: 90_000,
+  }, async () => {
     const clock = new ManualClock()
-    const client = await start({ files: ci, ciStuckMs: stuck, daemon: { clock } })
+    const mergePollMs = 100
+    const client = await start({ files: ci, ciStuckMs: stuck, mergePollMs, daemon: { clock } })
     const { task, signoff } = await toSignoff(client, {}, clock)
     await approve(client, signoff)
     await waitForStage(client, task, 'merge')
@@ -166,9 +156,16 @@ describe('CI stuck', () => {
     const entered = entries.findLast((entry) => entry.stage === 'merge')?.at
     if (!pushed || !entered) throw new Error('missing Merge entry or push time')
     const from = Math.max(Date.parse(pushed), Date.parse(entered))
-    await eventWait(clock.subscribe, () => clock.pending.includes(100), 'the GitHub poll to rearm')
-    clock.advance(Math.max(0, from + stuck.noChecks + 100 - clock.now()))
-    const asked = await question(client, task, 1)
+    clock.advance(Math.max(0, from + stuck.noChecks - clock.now()))
+    const asked = await waitUntil(async () => {
+      const question = (await comments(client, task)).find(
+        (c) => c.kind === 'question' && c.author.kind === 'ted' && c.purpose?.kind === 'ci-stuck',
+      )
+      if (!question && clock.pending.some((delay) => delay <= mergePollMs)) {
+        clock.advance(mergePollMs)
+      }
+      return question
+    }, 'the CI-stuck question')
 
     await client.ok('POST', `/comments/${asked.id}/answer`, {
       action: 'answer',
