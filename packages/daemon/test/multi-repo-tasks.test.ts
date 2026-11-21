@@ -390,7 +390,8 @@ describe('a multi-repo Task', () => {
     expect(checked.at(-1)?.outcome).toBe('passed')
     const list = () => client.ok<TaskApp[]>('GET', `${route}/apps`)
     expect((await list()).map((app) => app.name)).toEqual(['iPhone'])
-    expect((await lead.call('POST', `${route}/apps/start`, { name: 'iPhone' })).status).toBe(200)
+    const started = await lead.call('POST', `${route}/apps/start`, { name: 'iPhone' })
+    expect(started.status, JSON.stringify(started.body)).toBe(200)
 
     const listed = await list()
     const desktop = listed.find((app) => app.name === 'Desktop Preview')
@@ -401,7 +402,7 @@ describe('a multi-repo Task', () => {
     expect(await (await fetch(`http://127.0.0.1:${desktop.port}`)).json()).toEqual({
       home: path.join(root, 'ted-home'),
       relay: new URL(relay.url).origin,
-      keyring: path.join(root, 'keyring.mjs'),
+      keyring: path.join(root, 'ted-home', 'keyring.mjs'),
     })
     expect(await (await fetch(relay.url)).json()).toEqual({ state: path.join(root, 'relay') })
     expect((await client.call('POST', `${route}/apps/start`, { name: desktop.name })).status).toBe(

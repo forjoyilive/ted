@@ -12,7 +12,7 @@ import { taskFolder } from '../leftover-processes.ts'
 import type { Sandbox } from '../sandbox.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { FactoryRepoEntry } from './repos.ts'
-import { runScratchSetup } from './scratch-setup.ts'
+import { runScratchSetup, SetupFailed } from './scratch-setup.ts'
 
 interface Dependency {
   entry: FactoryRepoEntry
@@ -142,7 +142,7 @@ export function createPairedPreviews(options: {
       if (!desktopTree) throw new RequestError(409, 'Ted couldn’t prepare the desktop preview')
       const home = path.join(folder, 'ted-home')
       const relayState = path.join(folder, 'relay')
-      const module = path.join(folder, 'keyring.mjs')
+      const module = path.join(home, 'keyring.mjs')
       await mkdir(home, { mode: 0o700 })
       await mkdir(relayState, { mode: 0o700 })
       await writeFile(module, keyring, { flag: 'wx', mode: 0o600 })
@@ -151,7 +151,7 @@ export function createPairedPreviews(options: {
         writable: [tree, state],
         readable: [clonePath(options.reposDir, entry)],
       })
-      const desktopScope = scope(desktop.entry, desktopTree, folder)
+      const desktopScope = scope(desktop.entry, desktopTree, home)
       await runScratchSetup({
         repos: copies.map(({ entry, worktree }) => ({
           name: entry.name,
@@ -162,7 +162,7 @@ export function createPairedPreviews(options: {
         factoryId: input.factory.id,
         sandbox: options.sandbox,
         banners: options.banners,
-        scope: desktopScope,
+        scope: { ...desktopScope, writable: [desktopTree] },
         tmpRoot: folder,
         logDir: folder,
         env: options.env(),
@@ -200,6 +200,7 @@ export function createPairedPreviews(options: {
       }
     } catch (error) {
       await removeCopy(copies, options.root, taskId)
+      if (error instanceof SetupFailed) throw new RequestError(409, error.message)
       throw error
     }
   }
