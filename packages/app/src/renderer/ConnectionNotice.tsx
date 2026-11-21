@@ -1,6 +1,7 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type { Banner } from '@ted/protocol'
-import { type BannerMenuItem, BannerStack } from './components/BannerStack.tsx'
+import { useState } from 'react'
+import { type BannerMenuItem, BannerStack, MenuButton } from './components/BannerStack.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { useConnection } from './data.ts'
 import { ted } from './ted.ts'
@@ -38,12 +39,27 @@ export const keepsStoppingMenu = (banner: Banner): BannerMenuItem[] | undefined 
 export function ConnectionNotice() {
   const { connection } = useConnection()
   if (connection.state === 'reconnecting') return <ReconnectingBar />
+  return connection.state === 'stopped' ? <StoppedConnectionNotice connection={connection} /> : null
+}
+
+export function StoppedConnectionNotice({ connection }: { connection: DaemonConnection }) {
+  const [dismissedAt, setDismissedAt] = useState<string>()
+  const [banner] = keepsStoppingBanner(connection)
+  if (!banner) return null
+  const items = keepsStoppingMenu(banner)
+  if (dismissedAt === banner.raisedAt && items) {
+    return (
+      <section aria-label="Background process">
+        <MenuButton label="Restart" items={items} />
+      </section>
+    )
+  }
   return (
     <BannerStack
       label="Problems"
-      banners={keepsStoppingBanner(connection)}
+      banners={[banner]}
       onAction={() => undefined}
-      onDismiss={() => undefined}
+      onDismiss={() => setDismissedAt(banner.raisedAt)}
       menu={keepsStoppingMenu}
     />
   )

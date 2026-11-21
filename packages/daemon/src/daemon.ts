@@ -1003,6 +1003,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
         images: phoneImages,
         problems: phoneProblemSource,
+        dismissProblem: banners.dismissProblem,
         keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
         version: options.version,
         ...(options.phones?.relayUrl !== undefined && { relayUrl: options.phones.relayUrl }),

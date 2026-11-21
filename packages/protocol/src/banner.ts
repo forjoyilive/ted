@@ -15,6 +15,10 @@ export interface BannerAction {
   choose?: 'folder'
 }
 
+export interface BannerDismissInput {
+  raisedAt?: string
+}
+
 export interface BannerActionInput {
   folder?: string
 }
@@ -27,6 +31,7 @@ export interface Banner {
   text: string
   action?: BannerAction
   raisedAt: string
+  dismissed?: boolean
   dismissedUntil?: string
 }
 
@@ -61,7 +66,10 @@ export function bannerId({ problem, factoryId, subject }: BannerRef): string {
 }
 
 export function isShowing(banner: Banner, now: Date = new Date()): boolean {
-  return banner.dismissedUntil === undefined || Date.parse(banner.dismissedUntil) <= now.getTime()
+  return (
+    !banner.dismissed &&
+    (banner.dismissedUntil === undefined || Date.parse(banner.dismissedUntil) <= now.getTime())
+  )
 }
 
 export function bannerOrder(a: Banner, b: Banner): number {

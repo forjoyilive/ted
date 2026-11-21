@@ -335,7 +335,7 @@ The wide column in the middle of the app’s window, left of a Task’s details.
 _Avoid_: Main pane, content area
 
 **Banner**:
-A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears. A banner either stops work (red, can’t be dismissed) or is a warning (amber, hidden for 24 hours by ×, except the repo-added warning, which × clears for good). Stops-work banners also appear in Problems on a paired phone, where they can be read but must be fixed on the Mac; warnings stay on the Mac. Banners are never Inbox items.
+A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears or the notice is dismissed. A banner either stops work (red, dismissible for that occurrence) or is a warning (amber, hidden for 24 hours by ×, except the repo-added warning, which × clears for good). Visible stops-work banners also appear in Problems on a paired phone. Dismissing one on the Mac or phone hides the same occurrence on both; the problem still stops work until it is fixed on the Mac. Warnings stay on the Mac. Banners are never Inbox items.
 _Avoid_: Alert, error bar, toast
 
 **Onboarding**:

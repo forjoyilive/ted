@@ -517,7 +517,7 @@ export type RunRow = Omit<typeof runs.Type, 'prompt' | 'promptParts'>
 
 // LiveStore keeps every query result in memory, so lists leave the long text columns out.
 
-export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
+export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil' | 'dismissed'>
 
 export interface OpenProgress {
   done: number
