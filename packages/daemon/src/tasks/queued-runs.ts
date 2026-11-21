@@ -154,6 +154,8 @@ export function runLimits(options: {
   }
 }
 
+export const automaticResumes = 3
+
 export const processEndedText = 'The agent’s process ended before it finished its turn.'
 
 export function afterProcessEnded(input: {

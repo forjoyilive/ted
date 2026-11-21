@@ -6,6 +6,8 @@ import {
   type Coordinator,
   type CoordinatorTask,
   type Factory,
+  type Plan,
+  type PlanDetail,
   type RunChat,
   type RunMessage,
   type RunSlots,
@@ -1010,6 +1012,74 @@ test('a chat whose Run ends as a follow-up arrives resumes and reads it', async 
     return chat.items.some((i) => i.kind === 'agent' && i.text === 'Resumed and read')
   }, 'resumed follow-up')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'follow-up settled')
+})
+
+async function startPlan(s: Awaited<ReturnType<typeof setup>>, steps: unknown[]) {
+  const plan = await s.call<Plan>('POST', '/plans', {
+    factory: 'NB',
+    message: JSON.stringify({ steps }),
+  })
+  const status = async () => (await s.call<PlanDetail>('GET', `/plans/${plan.id}`)).plan
+  const said = (text: string) =>
+    waitUntil(async () => {
+      const current = await status()
+      if (current.status === 'failed') throw new Error(`plan failed: ${current.error}`)
+      const chat = await s.call<RunChat>('GET', `/runs/${plan.id}/chat`).catch(() => undefined)
+      return chat?.items.some((i) => i.kind === 'agent' && i.text === text)
+    }, text)
+  return { plan, status, said }
+}
+
+test('a planning chat whose Run ends with a queued message resumes and reads it, each time it happens', async () => {
+  const s = await setup()
+  await writeFile(
+    path.join(home, 'stub-claude.json'),
+    JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
+  )
+  const gate = (n: number) => path.join(scratch, `exit-${n}`)
+  const { plan, status, said } = await startPlan(s, [
+    { say: 'Read 0' },
+    { waitFor: gate(0) },
+    { exit: 1 },
+  ])
+  for (const n of [1, 2, 3]) {
+    await said(`Read ${n - 1}`)
+    const steps =
+      n < 3
+        ? [{ say: `Read ${n}` }, { waitFor: gate(n) }, { exit: 1 }]
+        : [{ say: `Read ${n}` }, { endTurn: true }]
+    await s.call('POST', `/runs/${plan.id}/messages`, { text: JSON.stringify({ steps }) })
+    await writeFile(gate(n - 1), '')
+  }
+  await said('Read 3')
+  await waitUntil(async () => (await status()).status === 'idle', 'last message settled')
+})
+
+test('a planning chat resumes at most 3 times in a row for a queued message it never reads', async () => {
+  const s = await setup()
+  await writeFile(
+    path.join(home, 'stub-claude.json'),
+    JSON.stringify({ resumeSteps: [{ say: 'Back' }, { exit: 1 }] }),
+  )
+  const end = path.join(scratch, 'end')
+  const { plan, status, said } = await startPlan(s, [
+    { say: 'Working' },
+    { waitFor: end },
+    { exit: 1 },
+  ])
+  await said('Working')
+  let revivals = 0
+  pauses.resumed = async () => {
+    revivals += 1
+  }
+  await s.call('POST', `/runs/${plan.id}/messages`, { text: 'Never read' })
+  await writeFile(end, '')
+  await waitUntil(async () => (await status()).status === 'failed', 'the chat to fail')
+  expect(revivals).toBe(3)
+  const chat = await s.call<RunChat>('GET', `/runs/${plan.id}/chat`)
+  expect(chat.items.find((i) => i.kind === 'human' && i.text === 'Never read')).toMatchObject({
+    queued: true,
+  })
 })
 
 test('two boundary calls that overlap both return once the host has the message', async () => {
