@@ -127,17 +127,16 @@ describe('rank', () => {
   test('reordering Queued Tasks reorders the machine-wide queue across Factories', async () => {
     const client = await startWithStub(['NB', 'MS'])
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    await client.ok<Task>('POST', '/tasks', { title: never(), factory: 'NB', start: true })
-    const first = await client.ok<Task>('POST', '/tasks', {
-      title: 'First',
-      factory: 'NB',
-      start: true,
-    })
-    const second = await client.ok<Task>('POST', '/tasks', {
-      title: 'Second',
-      factory: 'MS',
-      start: true,
-    })
+    const holder = await create(client, never())
+    const first = await create(client, 'First')
+    const second = await create(client, 'Second', { factory: 'MS' })
+    await client.ok<Task>('POST', `/tasks/${holder.id}/start`)
+    await waitUntil(
+      async () => (await byId(client, holder.id)).runs.some((run) => run.state === 'working'),
+      'the blocking Task Lead to hold the only working slot',
+    )
+    await client.ok<Task>('POST', `/tasks/${first.id}/start`)
+    await client.ok<Task>('POST', `/tasks/${second.id}/start`)
     expect((await byId(client, first.id)).status).toEqual({ kind: 'queued', place: 1 })
 
     await client.ok('POST', `/tasks/${second.id}/move`, { before: first.id })
@@ -274,7 +273,7 @@ describe('List views', () => {
     const view = {
       sort: 'priority',
       group: 'none',
-      columns: ['priority', 'id', 'title', 'tokens'],
+      columns: ['priority', 'id', 'title', 'provider', 'tokens'],
       filters: { statuses: ['queued'], archived: 'included' },
     }
     const saved = await client.ok<{ listViews: unknown }>('PATCH', '/settings', {

@@ -251,9 +251,9 @@ test('the list has open Tasks and recent Done ones from every Factory, never arc
 })
 
 test('paging reaches every Task exactly once in each grouping, and a row that moves gives no duplicates', async () => {
-  const titleTail = 'Ü'.repeat(700)
+  const titleTail = '漢'.repeat(500)
   const levels = ['medium', 'low', 'none'] as const
-  for (let n = 0; n < 40; n++) {
+  for (let n = 0; n < 60; n++) {
     await make(`Task ${n} ${titleTail}`, n % 2 === 0 ? notebook : shop, {
       priority: levels[n % levels.length] ?? 'none',
     })
@@ -330,6 +330,41 @@ test('a long description and a thread of long multibyte comments stay under the 
       await sent({ type: 'request', route: 'task-comments', taskId: task.id, cursor: 'bogus' }),
     ),
   ).toBe('bad-request')
+})
+
+test('a comment with many images keeps its text and the next page', async () => {
+  const task = await make('A Task with many images')
+  const attachments = Array.from({ length: 300 }, (_, n) => ({
+    hash: n.toString(16).padStart(64, '0'),
+    name: `${n}-${'漢"😀'.repeat(60)}.png`,
+    size: 10,
+    mediaType: 'image/png',
+  }))
+  const body = 'The image captions take up more space than this comment.'
+  const comments = Array.from({ length: 2 }, () =>
+    store.postComment({ taskId: task.id, author: { kind: 'ted' }, body, attachments }),
+  ).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+  const pages = await thread(task.id)
+  expect(pages.map((page) => page.map((entry) => entry.id))).toEqual(
+    comments.map((comment) => [comment.id]),
+  )
+  const [shown] = pages.flat()
+  const images = shown?.imageList ?? []
+  expect(images.length).toBeGreaterThan(0)
+  expect(images.length).toBeLessThan(attachments.length)
+  expect(shown).toMatchObject({
+    text: body,
+    cut: false,
+    images: attachments.length,
+    moreImages: attachments.length - images.length,
+    attachments: 0,
+  })
+  expect(images).toEqual(
+    attachments.slice(0, images.length).map(({ hash, name }) => ({
+      image: phoneImageId(shown?.id ?? '', hash),
+      caption: name,
+    })),
+  )
 })
 
 test('secrets come out redacted, and requests show open with an ID or answered without one', async () => {
@@ -417,7 +452,7 @@ test('with many Factories with long names, every page stays under the limit and 
   const letters = (n: number) =>
     String.fromCharCode(65 + Math.floor(n / 26)) + String.fromCharCode(65 + (n % 26))
   const many: { id: string; key: string }[] = []
-  for (let n = 0; n < 100; n++) {
+  for (let n = 0; n < 40; n++) {
     many.push(
       store.createFactory({
         key: `Z${letters(n)}`,

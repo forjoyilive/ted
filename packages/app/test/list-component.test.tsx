@@ -11,8 +11,15 @@ async function list() {
   const a = appState()
   a.state.factories.push(factory({ id: 'f2', key: 'MS', name: 'site', position: 1 }))
   a.state.tasks = [
-    task({ title: 'Export notes', priority: 'low' }),
-    task({ id: 'NB-2', displayId: 'NB-2', title: 'Sync notes', priority: 'high', rank: 2 }),
+    task({ title: 'Export notes', priority: 'low', lead: { agent: 'claude' } }),
+    task({
+      id: 'NB-2',
+      displayId: 'NB-2',
+      title: 'Sync notes',
+      priority: 'high',
+      rank: 2,
+      lead: { agent: 'codex' },
+    }),
     task({ id: 'MS-1', displayId: 'MS-1', factoryId: 'f2', title: 'Pricing page' }),
   ]
   const mounted = a.mount()
@@ -66,14 +73,26 @@ test('List display, grouping and filters update persisted settings per scope', a
   const main = within(screen.getByRole('main'))
   expect(await main.findByRole('button', { name: /^Backlog\s*\d/ })).toBeTruthy()
   expect(ids()).toEqual(['NB-2', 'NB-1', 'MS-1'])
+  expect(main.queryByRole('columnheader', { name: 'Provider' })).toBeNull()
   await u.click(main.getByRole('button', { name: 'Display' }))
   await u.hover(main.getByRole('menuitem', { name: /^Manual/ }))
   await u.click(main.getByRole('menuitemradio', { name: 'Title' }))
   await u.hover(main.getByRole('menuitem', { name: 'Stage' }))
   await u.click(main.getByRole('menuitemradio', { name: 'None' }))
   await u.click(main.getByRole('menuitemcheckbox', { name: 'Created by' }))
+  await u.click(main.getByRole('menuitemcheckbox', { name: 'Provider' }))
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(main.getByRole('columnheader', { name: 'Created by' })).toBeTruthy()
+  expect(main.getByRole('columnheader', { name: 'Provider' })).toBeTruthy()
+  const providers = [
+    ['NB-1', 'Claude'],
+    ['NB-2', 'Codex'],
+    ['MS-1', 'Default'],
+  ] as const
+  for (const [id, provider] of providers) {
+    const row = within(required(document.querySelector(`[data-task="${id}"]`)))
+    expect(row.getByRole('cell', { name: provider })).toBeTruthy()
+  }
   expect(ids()).toEqual(['NB-1', 'MS-1', 'NB-2'])
   await u.click(main.getByRole('button', { name: 'Filter' }))
   await u.hover(main.getByRole('menuitem', { name: 'Priority' }))
@@ -97,6 +116,7 @@ test('List display, grouping and filters update persisted settings per scope', a
     }),
   )
   expect(ids()).toEqual(['NB-2', 'NB-1'])
+  expect(main.queryByRole('columnheader', { name: 'Provider' })).toBeNull()
   await u.type(main.getByRole('searchbox'), 'export')
   expect(ids()).toEqual(['NB-1'])
   expect(a.state.settings.listViews.all?.columns).toContain('created-by')
@@ -105,6 +125,13 @@ test('List display, grouping and filters update persisted settings per scope', a
   await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
   await screen.findByText('Priority is High')
   expect(ids()).toEqual(['NB-2'])
+  const reopened = within(screen.getByRole('main'))
+  expect(reopened.getByRole('columnheader', { name: 'Provider' })).toBeTruthy()
+  await u.click(reopened.getByRole('button', { name: 'Display' }))
+  await u.click(reopened.getByRole('menuitemcheckbox', { name: 'Provider' }))
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(reopened.queryByRole('columnheader', { name: 'Provider' })).toBeNull()
+  expect(a.state.settings.listViews.all?.columns).not.toContain('provider')
 })
 
 test('existing saved Lists gain Started and remember hiding it after remounting', async () => {

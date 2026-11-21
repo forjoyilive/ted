@@ -132,6 +132,7 @@ export interface PhoneCommentEntry {
   cut: boolean
   images: number
   imageList?: PhoneImage[]
+  moreImages?: number
   attachments: number
   formattedBlocks: number
   request?: PhoneCommentRequest
@@ -334,6 +335,7 @@ export function parsePhoneCommentEntry(value: Untyped): PhoneCommentEntry {
     throw new ParseError('request', 'a request entry, and only one, has request')
   }
   const request = kind === 'request' ? parseCommentRequest(object.request) : undefined
+  const moreImages = read.optional(object, 'moreImages', count)
   const imageList = read.optional(object, 'imageList', (o, f) =>
     read.list(o, f).map((entry) => parsePhoneImage(entry, 'imageList')),
   )
@@ -346,6 +348,7 @@ export function parsePhoneCommentEntry(value: Untyped): PhoneCommentEntry {
     cut: read.boolean(object, 'cut'),
     images: count(object, 'images'),
     ...(imageList !== undefined && { imageList }),
+    ...(moreImages !== undefined && { moreImages }),
     attachments: count(object, 'attachments'),
     formattedBlocks: count(object, 'formattedBlocks'),
     ...(request !== undefined && { request }),
