@@ -7,13 +7,18 @@
   padding-block: 8px;
 }
 
+.row,
+.loading {
+  padding-inline: 20px;
+}
+
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(86px, 20%) minmax(112px, 18%) minmax(50px, 10%);
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 10px 20px;
+  padding-block: 10px;
   border: none;
   border-bottom: 1px solid var(--border-subtle);
   background: none;
