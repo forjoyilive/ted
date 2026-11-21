@@ -12,6 +12,7 @@ import {
   encodeChatItemsCursor,
   encodeChatsCursor,
   type OutsideCommandAsk,
+  type PhoneAnswerability,
   type PhoneChatAction,
   type PhoneChatDetailLine,
   type PhoneChatFactory,
@@ -31,6 +32,7 @@ import {
   type ProposalRow,
   parseChatItemsCursor,
   parseChatsCursor,
+  phoneAnswerability,
   phoneChatLineMax,
   phoneChatTextMax,
   phoneChatTitleMax,
@@ -378,6 +380,7 @@ function requestEntry(
   title: string,
   body: string,
   open: boolean,
+  answerability?: PhoneAnswerability,
 ): Entry {
   return {
     item: {
@@ -388,6 +391,9 @@ function requestEntry(
       title: plain(title, phoneChatTitleMax),
       ...shownText(body),
       open,
+      ...(open &&
+        answerability &&
+        (answerability.onPhone ? { onPhone: true } : { macReason: answerability.reason })),
     },
     lines: () => [...heading(title), ...textLines(body)],
   }
@@ -464,6 +470,7 @@ function chatRequestEntry(request: ChatRequest): Entry {
     chatRequestTitle(request),
     askedText(request),
     request.answer === undefined,
+    phoneAnswerability({ source: 'chat', kind: request.kind }),
   )
 }
 
@@ -474,16 +481,17 @@ function planRequestEntry(request: PlanRequest): Entry {
   return requestEntry(
     request.id,
     request.createdAt,
-    request.kind === 'round' ? 'Round' : 'Proposal',
+    request.kind === 'question' ? 'Question' : request.kind === 'round' ? 'Round' : 'Proposal',
     request.title ?? planRequestLabel(request),
     askedText(request),
     request.answer === undefined,
+    phoneAnswerability({ source: 'plan', kind: request.kind }),
   )
 }
 
-function cardEntry(id: string, at: string, text: string, open: boolean): Entry {
+function cardEntry(id: string, at: string, text: string, open: boolean, macReason: string): Entry {
   return textEntry(
-    { id, at, kind: 'card', text: plain(text, phoneChatTextMax), open },
+    { id, at, kind: 'card', text: plain(text, phoneChatTextMax), open, ...(open && { macReason }) },
     textLines(text),
   )
 }
@@ -508,6 +516,7 @@ function confirmationEntry(confirmation: CoordinatorConfirmation): Entry {
     confirmation.askedAt,
     `${headline}${decided(confirmation.answer)}`,
     confirmation.answer === undefined,
+    'Answer this on your Mac.',
   )
 }
 
@@ -522,6 +531,7 @@ function automationEntry(card: AutomationCard): Entry {
     card.askedAt,
     `${automationCardHeadline(card)}${state}`,
     answer === undefined,
+    'Review this on your Mac.',
   )
 }
 

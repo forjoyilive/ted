@@ -11,6 +11,7 @@ import type {
   Proposal,
   Round,
 } from '@ted/protocol'
+import { isArray, isString, parseJson } from '@ted/protocol/parse'
 import { chatAgentEvents, type StoredChatAgent } from './chats.ts'
 import { type PhoneChatRetry, phoneChatCommit } from './phones.ts'
 import { queuedPhoneChatMessage } from './runs.ts'
@@ -63,6 +64,11 @@ export interface PlanTaskRecord {
   at: string
 }
 
+function parseStringList(raw: string): string[] {
+  const value = parseJson(raw)
+  return isArray(value) ? value.filter(isString) : []
+}
+
 export interface NewPlanRequest {
   planId: string
   runId: string
@@ -70,6 +76,8 @@ export interface NewPlanRequest {
   author: 'run' | 'ted'
   title?: string
   body: string
+  choices?: string[]
+  multiple?: true
   round?: Round
   proposal?: Proposal
 }
@@ -163,6 +171,8 @@ export function createPlanStore({
     author: row.author === 'ted' ? 'ted' : 'run',
     ...(row.title !== null && { title: row.title }),
     body: row.body,
+    ...(row.choices !== null && { choices: parseStringList(row.choices) }),
+    ...(row.multiple === 1 && { multiple: true as const }),
     ...(row.round !== null && { round: JSON.parse(row.round) as Round }),
     ...(row.proposal !== null && { proposal: JSON.parse(row.proposal) as Proposal }),
     ...(row.answer !== null && { answer: JSON.parse(row.answer) as CommentAnswer }),
@@ -282,17 +292,27 @@ export function createPlanStore({
     archive: (id, withdraw) =>
       planEvent(id, (at) => events.planArchived({ id, withdraw: [...withdraw], at })),
     unarchive: (id) => planEvent(id, (at) => events.planUnarchived({ id, at })),
-    postRequest({ title, round, proposal, ...input }) {
+    postRequest({ title, round, proposal, choices, multiple, ...input }) {
       const id = randomUUID()
       commit(
-        events.planRequestPosted({
-          ...input,
-          id,
-          title: title ?? null,
-          round: round === undefined ? null : JSON.stringify(round),
-          proposal: proposal === undefined ? null : JSON.stringify(proposal),
-          at: now(),
-        }),
+        input.kind === 'question'
+          ? events.planQuestionPosted({
+              id,
+              planId: input.planId,
+              runId: input.runId,
+              body: input.body,
+              choices: choices ?? [],
+              multiple: multiple === true,
+              at: now(),
+            })
+          : events.planRequestPosted({
+              ...input,
+              id,
+              title: title ?? null,
+              round: round === undefined ? null : JSON.stringify(round),
+              proposal: proposal === undefined ? null : JSON.stringify(proposal),
+              at: now(),
+            }),
       )
       updated(input.planId)
       const posted = request(id)

@@ -112,7 +112,7 @@ const read = reader((message) => {
   throw new HttpError(400, message)
 })
 
-function parseQuestion(value: Untyped): ChatQuestionInput {
+export function parseChatQuestion(value: Untyped): ChatQuestionInput {
   const body = read.object(value, 'question')
   const text = read.string(body, 'text', 'question.text must be text').trim()
   if (text === '' || text.length > maxChatQuestionLength)
@@ -131,7 +131,9 @@ function parseQuestion(value: Untyped): ChatQuestionInput {
 
 export function parsePostChatRequest(value: Untyped): PostChatRequest {
   const body = read.object(value, 'body', 'body must be a JSON object')
-  const question = read.optional(body, 'question', (object, field) => parseQuestion(object[field]))
+  const question = read.optional(body, 'question', (object, field) =>
+    parseChatQuestion(object[field]),
+  )
   const round = read.optional(body, 'round', (object, field) => parseRoundInput(object[field]))
   const proposal = read.optional(body, 'proposal', (object, field) =>
     parseProposalInput(object[field]),

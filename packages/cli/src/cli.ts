@@ -1998,15 +1998,16 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (text === '') throw new UsageError('give the question as text')
       const choices = options.choice ?? []
       const supersedes = options.supersedes
-      const request = await withDaemon(home, (client) =>
-        client.postChatRequest({
-          question: {
-            text,
-            ...(choices.length > 0 && { choices }),
-            ...(options.multiple === true && { multiple: true as const }),
-          },
-          ...(supersedes !== undefined && { supersedes }),
-        }),
+      const input = {
+        question: {
+          text,
+          ...(choices.length > 0 && { choices }),
+          ...(options.multiple === true && { multiple: true as const }),
+        },
+        ...(supersedes !== undefined && { supersedes }),
+      }
+      const request = await withDaemon(home, async (client) =>
+        tedEnv('TED_PLAN', env) ? client.postPlanRequest(input) : client.postChatRequest(input),
       )
       console.log(
         `Asked the human (request ${request.id}). End your turn; Ted sends you their answer.`,

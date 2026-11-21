@@ -1,4 +1,4 @@
-import { parseChatAgentId } from './chat-agent.ts'
+import { parseChatAgentId, parseChatQuestion } from './chat-agent.ts'
 import type {
   PostPlanRequest,
   RenamePlanRequest,
@@ -48,6 +48,7 @@ export function parseResumePlanRequest(value: unknown): ResumePlanRequest {
 
 export function parsePostPlanRequest(value: unknown): PostPlanRequest {
   const body = bodyObject(value)
+  const question = body.question === undefined ? undefined : parseChatQuestion(body.question)
   const round = body.round === undefined ? undefined : parseRoundInput(body.round)
   const proposal = body.proposal === undefined ? undefined : parseProposalInput(body.proposal)
   const { supersedes } = body
@@ -55,6 +56,7 @@ export function parsePostPlanRequest(value: unknown): PostPlanRequest {
     throw new HttpError(400, 'supersedes must be a request ID')
   }
   return {
+    ...(question && { question }),
     ...(round && { round }),
     ...(proposal && { proposal }),
     ...(typeof supersedes === 'string' && { supersedes }),

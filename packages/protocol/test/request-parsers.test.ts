@@ -62,7 +62,12 @@ const proposal = {
     },
   ],
 } satisfies P.ProposalInput
-roundTrip(P.parsePostPlanRequest, { round, proposal, supersedes: 'old' })
+roundTrip(P.parsePostPlanRequest, {
+  question: { text: 'Where?', choices: ['Here', 'There'] },
+  round,
+  proposal,
+  supersedes: 'old',
+})
 roundTrip(P.parseSendPeerMessage, { operation: 'unique', text: 'Coordinate' })
 roundTrip(P.parseCoordinatorMessage, {
   text: 'Coordinate',

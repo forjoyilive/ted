@@ -494,6 +494,14 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
         <p className={styles.cardTitle}>{request.title}</p>
       )}
       {request.body !== '' && <Markdown className={styles.summary} text={request.body} />}
+      {request.kind === 'question' && (
+        <QuestionAnswer
+          request={request}
+          sending={sending}
+          box={{ kind: 'plan-request', id: request.id }}
+          onSend={send}
+        />
+      )}
       {request.round && (
         <>
           <RoundQuestions
@@ -605,9 +613,9 @@ function QuestionAnswer({
   box,
   onSend,
 }: {
-  request: ChatRequest
+  request: Pick<ChatRequest, 'choices' | 'multiple'>
   sending: boolean
-  box: { kind: 'coordinator-request'; id: string }
+  box: { kind: 'coordinator-request' | 'plan-request'; id: string }
   onSend: (answer: AnswerRequest) => void
 }) {
   const { text, setText } = useMessageDraft(box)

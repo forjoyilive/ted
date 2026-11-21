@@ -294,6 +294,10 @@ test('one list decides which requests the phone may answer, with a reason for th
       'archive with nothing to choose',
       task({ kind: 'question', purpose: { kind: 'archive' }, archive: { reason: 'Done' } }),
     ],
+    ['plan question', { source: 'plan', kind: 'question' }],
+    ['chat question', { source: 'chat', kind: 'question' }],
+    ['chat round', { source: 'chat', kind: 'round' }],
+    ['chat proposal', { source: 'chat', kind: 'proposal' }],
     ['plan round', { source: 'plan', kind: 'round' }],
     ['plan proposal', { source: 'plan', kind: 'proposal' }],
     ['Automation question', { source: 'automation' }],
@@ -342,7 +346,10 @@ test('one list decides which requests the phone may answer, with a reason for th
     ],
     ['note', task({ kind: 'note' }), /Mac/],
     ['plan note', { source: 'plan', kind: 'note' }, /Mac/],
-    ['Coordinator chat', { source: 'chat' }, /Coordinator/],
+    ['confirmation', { source: 'chat' }, /Answer this on your Mac/],
+    ['outside command', { source: 'chat', kind: 'outside-command' }, /Answer this on your Mac/],
+    ['Agent draft', { source: 'chat', kind: 'agent' }, /Review this on your Mac/],
+    ['Automation card', { source: 'chat', kind: 'automation' }, /Review this on your Mac/],
   ]
   for (const [name, subject, reason] of onMac) {
     const decided = phoneAnswerability(subject)

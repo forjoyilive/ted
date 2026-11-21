@@ -1,3 +1,4 @@
+import type { ChatRequestKind } from './chat-agent.ts'
 import type { Json, JsonObject } from './parse.ts'
 import { isInteger, isOneOf, isString, ParseError, reader, type Untyped } from './parse.ts'
 import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
@@ -36,6 +37,8 @@ export interface PhoneRequestSummary {
   createdAt: string
   failed?: true
   onPhone: boolean
+  agentName?: string
+  macReason?: string
   task?: PhoneRequestTask
 }
 
@@ -180,18 +183,29 @@ export type PhoneAnswerSubject =
     }
   | { source: 'plan'; kind: PlanRequestKind }
   | { source: 'automation' }
-  | { source: 'chat' }
+  | { source: 'chat'; kind?: ChatRequestKind | 'automation' }
 
 export type PhoneAnswerability = { onPhone: true } | { onPhone: false; reason: string }
 
 const onMac = (reason: string): PhoneAnswerability => ({ onPhone: false, reason })
 
 export function phoneAnswerability(subject: PhoneAnswerSubject): PhoneAnswerability {
-  if (subject.source === 'chat')
-    return onMac('Requests from Coordinator chats are answered on your Mac.')
+  if (subject.source === 'chat') {
+    switch (subject.kind) {
+      case 'question':
+      case 'round':
+      case 'proposal':
+        return { onPhone: true }
+      case 'agent':
+      case 'automation':
+        return onMac('Review this on your Mac.')
+      default:
+        return onMac('Answer this on your Mac.')
+    }
+  }
   if (subject.source === 'automation') return { onPhone: true }
   if (subject.source === 'plan') {
-    return subject.kind === 'round' || subject.kind === 'proposal'
+    return subject.kind === 'question' || subject.kind === 'round' || subject.kind === 'proposal'
       ? { onPhone: true }
       : onMac('Answer this on your Mac.')
   }
@@ -300,6 +314,17 @@ function parseRequestTask(value: Json): PhoneRequestTask {
   }
 }
 
+function optionalTextFields(
+  object: JsonObject,
+): Pick<PhoneRequestSummary, 'agentName' | 'macReason'> {
+  const agentName = read.optional(object, 'agentName', read.string)
+  const macReason = read.optional(object, 'macReason', read.string)
+  return {
+    ...(agentName !== undefined && { agentName }),
+    ...(macReason !== undefined && { macReason }),
+  }
+}
+
 function parseSummaryFields(object: JsonObject): PhoneRequestSummary {
   const ref = read.optional(object, 'ref', read.string)
   const failed = optionalTrue(object, 'failed')
@@ -319,6 +344,7 @@ function parseSummaryFields(object: JsonObject): PhoneRequestSummary {
     createdAt: read.string(object, 'createdAt'),
     ...(failed !== undefined && { failed }),
     onPhone: read.boolean(object, 'onPhone'),
+    ...optionalTextFields(object),
     ...(task !== undefined && { task }),
   }
 }
