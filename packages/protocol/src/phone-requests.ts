@@ -1,5 +1,6 @@
 import type { Json, JsonObject } from './parse.ts'
 import { isInteger, isString, ParseError, reader, type Untyped } from './parse.ts'
+import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
 import { type PhoneImage, parsePhoneImage } from './phone-images.ts'
 import type { PlanRequestKind } from './plan.ts'
 import { type Comment, type Priority, priorities } from './task.ts'
@@ -26,6 +27,8 @@ export interface PhoneRequestSummary {
   source: PhoneRequestSource
   kind: PhoneRequestKind
   factory: string
+  factoryId: string
+  factoryIcon?: PhoneFactoryIcon
   title: string
   ref?: string
   headline: string
@@ -275,11 +278,15 @@ export function parsePhoneAnswer(value: Untyped): PhoneAnswer {
 function parseSummaryFields(object: JsonObject): PhoneRequestSummary {
   const ref = read.optional(object, 'ref', read.string)
   const failed = optionalTrue(object, 'failed')
+  const factoryIcon =
+    object.factoryIcon === undefined ? undefined : parsePhoneFactoryIcon(object.factoryIcon)
   return {
     id: read.string(object, 'id'),
     source: read.oneOf(object, 'source', phoneRequestSources),
     kind: read.oneOf(object, 'kind', phoneRequestKinds),
     factory: read.string(object, 'factory'),
+    factoryId: read.string(object, 'factoryId'),
+    ...(factoryIcon !== undefined && { factoryIcon }),
     title: read.string(object, 'title'),
     ...(ref !== undefined && { ref }),
     headline: read.string(object, 'headline'),
