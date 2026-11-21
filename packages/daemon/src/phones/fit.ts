@@ -20,6 +20,7 @@ type Measured =
   | PhoneChatRow
   | PhoneChatItem
   | PhoneChatDetailLine
+  | readonly PhoneChatFactory[]
   | { factories: PhoneChatFactory[]; rows: PhoneChatRow[]; archivedCount: number; cursor: string }
   | { items: PhoneChatItem[]; cursor: string }
   | { lines: PhoneChatDetailLine[]; next: number }

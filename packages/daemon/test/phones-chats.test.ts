@@ -22,7 +22,7 @@ import {
   type RunChat,
 } from '@ted/protocol'
 import { expect, test } from 'vitest'
-import { createPhoneChats, type PhoneChatSource } from '../src/phones/chats.ts'
+import { createPhoneChats, fitFactories, type PhoneChatSource } from '../src/phones/chats.ts'
 import type { PhoneOutcome } from '../src/phones/requests.ts'
 import { type PhoneRouteContext, phoneRoutes } from '../src/phones/routes.ts'
 import type { PhoneTaskFactory } from '../src/phones/tasks.ts'
@@ -475,9 +475,9 @@ test('a tool call bigger than one reply reads to its end through chat-item offse
           kind: 'round',
           author: 'run',
           body: 'Answer these',
-          round: { number: 2 },
+          round: { number: 2, questions: [] },
           createdAt: minute(2),
-        } as PlanRequest,
+        },
         {
           id: 'note',
           planId: 'p1',
@@ -570,6 +570,99 @@ test('a tool call bigger than one reply reads to its end through chat-item offse
   expect(past).toEqual({ lines: [] })
   const nothing = parsePhoneChatItemBody(body(await chats.item('plan', 'p1', 'ended', 0)))
   expect(nothing.lines.map((line) => line.text)).toEqual(['Planning Run finished'])
+})
+
+test('a round with no summary and a proposal show what they ask, whole through chat-item', async () => {
+  const world = emptyWorld()
+  const round: PlanRequest = {
+    id: 'round',
+    planId: 'p1',
+    runId: 'run-1',
+    kind: 'round',
+    author: 'run',
+    title: 'Scope',
+    body: '',
+    round: {
+      number: 1,
+      questions: [
+        {
+          question: 'Which screens change?',
+          choices: ['Only the list', 'The list and the chat'],
+          recommended: 'The list and the chat',
+        },
+        { question: `Anything else? ${'q'.repeat(phoneChatTextMax)}`, recommended: 'No' },
+      ],
+    },
+    createdAt: minute(1),
+  }
+  const proposal: PlanRequest = {
+    id: 'proposal',
+    planId: 'p1',
+    runId: 'run-1',
+    kind: 'proposal',
+    author: 'run',
+    body: 'Two Tasks',
+    proposal: {
+      rows: [
+        { title: 'Routes', scope: 'Add the routes.', priority: 'high', blockedBy: [] },
+        { title: 'Screens', scope: 'Add the screens.', priority: 'medium', blockedBy: [1] },
+      ],
+    },
+    createdAt: minute(2),
+  }
+  world.details.set('p1', {
+    detail: {
+      plan: plan('p1', { status: 'waiting', runId: 'run-1' }),
+      requests: [round, proposal],
+      tasks: [],
+    },
+    chat: runChat([]),
+  })
+  world.plans = [plan('p1', { status: 'waiting', runId: 'run-1' })]
+  const chats = createPhoneChats(source(world))
+  const items = parsePhoneChatItemsBody(body(await chats.items('plan', 'p1', undefined))).items
+  const shownRound = items.find((item) => item.id === 'round')
+  if (shownRound?.kind !== 'request') throw new Error('round not shown')
+  expect(shownRound.text).toContain('**1. Which screens change?**')
+  expect(shownRound.text).toContain('- Only the list')
+  expect(shownRound.text).toContain('Recommended: The list and the chat')
+  expect(shownRound.cut).toBe(true)
+  const shownProposal = items.find((item) => item.id === 'proposal')
+  if (shownProposal?.kind !== 'request') throw new Error('proposal not shown')
+  expect(shownProposal.text).toBe(
+    'Two Tasks\n\n**1. Routes** · high\nAdd the routes.\n\n**2. Screens** · medium\nAdd the screens.\nWaits for 1',
+  )
+  expect(shownProposal.cut).toBe(false)
+
+  const whole = parsePhoneChatItemBody(body(await chats.item('plan', 'p1', 'round', 0)))
+  const text = whole.lines.map((line) => line.text).join('\n')
+  expect(text).toContain('Recommended: No')
+  expect(text).toContain('q'.repeat(phoneChatLineMax))
+})
+
+test('a Factory list too big for half a reply is cut so chat rows still fit', async () => {
+  const many = Array.from({ length: 400 }, (_, n) => ({
+    id: `factory-${n}`,
+    name: `Factory ${n} ${'n'.repeat(190)}`,
+  }))
+  const fitted = fitFactories(many)
+  expect(Buffer.byteLength(JSON.stringify(fitted))).toBeLessThanOrEqual(phoneReplyBodyMax / 2)
+  expect(fitted.length).toBeGreaterThan(0)
+  expect(fitFactories(many.slice(0, 2))).toEqual(many.slice(0, 2))
+
+  const world = emptyWorld()
+  const big: PhoneTaskFactory[] = many.map((factory, n) => ({
+    ...factory,
+    position: n,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  }))
+  world.chats = big.map((factory, n) =>
+    summary(`c${n}`, { factoryId: factory.id, lastAt: minute(n % 60) }),
+  )
+  const chats = createPhoneChats({ ...source(world), factories: () => big })
+  const page = parsePhoneChatsBody(body(await chats.list(undefined, false, undefined)))
+  expect(page.rows.length).toBeGreaterThan(0)
+  expect(page.cursor).toBeDefined()
 })
 
 test('the Chats routes refuse a request missing its chat', async () => {

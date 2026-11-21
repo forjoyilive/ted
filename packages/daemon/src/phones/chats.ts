@@ -1,4 +1,5 @@
 import {
+  type AgentDraft,
   type AutomationCard,
   automationCardHeadline,
   type ChatDiff,
@@ -10,6 +11,7 @@ import {
   type CoordinatorReceipt,
   encodeChatItemsCursor,
   encodeChatsCursor,
+  type OutsideCommandAsk,
   type PhoneChatDetailLine,
   type PhoneChatFactory,
   type PhoneChatItem,
@@ -23,6 +25,8 @@ import {
   type PlanDetail,
   type PlanRequest,
   type PlanStatus,
+  type Proposal,
+  type ProposalRow,
   parseChatItemsCursor,
   parseChatsCursor,
   phoneChatLineMax,
@@ -33,6 +37,8 @@ import {
   phoneLabelMax,
   phoneReplyBodyMax,
   planRequestLabel,
+  type Round,
+  type RoundQuestion,
   type RunChat,
 } from '@ted/protocol'
 import {
@@ -344,13 +350,66 @@ function chatRequestTitle(request: ChatRequest): string {
   return chatRequestLabels[request.kind]
 }
 
+interface Asked {
+  body: string
+  choices?: readonly string[]
+  round?: Round
+  proposal?: Proposal
+  agentDraft?: AgentDraft
+  outsideCommand?: OutsideCommandAsk
+}
+
+function bullets(items: readonly string[]): string {
+  return items.map((item) => `- ${item}`).join('\n')
+}
+
+function questionText(question: RoundQuestion, index: number): string {
+  const recommended = question.recommendedChoices?.join('; ') ?? question.recommended
+  return [
+    `**${index + 1}. ${question.question}**`,
+    ...(question.choices?.length ? [bullets(question.choices)] : []),
+    `Recommended: ${recommended}`,
+  ].join('\n')
+}
+
+function proposalRowText(row: ProposalRow, index: number): string {
+  return [
+    `**${index + 1}. ${row.title}** · ${row.priority}`,
+    row.scope,
+    ...(row.blockedBy.length > 0 ? [`Waits for ${row.blockedBy.join(', ')}`] : []),
+  ].join('\n')
+}
+
+function askedText(asked: Asked): string {
+  const parts = [asked.body.trim()]
+  if (asked.choices?.length) parts.push(bullets(asked.choices))
+  if (asked.round) parts.push(...asked.round.questions.map(questionText))
+  if (asked.proposal) parts.push(...asked.proposal.rows.map(proposalRowText))
+  if (asked.agentDraft) {
+    const draft = asked.agentDraft
+    parts.push(
+      [
+        `**Agent: ${draft.name}**`,
+        ...(draft.powers.length > 0 ? [`Powers: ${draft.powers.join(', ')}`] : []),
+      ].join('\n'),
+      draft.instructions,
+    )
+  }
+  if (asked.outsideCommand) {
+    const command = asked.outsideCommand
+    const line = [command.command, command.argument].filter(Boolean).join(' ')
+    parts.push(`\`${line}\`\nin ${command.folder}`)
+  }
+  return parts.filter((part) => part !== '').join('\n\n')
+}
+
 function chatRequestEntry(request: ChatRequest): Entry {
   return requestEntry(
     request.id,
     request.createdAt,
     chatRequestLabels[request.kind],
     chatRequestTitle(request),
-    request.body,
+    askedText(request),
     request.answer === undefined,
   )
 }
@@ -364,7 +423,7 @@ function planRequestEntry(request: PlanRequest): Entry {
     request.createdAt,
     request.kind === 'round' ? 'Round' : 'Proposal',
     request.title ?? planRequestLabel(request),
-    request.body,
+    askedText(request),
     request.answer === undefined,
   )
 }
@@ -503,6 +562,27 @@ function newestFirst(a: PhoneChatsCursor, b: PhoneChatsCursor): number {
   )
 }
 
+const factoryNameSteps = [100, 50, 20, 0]
+
+export function fitFactories(factories: readonly PhoneChatFactory[]): PhoneChatFactory[] {
+  const room = phoneReplyBodyMax / 2
+  if (jsonBytes(factories) <= room) return [...factories]
+  for (const max of factoryNameSteps) {
+    const cut = factories.map((factory) => ({ ...factory, name: cutChars(factory.name, max) }))
+    if (jsonBytes(cut) <= room) return cut
+  }
+  const kept: PhoneChatFactory[] = []
+  let size = jsonBytes([])
+  for (const factory of factories) {
+    const bare = { id: factory.id, name: '' }
+    const next = jsonBytes(bare) + (kept.length > 0 ? 1 : 0)
+    if (size + next > room) break
+    kept.push(bare)
+    size += next
+  }
+  return kept
+}
+
 function factoryOrder(a: PhoneTaskFactory, b: PhoneTaskFactory): number {
   return a.position - b.position || a.createdAt.localeCompare(b.createdAt)
 }
@@ -593,9 +673,11 @@ export function createPhoneChats(source: PhoneChatSource): PhoneChats {
     if (cursor !== undefined && after === undefined) return { code: 'bad-request' }
     const all = await rows()
     const withChats = new Set(all.rows.map((row) => row.factory.id))
-    const factories = all.factories
-      .filter((factory) => withChats.has(factory.id))
-      .map((factory) => factoryView(all.factories, factory.id))
+    const factories = fitFactories(
+      all.factories
+        .filter((factory) => withChats.has(factory.id))
+        .map((factory) => factoryView(all.factories, factory.id)),
+    )
     const scoped = all.rows.filter((row) => factoryId === undefined || row.factory.id === factoryId)
     const archivedCount = scoped.filter((row) => row.archived).length
     const shown = scoped.filter((row) => row.archived === archived).toSorted(newestFirst)
