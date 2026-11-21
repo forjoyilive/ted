@@ -38,6 +38,7 @@ import { stageTitle } from '../workflow/workflow.ts'
 import { cutChars, fitText, jsonBytes, textBytes } from './fit.ts'
 import { type PhoneIconFactory, phoneFactoryIcons } from './icons.ts'
 import { phoneCaption, phoneImageId, phoneImageList } from './images.ts'
+import { phoneTaskActions } from './task-actions.ts'
 
 export interface PhoneAutomationQuestion {
   body: string
@@ -400,6 +401,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       if (!comment) return undefined
       const answerability = taskAnswerability(comment)
       const signoff = comment.gate !== undefined && comment.kind !== 'review'
+      const task = read.task(comment.taskId)
       const shown = comment.kind === 'review' ? designFiles(comment.design) : new Set<string>()
       const media = phoneImageList(
         comment.id,
@@ -415,6 +417,9 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
           ref: waiting.displayId,
           ...(waiting.failed && { failed: true as const }),
           onPhone: answerability.onPhone,
+          ...(task && {
+            task: { id: task.id, priority: task.priority, actions: phoneTaskActions(task) },
+          }),
         },
         answerability,
         body: comment.body,
