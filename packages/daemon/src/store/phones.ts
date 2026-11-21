@@ -3,6 +3,7 @@ import { queryDb } from '@livestore/livestore'
 import { type Edition, type PhoneChatKind, phoneChatKinds, relayListHash } from '@ted/protocol'
 import { isOneOf } from '@ted/protocol/parse'
 import type { StoreContext } from './context.ts'
+import type { PhoneChatWrite } from './schema/phone-chat.ts'
 import {
   events,
   phoneChatSends,
@@ -83,7 +84,6 @@ export interface PhoneStore {
   waitingSince(request: { id: string; createdAt: string }): string
   createdTask(phoneId: string, createId: string): string | undefined
   chatSent(phoneId: string, createId: string): PhoneChatSent | undefined
-  markChatSent(sent: PhoneChatSent): void
   persisted(): Promise<void>
 }
 
@@ -97,6 +97,15 @@ export interface PhoneChatSent {
   chatId: string
   queued: boolean
   at: string
+}
+
+export type PhoneChatRetry = Pick<PhoneChatSent, 'phoneId' | 'createId' | 'action'>
+
+export function phoneChatCommit(
+  sent: Omit<PhoneChatSent, 'at'>,
+  writes: readonly PhoneChatWrite[],
+) {
+  return events.phoneChatCommitted({ sent: { ...sent, at: new Date().toISOString() }, writes })
 }
 
 export interface PhonesArea {
@@ -238,9 +247,6 @@ export function phonesArea(ctx: StoreContext): PhonesArea {
           return undefined
         const { id: _, ...sent } = row
         return { ...sent, action: row.action, chatKind: row.chatKind }
-      },
-      markChatSent(sent) {
-        commit(events.phoneChatSent(sent))
       },
       persisted,
     },

@@ -2676,6 +2676,7 @@ export async function openContext({
   const coordinatorStore = createCoordinatorStore({
     store,
     commit,
+    runChanged: (runId) => emit({ type: 'run-output', runId }),
     changed(factoryId, chatId) {
       emit({ type: 'coordinator-changed', factoryId, chatId })
       noteActivity()

@@ -4,6 +4,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { Attachment, Run, RunMessage } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import type { RunInterrupt, TedStore } from '../store/index.ts'
+import type { RunPhoneChat } from '../store/runs.ts'
 import { runFiles } from './host-files.ts'
 import type { RunManager } from './run-manager.ts'
 
@@ -22,7 +23,11 @@ export interface Steering {
   send(
     runId: string,
     text: string,
-    options: { interrupt: boolean; files?: readonly Attachment[] },
+    options: {
+      interrupt: boolean
+      files?: readonly Attachment[]
+      phoneChat?: RunPhoneChat | undefined
+    },
   ): Promise<RunMessage>
   stopTurn(runId: string): Promise<void>
   sendNow(runId: string, messageId: string): Promise<RunMessage>
@@ -383,11 +388,11 @@ export function createSteering(options: {
         })
       }
     },
-    async send(runId, text, { interrupt, files = [] }) {
+    async send(runId, text, { interrupt, files = [], phoneChat }) {
       const run = requireLive(runId)
       if (run.state === 'working') {
         if (interrupt) store.recordTurnInterrupted(runId, false)
-        const message = store.queueRunMessage({ runId, text, files })
+        const message = store.queueRunMessage({ runId, text, files, phoneChat })
         releaseAll(run)
         if (interrupt) interruptThenDeliver(run, message)
         else syncFlag(runId)
@@ -396,14 +401,14 @@ export function createSteering(options: {
       return serially(runId, async () => {
         const live = requireLive(runId)
         if (live.state === 'working' || !options.canDeliver(runId, false)) {
-          const message = store.queueRunMessage({ runId, text, files })
+          const message = store.queueRunMessage({ runId, text, files, phoneChat })
           releaseAll(live)
           syncFlag(runId)
           return message
         }
         await deliver(live, queued(runId), { includeHeld: true })
         await runs.send(runId, text, files)
-        return store.recordRunMessage({ runId, text, lead: isCurrentLead(live), files })
+        return store.recordRunMessage({ runId, text, lead: isCurrentLead(live), files, phoneChat })
       })
     },
     async stopTurn(runId) {

@@ -17,6 +17,7 @@ import type {
 } from '@ted/protocol'
 import { isArray, isNumber, isObject, isString, parseJson } from '@ted/protocol/parse'
 import { runRows, type StoreContext, storedPermission } from './context.ts'
+import { type PhoneChatRetry, phoneChatCommit } from './phones.ts'
 import { joinPrompt, type PromptPart, splitPrompt } from './prompt-parts.ts'
 import {
   comments,
@@ -109,12 +110,14 @@ export interface RunsArea {
     runId: string
     text: string
     lead: boolean
+    phoneChat?: RunPhoneChat | undefined
     files?: readonly Attachment[]
   }): RunMessage
   queueRunMessage(input: {
     runId: string
     text: string
     from?: 'ted'
+    phoneChat?: RunPhoneChat | undefined
     files?: readonly Attachment[]
   }): RunMessage
   deliverRunMessages(runId: string, ids: readonly string[], lead: boolean): void
@@ -133,6 +136,29 @@ export interface RunsArea {
   releaseTaskRun(taskId: string): void
   heldRuns(): HeldRun[]
   pausedRunCount(agent: AgentKind): number
+}
+
+export interface RunPhoneChat {
+  retry: PhoneChatRetry
+  chatId: string
+}
+
+export function queuedPhoneChatMessage(runId: string, text: string, files: readonly Attachment[]) {
+  const message: RunMessage = {
+    id: randomUUID(),
+    runId,
+    text,
+    at: new Date().toISOString(),
+    queued: true,
+    ...(files.length > 0 && { attachments: [...files] }),
+  }
+  return {
+    message,
+    writes: [
+      events.runMessageQueued({ id: message.id, at: message.at, runId, text, taskId: null }),
+      ...filesAttached(message.id, runId, files),
+    ],
+  }
 }
 
 export function runsArea(ctx: StoreContext): RunsArea {
@@ -664,18 +690,37 @@ export function runsArea(ctx: StoreContext): RunsArea {
       }
     },
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
-    recordRunMessage({ runId, text, lead, files = [] }) {
+    recordRunMessage({ runId, text, lead, phoneChat, files = [] }) {
       const taskId = taskIdOfRun(runId) ?? null
       const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
-      commit(
-        events.runMessageSent({ ...message, taskId, lead: lead && taskId !== null }),
-        ...filesAttached(message.id, runId, files),
-      )
+      const sent = events.runMessageSent({ ...message, taskId, lead: lead && taskId !== null })
+      const attachments = filesAttached(message.id, runId, files)
+      if (phoneChat) {
+        commit(
+          phoneChatCommit(
+            { ...phoneChat.retry, chatKind: 'plan', chatId: phoneChat.chatId, queued: false },
+            [sent, ...attachments],
+          ),
+        )
+      } else {
+        commit(sent, ...attachments)
+      }
       emit({ type: 'run-output', runId })
       if (taskId !== null && lead) updatedTask(taskId)
       return { ...message, ...(files.length > 0 && { attachments: [...files] }) }
     },
-    queueRunMessage({ runId, text, from, files = [] }) {
+    queueRunMessage({ runId, text, from, phoneChat, files = [] }) {
+      if (phoneChat) {
+        const { message, writes } = queuedPhoneChatMessage(runId, text, files)
+        commit(
+          phoneChatCommit(
+            { ...phoneChat.retry, chatKind: 'plan', chatId: phoneChat.chatId, queued: true },
+            writes,
+          ),
+        )
+        emit({ type: 'run-output', runId })
+        return message
+      }
       const taskId = taskIdOfRun(runId) ?? null
       const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
       commit(
