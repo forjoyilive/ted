@@ -89,6 +89,19 @@ function PairDialog({
   const now = useNow(live)
   const expired = state.state === 'expired' || (state.state === 'live' && state.expiresAt <= now)
   const link = state.state === 'live' ? state.link : undefined
+  const canCopy = !expired && state.state === 'live' && state.edition === 'dev'
+  const [copyState, setCopyState] = useState<'copying' | 'copied' | 'failed'>()
+
+  async function copy(text: string) {
+    setCopyState('copying')
+    try {
+      await ted.copyText(text)
+      setCopyState('copied')
+    } catch {
+      setCopyState('failed')
+    }
+  }
+
   return (
     <Dialog onClose={onClose} className={styles.dialog}>
       {(headingId) => (
@@ -118,8 +131,18 @@ function PairDialog({
             )
           )}
           <div className={dialogStyles.buttons}>
-            {!expired && state.state === 'live' && state.edition === 'dev' && (
-              <Button onClick={() => void ted.copyText(state.link)}>Copy code</Button>
+            {canCopy && (
+              <>
+                <span role="status">{copyState === 'copied' ? 'Code copied' : ''}</span>
+                {copyState === 'failed' && (
+                  <span className={styles.error} role="alert">
+                    Couldn’t copy code.
+                  </span>
+                )}
+                <Button disabled={copyState === 'copying'} onClick={() => void copy(state.link)}>
+                  Copy code
+                </Button>
+              </>
             )}
             <Button onClick={onClose}>Cancel</Button>
             {expired && (
@@ -306,7 +329,7 @@ export function PhonesPage() {
         />
       )}
       {open && pairing.state !== 'waiting' && pairingId !== undefined && (
-        <PairDialog state={pairing} busy={busy} onClose={close} onRenew={start} />
+        <PairDialog key={pairingId} state={pairing} busy={busy} onClose={close} onRenew={start} />
       )}
       {removing && (
         <Dialog onClose={() => setRemoving(undefined)} className={styles.dialog}>
