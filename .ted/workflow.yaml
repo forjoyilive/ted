@@ -6,8 +6,7 @@ repos:
     worktree:
       setup:
         run: >-
-          pnpm install --frozen-lockfile &&
-          electron_config_cache="$PWD/node_modules/.cache/electron" pnpm --filter @ted/app exec install-electron
+          pnpm install --frozen-lockfile && electron_config_cache="$PWD/node_modules/.cache/electron" pnpm --filter @ted/app exec install-electron
         sandbox_access: [electron, network]
     apps:
       - name: Ted Dev

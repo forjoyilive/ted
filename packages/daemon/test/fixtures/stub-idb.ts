@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from 'n
 
 export interface StubIdbScreen {
   screen: 'home' | 'details'
+  screenCompanion?: 'shared' | 'private'
   typed?: string
   keys?: string[]
   home?: number
@@ -64,13 +65,30 @@ function locked<T>(work: () => T): T {
 
 interface State {
   idb?: boolean
+  idbSupportsXcode27?: boolean
+  legacyCompanions?: string[]
   devices?: Record<string, { udid: string; state: string }[]>
   ui?: Record<string, StubIdbScreen>
 }
 
-if (!file) fail('stub-idb: no state file')
-const [group, verb, flag, udid = '', ...rest] = args
-if (group !== 'ui' || flag !== '--udid') fail(`stub-idb: unexpected arguments ${args.join(' ')}`)
+function runClient(): void {
+  const socket = args[0] === '--companion' ? args[1] : undefined
+  if (args[0] === '--companion' || args[0] === '--companion-path') args.splice(0, 2)
+  const [group, verb, flag, udid = '', ...rest] = args
+  if (group !== 'ui' || (socket === undefined && flag !== '--udid'))
+    fail(`stub-idb: unexpected arguments ${args.join(' ')}`)
+  const target = socket === undefined ? udid : readFileSync(socket, 'utf8')
+  const output = locked(() => {
+    try {
+      return act(verb, target, socket === undefined ? rest : args.slice(2), socket !== undefined)
+    } catch (error) {
+      if (error instanceof Failure) return error
+      throw error
+    }
+  })
+  if (output instanceof Failure) fail(output.message, output.code)
+  if (output !== '') console.log(output)
+}
 
 class Failure {
   message: string
@@ -85,20 +103,21 @@ function refuse(message: string, code = 1): never {
   throw new Failure(message, code)
 }
 
-const output = locked(() => {
-  try {
-    return act()
-  } catch (error) {
-    if (error instanceof Failure) return error
-    throw error
-  }
-})
-if (output instanceof Failure) fail(output.message, output.code)
-if (output !== '') console.log(output)
-
-function act(): string {
+function act(
+  verb: string | undefined,
+  udid: string,
+  rest: string[],
+  privateCompanion: boolean,
+): string {
   const state = JSON.parse(readFileSync(file as string, 'utf8')) as State
   if (state.idb === false) refuse('idb: command not found', 127)
+  if (
+    state.idbSupportsXcode27 &&
+    !privateCompanion &&
+    state.legacyCompanions?.includes(udid) &&
+    verb !== 'describe-all'
+  )
+    refuse('SimulatorKit is required for HID interactions')
   const device = Object.values(state.devices ?? {})
     .flat()
     .find((d) => d.udid === udid)
@@ -111,6 +130,11 @@ function act(): string {
   let out = ''
   switch (verb) {
     case 'describe-all': {
+      ui.screenCompanion = privateCompanion ? 'private' : 'shared'
+      if (!privateCompanion && !state.idbSupportsXcode27) {
+        state.legacyCompanions ??= []
+        if (!state.legacyCompanions.includes(udid)) state.legacyCompanions.push(udid)
+      }
       const elements = [
         {
           type: 'Application',
@@ -165,4 +189,20 @@ function act(): string {
   writeFileSync(tmp, JSON.stringify(state, null, 2))
   renameSync(tmp, file as string)
   return out
+}
+
+if (!file) fail('stub-idb: no state file')
+if (args[0] === '--help') {
+  const state = JSON.parse(readFileSync(file, 'utf8')) as State
+  if (state.idbSupportsXcode27) console.log('    --log-hid-details VALUE')
+  process.exit(0)
+}
+if (args[0] === '--udid' && args[2] === '--grpc-domain-sock' && args[1] && args[3]) {
+  const state = JSON.parse(readFileSync(file, 'utf8')) as State
+  if (!state.idbSupportsXcode27) fail('stub-idb: incompatible companion')
+  writeFileSync(args[3], args[1])
+  console.log(JSON.stringify({ grpc_path: args[3] }))
+  setInterval(() => {}, 60_000)
+} else {
+  runClient()
 }

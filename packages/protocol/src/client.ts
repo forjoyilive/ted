@@ -192,6 +192,7 @@ import type {
   RunOutsideCommandRequest,
   RunOutsideCommandResult,
 } from './outside-command.ts'
+import { isObject, isOneOf, isString, type Untyped } from './parse.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
   PairedPhones,
@@ -794,8 +795,14 @@ export class DaemonClient {
     return this.#request('GET', '/tasks')
   }
 
-  taskDraft(factoryId: string): Promise<TaskDraftState> {
-    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/task-draft`)
+  async taskDraft(factoryId: string): Promise<TaskDraftState> {
+    const route = `/factories/${encodeURIComponent(factoryId)}/task-draft`
+    try {
+      return await this.#request('GET', route)
+    } catch (error) {
+      if (!(error instanceof DaemonUnreachableError) || !connectionClosed(error.cause)) throw error
+      return this.#request('GET', route)
+    }
   }
 
   saveTaskDraft(factoryId: string, draft: SaveTaskDraftRequest): Promise<TaskDraftState> {
@@ -2275,16 +2282,22 @@ class IdleTimeout extends Error {
 
 const again = 'Try again in a moment.'
 
-function unreachableMessage(cause: unknown): string {
+const closedConnectionCodes = ['ECONNRESET', 'EPIPE', 'ECONNABORTED'] as const
+
+function connectionClosed(cause: Untyped): boolean {
+  return isObject(cause) && isOneOf(cause.code, closedConnectionCodes)
+}
+
+function unreachableMessage(cause: Untyped): string {
   if (cause instanceof IdleTimeout) {
     return `Ted in the background hasn’t answered for ${duration(cause.ms)}. It may be busy or stuck; if this keeps happening, quit Ted and open it again.`
   }
-  const code = (cause as { code?: unknown } | null | undefined)?.code
+  const code = isObject(cause) ? cause.code : undefined
   if (code === 'ECONNREFUSED') return `Ted in the background isn’t running. ${again}`
-  if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED') {
+  if (isOneOf(code, closedConnectionCodes)) {
     return `Ted in the background closed the connection before it answered. ${again}`
   }
-  const detail = typeof code === 'string' ? code : cause instanceof Error ? cause.message : ''
+  const detail = isString(code) ? code : cause instanceof Error ? cause.message : ''
   return `Couldn’t reach Ted in the background${detail ? ` (${detail})` : ''}. ${again}`
 }
 

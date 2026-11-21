@@ -19,6 +19,8 @@ function report(error: unknown) {
   console.error(error)
 }
 
+const archiveBatchSize = 8
+
 function MoreIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
@@ -143,6 +145,20 @@ export function SelectionBar({
     return bulkActivity.run(() => Promise.all(on.map((task) => action(task).catch(report))))
   }
 
+  async function archiveSelection() {
+    const close = closePullRequests && openPullRequests.length > 0
+    await bulkActivity.run(async () => {
+      for (let start = 0; start < archivable.length; start += archiveBatchSize) {
+        const batch = archivable.slice(start, start + archiveBatchSize)
+        await Promise.all(
+          batch.map((task) => ted.archiveTask(task.id, { closePullRequests: close }).catch(report)),
+        )
+      }
+      onSelect([])
+      setConfirmArchive(false)
+    })
+  }
+
   async function prepareTasks() {
     setPreparing(true)
     setPrepareError(undefined)
@@ -230,21 +246,7 @@ export function SelectionBar({
             )}
             {confirmArchive ? (
               <>
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    const close = closePullRequests && openPullRequests.length > 0
-                    return bulk(
-                      (t) => ted.archiveTask(t.id, { closePullRequests: close }),
-                      archivable,
-                    )
-                      .then(() => {
-                        onSelect([])
-                        setConfirmArchive(false)
-                      })
-                      .catch(report)
-                  }}
-                >
+                <Button variant="primary" onClick={() => archiveSelection().catch(report)}>
                   {`Archive ${archivable.length} ${archivable.length === 1 ? 'Task' : 'Tasks'}`}
                 </Button>
                 <Button onClick={() => setConfirmArchive(false)}>Cancel</Button>
