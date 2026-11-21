@@ -21,7 +21,7 @@ import {
   TaskList,
 } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, expandFactory, required, user } from './support/component.ts'
+import { bridge, deferred, expandFactory, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
 const Stages = ({ children }: { children: ReactNode }) => (
@@ -204,6 +204,7 @@ test('Help shows its tooltip on hover and hides it when the pointer leaves', asy
 })
 
 test('Done cards show merged metadata, request the Done List and confirm Archive all count', async () => {
+  const archive = deferred<{ archived: number }>()
   const a = bridge({
     factoryBoard: () => ({
       stages: [
@@ -211,7 +212,7 @@ test('Done cards show merged metadata, request the Done List and confirm Archive
         { id: 'done', enabled: true, gate: false },
       ],
     }),
-    archiveDone: () => ({ archived: 2 }),
+    archiveDone: () => archive.promise,
   })
   const p = props()
   const now = new Date().toISOString()
@@ -227,7 +228,16 @@ test('Done cards show merged metadata, request the Done List and confirm Archive
   await user().click(screen.getByRole('menuitem', { name: 'Archive all in Done…' }))
   const dialog = screen.getByRole('dialog', { name: 'Archive 2 Done Tasks?' })
   await user().click(within(dialog).getByRole('button', { name: 'Archive 2' }))
-  expect(a.request).toHaveBeenCalledWith('archiveDone', 'f1')
+  try {
+    expect(a.request).toHaveBeenCalledWith('archiveDone', 'f1')
+    expect(screen.queryByRole('dialog', { name: 'Archive 2 Done Tasks?' })).toBeNull()
+    await user().click(screen.getByRole('button', { name: 'Done column actions' }))
+    expect(
+      screen.getByRole('menuitem', { name: 'Archive all in Done…' }).matches(':disabled'),
+    ).toBe(true)
+  } finally {
+    archive.resolve({ archived: 2 })
+  }
   view.rerender(<Board {...p} tasks={[]} />)
   expect(screen.queryByRole('button', { name: 'Show all 2 →' })).toBeNull()
   expect(document.querySelectorAll('[data-stage="done"] [data-task]')).toHaveLength(0)
