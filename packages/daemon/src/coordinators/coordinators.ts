@@ -55,6 +55,7 @@ import {
   planTitle,
   priorities,
 } from '@ted/protocol'
+import { coordinatorStoppable } from '@ted/protocol/agent-chat-view'
 import type { AgentCommand, AgentPower, ResolvedAgent } from '@ted/protocol/agent-files'
 import {
   behindText,
@@ -116,6 +117,7 @@ import type { Steering } from '../runs/steering.ts'
 import type { StoredChatAgent } from '../store/chats.ts'
 import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
+import type { PhoneChatRetry } from '../store/phones.ts'
 import { approvedShape, createProposalTasks, highestPriority } from '../tasks/proposal-tasks.ts'
 import type { QueueSource } from '../tasks/queue.ts'
 import { automaticResumes, startGuard } from '../tasks/queued-runs.ts'
@@ -278,9 +280,22 @@ export interface Coordinators {
   ): Promise<Coordinator>
   agentFiles(caller: Caller): Promise<AgentFilesForChat[]>
   statuses(): CoordinatorStatus[]
-  start(factoryId: string, input: CoordinatorMessage): Promise<Coordinator>
-  message(chatId: string, input: MessageWithFiles): Promise<Coordinator>
-  send(runId: string, text: string, files?: readonly Attachment[]): Promise<RunMessage>
+  start(
+    factoryId: string,
+    input: CoordinatorMessage,
+    phoneRetry?: PhoneChatRetry,
+  ): Promise<Coordinator>
+  message(
+    chatId: string,
+    input: MessageWithFiles,
+    phoneRetry?: PhoneChatRetry,
+  ): Promise<Coordinator>
+  send(
+    runId: string,
+    text: string,
+    files?: readonly Attachment[],
+    phoneRetry?: PhoneChatRetry,
+  ): Promise<RunMessage>
   stop(chatId: string): Promise<Coordinator>
   retry(chatId: string): Promise<Coordinator>
   list(caller: Caller, query: CoordinatorTaskQuery): Promise<CoordinatorTaskList>
@@ -1667,7 +1682,7 @@ export function createCoordinators(options: {
       }
       return [...byFactory].map(([factoryId, status]) => ({ factoryId, status }))
     },
-    async start(factoryId, input) {
+    async start(factoryId, input, phoneRetry) {
       const factory = requireFactory(factoryId)
       if (input.text.trim() === '' || input.text.length > 100_000)
         throw new RequestError(400, 'message must contain 1–100000 characters')
@@ -1698,19 +1713,31 @@ export function createCoordinators(options: {
         receipts: [],
         taskIds: [],
       }
-      store.queueRunMessage({ runId, text: input.text })
-      save(created, [], store.chats.agentRecorded(created.id, 'coordinator', factoryId, chosen))
+      const agent = store.chats.agentRecorded(created.id, 'coordinator', factoryId, chosen)
+      if (phoneRetry) {
+        if (closed || removing.has(factoryId))
+          throw new RequestError(409, 'The Coordinator is unavailable')
+        saved.save(created, [], agent, {
+          retry: phoneRetry,
+          queued: false,
+          text: input.text,
+          files: [],
+        })
+      } else {
+        store.queueRunMessage({ runId, text: input.text })
+        save(created, [], agent)
+      }
       await store.persisted()
       pump()
       return publicChat(requireChat(created.id))
     },
-    async message(id, input) {
+    async message(id, input, phoneRetry) {
       const c = requireChat(id)
       notChanging(id)
-      await service.send(c.runId, input.text, input.files)
+      await service.send(c.runId, input.text, input.files, phoneRetry)
       return publicChat(requireChat(id))
     },
-    async send(runId, text, files = []) {
+    async send(runId, text, files = [], phoneRetry) {
       if (closed) throw new RequestError(503, 'The Coordinator is shutting down')
       const c = saved.forRun(runId)
       if (!c || c.runId !== runId)
@@ -1724,8 +1751,28 @@ export function createCoordinators(options: {
       if (text.trim() === '' || text.length > 100_000)
         throw new RequestError(400, 'message must contain 1–100000 characters')
       if (c.phase === 'failed') throw new RequestError(409, 'Retry the Coordinator before sending')
-      const message = store.queueRunMessage({ runId, text, files })
-      if (c.phase !== 'working') save({ ...c, phase: 'queued' })
+      const next = c.phase === 'working' ? c : { ...c, phase: 'queued' as const }
+      let message: RunMessage
+      if (phoneRetry) {
+        if (closed || held(c.id) || removing.has(c.factoryId)) {
+          throw new RequestError(409, 'The Coordinator is unavailable')
+        }
+        const queued = coordinatorStoppable({
+          status: status(c),
+          ...(c.endedAt && { endedAt: c.endedAt }),
+        })
+        const savedMessage = saved.save(next, [], undefined, {
+          retry: phoneRetry,
+          queued,
+          text,
+          files,
+        })
+        if (!savedMessage) throw new Error('Phone Coordinator message was not saved')
+        message = savedMessage
+      } else {
+        message = store.queueRunMessage({ runId, text, files })
+        if (next !== c) save(next)
+      }
       await store.persisted()
       if (store.getRun(runId)) steering.syncQueuedFlag(runId)
       pump()

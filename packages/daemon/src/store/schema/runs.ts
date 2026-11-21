@@ -90,6 +90,7 @@ export const runMessages = State.SQLite.table({
     text: State.SQLite.text(),
     at: State.SQLite.text(),
     queued: State.SQLite.boolean({ default: false }),
+    phoneImmediate: State.SQLite.boolean({ default: false }),
     fromTed: State.SQLite.boolean({ default: false }),
     deletedAt: State.SQLite.text({ nullable: true }),
     files: State.SQLite.text({ nullable: true }),

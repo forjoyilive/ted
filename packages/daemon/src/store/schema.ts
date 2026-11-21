@@ -85,6 +85,7 @@ import {
   taskRepos,
 } from './schema/merge.ts'
 import { peerMessages, peersEvents, peersMaterializers } from './schema/peers.ts'
+import { phoneChatEvents, phoneChatMaterializers } from './schema/phone-chat.ts'
 import {
   phoneChatSends,
   phoneNotifications,
@@ -180,6 +181,7 @@ export const events = {
   ...mergeEvents,
   ...peersEvents,
   ...phonesEvents,
+  ...phoneChatEvents,
   ...plansEvents,
   ...requestsEvents,
   ...runsEvents,
@@ -201,6 +203,7 @@ const materializers = counted(
     ...mergeMaterializers,
     ...peersMaterializers,
     ...phonesMaterializers,
+    ...phoneChatMaterializers,
     ...plansMaterializers,
     ...requestsMaterializers,
     ...runsMaterializers,

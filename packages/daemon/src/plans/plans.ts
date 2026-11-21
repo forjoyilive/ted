@@ -41,6 +41,7 @@ import type { MessageWithFiles } from '../runs/message-files.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredChatAgent } from '../store/chats.ts'
 import type { StoredFactory, StoredTask, TedStore } from '../store/index.ts'
+import type { PhoneChatRetry } from '../store/phones.ts'
 import type { StoredPlan } from '../store/plans.ts'
 import { approvedShape, createProposalTasks, highestPriority } from '../tasks/proposal-tasks.ts'
 import {
@@ -94,12 +95,17 @@ export interface PlansOptions {
 export interface Plans {
   list(factory?: string): Promise<Plan[]>
   detail(id: string): Promise<PlanDetail>
-  start(input: StartPlanRequest, caller: Caller): Promise<Plan>
+  start(input: StartPlanRequest, caller: Caller, phoneRetry?: PhoneChatRetry): Promise<Plan>
   fromTask(input: { taskId: string; sizeCheckId: string; text: string }): Promise<Plan>
   taskGone(taskId: string, reason: PlanTaskGone): void
   rename(id: string, title: string, caller: Caller): Promise<Plan>
   stop(id: string, caller: Caller): Promise<Plan>
-  resume(id: string, caller: Caller, message?: MessageWithFiles): Promise<Plan>
+  resume(
+    id: string,
+    caller: Caller,
+    message?: MessageWithFiles,
+    phoneRetry?: PhoneChatRetry,
+  ): Promise<Plan>
   archive(id: string, caller: Caller): Promise<Plan>
   unarchive(id: string, caller: Caller): Promise<Plan>
   delete(id: string, caller: Caller): Promise<void>
@@ -792,7 +798,7 @@ export function createPlans(options: PlansOptions): Plans {
         tasks: createdTasks(plan.id),
       }
     },
-    async start(input, caller) {
+    async start(input, caller, phoneRetry) {
       refuseUnlessHuman(caller)
       const factory = factoryByRef(input.factory)
       startable(factory)
@@ -808,24 +814,27 @@ export function createPlans(options: PlansOptions): Plans {
       if (message.length > maxMessageLength) {
         throw new RequestError(400, `the message is limited to ${maxMessageLength} characters`)
       }
-      const plan = saved.start({
-        factoryId: factory.id,
-        title: planTitle(message) || 'Planning chat',
-        message,
-        ...(await plannerFor(factory, input)),
-        ...(from && {
-          from: {
-            planId: from.id,
-            title: from.title,
-            context: earlierPlanContext({
+      const plan = saved.start(
+        {
+          factoryId: factory.id,
+          title: planTitle(message) || 'Planning chat',
+          message,
+          ...(await plannerFor(factory, input)),
+          ...(from && {
+            from: {
+              planId: from.id,
               title: from.title,
-              message: from.message,
-              requests: saved.requests(from.id),
-              tasks: createdTasks(from.id),
-            }),
-          },
-        }),
-      })
+              context: earlierPlanContext({
+                title: from.title,
+                message: from.message,
+                requests: saved.requests(from.id),
+                tasks: createdTasks(from.id),
+              }),
+            },
+          }),
+        },
+        phoneRetry,
+      )
       pump()
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
@@ -890,9 +899,9 @@ export function createPlans(options: PlansOptions): Plans {
       pump()
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
-    resume: (id, caller, message) => {
+    resume: (id, caller, message, phoneRetry) => {
       refuseUnlessHuman(caller)
-      return resume(find(id), message)
+      return resume(find(id), message, phoneRetry)
     },
     async archive(id, caller) {
       refuseRun(caller)
@@ -1079,7 +1088,11 @@ export function createPlans(options: PlansOptions): Plans {
     })
   }
 
-  async function resume(plan: StoredPlan, message?: MessageWithFiles): Promise<Plan> {
+  async function resume(
+    plan: StoredPlan,
+    message?: MessageWithFiles,
+    phoneRetry?: PhoneChatRetry,
+  ): Promise<Plan> {
     if (!resumable(plan)) {
       throw new RequestError(
         409,
@@ -1097,9 +1110,12 @@ export function createPlans(options: PlansOptions): Plans {
       throw new RequestError(400, `the message is limited to ${maxMessageLength} characters`)
     }
     const run = store.getRun(plan.id)
+    const phone = phoneRetry
+      ? { retry: phoneRetry, runId: run?.id ?? plan.id, text, files }
+      : undefined
     if (!run) {
-      if (text !== '') store.queueRunMessage({ runId: plan.id, text, files })
-      saved.retried(plan.id, { fresh: true, checkout: [] })
+      if (!phone && text !== '') store.queueRunMessage({ runId: plan.id, text, files })
+      saved.retried(plan.id, { fresh: true, checkout: [] }, phone)
     } else {
       if (retrying.has(plan.id)) throw new RequestError(409, 'this planning chat is resuming')
       retrying.add(plan.id)
@@ -1116,8 +1132,8 @@ export function createPlans(options: PlansOptions): Plans {
           await discard(checkout, folderOf(plan.id), options.home)
           throw new RequestError(409, 'only a planning chat whose Run ended can be resumed')
         }
-        if (text !== '') store.queueRunMessage({ runId: run.id, text, files })
-        saved.retried(plan.id, { fresh: false, checkout })
+        if (!phone && text !== '') store.queueRunMessage({ runId: run.id, text, files })
+        saved.retried(plan.id, { fresh: false, checkout }, phone)
       } finally {
         retrying.delete(plan.id)
       }
