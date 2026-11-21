@@ -84,7 +84,8 @@ function moveWarnings(plan: TaskMovePlan): string[] {
     ...view.movesWith.map((task) => `Moves with it: ${label(task)} · ${task.note}`),
     ...(view.leavesParent === undefined ? [] : [view.leavesParent]),
     ...view.unlinked.map((task) => `Blocker link removed: ${label(task)} · ${task.note}`),
-    ...view.changes,
+    view.changesHeading,
+    ...view.changes.map((change) => `• ${change}`),
     movePlanKept,
   ].map(redactSecrets)
 }

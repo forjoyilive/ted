@@ -978,6 +978,9 @@ test('a paired phone reviews a Coordinator move and uses the plan that was shown
     if (form.type !== 'approval' || form.approval.kind !== 'confirmation')
       throw new Error('Missing move card')
     expect(form.approval).toMatchObject({ operation: 'transfer', revision: expect.any(String) })
+    const heading = form.approval.warnings.indexOf('What changes')
+    expect(heading).toBeGreaterThanOrEqual(0)
+    expect(form.approval.warnings[heading + 1]).toMatch(/^• Repos becomes /)
     const chatRow = await phone.send({
       type: 'request',
       route: 'chat',
