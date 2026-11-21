@@ -452,7 +452,7 @@ describe('ted dev factory and ted task start', () => {
     expect(listed).toMatch(/^NB-1 {2}Done {2}/)
   })
 
-  test('with the limit full, ted task start says the Task is queued and its place', async () => {
+  test('ted task start explains when Tasks are waiting for a slot or blockers', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const forever = JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
     const app = await startAsApp()
@@ -465,6 +465,14 @@ describe('ted dev factory and ted task start', () => {
     const queued = await ted(['task', 'start', 'NB-2'])
 
     expect(queued.stdout.trim()).toBe('Queued NB-2 · 1st in line for a slot')
+
+    await ted(['task', 'create', '--factory', 'NB', 'Blocked'])
+    await ted(['task', 'block', 'NB-3', '--by', 'NB-1'])
+    const blocked = await ted(['task', 'start', 'NB-3'])
+
+    expect(blocked.stdout.trim()).toBe(
+      'Queued NB-3 · It’ll start automatically once its blockers clear.',
+    )
   })
 
   test('ted can’t post a human Comment; only the app can', async () => {
