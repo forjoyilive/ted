@@ -487,18 +487,23 @@ describe('iOS simulator Apps', () => {
     expect(await watchState()).toBe('waiting')
 
     let release = () => {}
-    const holding = new Promise<void>((resolve) => {
-      lookups.held = resolve
-    })
+    let holding = false
+    lookups.held = () => {
+      holding = true
+    }
     lookups.hold = new Promise<void>((resolve) => {
       release = resolve
     })
     lookups.fail = new RequestError(404, 'no Task')
-    await holding
-    await client.ok('POST', `/tasks/${task.id}/apps/stop`, { name: 'Watch' })
-    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Watch' })
-    const releasedAt = lookups.count
-    release()
+    let releasedAt: number
+    try {
+      await waitUntil(() => holding, 'the follower to hold the old Watch App lookup')
+      await client.ok('POST', `/tasks/${task.id}/apps/stop`, { name: 'Watch' })
+      await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Watch' })
+      releasedAt = lookups.count
+    } finally {
+      release()
+    }
     await waitUntil(
       async () => lookups.count > releasedAt,
       'the old follower to keep following the restarted Watch App',
