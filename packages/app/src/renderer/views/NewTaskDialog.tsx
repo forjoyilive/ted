@@ -116,6 +116,8 @@ function NewTaskForm({
   const headingId = useId()
   const [draft, showDraft] = useState(emptyTaskDraft)
   const [ready, setReady] = useState(false)
+  const earlyTitle = useRef<string | undefined>(undefined)
+  const loadDraft = useRef<(() => Promise<void>) | undefined>(undefined)
   const [heldFiles, setHeldFiles] = useState<File[]>([])
   const [draftError, setDraftError] = useState<string>()
   const [session] = useState(() =>
@@ -241,36 +243,45 @@ function NewTaskForm({
   useEffect(() => {
     let active = true
     mounted.current = true
-    session.load(carried).then(
-      () => {
-        if (!active) return
-        if (parentId !== undefined) session.update({ parent: parentId })
-        if (initialDescription) {
-          const text = session.get().description
-          session.update({
-            description: text ? `${text}\n\n${initialDescription}` : initialDescription,
-          })
-        }
-        setReady(true)
-        const restored = session.get()
-        const asanaLink = restored.source
-          ? findAsanaUrl(restored.source)
-          : findAsanaUrl(restored.description)
-        if (asanaLink && !restored.dismissed.includes(asanaLink.url)) {
-          setAsana({ url: asanaLink.url })
-          return
-        }
-        const link = restored.source
-          ? findLinearUrl(restored.source)
-          : findLinearUrl(restored.description)
-        if (link && !restored.dismissed.includes(link.url)) lookUp(link.url, link.identifier)
-      },
-      (failure: unknown) => {
-        if (active) setDraftError(`Couldn’t load the draft: ${readableError(failure)}`)
-      },
-    )
+    let loading: Promise<void> | undefined
+    loadDraft.current = () =>
+      (loading ??= session.load(carried).then(
+        () => {
+          if (!active) return
+          if (earlyTitle.current !== undefined) {
+            session.update({ title: earlyTitle.current })
+            earlyTitle.current = undefined
+          }
+          if (parentId !== undefined) session.update({ parent: parentId })
+          if (initialDescription) {
+            const text = session.get().description
+            session.update({
+              description: text ? `${text}\n\n${initialDescription}` : initialDescription,
+            })
+          }
+          setReady(true)
+          const restored = session.get()
+          const asanaLink = restored.source
+            ? findAsanaUrl(restored.source)
+            : findAsanaUrl(restored.description)
+          if (asanaLink && !restored.dismissed.includes(asanaLink.url)) {
+            setAsana({ url: asanaLink.url })
+            return
+          }
+          const link = restored.source
+            ? findLinearUrl(restored.source)
+            : findLinearUrl(restored.description)
+          if (link && !restored.dismissed.includes(link.url)) lookUp(link.url, link.identifier)
+        },
+        (failure: unknown) => {
+          loading = undefined
+          if (active) setDraftError(`Couldn’t load the draft: ${readableError(failure)}`)
+        },
+      ))
+    void loadDraft.current()
     return () => {
       active = false
+      loadDraft.current = undefined
       mounted.current = false
       lookups.current++
     }
@@ -278,7 +289,6 @@ function NewTaskForm({
 
   useEffect(() => {
     dialog.current?.showModal()
-    titleField.current?.focus()
   }, [])
 
   useEffect(() => {
@@ -348,8 +358,8 @@ function NewTaskForm({
   }, [factory, ready, session])
 
   useEffect(() => {
-    if (ready && !busy) titleField.current?.focus()
-  }, [ready, busy])
+    if (!busy) titleField.current?.focus()
+  }, [busy])
 
   const chosenFactory = factories.find((f) => f.id === factory)
   const asanaUrl = asana?.url
@@ -461,6 +471,10 @@ function NewTaskForm({
   async function close(next = onClose) {
     if (busy || moving) return
     try {
+      if (earlyTitle.current !== undefined) {
+        await loadDraft.current?.()
+        if (earlyTitle.current !== undefined) return
+      }
       await Promise.all([...uploads.current])
       await session.flush()
       setDraftError(undefined)
@@ -638,7 +652,8 @@ function NewTaskForm({
           event.clientY < bounds.top ||
           event.clientY > bounds.bottom
         ) {
-          if (!moving) onClose()
+          if (earlyTitle.current !== undefined) void close()
+          else if (!moving) onClose()
         }
       }}
     >
@@ -664,16 +679,23 @@ function NewTaskForm({
       </header>
 
       <fieldset disabled={busy || moving} className={styles.fields}>
+        <input
+          ref={titleField}
+          className={styles.title}
+          aria-label="Title"
+          data-arrows
+          placeholder="Title"
+          value={title}
+          onChange={(event) => {
+            const title = event.target.value
+            if (ready) setTitle(title)
+            else {
+              earlyTitle.current = title
+              showDraft((current) => ({ ...current, title }))
+            }
+          }}
+        />
         <fieldset disabled={!ready} className={styles.fields}>
-          <input
-            ref={titleField}
-            className={styles.title}
-            aria-label="Title"
-            data-arrows
-            placeholder="Title"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
           <div className={styles.descriptionBox}>
             <textarea
               className={`${styles.description} ${grow.text}`}
