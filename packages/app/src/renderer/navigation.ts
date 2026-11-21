@@ -35,6 +35,7 @@ export function isTaskView(view: FactoryView): view is (typeof taskViews)[number
 export type Screen =
   | { kind: 'inbox'; factoryId?: string; groupId?: string; answered?: boolean }
   | { kind: 'all-tasks' }
+  | { kind: 'all-chats'; chooseFactory?: true }
   | { kind: 'automation-runs' }
   | { kind: 'dashboard'; dashboard?: Partial<DashboardViewState> }
   | {
@@ -43,6 +44,7 @@ export type Screen =
       view: FactoryView
       section?: FactorySectionId
       chatId?: string
+      fromAllChats?: true
     }
 
 export interface Navigation {
@@ -68,6 +70,7 @@ export type NavigationAction =
       type: 'open-plan'
       factoryId: string
       planId?: string
+      fromAllChats?: true
       from?: string
       requestId?: string
       replace?: true
@@ -143,7 +146,12 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
     case 'open-plan': {
       const opened = navigate(state, {
         type: 'open',
-        screen: { kind: 'factory', factoryId: action.factoryId, view: 'agents' },
+        screen: {
+          kind: 'factory',
+          factoryId: action.factoryId,
+          view: 'agents',
+          ...(action.fromAllChats && { fromAllChats: true }),
+        },
       })
       return {
         ...opened,
@@ -329,6 +337,7 @@ export function backLink(state: Navigation): string | undefined {
   if (state.taskId === undefined) return undefined
   const { screen } = state
   if (screen.kind === 'all-tasks') return '← All Tasks'
+  if (screen.kind === 'all-chats') return '← All Chats'
   if (screen.kind === 'automation-runs') return '← Automation Runs'
   if (screen.kind === 'dashboard') return '← Dashboard'
   if (screen.kind === 'factory' && screen.view === 'board') return '← Board'

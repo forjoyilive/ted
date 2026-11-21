@@ -257,8 +257,13 @@ function NewPlanChat({
   }, [factory.id, agentKind, agentModel])
 
   const box = useRef<HTMLTextAreaElement>(null)
+  const shown = useRef(true)
   useEffect(() => {
+    shown.current = true
     box.current?.focus()
+    return () => {
+      shown.current = false
+    }
   }, [])
 
   async function send() {
@@ -275,7 +280,7 @@ function NewPlanChat({
         ...(lead?.effort !== undefined && { effort: lead.effort }),
       })
       draft.clear()
-      onStarted(plan.id)
+      if (shown.current) onStarted(plan.id)
     } catch (failed) {
       setError(readableError(failed))
       setSending(false)
