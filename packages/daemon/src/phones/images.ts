@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { lstat, mkdir, open, readdir, realpath, rename, stat, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import {
@@ -13,6 +14,7 @@ import {
   phoneImagePartBytes,
   phoneImageWidthMax,
   type Task,
+  tedPaths,
 } from '@ted/protocol'
 import { redactSecrets } from '../redact.ts'
 import { cutChars } from './fit.ts'
@@ -21,13 +23,13 @@ import type { PhoneOutcome } from './requests.ts'
 export type ImageShrinker = (input: string, output: string) => Promise<void>
 
 export interface PhoneImageSource {
-  comment(id: string): Comment | undefined
-  task(id: string): Task | undefined
+  comment(id: string): Pick<Comment, 'taskId' | 'held' | 'attachments' | 'design'> | undefined
+  task(id: string): Pick<Task, 'archived'> | undefined
   file(attachment: Pick<Attachment, 'hash' | 'name'>): string
 }
 
 export interface PhoneImageOptions extends PhoneImageSource {
-  cacheDir: string
+  home: string
   shrink?: ImageShrinker
 }
 
@@ -35,7 +37,14 @@ export interface PhoneImages {
   read(image: string, part: number): Promise<PhoneOutcome>
 }
 
+interface PhoneImageCache extends PhoneImages {
+  prune(now?: Date): Promise<void>
+}
+
 const hashPattern = /^[0-9a-f]{64}$/
+const cachedName = /^[0-9a-f]{64}\.jpg$/u
+const tempName = /^\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/u
+const keepMs = 7 * 24 * 60 * 60 * 1000
 const cantShow = 'This image can’t be shown on your phone. Open it on your Mac.'
 
 export function phoneImageId(commentId: string, hash: string): string | undefined {
@@ -89,9 +98,74 @@ export const sipsShrink: ImageShrinker = async (input, output) => {
   )
 }
 
-export function createPhoneImages(options: PhoneImageOptions): PhoneImages {
+async function cacheDirectory(home: string, create: boolean): Promise<string | undefined> {
+  const root = tedPaths(await realpath(home)).phoneImages
+  for (const dir of [path.dirname(root), root]) {
+    const entry = await lstat(dir).catch(async (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error
+      if (!create) return undefined
+      await mkdir(dir, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST') throw error
+      })
+      return lstat(dir)
+    })
+    if (!entry?.isDirectory() || (await realpath(dir)) !== dir) return undefined
+  }
+  return root
+}
+
+async function readCached(file: string): Promise<Buffer | undefined> {
+  const handle = await open(
+    file,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  ).catch(() => undefined)
+  if (!handle) return undefined
+  try {
+    const info = await handle.stat()
+    if (!info.isFile() || info.nlink !== 1) return undefined
+    const bytes = await handle.readFile()
+    await handle.utimes(info.atime, new Date()).catch((error: NodeJS.ErrnoException) => {
+      console.error(redactSecrets(`couldn’t refresh a cached phone image: ${String(error)}`))
+    })
+    return bytes.length ? bytes : undefined
+  } finally {
+    await handle.close()
+  }
+}
+
+async function removeCacheFile(file: string, cutoff: number): Promise<void> {
+  const entry = await lstat(file)
+  if (entry.isFile() && entry.mtimeMs <= cutoff && (await realpath(file)) === file) {
+    await unlink(file)
+  }
+}
+
+function logRemovalError(error: NodeJS.ErrnoException): void {
+  if (error.code !== 'ENOENT') {
+    console.error(redactSecrets(`couldn’t remove a cached phone image: ${String(error)}`))
+  }
+}
+
+export function createPhoneImages(options: PhoneImageOptions): PhoneImageCache {
   const shrink = options.shrink ?? sipsShrink
   const loading = new Map<string, Promise<Buffer | undefined>>()
+  const converting = new Set<string>()
+  let removing: { name: string; done: Promise<void> } | undefined
+  let pruning: Promise<void> | undefined
+
+  async function sweep(now: Date): Promise<void> {
+    const root = await cacheDirectory(options.home, false)
+    if (!root) return
+    const cutoff = now.getTime() - keepMs
+    for (const name of await readdir(root)) {
+      if (!cachedName.test(name) && !tempName.test(name)) continue
+      if (loading.has(name) || converting.has(name)) continue
+      const done = removeCacheFile(path.join(root, name), cutoff).catch(logRemovalError)
+      removing = { name, done }
+      await done
+      removing = undefined
+    }
+  }
 
   function resolve(image: string): Pick<Attachment, 'hash' | 'name'> | undefined {
     const ref = parseImageId(image)
@@ -105,37 +179,54 @@ export function createPhoneImages(options: PhoneImageOptions): PhoneImages {
     )
   }
 
-  async function convert(input: string, cached: string): Promise<Buffer | undefined> {
-    const temp = path.join(options.cacheDir, `.${randomUUID()}.jpg`)
+  async function convert(input: string, root: string, cached: string): Promise<Buffer | undefined> {
+    const name = `.${randomUUID()}.jpg`
+    const temp = path.join(root, name)
+    converting.add(name)
     try {
-      await mkdir(options.cacheDir, { recursive: true, mode: 0o700 })
       await shrink(input, temp)
-      const bytes = await readFile(temp)
-      if (bytes.length === 0) return undefined
+      const bytes = await readCached(temp)
+      if (!bytes?.length) return undefined
       await rename(temp, cached)
       return bytes
     } catch (error) {
       console.error(redactSecrets(`a phone image couldn’t be converted: ${String(error)}`))
       return undefined
     } finally {
-      await rm(temp, { force: true })
+      await removeCacheFile(temp, Infinity).catch(logRemovalError)
+      converting.delete(name)
     }
   }
 
-  async function load(hash: string, input: string): Promise<Buffer | undefined> {
-    const cached = path.join(options.cacheDir, `${hash}.jpg`)
-    return (await readFile(cached).catch(() => undefined)) ?? convert(input, cached)
+  async function load(name: string, input: string): Promise<Buffer | undefined> {
+    if (removing?.name === name) await removing.done
+    const root = await cacheDirectory(options.home, true)
+    if (!root) return undefined
+    const cached = path.join(root, name)
+    return (await readCached(cached)) ?? convert(input, root, cached)
   }
 
   function jpeg(hash: string, input: string): Promise<Buffer | undefined> {
-    const pending = loading.get(hash)
+    const name = `${hash}.jpg`
+    const pending = loading.get(name)
     if (pending) return pending
-    const started = load(hash, input).finally(() => loading.delete(hash))
-    loading.set(hash, started)
+    const started = load(name, input)
+      .catch((error: Error) => {
+        console.error(redactSecrets(`couldn’t load a cached phone image: ${String(error)}`))
+        return undefined
+      })
+      .finally(() => loading.delete(name))
+    loading.set(name, started)
     return started
   }
 
   return {
+    prune(now = new Date()) {
+      pruning ??= sweep(now).finally(() => {
+        pruning = undefined
+      })
+      return pruning
+    },
     async read(image, part) {
       const found = resolve(image)
       if (!found) return { code: 'gone' }

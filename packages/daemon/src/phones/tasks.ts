@@ -38,7 +38,7 @@ import { openPullRequests } from '@ted/protocol/task-actions'
 import { statusLabel } from '@ted/protocol/task-status'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
-import { cutChars, fitText, jsonBytes } from './fit.ts'
+import { cutChars, fitImagePrefix, fitText, jsonBytes } from './fit.ts'
 import { phoneFactoryIcons } from './icons.ts'
 import { isImage, phoneImageList } from './images.ts'
 import { commentRequestKind, type PhoneOutcome } from './requests.ts'
@@ -469,16 +469,32 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
       .filter((comment) => !comment.held && (!after || newerFirst(comment, after) > 0))
       .toSorted(newerFirst)
     const entries: PhoneCommentEntry[] = []
-    let size = jsonBytes({ entries: [], cursor: cursorRoom })
+    const emptyPageSize = jsonBytes({ entries: [] })
+    let size = emptyPageSize
     for (const comment of ordered) {
       const whole = entry(comment, stages, waiting)
       const comma = entries.length > 0 ? 1 : 0
+      const cursorBytes =
+        entries.length + 1 < ordered.length
+          ? jsonBytes({ entries: [], cursor: encodeCommentsCursor(comment) }) - emptyPageSize
+          : 0
+      const room = phoneReplyBodyMax - size - comma - cursorBytes
       let shown = whole
-      if (size + jsonBytes(whole) + comma > phoneReplyBodyMax) {
+      if (jsonBytes(whole) > room) {
         if (entries.length > 0) break
-        const room = phoneReplyBodyMax - size - jsonBytes({ ...whole, text: '' })
-        const fitted = fitText(whole.text, Math.max(0, room))
-        shown = { ...whole, text: fitted.text, cut: whole.cut || fitted.cut }
+        const { imageList = [], ...withoutImages } = whole
+        const bare = {
+          ...withoutImages,
+          text: '',
+          ...(whole.images > 0 && { moreImages: whole.images }),
+        }
+        const fitted = fitText(whole.text, Math.max(0, room - jsonBytes(bare)))
+        const text = { ...withoutImages, text: fitted.text, cut: whole.cut || fitted.cut }
+        shown = fitImagePrefix(imageList.length, room, (count) => ({
+          ...text,
+          ...(count > 0 && { imageList: imageList.slice(0, count) }),
+          ...(count < whole.images && { moreImages: whole.images - count }),
+        }))
       }
       entries.push(shown)
       size += jsonBytes(shown) + comma

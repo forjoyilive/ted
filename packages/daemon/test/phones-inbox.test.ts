@@ -578,10 +578,20 @@ test('a design review too long for one reply cuts the brief, then the points wor
     return shown.form
   }
 
-  const briefOnly = await fits(review({ summary: 'Small.', worthYourEye: ['One point'] }).id)
+  const briefOnly = await fits(
+    review({
+      summary: 'Small.',
+      worthYourEye: ['One point'],
+      screenshots: [{ hash: 'a'.repeat(64), name: 'wide.png' }],
+    }).id,
+  )
   expect(briefOnly.cut).toBe(true)
   expect(briefOnly.brief.length).toBeGreaterThan(0)
-  expect(briefOnly.design).toEqual({ summary: 'Small.', worthYourEye: ['One point'] })
+  expect(briefOnly.design).toEqual({
+    summary: 'Small.',
+    worthYourEye: ['One point'],
+    moreScreenshots: 1,
+  })
 
   const points = Array.from({ length: 1_200 }, (_, n) => `${n}. ${line}`)
   const manyPoints = await fits(review({ summary: 'Small.', worthYourEye: points }).id)
@@ -596,6 +606,50 @@ test('a design review too long for one reply cuts the brief, then the points wor
   expect(all.design.worthYourEye).toBeUndefined()
   expect(all.design.summary?.length).toBeGreaterThan(0)
   expect(summary.startsWith(all.design.summary ?? 'x')).toBe(true)
+})
+
+test.each(['request', 'design'])('a long %s image list fits after its text', async (kind) => {
+  const task = await newTask('Long image list')
+  const attachments = Array.from({ length: 300 }, (_, n) => ({
+    hash: n.toString(16).padStart(64, '0'),
+    name: `${n}-${'漢"😀'.repeat(60)}.png`,
+    size: 10,
+    mediaType: 'image/png',
+  }))
+  const body = 'Keep this whole. '.repeat(400)
+  const design = {
+    summary: 'Before and after.',
+    screenshots: attachments.map(({ hash, name }) => ({ hash, name, caption: name })),
+  }
+  const request = ask(task.id, {
+    body,
+    attachments,
+    ...(kind === 'design'
+      ? { kind: 'review', title: 'Design review', gate: { approveLabel: 'Approve' }, design }
+      : { kind: 'question', choices: ['Yes', 'No'] }),
+  })
+  const reply = await phone.request(request.id)
+  if (!reply.ok) throw new Error(`request failed: ${reply.error.code}`)
+  expect(Buffer.byteLength(JSON.stringify(reply.body))).toBeLessThanOrEqual(phoneReplyBodyMax)
+  const shown = parsePhoneRequestBody(reply.body).request
+  expect(shown).toMatchObject({ body, cut: false, attachments: 0 })
+  if (kind === 'design' && shown.form.type !== 'design') {
+    throw new Error(`expected design, got ${shown.form.type}`)
+  }
+  const review = shown.form.type === 'design' ? shown.form.design : undefined
+  if (review) expect(review.summary).toBe(design.summary)
+  const images = (review ? review.screenshots : shown.images) ?? []
+  expect(images.length).toBeGreaterThan(0)
+  expect(images.length).toBeLessThan(attachments.length)
+  expect(review ? review.moreScreenshots : shown.moreImages).toBe(
+    attachments.length - images.length,
+  )
+  expect(images.map((image) => image.image)).toEqual(
+    attachments.slice(0, images.length).map(({ hash }) => phoneImageId(request.id, hash)),
+  )
+  expect(images.map((image) => image.caption)).toEqual(
+    attachments.slice(0, images.length).map(({ name }) => name),
+  )
 })
 
 test('a request’s image attachments load through the image route in parts, and nothing else does', async () => {

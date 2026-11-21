@@ -35,7 +35,7 @@ import { AnswerSavedError, RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
-import { cutChars, fitText, jsonBytes, textBytes } from './fit.ts'
+import { cutChars, fitImagePrefix, fitText, jsonBytes, textBytes } from './fit.ts'
 import { type PhoneIconFactory, phoneFactoryIcons } from './icons.ts'
 import { phoneCaption, phoneImageId, phoneImageList } from './images.ts'
 import { phoneTaskActions } from './task-actions.ts'
@@ -541,7 +541,74 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       form,
     }
     if (jsonBytes({ request: whole }) <= phoneReplyBodyMax) return whole
-    if (form.type === 'design') return fitDesign(whole) ?? tooLong(whole, found.body)
+    const { images = [], ...withoutImages } = whole
+    const screenshots = form.type === 'design' ? (form.design.screenshots ?? []) : []
+    const bare = {
+      ...withoutImages,
+      ...(images.length > 0 && { moreImages: images.length }),
+    }
+    if (form.type !== 'design') return fitRequestImages(fitDetailText(bare), images)
+
+    const { screenshots: _screenshots, ...design } = form.design
+    const fitted = fitDesign({
+      ...bare,
+      form: {
+        ...form,
+        design: {
+          ...design,
+          ...(screenshots.length > 0 && { moreScreenshots: screenshots.length }),
+        },
+      },
+    })
+    if (fitted === undefined) {
+      const moreImages = images.length + screenshots.length
+      return fitRequestImages(
+        tooLong({ ...bare, ...(moreImages > 0 && { moreImages }) }, found.body),
+        images,
+        screenshots.length,
+      )
+    }
+    const withImages = fitRequestImages(fitted, images)
+    const designForm = withImages.form
+    if (withImages.moreImages || designForm.type !== 'design' || screenshots.length === 0) {
+      return withImages
+    }
+    const { moreScreenshots: _more, ...rest } = designForm.design
+    return fitImagePrefix(screenshots.length, phoneReplyBodyMax, (count) => {
+      return {
+        request: withDesign(withImages, {
+          ...designForm,
+          design: {
+            ...rest,
+            ...(count > 0 && { screenshots: screenshots.slice(0, count) }),
+            ...(count < screenshots.length && { moreScreenshots: screenshots.length - count }),
+          },
+        }),
+      }
+    }).request
+  }
+
+  function fitRequestImages(
+    detail: PhoneRequestDetail,
+    images: Found['images'],
+    unavailable = 0,
+  ): PhoneRequestDetail {
+    const { moreImages: _more, ...rest } = detail
+    return fitImagePrefix(images.length, phoneReplyBodyMax, (count) => {
+      const omitted = images.length - count + unavailable
+      return {
+        request: {
+          ...rest,
+          ...(count > 0 && { images: images.slice(0, count) }),
+          ...(omitted > 0 && { moreImages: omitted }),
+        },
+      }
+    }).request
+  }
+
+  function fitDetailText(whole: PhoneRequestDetail): PhoneRequestDetail {
+    if (jsonBytes({ request: whole }) <= phoneReplyBodyMax) return whole
+    const { form, body: text } = whole
     const extra =
       form.type === 'signoff' ? form.brief : form.type === 'permission' ? form.command : ''
     const bare: PhoneRequestDetail = {
@@ -559,8 +626,8 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     const [bodyRoom, extraRoom] =
       form.type === 'permission'
         ? [Math.max(0, room - Math.min(textBytes(extra), room)), Math.min(textBytes(extra), room)]
-        : share(room, textBytes(found.body), textBytes(extra))
-    const body = fitText(found.body, bodyRoom)
+        : share(room, textBytes(text), textBytes(extra))
+    const body = fitText(text, bodyRoom)
     const rest = fitText(extra, extraRoom)
     const fitted: PhoneRequestDetail = {
       ...whole,
@@ -574,7 +641,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
             : form,
     }
     if (jsonBytes({ request: fitted }) <= phoneReplyBodyMax) return fitted
-    return tooLong(whole, found.body)
+    return tooLong(whole, text)
   }
 
   function tooLong(whole: PhoneRequestDetail, text: string): PhoneRequestDetail {

@@ -44,6 +44,23 @@ export function textBytes(text: string): number {
   return jsonBytes(text) - 2
 }
 
+export function fitImagePrefix<T extends Measured>(
+  total: number,
+  room: number,
+  withPrefix: (count: number) => T,
+): T {
+  const full = withPrefix(total)
+  if (jsonBytes(full) <= room) return full
+  let low = 0
+  let high = total
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2)
+    if (jsonBytes(withPrefix(middle)) <= room) low = middle
+    else high = middle
+  }
+  return withPrefix(low)
+}
+
 export function fitText(text: string, room: number): Fitted {
   if (textBytes(text) <= room) return { text, cut: false }
   const chars = [...text]

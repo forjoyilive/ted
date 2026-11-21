@@ -119,6 +119,32 @@ describe('New Task dialog', () => {
     await open.waitFor()
     expect(await open.getByLabel('Description').inputValue()).toBe('')
 
+    const more = open.getByRole('button', { name: /^More/ })
+    await more.click()
+    const model = open.getByRole('combobox', { name: 'Model' })
+    await model.selectOption({ label: 'Other…' })
+    const customModel = `local/${'long-model-name-'.repeat(12)}`
+    await open.getByRole('textbox', { name: 'Model' }).fill(customModel)
+    await open.getByRole('textbox', { name: 'Model' }).press('Enter')
+    expect(await model.inputValue()).toBe(customModel)
+
+    const viewport = window.viewportSize()
+    for (const width of [1000, 420]) {
+      await window.setViewportSize({ width, height: 900 })
+      await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+      const frame = await open.boundingBox()
+      if (!frame) throw new Error('New Task dialog has no bounds')
+      for (const name of ['Provider', 'Model', 'Effort']) {
+        const control = await open.getByRole('combobox', { name }).boundingBox()
+        if (!control) throw new Error(`${name} has no bounds`)
+        expect(control.width).toBeGreaterThan(0)
+        expect(control.x).toBeGreaterThan(frame.x)
+        expect(control.x + control.width).toBeLessThan(frame.x + frame.width)
+      }
+    }
+    if (viewport) await window.setViewportSize(viewport)
+    await more.click()
+
     await open.getByLabel('Description').fill('Keep editing')
     const bounds = await open.boundingBox()
     if (!bounds) throw new Error('New Task dialog has no bounds')
