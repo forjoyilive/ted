@@ -4,7 +4,7 @@ Ted (“Totally Excellent Development”) runs software factories: agents carry 
 
 ## Language
 
-These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview, banner, sandbox opening, paired phone and relay. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
+These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview, paired preview, banner, sandbox opening, paired phone and relay. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
 
 **Controller**:
 The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when Ted uses several machines.
