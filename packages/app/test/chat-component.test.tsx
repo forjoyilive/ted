@@ -103,6 +103,7 @@ test('Run chat attaches files, removes one, sends a file-only message and keeps 
   const api = bridge({
     getRunChat: (): RunChat => ({ run: { ...lead, state: 'idle' }, items: [] }),
     uploadAttachment: (file) => ((file as { name: string }).name === 'note.txt' ? note : shot),
+    readAttachment: () => ({ data: 'aW1hZ2U=' }),
     sendRunMessage: (_id, text) => ({ id: 'm1', runId: 'r1', text, at: createdAt }),
     messageDraft: () => ({ draft: kept }),
     saveMessageDraft: (_box, draft) => {
