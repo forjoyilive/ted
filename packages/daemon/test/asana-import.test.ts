@@ -312,7 +312,7 @@ test('import a nested tree, reuse a tracked subtree, hold the parent on missing 
   expect((await client.listTasks()).length).toBe(count)
 })
 
-test('a tree over the limit is refused whole, and a completed root still imports', async () => {
+test('an Asana tree over the limit is refused without creating Tasks', async () => {
   const client = await start()
   await connect(client)
   await client.addFactory({ repo: origin, key: 'NB' })
@@ -321,17 +321,22 @@ test('a tree over the limit is refused whole, and a completed root still imports
   stub.setTasks([
     { gid: '600', name: 'Huge', subtasks: children },
     ...children.map((gid) => ({ gid, name: `Child ${gid}` })),
-    { gid: '900', name: 'Already shipped', completed: true, subtasks: ['901'] },
-    { gid: '901', name: 'Hidden', status: 403 },
-    { gid: '920', name: 'Declined', subtasks: ['921'] },
-    { gid: '921', name: 'Hidden for now', status: 403 },
-    { gid: '950', name: 'From the terminal' },
   ])
   const refused = await client
     .importAsana({ url: 'https://app.asana.com/0/0/600', factory: 'NB' })
     .catch((error: unknown) => String(error))
   expect(refused).toContain('101 Tasks')
   expect((await client.listTasks()).filter((t) => t.source?.asana)).toEqual([])
+})
+
+test('a completed Asana root imports and starts once the missing-items question is answered', async () => {
+  const client = await start()
+  await connect(client)
+  await client.addFactory({ repo: origin, key: 'NB' })
+  stub.setTasks([
+    { gid: '900', name: 'Already shipped', completed: true, subtasks: ['901'] },
+    { gid: '901', name: 'Hidden', status: 403 },
+  ])
   const done = await client.importAsana({ url: 'https://app.asana.com/0/0/900', factory: 'NB' })
   expect(done.created).toHaveLength(1)
   const shipped = (await client.listTasks()).find((t) => t.source?.asana?.gid === '900')
@@ -343,7 +348,17 @@ test('a tree over the limit is refused whole, and a completed root still imports
     async () => (await client.listTasks()).find((t) => t.id === shipped?.id)?.stage !== 'backlog',
     'the root starts once its question is answered',
   )
+})
 
+test('import preserves a title override and a Task Sync decision when missing items are retried', async () => {
+  const client = await start()
+  await connect(client)
+  await client.addFactory({ repo: origin, key: 'NB' })
+  stub.setTasks([
+    { gid: '920', name: 'Declined', subtasks: ['921'] },
+    { gid: '921', name: 'Hidden for now', status: 403 },
+    { gid: '950', name: 'From the terminal' },
+  ])
   const cli = api(daemon?.port ?? 0, await tokenFor(home))
   const fromCli = await cli.call('POST', '/tasks/asana-import', {
     url: 'https://app.asana.com/0/0/950',
