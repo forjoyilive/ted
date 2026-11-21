@@ -31,9 +31,9 @@ test('a setting is found by its name, group, page and description, with its page
   ])
   expect(find('notifications inbox')).toMatchObject([
     { name: 'Inbox items', where: 'Settings › Notifications' },
-    { name: 'Icon', where: 'widgets › Settings › General' },
+    { name: 'Icon', where: 'widgets › Configuration › General' },
     { name: 'By Factory', where: 'Settings › Notifications' },
-    { name: 'Notifications', where: 'widgets › Settings' },
+    { name: 'Notifications', where: 'widgets › Configuration' },
   ])
   expect(find('linear api key')[0]).toMatchObject({
     id: 'app.integrations.linear.key',
@@ -81,7 +81,7 @@ test('the Agents page is found in Factory settings and in the Library', () => {
     expect.arrayContaining([
       expect.objectContaining({
         id: 'factory.agent-files',
-        where: 'widgets › Settings',
+        where: 'widgets › Configuration',
         target: expect.objectContaining({ kind: 'factory', section: 'agent-files' }),
       }),
       expect.objectContaining({
@@ -121,23 +121,23 @@ test('Factory settings carry the Factory’s name and are left out without a Fac
   expect(find('teardown')[0]).toEqual({
     id: 'factory.repos.worktree.teardown',
     name: 'Teardown command',
-    where: 'widgets › Settings › Repos',
+    where: 'widgets › Configuration › Repos',
     target: { kind: 'factory', factoryId: 'f1', section: 'repos' },
   })
-  expect(find('danger')[0]).toMatchObject({ name: 'Danger zone', where: 'widgets › Settings' })
+  expect(find('danger')[0]).toMatchObject({ name: 'Danger zone', where: 'widgets › Configuration' })
   expect(find('working run limit')[0]).toMatchObject({
     id: 'factory.permissions.working-run-limit',
-    where: 'widgets › Settings › Permissions',
+    where: 'widgets › Configuration › Permissions',
     target: { section: 'permissions' },
   })
   expect(find('asana project')[0]).toMatchObject({
     id: 'factory.intake.asana.scope',
-    where: 'widgets › Settings › Intake',
+    where: 'widgets › Configuration › Intake',
     target: { section: 'intake' },
   })
   expect(find('github label')[0]).toMatchObject({
     id: 'factory.intake.github.scope',
-    where: 'widgets › Settings › Intake',
+    where: 'widgets › Configuration › Intake',
     target: { section: 'intake' },
   })
   expect(find('bypass').map((hit) => hit.id)).toEqual(['factory.permissions', 'factory.sandbox'])

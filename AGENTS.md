@@ -31,7 +31,7 @@ Each area’s rules are in `docs/agents/`. Before changing code in an area, read
 - `docs/agents/chats-and-agents.md`: Coordinator chats, planning chats, Agent files and their powers.
 - `docs/agents/automations-and-apps.md`: Automations, Scheduled Checks, Apps, browsers, simulators and emulators.
 - `docs/agents/trackers-and-intake.md`: Linear, Asana and GitHub issues: keys, sync, imports and intake.
-- `docs/agents/factories-and-settings.md`: adding, changing or removing a Factory, machine settings, Factory settings, the Library, permission mode and drift.
+- `docs/agents/factories-and-settings.md`: adding, changing or removing a Factory, machine settings, Configuration, the Library, permission mode and drift.
 - `docs/agents/platform.md`: the sandbox, caches, child processes and their environment, disk and retention, banners, diagnostics, remote execution and phone pairing (`packages/daemon/src/phones/`, `routes/phones.ts`).
 - `docs/agents/app-shell.md`: the Electron main process, the daemon supervisor, updates, quit, notifications, packaging and icons.
 

@@ -97,7 +97,7 @@ export async function openSettings(window: Page): Promise<void> {
 export async function openFactoryView(
   window: Page,
   factory: string,
-  view: 'Inbox' | 'Agents' | 'Board' | 'List' | 'Automations' | 'Settings',
+  view: 'Inbox' | 'Agents' | 'Board' | 'List' | 'Automations' | 'Configuration',
 ): Promise<void> {
   const row = sidebar(window).getByRole('article', { name: factory, exact: true })
   const group = row.locator('..')

@@ -44,6 +44,8 @@ import {
   type PhoneAnsweredBody,
   type PhoneRequestBody,
   type PhoneRequestsBody,
+  type PhoneSnooze,
+  type PhoneSnoozeBody,
   parsePhoneAnswer,
 } from './phone-requests.ts'
 import {
@@ -64,6 +66,7 @@ import {
 } from './phone-tasks.ts'
 import { agentKinds } from './run.ts'
 import { clarifyDepths, efforts, isModelName, type Priority, priorities } from './task.ts'
+import { snoozePresetIds } from './time.ts'
 import { RequestValidationError } from './validation.ts'
 
 export const phoneProtocolVersion = 3
@@ -108,6 +111,8 @@ export type PhoneErrorCode = (typeof phoneErrorCodes)[number]
 export const phoneRouteNames = [
   'status',
   'requests',
+  'snoozed-requests',
+  'request-snooze',
   'request',
   'answer',
   'push-token',
@@ -184,6 +189,8 @@ export type PhoneRequest =
       type: 'request'
       route: string
       requestId?: string
+      includeSnoozed?: boolean
+      snooze?: PhoneSnooze
       problemId?: string
       raisedAt?: string
       answer?: PhoneAnswer
@@ -255,6 +262,7 @@ export type PhoneReplyBody =
   | PairStatusBody
   | PhoneStatusBody
   | PhoneRequestsBody
+  | PhoneSnoozeBody
   | PhoneRequestBody
   | PhoneAnsweredBody
   | PhonePushTokenBody
@@ -533,7 +541,17 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       raisedAt: read.string(object, 'raisedAt'),
     }
   }
+  if (route === 'request-snooze') {
+    return {
+      ...header,
+      type,
+      route,
+      requestId: requestId(object),
+      snooze: read.oneOf(object, 'snooze', [...snoozePresetIds, 'clear']),
+    }
+  }
   if (route === 'request') {
+    const includeSnoozed = read.optional(object, 'includeSnoozed', read.boolean)
     const chatId = read.optional(object, 'chatId', (o, f) => boundedText(o, f, 200))
     return {
       ...header,
@@ -541,6 +559,7 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       route,
       requestId: requestId(object),
       ...(chatId !== undefined && { chatId }),
+      ...(includeSnoozed !== undefined && { includeSnoozed }),
     }
   }
   if (route === 'answer') {

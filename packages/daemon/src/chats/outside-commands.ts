@@ -328,14 +328,14 @@ export function createOutsideCommands(options: {
       if (chosen === undefined)
         throw new RequestError(
           409,
-          `No local folder is set for ${entry.repo}, so Ted can’t run outside commands. The user sets one in Factory settings → Repos → Local folder.`,
+          `No local folder is set for ${entry.repo}, so Ted can’t run outside commands. The user sets one in Configuration → Repos → Local folder.`,
         )
       const folder = await realpath(chosen).catch(() => undefined)
       const found = folder === undefined ? undefined : await lstat(folder).catch(() => undefined)
       if (folder === undefined || !found?.isDirectory())
         throw new RequestError(
           409,
-          `The local folder for ${entry.repo} isn’t there, so Ted can’t run \`${name}\`. The user can choose it again in Factory settings → Repos → Local folder.`,
+          `The local folder for ${entry.repo} isn’t there, so Ted can’t run \`${name}\`. The user can choose it again in Configuration → Repos → Local folder.`,
         )
       const clone = await options.cloneOf(chat.factory, entry).catch(() => undefined)
       const copy = chat.copies?.find((c) => c.clone === clone)?.worktree

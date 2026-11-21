@@ -20,7 +20,7 @@ import {
   type PhoneAnswer,
   type PhoneProblemsBody,
   type PhoneRequestDetail,
-  type PhoneRequestSummary,
+  type PhoneRequestsBody,
   type Plan,
   type PlanDetail,
   parsePhoneChatItemsBody,
@@ -158,7 +158,7 @@ function failure(reply: MacReply): string | undefined {
   return reply.ok ? undefined : reply.error.code
 }
 
-async function listed(): Promise<{ requests: PhoneRequestSummary[]; more: number }> {
+async function listed(): Promise<PhoneRequestsBody> {
   const reply = await phone.requests()
   if (!reply.ok) throw new Error(`requests failed: ${reply.error.code}`)
   return parsePhoneRequestsBody(reply.body)
@@ -234,7 +234,8 @@ test('the phone lists what the desktop Inbox waits on, newest first, without sno
   const waiting = (await client.listWaiting()).toSorted(
     (a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
   )
-  const { requests, more } = await listed()
+  const { requests, more, canSnooze } = await listed()
+  expect(canSnooze).toBe(true)
   expect(requests.map((r) => r.id)).toEqual(waiting.map((w) => w.id))
   expect(more).toBe(0)
   expect(requests.map((r) => r.id)).not.toContain(snoozed.id)
@@ -264,6 +265,53 @@ test('the phone lists what the desktop Inbox waits on, newest first, without sno
     form: { type: 'choices', choices: ['web', 'api'], multiple: false, text: true },
   })
   expect(failure(await phone.request(snoozed.id))).toBe('gone')
+  const snoozedList = () => phone.send({ type: 'request', route: 'snoozed-requests' })
+  const schedule = (snooze: 'hour' | 'tomorrow' | 'clear', requestId = first.id) =>
+    phone.send({ type: 'request', route: 'request-snooze', requestId, snooze })
+
+  expect(await snoozedList()).toMatchObject({
+    ok: true,
+    body: { requests: [{ id: snoozed.id, snoozedUntil: expect.any(String) }], more: 0 },
+  })
+  expect(
+    await phone.send({
+      type: 'request',
+      route: 'request',
+      requestId: snoozed.id,
+      includeSnoozed: true,
+    }),
+  ).toMatchObject({
+    ok: true,
+    body: {
+      request: {
+        id: snoozed.id,
+        body: 'Later, please',
+        snoozedUntil: expect.any(String),
+        form: { type: 'mac', reason: 'Unsnooze this request to answer it on your phone.' },
+      },
+    },
+  })
+  expect(failure(await phone.answer(snoozed.id, { action: 'answer', text: 'Now' }))).toBe('gone')
+  expect(await schedule('hour')).toMatchObject({
+    ok: true,
+    body: { snoozedUntil: expect.any(String) },
+  })
+  const set = (await client.listSnoozed()).find(({ id }) => id === first.id)
+  expect(set).toBeDefined()
+  expect((await listed()).requests.map(({ id }) => id)).not.toContain(first.id)
+  const changed = await schedule('tomorrow')
+  const later = (await client.listSnoozed()).find(({ id }) => id === first.id)
+  expect(later?.snoozedUntil).toBeDefined()
+  expect(later?.snoozedUntil).not.toBe(set?.snoozedUntil)
+  expect(changed).toMatchObject({ ok: true, body: { snoozedUntil: later?.snoozedUntil } })
+  expect(await snoozedList()).toMatchObject({
+    ok: true,
+    body: { requests: [{ id: snoozed.id }, { id: first.id, snoozedUntil: later?.snoozedUntil }] },
+  })
+  expect(await schedule('clear')).toMatchObject({ ok: true, body: { snoozedUntil: null } })
+  expect((await client.listWaiting()).map(({ id }) => id)).toContain(first.id)
+  expect((await listed()).requests.map(({ id }) => id)).toContain(first.id)
+  expect(failure(await schedule('hour', 'missing'))).toBe('gone')
 })
 
 test('each answerable Task request answered from the phone ends as the desktop answer does, as the human', async () => {

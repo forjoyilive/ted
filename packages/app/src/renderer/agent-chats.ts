@@ -19,6 +19,7 @@ export type AgentChatRef = { agent: 'coordinator'; id: string } | { agent: 'plan
 
 export interface AgentChatRow {
   ref: AgentChatRef
+  factoryId: string
   agent: string
   title: string
   chip: { label: string; tone: StatusTone; glyph?: StatusGlyph }
@@ -125,6 +126,7 @@ function coordinatorRow(chat: CoordinatorChatSummary): AgentChatRow {
   const archived = chat.endedAt !== undefined
   return {
     ref: { agent: 'coordinator', id: chat.id },
+    factoryId: chat.factoryId,
     agent: chat.chatAgent.name,
     title: chat.title || `${chat.chatAgent.name} chat`,
     chip: archived ? archivedChip : chat.waiting ? waitingChip : coordinatorStatus[chat.status],
@@ -142,6 +144,7 @@ function planRow(plan: Plan): AgentChatRow {
   const archived = plan.archivedAt !== undefined
   return {
     ref: { agent: 'planner', id: plan.id },
+    factoryId: plan.factoryId,
     agent: plan.chatAgent.name,
     title: plan.title,
     chip: archived ? archivedChip : planStatusChip(plan),

@@ -71,8 +71,10 @@ export function dateTimeInZone(date: string, time: string, timeZone: string): st
   return new Date(Math.min(...matches)).toISOString()
 }
 
+export const snoozePresetIds = ['hour', 'tomorrow', 'next-week', 'month'] as const
+
 export interface SnoozePreset {
-  id: 'hour' | 'tomorrow' | 'next-week' | 'month'
+  id: (typeof snoozePresetIds)[number]
   label: string
   until: string
 }

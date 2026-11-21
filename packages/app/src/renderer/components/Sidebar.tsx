@@ -7,6 +7,7 @@ import {
   Inbox,
   LayoutDashboard,
   ListTodo,
+  MessagesSquare,
   Settings,
   Timer,
 } from 'lucide-react'
@@ -206,7 +207,7 @@ const factoryViews: { view: FactoryView | 'tasks'; label: string; nested?: true 
   { view: 'list', label: 'List', nested: true },
   { view: 'map', label: 'Map', nested: true },
   { view: 'automations', label: 'Automations' },
-  { view: 'settings', label: 'Settings' },
+  { view: 'settings', label: 'Configuration' },
 ]
 
 const coordinatorMarks = { working: 'Working', queued: 'Queued', paused: 'Paused' }
@@ -284,7 +285,7 @@ function taskViewFactory(screen: Screen): string | undefined {
 
 function sameScreen(a: Screen, b: Screen): boolean {
   if (a.kind === 'factory' && b.kind === 'factory') {
-    return a.factoryId === b.factoryId && a.view === b.view
+    return a.factoryId === b.factoryId && a.view === b.view && a.fromAllChats === b.fromAllChats
   }
   if (a.kind === 'inbox' && b.kind === 'inbox') return a.factoryId === b.factoryId
   return a.kind === b.kind
@@ -747,6 +748,18 @@ export function Sidebar({
         >
           <NavIcon shape={ListTodo} />
           <span className={styles.label}>All Tasks</span>
+        </ActionButton>
+        <ActionButton
+          type="button"
+          className={styles.row}
+          onClick={() => open({ kind: 'all-chats' })}
+          {...((navigation.screen.kind === 'all-chats' ||
+            (navigation.screen.kind === 'factory' && navigation.screen.fromAllChats)) && {
+            'aria-current': 'page' as const,
+          })}
+        >
+          <NavIcon shape={MessagesSquare} />
+          <span className={styles.label}>All Chats</span>
         </ActionButton>
         <ActionButton
           type="button"
