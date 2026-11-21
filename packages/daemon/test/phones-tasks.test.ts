@@ -24,6 +24,7 @@ import {
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { phoneImageId } from '../src/phones/images.ts'
 import type { TedStore } from '../src/store/index.ts'
 import {
   api,
@@ -376,9 +377,11 @@ test('secrets come out redacted, and requests show open with an ID or answered w
     text: expect.not.stringContaining(secret),
     cut: false,
     images: 1,
+    imageList: [{ image: phoneImageId(note.id, 'a'.repeat(64)), caption: 'shot.png' }],
     attachments: 1,
     formattedBlocks: 2,
   })
+  expect(entries.find((entry) => entry.id === answered.id)).not.toHaveProperty('imageList')
   expect(entries.find((entry) => entry.id === answered.id)).toMatchObject({
     author: 'Ted',
     kind: 'request',

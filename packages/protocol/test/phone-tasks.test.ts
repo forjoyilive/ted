@@ -161,6 +161,10 @@ test('parsePhoneTaskCommentsBody reads notes and open and answered requests', ()
         text: 'A long note',
         cut: true,
         images: 2,
+        imageList: [
+          { image: 'aW1n', caption: 'before.png' },
+          { image: 'aW1o', caption: 'after.png' },
+        ],
         attachments: 1,
         formattedBlocks: 3,
       },
@@ -182,6 +186,9 @@ test('parsePhoneTaskCommentsBody reads notes and open and answered requests', ()
   expect(() => parsePhoneTaskCommentsBody({ entries: [{ ...open, request: undefined }] })).toThrow(
     /request/,
   )
+  expect(() =>
+    parsePhoneTaskCommentsBody({ entries: [{ ...note, imageList: [{ caption: 'x' }] }] }),
+  ).toThrow(/image/)
 })
 
 test('cursors round-trip and refuse anything that isn’t exactly what the Mac made', () => {

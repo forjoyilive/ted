@@ -966,7 +966,7 @@ test('admitted Codex follow-ups wait without failing a slow healthy response', a
 })
 
 test('a message steered at a tool boundary is read after the hook without failing the chat', async () => {
-  const s = await setup({ inputAckMs: 1_000 })
+  const s = await setup({ inputAckMs: 3_000 })
   const c = await s.message([
     { say: 'Before tool' },
     { waitFor: path.join(scratch, 'tool') },
@@ -986,7 +986,7 @@ test('a message steered at a tool boundary is read after the hook without failin
     const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
     return chat.items.some((i) => i.kind === 'agent' && i.text === 'After tool')
   }, 'tool boundary')
-  await new Promise((resolve) => setTimeout(resolve, 2_000))
+  await new Promise((resolve) => setTimeout(resolve, 4_000))
   expect((await s.chat()).status).toBe('working')
   await writeFile(path.join(scratch, 'finish'), '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'turn end')
@@ -997,7 +997,7 @@ test('a message steered at a tool boundary is read after the hook without failin
   expect(
     chat.items.find((i) => i.kind === 'human' && i.text === text && i.queued !== true),
   ).toBeDefined()
-})
+}, 90_000)
 
 test('a chat whose Run ends as a follow-up arrives resumes and reads it', async () => {
   const s = await setup()

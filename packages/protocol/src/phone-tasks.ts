@@ -13,6 +13,7 @@ import {
   type Untyped,
 } from './parse.ts'
 import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
+import { type PhoneImage, parsePhoneImage } from './phone-images.ts'
 import { type PhoneRequestKind, phoneRequestKinds } from './phone-requests.ts'
 import { type Priority, priorities } from './task.ts'
 
@@ -130,6 +131,7 @@ export interface PhoneCommentEntry {
   text: string
   cut: boolean
   images: number
+  imageList?: PhoneImage[]
   attachments: number
   formattedBlocks: number
   request?: PhoneCommentRequest
@@ -332,6 +334,9 @@ export function parsePhoneCommentEntry(value: Untyped): PhoneCommentEntry {
     throw new ParseError('request', 'a request entry, and only one, has request')
   }
   const request = kind === 'request' ? parseCommentRequest(object.request) : undefined
+  const imageList = read.optional(object, 'imageList', (o, f) =>
+    read.list(o, f).map((entry) => parsePhoneImage(entry, 'imageList')),
+  )
   return {
     id: read.string(object, 'id'),
     author: read.string(object, 'author'),
@@ -340,6 +345,7 @@ export function parsePhoneCommentEntry(value: Untyped): PhoneCommentEntry {
     text: read.string(object, 'text'),
     cut: read.boolean(object, 'cut'),
     images: count(object, 'images'),
+    ...(imageList !== undefined && { imageList }),
     attachments: count(object, 'attachments'),
     formattedBlocks: count(object, 'formattedBlocks'),
     ...(request !== undefined && { request }),

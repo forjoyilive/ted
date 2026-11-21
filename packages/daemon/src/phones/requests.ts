@@ -3,16 +3,20 @@ import {
   type AnswerRequest,
   archiveChoice,
   type Comment,
+  type DesignReview,
   type Factory,
   type PhoneAnswer,
   type PhoneAnswerability,
+  type PhoneDesign,
   type PhoneErrorCode,
   type PhoneFactoryIcon,
   type PhoneForm,
+  type PhoneImage,
   type PhoneReplyBody,
   type PhoneRequestDetail,
   type PhoneRequestKind,
   type PhoneRequestSummary,
+  type PhoneSetup,
   type PlanRequest,
   type Proposal,
   phoneAnswerability,
@@ -20,6 +24,7 @@ import {
   phoneReplyBodyMax,
   RequestValidationError,
   type Round,
+  type SetupProposal,
   type Task,
   type TaskBrief,
   validateFailureChoices,
@@ -32,6 +37,7 @@ import type { TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { cutChars, fitText, jsonBytes, textBytes } from './fit.ts'
 import { type PhoneIconFactory, phoneFactoryIcons } from './icons.ts'
+import { phoneCaption, phoneImageId, phoneImageList } from './images.ts'
 
 export interface PhoneAutomationQuestion {
   body: string
@@ -176,11 +182,176 @@ function choicesForm(choices: readonly string[], multiple: boolean, text: boolea
     : { type: 'choices', choices: offered, multiple, text }
 }
 
+function designFiles(design: DesignReview | undefined): Set<string> {
+  return new Set(
+    [
+      ...(design?.screenshots ?? []),
+      ...(design?.video ? [design.video] : []),
+      ...(design?.prototype ? [design.prototype] : []),
+    ].map((file) => file.hash),
+  )
+}
+
+function phoneSetup(setup: SetupProposal): PhoneSetup {
+  const clean = redactSecrets
+  const workflow = setup.workflow.map((line) => ({
+    stage: clean(stageTitle(line.stage)),
+    ...(line.setting !== undefined && { setting: clean(line.setting) }),
+  }))
+  const checks = setup.checks.map((check) => ({
+    name: clean(check.name),
+    command: clean(check.command),
+    ...(check.repo !== undefined && { repo: clean(check.repo) }),
+    passed: check.passed,
+    seconds: Math.round(check.durationMs / 1000),
+    ...(check.reason !== undefined && { reason: clean(check.reason) }),
+  }))
+  const apps = setup.apps.map((app) => ({
+    name: clean(app.name),
+    kind: clean(app.kind),
+    ...(app.run !== undefined && { run: clean(app.run) }),
+    ...(app.repo !== undefined && { repo: clean(app.repo) }),
+    passed: app.passed,
+    ...(app.reason !== undefined && { reason: clean(app.reason) }),
+  }))
+  const agents = (setup.agents ?? []).map((agent) => ({
+    name: clean(agent.name),
+    about: clean(agent.about),
+  }))
+  const worktree = (setup.worktree ?? []).map((line) => ({
+    ...(line.repo !== undefined && { repo: clean(line.repo) }),
+    step: line.step,
+    access: line.sandboxAccess.map(clean),
+  }))
+  const files = setup.files.map((file) => ({ path: clean(file.path), about: clean(file.about) }))
+  return {
+    ...(workflow.length > 0 && { workflow }),
+    ...(checks.length > 0 && { checks }),
+    ...(apps.length > 0 && { apps }),
+    ...(agents.length > 0 && { agents }),
+    ...(worktree.length > 0 && { worktree }),
+    ...(files.length > 0 && { files }),
+    ...(setup.defaults !== undefined &&
+      setup.defaults !== '' && { defaults: clean(setup.defaults) }),
+  }
+}
+
+function phoneDesign(commentId: string, design: DesignReview): PhoneDesign {
+  const clean = redactSecrets
+  const file = (named: { name: string; caption?: string }) => ({
+    name: clean(named.name),
+    ...(named.caption !== undefined && named.caption !== '' && { caption: clean(named.caption) }),
+  })
+  const screenshots = (design.screenshots ?? []).flatMap((shot) => {
+    const image = phoneImageId(commentId, shot.hash)
+    if (image === undefined) return []
+    return [
+      {
+        image,
+        ...(shot.caption !== undefined &&
+          shot.caption !== '' && { caption: phoneCaption(shot.caption) }),
+      },
+    ]
+  })
+  const worthYourEye = (design.worthYourEye ?? []).map(clean)
+  return {
+    ...(design.summary !== undefined &&
+      design.summary !== '' && { summary: clean(design.summary) }),
+    ...(worthYourEye.length > 0 && { worthYourEye }),
+    ...(screenshots.length > 0 && { screenshots }),
+    ...(design.figma && {
+      figma: {
+        url: clean(design.figma.url),
+        ...(design.figma.label !== undefined && { label: clean(design.figma.label) }),
+      },
+    }),
+    ...(design.prototype && { prototype: file(design.prototype) }),
+    ...(design.video && { video: file(design.video) }),
+    ...(design.setup && { setup: phoneSetup(design.setup) }),
+  }
+}
+
+type DesignForm = Extract<PhoneForm, { type: 'design' }>
+
+function withDesign(detail: PhoneRequestDetail, form: DesignForm): PhoneRequestDetail {
+  return { ...detail, form }
+}
+
+interface FittedLines {
+  lines: string[]
+  cut: boolean
+}
+
+function fitLines(lines: readonly string[], room: number): FittedLines {
+  const kept: string[] = []
+  let used = 0
+  for (const line of lines) {
+    const comma = kept.length > 0 ? 1 : 0
+    const size = jsonBytes(line) + comma
+    if (used + size <= room) {
+      kept.push(line)
+      used += size
+      continue
+    }
+    const part = fitText(line, room - used - comma - 2)
+    if (part.text !== '') kept.push(part.text)
+    return { lines: kept, cut: true }
+  }
+  return { lines: kept, cut: false }
+}
+
+function fitDesign(whole: PhoneRequestDetail): PhoneRequestDetail | undefined {
+  const size = (detail: PhoneRequestDetail) => jsonBytes({ request: detail })
+  const roomBeside = (detail: PhoneRequestDetail) => Math.max(0, phoneReplyBodyMax - size(detail))
+  const cutBrief = (detail: PhoneRequestDetail, now: DesignForm): PhoneRequestDetail => {
+    const fitted = fitText(now.brief, roomBeside(withDesign(detail, { ...now, brief: '' })))
+    return withDesign(detail, { ...now, brief: fitted.text, cut: now.cut || fitted.cut })
+  }
+  const cutWorth = (detail: PhoneRequestDetail, now: DesignForm): PhoneRequestDetail => {
+    const { worthYourEye, ...rest } = now.design
+    if (worthYourEye === undefined) return detail
+    const room = roomBeside(withDesign(detail, { ...now, design: { ...rest, worthYourEye: [] } }))
+    const fitted = fitLines(worthYourEye, room)
+    return withDesign(detail, {
+      ...now,
+      cut: now.cut || fitted.cut,
+      design: { ...rest, ...(fitted.lines.length > 0 && { worthYourEye: fitted.lines }) },
+    })
+  }
+  const cutSummary = (detail: PhoneRequestDetail, now: DesignForm): PhoneRequestDetail => {
+    const { summary, ...rest } = now.design
+    if (summary === undefined) return detail
+    const fitted = fitText(
+      summary,
+      roomBeside(withDesign(detail, { ...now, design: { ...rest, summary: '' } })),
+    )
+    return withDesign(detail, {
+      ...now,
+      cut: now.cut || fitted.cut,
+      design: { ...rest, ...(fitted.text !== '' && { summary: fitted.text }) },
+    })
+  }
+  const cutBody = (detail: PhoneRequestDetail): PhoneRequestDetail => {
+    const fitted = fitText(detail.body, roomBeside({ ...detail, body: '' }))
+    return { ...detail, body: fitted.text, cut: detail.cut || fitted.cut }
+  }
+  const steps = [cutBrief, cutWorth, cutSummary]
+  let current = whole
+  for (const step of steps) {
+    if (size(current) <= phoneReplyBodyMax) return current
+    if (current.form.type !== 'design') return undefined
+    current = step(current, current.form)
+  }
+  if (size(current) > phoneReplyBodyMax) current = cutBody(current)
+  return size(current) <= phoneReplyBodyMax ? current : undefined
+}
+
 interface Found {
   summary: PhoneRequestSummary
   answerability: PhoneAnswerability
   body: string
   attachments: number
+  images: PhoneImage[]
   form(): PhoneForm
 }
 
@@ -229,6 +400,12 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       if (!comment) return undefined
       const answerability = taskAnswerability(comment)
       const signoff = comment.gate !== undefined && comment.kind !== 'review'
+      const shown = comment.kind === 'review' ? designFiles(comment.design) : new Set<string>()
+      const media = phoneImageList(
+        comment.id,
+        (comment.attachments ?? []).filter((file) => !shown.has(file.hash)),
+      )
+      const stage = () => stageTitle(comment.stage ?? read.task(comment.taskId)?.stage ?? '')
       return {
         summary: {
           ...common,
@@ -241,13 +418,23 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
         },
         answerability,
         body: comment.body,
-        attachments: comment.attachments?.length ?? 0,
+        attachments: media.others,
+        images: media.images,
         form: () =>
           onMacOr(answerability, () => {
+            if (comment.kind === 'review') {
+              return {
+                type: 'design',
+                stage: stage(),
+                brief: redactSecrets(read.brief(comment.taskId)?.text ?? ''),
+                cut: false,
+                design: phoneDesign(comment.id, comment.design ?? {}),
+              }
+            }
             if (signoff || comment.kind === 'signoff') {
               return {
                 type: 'signoff',
-                stage: stageTitle(comment.stage ?? read.task(comment.taskId)?.stage ?? ''),
+                stage: stage(),
                 brief: read.brief(comment.taskId)?.text ?? '',
                 cut: false,
               }
@@ -281,6 +468,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
         answerability,
         body: request.body,
         attachments: 0,
+        images: [],
         form: () =>
           onMacOr(answerability, () =>
             request.kind === 'round'
@@ -304,6 +492,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
         answerability,
         body: question.body,
         attachments: 0,
+        images: [],
         form: () => onMacOr(answerability, () => choicesForm(question.choices ?? [], false, true)),
       }
     }
@@ -319,6 +508,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       answerability,
       body: waiting.headline,
       attachments: 0,
+      images: [],
       form: () => onMacOr(answerability, () => ({ type: 'text' })),
     }
   }
@@ -342,9 +532,11 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       body: found.body,
       cut: false,
       attachments: found.attachments,
+      ...(found.images.length > 0 && { images: found.images }),
       form,
     }
     if (jsonBytes({ request: whole }) <= phoneReplyBodyMax) return whole
+    if (form.type === 'design') return fitDesign(whole) ?? tooLong(whole, found.body)
     const extra =
       form.type === 'signoff' ? form.brief : form.type === 'permission' ? form.command : ''
     const bare: PhoneRequestDetail = {
@@ -377,6 +569,10 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
             : form,
     }
     if (jsonBytes({ request: fitted }) <= phoneReplyBodyMax) return fitted
+    return tooLong(whole, found.body)
+  }
+
+  function tooLong(whole: PhoneRequestDetail, text: string): PhoneRequestDetail {
     const onMac: PhoneRequestDetail = {
       ...whole,
       body: '',
@@ -386,7 +582,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
         reason: 'This request is too long to answer on your phone. Answer it on your Mac.',
       },
     }
-    const left = fitText(found.body, Math.max(0, phoneReplyBodyMax - jsonBytes({ request: onMac })))
+    const left = fitText(text, Math.max(0, phoneReplyBodyMax - jsonBytes({ request: onMac })))
     return { ...onMac, body: left.text, cut: left.cut }
   }
 
