@@ -160,6 +160,15 @@ test('message headers and phone requests', () => {
   expect(() => parsePhoneRequest({ ...request, route: 1 })).toThrow()
   const read = { ...header, type: 'request', route: 'request', requestId: 'c-1' }
   expect(parsePhoneRequest(read)).toEqual(read)
+  const readSnoozed = { ...read, includeSnoozed: true }
+  expect(parsePhoneRequest(readSnoozed)).toEqual(readSnoozed)
+  expect(() => parsePhoneRequest({ ...readSnoozed, includeSnoozed: 'true' })).toThrow(
+    /includeSnoozed/,
+  )
+  const snooze = { ...read, route: 'request-snooze', snooze: 'tomorrow' }
+  expect(parsePhoneRequest(snooze)).toEqual(snooze)
+  expect(() => parsePhoneRequest({ ...snooze, snooze: 'custom' })).toThrow(/snooze/)
+  expect(() => parsePhoneRequest({ ...snooze, snooze: undefined })).toThrow(/snooze/)
   expect(() => parsePhoneRequest({ ...read, requestId: undefined })).toThrow(/requestId/)
   expect(() => parsePhoneRequest({ ...read, requestId: '' })).toThrow(/requestId/)
   expect(() => parsePhoneRequest({ ...read, requestId: 'x'.repeat(201) })).toThrow(/requestId/)

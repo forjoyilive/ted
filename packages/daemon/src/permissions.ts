@@ -28,8 +28,8 @@ export function reportRepoPermissions(
   banners.raise({
     ...ref,
     severity: 'warning',
-    text: 'The repo requests Bypass · this computer uses Auto until you enable Bypass in Factory settings',
-    action: { label: 'Open Factory settings', opens: { kind: 'factory-settings', factoryId } },
+    text: 'The repo requests Bypass · this computer uses Auto until you enable Bypass in Configuration',
+    action: { label: 'Open Configuration', opens: { kind: 'factory-settings', factoryId } },
   })
 }
 

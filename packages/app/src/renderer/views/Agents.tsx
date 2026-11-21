@@ -27,6 +27,7 @@ import {
   type MenuPosition,
   useActionMenu,
 } from '../components/ContextMenu.tsx'
+import { FactoryName } from '../components/FactoryIcon.tsx'
 import { ChevronIcon } from '../components/icons.tsx'
 import { ListPane } from '../components/ResizableSidebar.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
@@ -49,6 +50,7 @@ export const newCoordinatorChat = 'new'
 
 export function AgentsView({
   factory,
+  allChats,
   chatId,
   planId,
   planFrom,
@@ -61,6 +63,7 @@ export function AgentsView({
   onOpenAutomation,
 }: {
   factory: Factory
+  allChats?: { back: () => void; chooseFactory: () => void }
   chatId: string | undefined
   planId: string | undefined
   planFrom: string | undefined
@@ -218,7 +221,7 @@ export function AgentsView({
     )
   }
 
-  const list = (
+  const list = allChats === undefined && (
     <ListPane className={`${views.pane} ${views.listPane}`} aria-label="Agent chats">
       <header className={styles.listHeader}>
         <h1 className={views.listTitle}>Agents</h1>
@@ -366,29 +369,53 @@ export function AgentsView({
     )
   }
 
+  const deleteDialog = deleting && (
+    <DeleteChat
+      row={deleting}
+      busy={busy}
+      error={error}
+      onCancel={() => setDeleting(undefined)}
+      onDelete={async () => {
+        const ref = deleting.ref
+        const deleted = await act(() =>
+          ref.agent === 'coordinator' ? ted.deleteCoordinatorChat(ref.id) : ted.deletePlan(ref.id),
+        )
+        if (deleted) {
+          if (sameChat(openRef, ref)) {
+            if (allChats) allChats.back()
+            else startPage()
+          }
+          setDeleting(undefined)
+        }
+      }}
+    />
+  )
+  if (allChats) {
+    return (
+      <div className={views.pane}>
+        <header className={views.header}>
+          {shown === 'start' ? (
+            <Button variant="quiet" onClick={allChats.chooseFactory}>
+              ← Choose a Factory
+            </Button>
+          ) : (
+            <Button variant="quiet" onClick={allChats.back}>
+              ← All Chats
+            </Button>
+          )}
+          <span className={views.headerSpacer} />
+          <FactoryName factories={[factory]} factoryId={factory.id} />
+        </header>
+        {rowMenu.menu}
+        {deleteDialog}
+        <div className={styles.chatPanes}>{middle}</div>
+      </div>
+    )
+  }
   return (
     <>
       {list}
-      {deleting && (
-        <DeleteChat
-          row={deleting}
-          busy={busy}
-          error={error}
-          onCancel={() => setDeleting(undefined)}
-          onDelete={async () => {
-            const ref = deleting.ref
-            const deleted = await act(() =>
-              ref.agent === 'coordinator'
-                ? ted.deleteCoordinatorChat(ref.id)
-                : ted.deletePlan(ref.id),
-            )
-            if (deleted) {
-              if (sameChat(openRef, ref)) startPage()
-              setDeleting(undefined)
-            }
-          }}
-        />
-      )}
+      {deleteDialog}
       {middle}
     </>
   )

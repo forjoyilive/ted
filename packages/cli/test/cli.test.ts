@@ -725,7 +725,7 @@ describe('ted status and ted doctor', () => {
     const status = (await ted(['status'])).stdout
     expect(status).toContain('1 problem:')
     expect(status).toMatch(
-      /Warning {2}widgets {2}No checks set up · Validate relies on the agent alone {2}\[Open Factory settings\] {2}\(dismissed until /,
+      /Warning {2}widgets {2}No checks set up · Validate relies on the agent alone {2}\[Open Configuration\] {2}\(dismissed until /,
     )
 
     const doctor = await ted(['doctor'])

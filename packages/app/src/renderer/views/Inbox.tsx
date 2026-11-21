@@ -807,7 +807,13 @@ function InboxEmptyState({
   onShowAnswered: () => void
   onShowAllFactories: () => void
 }) {
-  if (empty === 'loading') return <Skeleton label="Loading the Inbox…" shape="history" />
+  if (empty === 'loading') {
+    return (
+      <div className={styles.loading}>
+        <Skeleton label="Loading the Inbox…" shape="history" />
+      </div>
+    )
+  }
   const button = {
     'new-task': (
       <Button variant="primary" onClick={onNewTask}>

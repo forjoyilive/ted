@@ -922,7 +922,7 @@ describe('Checks at Validate', () => {
     expect(banners.find((b) => b.problem === 'setup-suggested')).toMatchObject({
       severity: 'warning',
       text: 'A check’s command wasn’t found: `ted-no-such-command-xyz --all`',
-      action: { label: 'Open Factory settings' },
+      action: { label: 'Open Configuration' },
     })
   })
 

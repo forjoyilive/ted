@@ -51,6 +51,7 @@ import { FactoryColorsProvider } from './components/FactoryIcon.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { GuideCard } from './components/GuideCard.tsx'
 import { NotificationOfferBanner } from './components/NotificationOffer.tsx'
+import { Offline } from './components/Offline.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
@@ -139,7 +140,8 @@ import { factoryCapLine, runsLine } from './slots.ts'
 import { StagesProvider } from './stages.tsx'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
-import { AgentsView } from './views/Agents.tsx'
+import { AgentsView, agentsStart } from './views/Agents.tsx'
+import { AllChats, type AllChatsView, ChatFactoryPicker } from './views/AllChats.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
 import { AutomationRuns } from './views/AutomationRuns.tsx'
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
@@ -157,7 +159,7 @@ import { factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
   agents: 'Agents',
-  settings: 'Factory settings',
+  settings: 'Configuration',
 } as const
 
 function sectionsStoppingWork(banners: readonly Banner[]) {
@@ -239,14 +241,6 @@ const cardDialogs: Partial<Record<string, TaskDialogKind>> = {
 
 function report(error: unknown) {
   console.error(error)
-}
-
-function Offline({ when, children }: { when: boolean; children: ReactNode }) {
-  return (
-    <fieldset disabled={when} className={when ? styles.offline : styles.online}>
-      {children}
-    </fieldset>
-  )
 }
 
 export type AppStart = { factoryId: string } | { settings: 'integrations' }
@@ -344,6 +338,10 @@ export function App({ start }: { start?: AppStart | undefined }) {
         : { type: 'open-settings', section: first.settings },
     )
   }, [])
+  const [allChatsView, setAllChatsView] = useState<AllChatsView>({
+    grouping: 'None',
+    archived: false,
+  })
   const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
   const dialogOpen =
     newTaskOpen !== undefined ||
@@ -973,6 +971,49 @@ export function App({ start }: { start?: AppStart | undefined }) {
             }
           />
         )
+      case 'all-chats':
+        return screen.chooseFactory ? (
+          <ChatFactoryPicker
+            factories={factories}
+            onBack={() => dispatch({ type: 'open', screen: { kind: 'all-chats' } })}
+            onChoose={(factoryId) =>
+              dispatch({
+                type: 'open',
+                screen: {
+                  kind: 'factory',
+                  factoryId,
+                  view: 'agents',
+                  chatId: agentsStart,
+                  fromAllChats: true,
+                },
+              })
+            }
+          />
+        ) : (
+          <AllChats
+            factories={factories}
+            factoriesLoaded={factoriesLoaded}
+            view={allChatsView}
+            onView={setAllChatsView}
+            onOpen={(factoryId, chat) =>
+              chat.agent === 'planner'
+                ? dispatch({ type: 'open-plan', factoryId, planId: chat.id, fromAllChats: true })
+                : dispatch({
+                    type: 'open',
+                    screen: {
+                      kind: 'factory',
+                      factoryId,
+                      view: 'agents',
+                      chatId: chat.id,
+                      fromAllChats: true,
+                    },
+                  })
+            }
+            onNewChat={() =>
+              dispatch({ type: 'open', screen: { kind: 'all-chats', chooseFactory: true } })
+            }
+          />
+        )
       case 'all-tasks':
         return (
           <TaskList
@@ -1014,7 +1055,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
           loaded: tasksLoaded,
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
-        const openPlans = () => dispatch({ type: 'open-plan', factoryId: screen.factoryId })
+        const fromAllChats = screen.fromAllChats ? { fromAllChats: true as const } : {}
+        const openPlans = () =>
+          dispatch({ type: 'open-plan', factoryId: screen.factoryId, ...fromAllChats })
         if (screen.view === 'board') {
           return (
             <Board
@@ -1124,9 +1167,16 @@ export function App({ start }: { start?: AppStart | undefined }) {
         if (screen.view === 'agents' && factory)
           return (
             <AgentsView
-              key={factory.id}
+              key={`${factory.id}:${screen.fromAllChats === true}`}
               factory={factory}
               chatId={screen.chatId}
+              {...(screen.fromAllChats && {
+                allChats: {
+                  back: () => dispatch({ type: 'open', screen: { kind: 'all-chats' } }),
+                  chooseFactory: () =>
+                    dispatch({ type: 'open', screen: { kind: 'all-chats', chooseFactory: true } }),
+                },
+              })}
               planId={navigation.planId}
               planFrom={navigation.planFrom}
               revealRequest={revealRequest}
@@ -1136,6 +1186,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
                       type: 'open-plan',
                       factoryId: factory.id,
                       planId: chat.id,
+                      ...fromAllChats,
                       ...options,
                     })
                   : dispatch({
@@ -1145,6 +1196,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
                         factoryId: factory.id,
                         view: 'agents',
                         chatId: chat.id,
+                        ...fromAllChats,
                       },
                       ...options,
                     })
@@ -1161,7 +1213,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
                   dispatch,
                 )
               }
-              onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: factory.id, from })}
+              onPlanMore={(from) =>
+                dispatch({ type: 'open-plan', factoryId: factory.id, from, ...fromAllChats })
+              }
               onOpenTask={openTaskByRef}
               onOpenAutomation={(automationId) =>
                 dispatch({ type: 'open-automation', automationId, factoryId: factory.id })
@@ -1338,28 +1392,27 @@ export function App({ start }: { start?: AppStart | undefined }) {
   if (navigation.settings) {
     return frame(
       <div className={styles.main}>
-        {problems}
-        <Offline when={offline}>
-          <div ref={panes} className={styles.panes}>
-            {find}
-            <SettingsShell
-              error={settingsResource.error}
-              retry={settingsResource.retry}
-              section={navigation.settings.section}
-              settings={settings}
-              factories={factories}
-              searchFactory={searchFactory}
-              inboxCount={inboxCount}
-              stopsWork={{
-                ...sectionsStoppingWork(banners),
-                ...(notificationsOff && { notifications: true }),
-              }}
-              counts={{ library: drift?.library ?? 0 }}
-              guide={guide}
-              dispatch={dispatch}
-            />
-          </div>
-        </Offline>
+        <div ref={panes} className={styles.panes}>
+          <Offline when={offline}>{find}</Offline>
+          <SettingsShell
+            error={settingsResource.error}
+            retry={settingsResource.retry}
+            section={navigation.settings.section}
+            settings={settings}
+            factories={factories}
+            searchFactory={searchFactory}
+            inboxCount={inboxCount}
+            stopsWork={{
+              ...sectionsStoppingWork(banners),
+              ...(notificationsOff && { notifications: true }),
+            }}
+            counts={{ library: drift?.library ?? 0 }}
+            guide={guide}
+            problems={problems}
+            offline={offline}
+            dispatch={dispatch}
+          />
+        </div>
         {palette}
         {dialogs}
         {overlays}

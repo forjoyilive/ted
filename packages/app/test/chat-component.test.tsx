@@ -97,14 +97,15 @@ test('Run chat queues ordinary messages, deletes a queued message and interrupts
 })
 
 test('Run chat attaches files, removes one, sends a file-only message and keeps files in the draft', async () => {
+  const runId = 'run-with-attachments'
   const note = { hash: 'note-hash', name: 'note.txt', mediaType: 'text/plain', size: 5 }
   const shot = { hash: 'shot-hash', name: 'shot.png', mediaType: 'image/png', size: 9 }
   let kept: MessageDraft | null = null
   const api = bridge({
-    getRunChat: (): RunChat => ({ run: { ...lead, state: 'idle' }, items: [] }),
+    getRunChat: (): RunChat => ({ run: { ...lead, id: runId, state: 'idle' }, items: [] }),
     uploadAttachment: (file) => ((file as { name: string }).name === 'note.txt' ? note : shot),
     readAttachment: () => ({ data: 'aW1hZ2U=' }),
-    sendRunMessage: (_id, text) => ({ id: 'm1', runId: 'r1', text, at: createdAt }),
+    sendRunMessage: (_id, text) => ({ id: 'm1', runId, text, at: createdAt }),
     messageDraft: () => ({ draft: kept }),
     saveMessageDraft: (_box, draft) => {
       const saved = draft as MessageDraft
@@ -112,7 +113,7 @@ test('Run chat attaches files, removes one, sends a file-only message and keeps 
       return { draft: kept }
     },
   })
-  const first = render(<Conversation runId="r1" />)
+  const first = render(<Conversation runId={runId} />)
   const send = await screen.findByRole('button', { name: /^Send/ })
   expect(send).toHaveProperty('disabled', true)
   await user().upload(screen.getByLabelText('Choose files to attach'), [
@@ -125,10 +126,10 @@ test('Run chat attaches files, removes one, sends a file-only message and keeps 
   await vi.waitFor(() => expect(kept).toMatchObject({ text: '', attachments: [note] }))
   first.unmount()
 
-  render(<Conversation runId="r1" />)
+  render(<Conversation runId={runId} />)
   await screen.findByRole('button', { name: 'Remove note.txt' })
   await user().click(screen.getByRole('button', { name: /^Send/ }))
-  expect(api.request).toHaveBeenCalledWith('sendRunMessage', 'r1', '', {
+  expect(api.request).toHaveBeenCalledWith('sendRunMessage', runId, '', {
     interrupt: false,
     attachments: [{ hash: 'note-hash', name: 'note.txt', mediaType: 'text/plain' }],
   })

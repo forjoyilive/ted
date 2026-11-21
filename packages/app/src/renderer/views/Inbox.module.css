@@ -228,13 +228,18 @@
   list-style: none;
 }
 
+.row,
+.loading {
+  padding-inline: 14px;
+}
+
 .row {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 4px;
   width: 100%;
-  padding: 12px 14px;
+  padding-block: 12px;
   border: none;
   border-bottom: 1px solid var(--border-subtle);
   background: none;

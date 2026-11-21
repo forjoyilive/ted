@@ -12,6 +12,7 @@ import {
   tedEnv,
   tedPaths,
 } from '@ted/protocol'
+import { effectiveTimeZone, requestSnoozePresets } from '@ted/protocol/time'
 import { createAgentAvailability } from './agent-availability.ts'
 import { createAgents } from './agents/index.ts'
 import type { Apps } from './apps/apps.ts'
@@ -45,7 +46,7 @@ import { agentHostsReachable, onlineFromFile, watchOnline } from './health/onlin
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
 import { createLibrarySettings } from './library-settings.ts'
-import { watchLibrary } from './library-watch.ts'
+import { type LibraryWatchOptions, watchLibrary } from './library-watch.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
@@ -132,6 +133,7 @@ export interface DaemonOptions {
   githubReadBurst?: number
   beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
+  libraryWatch?: LibraryWatchOptions
   settingsMergeWaitMs?: number
   stallAfterMs?: number
   apps?: {
@@ -536,7 +538,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           mergeWaitMs: options.settingsMergeWaitMs,
         }),
       })
-      const libraryWatch = await watchLibrary({ libraryDir: paths.library, workflows, emit })
+      const libraryWatch = await watchLibrary({
+        ...options.libraryWatch,
+        libraryDir: paths.library,
+        workflows,
+        emit,
+      })
       const library = createLibrarySettings({
         store,
         workflows,
@@ -967,6 +974,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
                 await coordinators.answerConfirmation(answer.chatId, id, answer)
               }
             }
+          },
+          async (id, choice) => {
+            const now = options.snoozes?.now?.() ?? new Date(options.clock?.now() ?? Date.now())
+            const until =
+              choice === 'clear'
+                ? null
+                : requestSnoozePresets(now, effectiveTimeZone(store.settings())).find(
+                    (preset) => preset.id === choice,
+                  )?.until
+            if (until === undefined) throw new RequestError(400, 'Choose a snooze time.')
+            tasks.snoozeRequest(id, until)
+            await store.persisted()
+            return until
           },
         ),
         tasks: storeTaskSource(

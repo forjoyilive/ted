@@ -27,6 +27,7 @@ interface StubRuntime {
 
 interface StubState {
   xcode?: boolean
+  xcodeVersion?: string
   runtimes?: StubRuntime[]
   devices?: Record<string, StubDevice[]>
   deviceTypes?: { name: string; identifier: string; createFails?: boolean }[]
@@ -103,6 +104,10 @@ if (bundle !== -1) {
   const id = args[bundle + 1] ?? ''
   if ((state.viewers ?? ['com.apple.iphonesimulator']).includes(id)) process.exit(0)
   fail(`Unable to find application with identifier ${id}`)
+}
+if (state.xcode !== false && args[0] === 'xcodebuild' && args[1] === '-version') {
+  console.log(`Xcode ${state.xcodeVersion ?? '26.0'}`)
+  process.exit(0)
 }
 if (state.xcode === false || args[0] !== 'simctl') {
   fail('xcrun: error: unable to find utility "simctl", not a developer tool or in PATH', 72)

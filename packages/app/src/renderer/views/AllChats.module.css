@@ -1,0 +1,82 @@
+.pane {
+  container-type: inline-size;
+}
+
+.header {
+  flex-wrap: wrap;
+  padding-block: 8px;
+}
+
+.row,
+.loading {
+  padding-inline: 20px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(86px, 20%) minmax(112px, 18%) minmax(50px, 10%);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding-block: 10px;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--surface-hover);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.chat {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.title {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  min-width: 0;
+}
+
+.status > span {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.statusLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta,
+.time {
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.clear {
+  padding: 4px 6px;
+}
+
+@container (max-width: 420px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) minmax(80px, 28%);
+    gap: 4px 10px;
+  }
+}

@@ -1990,11 +1990,6 @@
       "count": 6
     }
   },
-  "packages/daemon/src/library-watch.ts": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 1
-    }
-  },
   "packages/daemon/src/linear/discussion.ts": {
     "anti-slop/no-runtime-typeof": {
       "count": 3
@@ -3868,7 +3863,7 @@
       "count": 1
     },
     "anti-slop/no-runtime-typeof": {
-      "count": 3
+      "count": 2
     },
     "anti-slop/no-unknown-parameters": {
       "count": 2
@@ -3877,7 +3872,7 @@
       "count": 4
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 10
+      "count": 9
     }
   },
   "packages/protocol/src/coordinator-parsers.ts": {

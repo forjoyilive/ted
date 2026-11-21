@@ -232,21 +232,21 @@ const holdText = {
     changed:
       'Asana intake choice changed during the import. Ted stopped; the next run uses the new choice.',
     missing: (name: string) =>
-      `An Automation imports Asana work only from ${name}’s Asana intake project. Choose one in Factory settings first.`,
+      `An Automation imports Asana work only from ${name}’s Asana intake project. Choose one in Configuration first.`,
     missingStatus: 403,
   },
   linearIntakeScopes: {
     changed:
       'Linear intake scope changed during the import. Ted stopped; the next run uses the new scope.',
     missing: (name: string) =>
-      `Ted imports Linear work in bulk only from ${name}’s Linear intake scope. Choose a Linear Team or Project in Factory settings → Linear intake first.`,
+      `Ted imports Linear work in bulk only from ${name}’s Linear intake scope. Choose a Linear Team or Project in Configuration → Linear intake first.`,
     missingStatus: 403,
   },
   githubIntakeScopes: {
     changed:
       'GitHub intake label changed during the import. Ted stopped; the next run uses the new label.',
     missing: (name: string) =>
-      `Ted imports GitHub issues in bulk only with an intake label, so it doesn’t take every open issue anyone filed. Choose a label in ${name}’s Factory settings → GitHub intake first.`,
+      `Ted imports GitHub issues in bulk only with an intake label, so it doesn’t take every open issue anyone filed. Choose a label in ${name}’s Configuration → GitHub intake first.`,
     missingStatus: 409,
   },
 } satisfies {

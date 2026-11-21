@@ -299,7 +299,7 @@ describe('banners over the daemon API', () => {
         severity: 'warning',
         text: 'No checks set up · Validate relies on the agent alone',
         action: {
-          label: 'Open Factory settings',
+          label: 'Open Configuration',
           opens: { kind: 'factory-settings', factoryId: factory.id },
         },
       },

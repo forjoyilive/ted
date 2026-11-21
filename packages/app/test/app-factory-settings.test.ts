@@ -39,9 +39,9 @@ describe('Factory settings sections', () => {
     await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
     const window = await launchApp()
     await window.setViewportSize({ width: 1280, height: 900 })
-    await openFactoryView(window, 'widgets', 'Settings')
+    await openFactoryView(window, 'widgets', 'Configuration')
     await window
-      .getByRole('navigation', { name: 'Factory settings' })
+      .getByRole('navigation', { name: 'Configuration' })
       .getByRole('button', { name: 'Permissions' })
       .click()
     const permissions = window.getByRole('region', { name: 'Permission mode', exact: true })
@@ -74,9 +74,9 @@ describe('Factory settings sections', () => {
       .getByRole('article', { name: 'widgets', exact: true })
       .getByRole('button', { name: 'Views' })
       .click()
-    await sidebar(window).getByRole('button', { name: 'Settings 1', exact: true }).click()
+    await sidebar(window).getByRole('button', { name: 'Configuration 1', exact: true }).click()
     await window.getByRole('region', { name: 'General', exact: true }).waitFor()
-    const jump = window.getByRole('navigation', { name: 'Factory settings' })
+    const jump = window.getByRole('navigation', { name: 'Configuration' })
     const nav = sidebar(window)
 
     for (const width of [1280, 900]) {
@@ -162,9 +162,9 @@ describe('Factory settings sections', () => {
     await addFactory(origin, 'NB')
     const window = await launchApp()
     await window.setViewportSize({ width: 1280, height: 900 })
-    await openFactoryView(window, 'widgets', 'Settings')
+    await openFactoryView(window, 'widgets', 'Configuration')
     await window
-      .getByRole('navigation', { name: 'Factory settings' })
+      .getByRole('navigation', { name: 'Configuration' })
       .getByRole('button', { name: 'Checks' })
       .click()
     const section = window.getByRole('region', { name: 'Checks', exact: true })
@@ -244,9 +244,9 @@ test('Stage effort saves in Library and a Factory override can return to inherit
   )
 
   await settingsNav(window).getByRole('button', { name: /Back/ }).click()
-  await openFactoryView(window, 'widgets', 'Settings')
+  await openFactoryView(window, 'widgets', 'Configuration')
   await window
-    .getByRole('navigation', { name: 'Factory settings' })
+    .getByRole('navigation', { name: 'Configuration' })
     .getByRole('button', { name: 'Workflow', exact: true })
     .click()
   const design = window.getByRole('combobox', { name: 'Design effort', exact: true })
@@ -259,7 +259,7 @@ test('Stage effort saves in Library and a Factory override can return to inherit
   expect(await design.locator('option:checked').textContent()).toContain('high · Library')
   if (process.env.TED_TEST_SCREENSHOT) {
     await window
-      .getByRole('navigation', { name: 'Factory settings' })
+      .getByRole('navigation', { name: 'Configuration' })
       .getByRole('button', { name: 'Workflow', exact: true })
       .click()
     await sleep(300)

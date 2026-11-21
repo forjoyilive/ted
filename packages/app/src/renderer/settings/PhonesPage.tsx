@@ -247,7 +247,7 @@ export function PhonesPage() {
   return (
     <SettingsPage
       title="Phones"
-      subtitle="Answer Inbox requests from your iPhone when you’re away from this Mac. Requests reach the phone through an end-to-end encrypted relay."
+      subtitle="Answer Inbox requests from your iPhone when you’re away from this Mac. Requests reach the phone through an end-to-end encrypted relay. The Ted iPhone app is in testing. Get in touch if you’d like to try it."
     >
       {(problem ?? phones.error) && (
         <p className={styles.error} role="alert">

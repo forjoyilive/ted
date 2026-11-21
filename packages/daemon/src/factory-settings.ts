@@ -349,7 +349,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     if (changes.permissions !== undefined) {
       throw new RequestError(
         400,
-        'Permission mode is local to this computer; use Factory settings permissions',
+        'Permission mode is local to this computer; open Configuration → Permissions',
       )
     }
     const problems = [
@@ -981,7 +981,7 @@ export function storedRepos(
 
 function pullRequestBody(effects: string[]): string {
   return [
-    'Ted settings changed from Factory settings.',
+    'Ted settings changed from the Factory’s Configuration page.',
     ...effects.map((e) => `- ${e}`),
     '---',
     'Opened by Ted.',

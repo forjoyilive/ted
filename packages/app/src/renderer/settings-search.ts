@@ -182,7 +182,7 @@ const entries = {
   'app.notifications.by-factory': {
     name: 'By Factory',
     keywords: 'factory inbox merged count badge',
-    help: 'A notification is sent only when it is on above and ticked for the Factory. These are the same choices as Notifications in each Factory’s Settings. With Inbox items unticked, a Factory’s requests stay in the Inbox but leave its count and the Dock badge.',
+    help: 'A notification is sent only when it is on above and ticked for the Factory. These are the same choices as Notifications in each Factory’s Configuration. With Inbox items unticked, a Factory’s requests stay in the Inbox but leave its count and the Dock badge.',
     heading: true,
   },
   'app.notifications.sound': { name: 'Sound', heading: true },
@@ -231,7 +231,7 @@ const entries = {
   },
   'app.limits.checks': {
     name: 'Checks running at once',
-    help: 'A Task’s checks run one after another and count as one. When this many Tasks are running checks, the next waits its turn; a check you try with Run now in Factory settings waits too. Lowering the limit doesn’t stop checks that are running.',
+    help: 'A Task’s checks run one after another and count as one. When this many Tasks are running checks, the next waits its turn; a check you try with Run now in Configuration waits too. Lowering the limit doesn’t stop checks that are running.',
   },
   'app.limits.check-cpus': {
     name: 'CPU a check may use',
@@ -308,7 +308,7 @@ const entries = {
   'app.library.workflow.cleanup': {
     name: 'Cleanup',
     keywords: 'after merge stage',
-    help: 'Turns Cleanup on for every Factory that doesn’t say otherwise. A Factory runs it only once it has at least one step, set in that Factory’s settings under Cleanup.',
+    help: 'Turns Cleanup on for every Factory that doesn’t say otherwise. A Factory runs it only once it has at least one step. Set the steps in its Configuration → Cleanup.',
   },
   'app.library.stage-files': { name: 'Stage files', heading: true },
   'app.library.agents': {
@@ -654,8 +654,8 @@ export function findSettings(
       place.kind === 'app'
         ? `Settings › ${place.page}`
         : place.top
-          ? `${factory?.name} › Settings`
-          : `${factory?.name} › Settings › ${place.page}`
+          ? `${factory?.name} › Configuration`
+          : `${factory?.name} › Configuration › ${place.page}`
     found.push({
       rank: (inName ? 0 : 2) + (entry.heading ? 1 : 0),
       hit: {

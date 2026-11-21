@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { Locator } from 'playwright'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, makeOriginRepo, waitUntil } from '../../daemon/test/helpers.ts'
 import {
@@ -8,7 +9,10 @@ import {
   daemonClient,
   launchApp,
   openAllTasks,
+  openSettings,
+  settingsNav,
   setUpAppTests,
+  sidebar,
   startDaemonAsApp,
   taskRow,
   ted,
@@ -17,17 +21,55 @@ import {
 setUpAppTests()
 
 describe('Working Runs', () => {
-  test('a nearly full disk shows a warning whose Open Storage shows what uses the space', async () => {
+  test('the low-disk banner fits beside both sidebars and opens Storage', async () => {
     const free = path.join(ctx.home, 'free-bytes')
     await writeFile(free, String(8.2e9))
     const window = await launchApp({ TED_FREE_BYTES_FILE: free })
-    await window.getByText('Disk almost full · 8.2 GB free').waitFor()
+    const banner = window
+      .getByRole('region', { name: 'Problems', exact: true })
+      .filter({ hasText: 'Disk almost full · 8.2 GB free' })
+
+    async function resize(width: number) {
+      await ctx.app?.evaluate(
+        ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0]?.setSize(width, 900),
+        width,
+      )
+      await expect.poll(() => window.evaluate(() => innerWidth)).toBe(width)
+    }
+
+    async function expectBannerBeside(nav: Locator, windowWidth: number) {
+      await expect
+        .poll(async () => {
+          const [box, sidebarBox] = await Promise.all([banner.boundingBox(), nav.boundingBox()])
+          if (!box?.width || !sidebarBox?.width) return undefined
+          const sidebarRight = sidebarBox.x + sidebarBox.width
+          return {
+            inset: box.x - sidebarRight,
+            topInset: box.y - sidebarBox.y,
+            widthDifference: box.width - Math.min(720, windowWidth - sidebarRight - 40),
+          }
+        })
+        .toEqual({ inset: 20, topInset: 12, widthDifference: 0 })
+    }
+
+    await openAllTasks(window)
+    await resize(1280)
+    await expectBannerBeside(sidebar(window), 1280)
+
+    await resize(900)
+    await expectBannerBeside(sidebar(window), 900)
+
+    await openSettings(window)
+    await expectBannerBeside(settingsNav(window), 900)
+    await resize(1280)
+    await expectBannerBeside(settingsNav(window), 1280)
+    await resize(900)
     const client = await daemonClient()
     await expect
       .poll(async () => (await client.listBackups()).backups.length, { timeout: 20_000 })
       .toBeGreaterThan(0)
 
-    await window.getByRole('button', { name: 'Open Storage' }).click()
+    await banner.getByRole('button', { name: 'Open Storage' }).click()
 
     const page = window.getByRole('main', { name: 'Storage' })
     await page.getByText(/used under .* · 8\.2 GB free/).waitFor()
@@ -37,6 +79,9 @@ describe('Working Runs', () => {
       .getByRole('region', { name: 'Backups' })
       .getByText(/^Daily · /)
       .waitFor()
+
+    await banner.getByRole('button', { name: 'Dismiss for 24 hours' }).click()
+    await banner.waitFor({ state: 'detached' })
   })
 })
 
