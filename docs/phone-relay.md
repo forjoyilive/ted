@@ -127,6 +127,7 @@ Every message inside a box has:
 - `{"type":"pair","pairing":"<pairing ID>","secret":"<secret>","name":"iPhone 16","edition":"dev","relayKey":"<phone relay public key>","relayProof":"<Ed25519 signature>"}` sent from the phone’s new box key, over a `pairing` socket. `relayProof` is signed by the relay key over the UTF-8 bytes of `ted-relay-key:v1:<pairing ID>:<phone box public key>` (protocol 3).
 - `{"type":"pair-status","pairing":"<pairing ID>"}` from the same key, polled every 2 seconds while waiting.
 - `{"type":"request","route":"status"}` from a paired phone’s key.
+- `{"type":"request","route":"plan-usage"}` reads the latest Provider plan usage from a paired phone’s key. A Mac older than this route answers `unknown-route`.
 - `{"type":"request","route":"requests"}`, `{"type":"request","route":"request","requestId":"<request ID>"}` and `{"type":"request","route":"answer","requestId":"<request ID>","answer":{…}}` from a paired phone’s key (protocol 2; see Inbox requests below). The request ID goes in `requestId` because `id` is the message’s own ID.
 - `{"type":"request","route":"push-token","token":"ExponentPushToken[…]"}` from a paired phone’s key. The daemon accepts only `ExponentPushToken[…]` or `ExpoPushToken[…]` with 1 to 200 letters, digits, `_` or `-` inside the brackets, and stores it with that phone’s pairing; any other value gets `bad-request`. A token another paired phone held moves to this phone.
 - `{"type":"request","route":"problems"}` from a paired phone’s key. A Mac older than this route answers `unknown-route`, which the phone treats as no problems.
@@ -148,6 +149,7 @@ Every message inside a box has:
 - `pair` → `{"state":"waiting","code":"482913"}`.
 - `pair-status` → `{"state":"waiting"}`, `{"state":"approved","mac":"Studio Mac"}`, `{"state":"refused"}` or `{"state":"expired"}`.
 - `status` → `{"mac":"Studio Mac","edition":"dev","version":"1.4.0","protocol":3}`.
+- `plan-usage` → `{"providers":[{"provider":"codex","usage":{"at":"<ISO time>","windows":[{"window":"five-hour","percent":42,"resetsAt":"<ISO time>"}]}}, …]}`. Only enabled Providers are included. Provider IDs are `claude`, `codex`, `antigravity` and `pi`. Windows are `five-hour` or `weekly`. `at` is when the Mac last updated the figures. `resetsAt` is optional. The Mac omits `usage` when it has no windows for that Provider. Reading this route uses the latest figures the Mac already has.
 - `requests` → `{"requests":[<summary>, …],"more":0}`.
 - `request` → `{"request":<detail>}`.
 - `answer` → `{"answered":true}`.
@@ -200,7 +202,7 @@ A phone that gets a reply with a `protocol` above its own says “Update the Ted
 
 ## Inbox requests
 
-Protocol 2 adds three routes. They show the open requests the desktop Inbox shows and answer some of them. Apart from these, the read-only Tasks routes, the seven Task actions and New Task below, a phone gets nothing: no settings, Factory changes, Runs or other Task changes.
+Protocol 2 adds three routes. They show the open requests the desktop Inbox shows and answer some of them. Apart from these, the read-only Tasks and plan usage routes, the seven Task actions and New Task below, a phone gets nothing: no settings, Factory changes, Runs or other Task changes.
 
 ### `requests`
 

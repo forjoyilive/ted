@@ -1,4 +1,10 @@
-import type { Edition, PhoneProblemsBody, PhoneRequest, PhoneRouteName } from '@ted/protocol'
+import type {
+  Edition,
+  PhonePlanUsageBody,
+  PhoneProblemsBody,
+  PhoneRequest,
+  PhoneRouteName,
+} from '@ted/protocol'
 import { phoneChatChangeRoutes, phoneProtocolVersion } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import type { Caller } from '../tasks/tasks.ts'
@@ -28,6 +34,7 @@ export interface PhoneRouteContext {
   chatActions: PhoneChatActions
   images: PhoneImages
   problems(): PhoneProblemsBody
+  planUsage(): PhonePlanUsageBody
   dismissProblem(id: string, raisedAt: string): Promise<void>
   setPushToken(phoneId: string, token: string): boolean
 }
@@ -107,6 +114,12 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     name: 'problems',
     async handle(_, __, { problems }) {
       return { body: problems() }
+    },
+  },
+  {
+    name: 'plan-usage',
+    async handle(_, __, { planUsage }) {
+      return { body: planUsage() }
     },
   },
   {
