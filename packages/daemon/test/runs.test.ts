@@ -641,12 +641,17 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
   process.env.PI_CODING_AGENT_DIR = agentDir
   if (realSandbox) process.env.TED_SANDBOX_BIN = '/usr/bin/sandbox-exec'
   try {
-    const { client } = await startPiFactory(stubPiPath, { bypass: false })
+    const { client, raw } = await startPiFactory(stubPiPath, { bypass: false })
+    const brief = await client.uploadAttachment(
+      { name: 'brief.txt', mediaType: 'text/plain' },
+      new TextEncoder().encode('the Task’s brief'),
+    )
     const task = await client.createTask({
       factory: 'NB',
       title: 'STUB_PROBE the sandbox',
       lead: { agent: 'pi', model: 'stub/model-1' },
       start: true,
+      attachments: [brief],
     })
     const runId = await piLeadOf(client, task.id)
     await waitUntil(
@@ -703,11 +708,63 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
     expect(probe.piAgentCopyWrite.ok).toBe(true)
     expect(launch.sandbox.env).toEqual({ PI_CODING_AGENT_DIR: path.join(runDir, 'pi-agent') })
     expect(probe.ted).toMatchObject({ ok: true, output: expect.stringContaining(task.displayId) })
+    const files = path.join(home, 'sandbox', task.displayId, 'files')
+    expect(await real(launch.sandbox.scope.readable)).toEqual(
+      expect.arrayContaining(await real([files])),
+    )
+    expect(launch.sandbox.scope.readable).not.toContain(path.join(home, 'attachments'))
+    const read = (seen: typeof probe, hash: string) =>
+      seen.attached.find((a: { file: string }) => a.file.includes(hash))
+    expect(read(probe, brief.hash)).toEqual({
+      file: path.join(files, `${brief.hash}.txt`),
+      read: { ok: true, output: 'the Task’s brief' },
+    })
+
+    const later = await client.uploadAttachment(
+      { name: 'later.txt', mediaType: 'text/plain' },
+      new TextEncoder().encode('sent mid-Run'),
+    )
+    const other = await client.uploadAttachment(
+      { name: 'other.txt', mediaType: 'text/plain' },
+      new TextEncoder().encode('not this Run’s'),
+    )
+    const otherFile = path.join(home, 'attachments', `${other.hash}.txt`)
+    const again = `STUB_PROBE again\n- other.txt: ${otherFile}`
+    await raw.call('POST', `/runs/${runId}/messages`, { text: again, attachments: [later] })
+    const probes = async () =>
+      (await readFile(path.join(runDir, 'pi-sessions', 'stub-pi-probes.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line))
+    const second = await waitUntil(
+      async () => (await probes())[1],
+      'the sandboxed Pi Task Lead to probe the mid-Run file',
+    )
+    expect(read(second, later.hash)).toEqual({
+      file: path.join(files, `${later.hash}.txt`),
+      read: { ok: true, output: 'sent mid-Run' },
+    })
+    expect(read(second, other.hash).file).toBe(otherFile)
+    if (realSandbox) expect(read(second, other.hash).read.ok).toBe(false)
+    const items = await waitUntil(async () => {
+      const chat = (await raw.call('GET', `/runs/${runId}/chat`)).body as RunChat
+      return chat.run.state === 'idle' &&
+        chat.items.some((item) => item.kind === 'agent' && item.text.includes('STUB_PROBE again'))
+        ? chat.items
+        : undefined
+    }, 'the second probe turn to end')
+    expect(
+      JSON.stringify(items.filter((item) => item.kind !== 'agent' && item.kind !== 'tool')),
+    ).not.toContain(files)
+    expect(
+      items.filter((item) => item.kind === 'human' && item.text.includes('STUB_PROBE again')),
+    ).toEqual([expect.objectContaining({ text: again, attachments: [later] })])
     if (realSandbox) {
       expect(probe.outsideWrite.ok).toBe(false)
       expect(probe.sharedTmpWrite.ok).toBe(false)
       expect(probe.daemonInfo.ok).toBe(false)
       expect(probe.piAgentWrite.ok).toBe(false)
+      expect(probe.attachmentsList.ok).toBe(false)
       await expect(readFile(path.join(agentDir, 'stub-pi-wrote'))).rejects.toThrow()
     }
   } finally {

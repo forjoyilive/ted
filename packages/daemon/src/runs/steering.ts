@@ -402,7 +402,7 @@ export function createSteering(options: {
           return message
         }
         await deliver(live, queued(runId), { includeHeld: true })
-        await runs.send(runId, text)
+        await runs.send(runId, text, files)
         return store.recordRunMessage({ runId, text, lead: isCurrentLead(live), files })
       })
     },
