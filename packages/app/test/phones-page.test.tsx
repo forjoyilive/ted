@@ -11,6 +11,7 @@ const link = 'ted-pair:eyJ2IjoxfQ'
 test('empty page, pair dialog with QR code and countdown, Copy code in Ted Dev, then approve', async () => {
   let current: PhonePairingState = { state: 'none' }
   let phones: PairedPhone[] = []
+  let copyFails = true
   const expiresAt = Date.now() + 272_000
   const a = bridge({
     pairedPhones: () => ({ phones, pairAgain: false }),
@@ -23,7 +24,9 @@ test('empty page, pair dialog with QR code and countdown, Copy code in Ted Dev, 
       current = { state: 'none' }
       return current
     },
-    copyText: () => undefined,
+    copyText: () => {
+      if (copyFails) throw new Error(`Clipboard rejected ${link}`)
+    },
     approvePhonePairing: () => {
       current = { state: 'approved', pairing, phoneName: 'iPhone 16' }
       phones = [{ id: 'phone-1', name: 'iPhone 16', pairedAt: '2026-11-12T09:00:00.000Z' }]
@@ -41,8 +44,16 @@ test('empty page, pair dialog with QR code and countdown, Copy code in Ted Dev, 
   expect(within(dialog).getByText('Open Ted on your iPhone and scan this code.')).toBeTruthy()
   expect(within(dialog).getByRole('img', { name: 'Pairing QR code' })).toBeTruthy()
   expect(within(dialog).getByText(/Works once · 4:3\d left/)).toBeTruthy()
-  await user().click(within(dialog).getByRole('button', { name: 'Copy code' }))
+  const copyButton = within(dialog).getByRole('button', { name: 'Copy code' })
+  await user().click(copyButton)
   expect(a.request).toHaveBeenCalledWith('copyText', link)
+  expect((await within(dialog).findByRole('alert')).textContent).toBe('Couldn’t copy code.')
+  expect(within(dialog).getByRole('status').textContent).toBe('')
+
+  copyFails = false
+  await user().click(copyButton)
+  await waitFor(() => expect(within(dialog).getByRole('status').textContent).toBe('Code copied'))
+  expect(within(dialog).queryByRole('alert')).toBeNull()
 
   current = { state: 'waiting', pairing, link, expiresAt, phoneName: 'iPhone 16', code: '482913' }
   const approve = await screen.findByRole(
