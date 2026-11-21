@@ -804,7 +804,7 @@ export const commands = [
     handler: 'appScreen',
     min: 1,
     max: 1,
-    help: '  ted app screen <App> [--repo <name>]       List what a device App shows, with a number for each element.\n                                             In Validate, use the Task’s iOS simulator.',
+    help: '  ted app screen <App> [--repo <name>]       List what a device App shows, with a number for each element.\n                                             In Work or Validate, read the Task’s iOS simulator.',
     callers: 'Validate Task Lead or Automation Run',
     options: options('repo'),
   },

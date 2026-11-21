@@ -14621,8 +14621,16 @@ export function createTasks(options: {
       const taskId = store.getRun(runId)?.taskId
       if (taskId && !store.automations.firing(runId)) {
         const { task } = taskLead(taskId, caller, 'drives its iOS simulator')
-        if (task.archived || task.stopped || !validates(task.stage) || liveLead(task)?.id !== runId)
-          throw new RequestError(403, 'Only a live Validate Task Lead can drive its iOS simulator')
+        const readsInWork = request.action === 'screen' && handsOff(task.stage)
+        if (task.archived || task.stopped || liveLead(task)?.id !== runId)
+          throw new RequestError(403, 'Only a live Task Lead can use its iOS simulator')
+        if (!readsInWork && !validates(task.stage))
+          throw new RequestError(
+            403,
+            request.action === 'screen'
+              ? 'Only a Work or Validate Task Lead can read its iOS simulator'
+              : 'Only a Validate Task Lead can drive its iOS simulator',
+          )
         if (request.action !== 'screen' && request.action !== 'tap' && request.action !== 'pair')
           throw new RequestError(403, 'Validate Task Leads can use screen, tap and pair')
         if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
