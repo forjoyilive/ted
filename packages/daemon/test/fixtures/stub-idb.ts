@@ -75,7 +75,8 @@ if (args[0] === '--help') {
   if (state.idbSupportsXcode27) console.log('    --log-hid-details VALUE')
   process.exit(0)
 }
-if (args[0] === '--companion-path') {
+const selectedCompanion = args[0] === '--companion-path'
+if (selectedCompanion) {
   if (args[1] !== process.argv[1]) fail('stub-idb: unexpected companion path')
   args.splice(0, 2)
 }
@@ -109,6 +110,7 @@ if (output !== '') console.log(output)
 function act(): string {
   const state = JSON.parse(readFileSync(file as string, 'utf8')) as State
   if (state.idb === false) refuse('idb: command not found', 127)
+  if (state.idbSupportsXcode27 && !selectedCompanion) refuse('stub-idb: companion path is required')
   const device = Object.values(state.devices ?? {})
     .flat()
     .find((d) => d.udid === udid)

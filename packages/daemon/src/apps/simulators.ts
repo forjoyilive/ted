@@ -68,25 +68,28 @@ export function createSimulatorTools(options: {
     simctl: (args) => run(xcrun, ['simctl', ...args]),
     async idb(args, input) {
       const env = options.env()
-      if (!input) return run(idb, args, env)
-
       const version = await run(xcrun, ['xcodebuild', '-version'], env)
       const major = version.stdout.match(/^Xcode (\d+)/m)?.[1]
-      if (version.code !== 0 || major === undefined)
+      if (version.code !== 0 || major === undefined) {
+        if (!input) return run(idb, args, env)
         throw new RequestError(
           409,
           'Ted couldn’t check the active Xcode version for iPhone simulator input. Run xcrun xcodebuild -version to check the selected Xcode.',
         )
+      }
       if (Number(major) < 27) return run(idb, args, env)
 
       const companion = env.IDB_COMPANION_PATH || 'idb_companion'
       const help = await run(companion, ['--help'], env)
       // idb_companion --version reports only a build date. This flag was added after Xcode 27 HID support.
-      if (help.code !== 0 || !help.stdout.includes('--log-hid-details'))
+      if (help.code !== 0 || !help.stdout.includes('--log-hid-details')) {
+        if (!input) return run(idb, args, env)
         throw new RequestError(
           409,
-          'Xcode 27 or later needs an updated Meta idb companion for iPhone simulator input. Install or upgrade Meta’s idb, then restart this simulator App. See https://github.com/meta/idb#quick-start.',
+          'Xcode 27 or later needs an updated Meta idb companion for iPhone simulator input. Update the companion, then stop and start this simulator App. See https://github.com/meta/idb/releases/tag/v1.7.8.',
         )
+      }
+      // idb reuses a running companion for this simulator, including one started by a screen read.
       return run(idb, ['--companion-path', companion, ...args], env)
     },
     open: (args) => run(opener, args),

@@ -955,7 +955,10 @@ describe('iOS simulator Apps', () => {
     expect((await actions(screen)).body.text).toContain('Open details')
 
     const state = JSON.parse(await readFile(stubState, 'utf8')) as { idbSupportsXcode27?: boolean }
-    await writeFile(stubState, JSON.stringify({ ...state, idbSupportsXcode27: true }))
+    const updatedState = `${stubState}.tmp`
+    await writeFile(updatedState, JSON.stringify({ ...state, idbSupportsXcode27: true }))
+    await rename(updatedState, stubState)
+    expect((await actions(screen)).body.text).toContain('Open details')
     expect((await actions(tap)).status).toBe(200)
     expect((await actions(screen)).body.text).toContain('Price: 10 widgets for $5')
 
