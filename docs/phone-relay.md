@@ -348,7 +348,7 @@ The `image` route sends one image attachment of a Task comment, in parts, becaus
 
 - An **image ID** is opaque text the Mac makes for one attachment of one comment. The Mac answers it only while that comment’s Task isn’t archived and the attachment is still on the comment (an attachment, or a design review screenshot); otherwise `gone`. A phone can’t name any other file.
 - The Mac shrinks the image to at most 1170 pixels wide (never wider than the original) and converts it to JPEG with macOS `sips`, keeping the result in its cache by attachment hash. An image `sips` can’t convert gets `refused` with “This image can’t be shown on your phone. Open it on your Mac.”, and the phone shows that in place of the image.
-- `data` is base64url of the JPEG’s bytes from `part × 28,000` to the next 28,000, `parts` the number of parts and `part` the one sent. A `part` at or past `parts` gets `bad-request`. The phone asks for parts in order, joins them and keeps the image in memory until the app closes.
+- `data` is base64url of the JPEG’s bytes from `part × 28,000` to the next 28,000, `parts` the number of parts and `part` the one sent. A `part` at or past `parts` gets `bad-request`. Each part decodes on its own (28,000 isn’t a multiple of 3, so the texts can’t be joined as they are). The phone asks for parts in order, joins the decoded bytes and keeps the image in memory until the app closes.
 
 ## Task actions
 
