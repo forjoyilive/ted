@@ -1,7 +1,8 @@
+import type { BuiltInAgentId } from './agent-files.ts'
 import type { ChatItem } from './chat.ts'
-import type { ChatRequestKind } from './chat-agent.ts'
-import type { Coordinator } from './coordinator.ts'
-import type { Plan } from './plan.ts'
+import type { AgentSummary, ChatRequestKind } from './chat-agent.ts'
+import type { Coordinator, CoordinatorChatSummary } from './coordinator.ts'
+import type { Plan, PlanStatus } from './plan.ts'
 import { ordinal } from './task-status.ts'
 
 export const chatRequestLabels = {
@@ -46,6 +47,51 @@ export function planStatusLabel(plan: Pick<Plan, 'status' | 'queuePlace' | 'paus
 
 export function planWaiting(plan: Pick<Plan, 'status' | 'openRequest' | 'archivedAt'>): boolean {
   return plan.archivedAt === undefined && (plan.status === 'waiting' || plan.openRequest === true)
+}
+
+const endedPlanStatuses: readonly PlanStatus[] = ['finished', 'stopped', 'failed']
+
+export function planHasEnded(plan: Pick<Plan, 'status'>): boolean {
+  return endedPlanStatuses.includes(plan.status)
+}
+
+export function coordinatorStoppable(
+  chat: Pick<CoordinatorChatSummary, 'status' | 'endedAt'>,
+): boolean {
+  return (
+    chat.endedAt === undefined &&
+    (chat.status === 'working' || chat.status === 'queued' || chat.status === 'paused')
+  )
+}
+
+export function planStoppable(plan: Pick<Plan, 'status' | 'archivedAt'>): boolean {
+  return plan.archivedAt === undefined && !planHasEnded(plan)
+}
+
+const builtInSummaries = {
+  coordinator: 'Recommends what to do next and acts on Tasks when you ask.',
+  planner: 'Talks a large piece of work through with you, then proposes Tasks.',
+} satisfies Record<BuiltInAgentId, string>
+
+const builtInOrder: readonly string[] = ['coordinator', 'planner'] satisfies BuiltInAgentId[]
+
+export function agentDescription(
+  agent: Pick<AgentSummary, 'id' | 'description'>,
+): string | undefined {
+  if (agent.description !== undefined) return agent.description
+  return agent.id === 'coordinator' || agent.id === 'planner'
+    ? builtInSummaries[agent.id]
+    : undefined
+}
+
+export function pickerOrder<T extends Pick<AgentSummary, 'id' | 'name'>>(
+  agents: readonly T[],
+): T[] {
+  const place = (agent: T) => {
+    const at = builtInOrder.indexOf(agent.id)
+    return at === -1 ? builtInOrder.length : at
+  }
+  return [...agents].sort((a, b) => place(a) - place(b) || a.name.localeCompare(b.name))
 }
 
 export function conversationRows<T extends { at: string }>(

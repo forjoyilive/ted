@@ -14,10 +14,14 @@ import {
   type Untyped,
 } from './parse.ts'
 import {
+  type PhoneChatAgentsBody,
   type PhoneChatBody,
+  type PhoneChatCreatedBody,
   type PhoneChatItemBody,
   type PhoneChatItemsBody,
   type PhoneChatKind,
+  type PhoneChatMessageBody,
+  type PhoneChatStoppedBody,
   type PhoneChatsBody,
   phoneChatIdMax,
   phoneChatKinds,
@@ -113,6 +117,10 @@ export const phoneRouteNames = [
   'chat-items',
   'chat-item',
   'factory-icon',
+  'chat-message',
+  'chat-stop',
+  'chat-agents',
+  'chat-create',
 ] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
@@ -174,6 +182,7 @@ export type PhoneRequest =
       start?: boolean
       chatKind?: PhoneChatKind
       chatId?: string
+      agentId?: string
       archived?: boolean
       before?: string
       itemId?: string
@@ -229,6 +238,10 @@ export type PhoneReplyBody =
   | PhoneChatBody
   | PhoneChatItemsBody
   | PhoneChatItemBody
+  | PhoneChatMessageBody
+  | PhoneChatStoppedBody
+  | PhoneChatAgentsBody
+  | PhoneChatCreatedBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
     | { ok: true; body: PhoneReplyBody }
@@ -627,6 +640,33 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
     }
   }
   if (route === 'factory-icon') return { ...header, type, route, factoryId: factoryId(object) }
+  if (route === 'chat-message') {
+    const text = read.string(object, 'text')
+    actionText(text, true)
+    return {
+      ...header,
+      type,
+      route,
+      ...chatRef(object),
+      text,
+      createId: base64Field(object, 'createId', 16),
+    }
+  }
+  if (route === 'chat-stop') return { ...header, type, route, ...chatRef(object) }
+  if (route === 'chat-agents') return { ...header, type, route, factory: factoryKey(object) }
+  if (route === 'chat-create') {
+    const text = read.string(object, 'text')
+    actionText(text, true)
+    return {
+      ...header,
+      type,
+      route,
+      factory: factoryKey(object),
+      agentId: chatText(object, 'agentId'),
+      text,
+      createId: base64Field(object, 'createId', 16),
+    }
+  }
   return { ...header, type, route }
 }
 

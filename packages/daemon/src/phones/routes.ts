@@ -2,6 +2,7 @@ import type { Edition, PhoneProblemsBody, PhoneRequest, PhoneRouteName } from '@
 import { phoneProtocolVersion } from '@ted/protocol'
 import type { Caller } from '../tasks/tasks.ts'
 import type { PhoneActions } from './actions.ts'
+import type { PhoneChatActions } from './chat-actions.ts'
 import type { PhoneChats } from './chats.ts'
 import type { PhoneImages } from './images.ts'
 import type { PhoneNewTask } from './new-task.ts'
@@ -21,6 +22,7 @@ export interface PhoneRouteContext {
   actions: PhoneActions
   newTask: PhoneNewTask
   chats: PhoneChats
+  chatActions: PhoneChatActions
   images: PhoneImages
   problems(): PhoneProblemsBody
   setPushToken(phoneId: string, token: string): boolean
@@ -224,6 +226,46 @@ export const phoneRoutes: readonly PhoneRoute[] = [
       if (chatKind === undefined || chatId === undefined || itemId === undefined)
         return { code: 'bad-request' }
       return chats.item(chatKind, chatId, itemId, offset ?? 0)
+    },
+  },
+  {
+    name: 'chat-message',
+    async handle(caller, { chatKind, chatId, text, createId }, { chatActions }) {
+      if (
+        chatKind === undefined ||
+        chatId === undefined ||
+        text === undefined ||
+        createId === undefined
+      )
+        return { code: 'bad-request' }
+      return chatActions.message(caller, { chatKind, chatId, text, createId })
+    },
+  },
+  {
+    name: 'chat-stop',
+    async handle(caller, { chatKind, chatId }, { chatActions }) {
+      if (chatKind === undefined || chatId === undefined) return { code: 'bad-request' }
+      return chatActions.stop(caller, chatKind, chatId)
+    },
+  },
+  {
+    name: 'chat-agents',
+    async handle(_, { factory }, { chatActions }) {
+      if (factory === undefined) return { code: 'bad-request' }
+      return chatActions.agents(factory)
+    },
+  },
+  {
+    name: 'chat-create',
+    async handle(caller, { factory, agentId, text, createId }, { chatActions }) {
+      if (
+        factory === undefined ||
+        agentId === undefined ||
+        text === undefined ||
+        createId === undefined
+      )
+        return { code: 'bad-request' }
+      return chatActions.create(caller, { factory, agentId, text, createId })
     },
   },
   {
