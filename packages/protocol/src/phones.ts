@@ -29,6 +29,13 @@ import {
   phoneChatKinds,
 } from './phone-chats.ts'
 import type { PhoneFactoryIconBody } from './phone-factory-icon.ts'
+import {
+  phoneFileNameMax,
+  phoneFilePartBytes,
+  phoneFilePartsMax,
+  phoneFilesMax,
+  phoneMediaTypeMax,
+} from './phone-files.ts'
 import { type PhoneImageBody, phoneImageIdMax } from './phone-images.ts'
 import type { PhoneProblemsBody } from './phone-problems.ts'
 import {
@@ -114,6 +121,8 @@ export const phoneRouteNames = [
   'task-delete',
   'factories',
   'task-create',
+  'file-part',
+  'file-done',
   'chats',
   'chat',
   'chat-items',
@@ -183,6 +192,14 @@ export type PhoneRequest =
       title?: string
       description?: string
       start?: boolean
+      files?: readonly string[]
+      uploadId?: string
+      index?: number
+      data?: string
+      name?: string
+      mediaType?: string
+      size?: number
+      sha256?: string
       chatKind?: PhoneChatKind
       chatId?: string
       agentId?: string
@@ -553,9 +570,13 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
     }
   }
   if (route === 'task-comment') {
-    const text = read.string(object, 'text')
-    actionText(text, true)
-    return { ...header, type, route, taskId: taskId(object), text }
+    const files = optionalFiles(object)
+    const text =
+      files === undefined
+        ? read.string(object, 'text')
+        : (read.optional(object, 'text', read.string) ?? '')
+    actionText(text, files === undefined)
+    return { ...header, type, route, taskId: taskId(object), text, ...(files && { files }) }
   }
   if (route === 'task-archive') {
     const children = read.optional(object, 'children', (o, f) =>
@@ -597,6 +618,7 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       )
     }
     const priority = read.optional(object, 'priority', (o, f) => read.oneOf(o, f, priorities))
+    const files = optionalFiles(object)
     return {
       ...header,
       type,
@@ -607,6 +629,39 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       ...(description !== undefined && { description }),
       priority: priority ?? phoneNewTaskPriority,
       start: read.boolean(object, 'start'),
+      ...(files && { files }),
+    }
+  }
+  if (route === 'file-part') {
+    const index = read.integer(object, 'index')
+    if (index < 0 || index >= phoneFilePartsMax) {
+      throw new ParseError('index', `index must be 0 to ${phoneFilePartsMax - 1}`)
+    }
+    return {
+      ...header,
+      type,
+      route,
+      uploadId: base64Field(object, 'uploadId', 16),
+      index,
+      data: partData(object),
+    }
+  }
+  if (route === 'file-done') {
+    const size = read.integer(object, 'size')
+    if (size < 0) throw new ParseError('size', 'size must not be negative')
+    const sha256 = read.string(object, 'sha256')
+    if (!/^[0-9a-f]{64}$/.test(sha256)) {
+      throw new ParseError('sha256', 'sha256 must be 64 lowercase hex digits')
+    }
+    return {
+      ...header,
+      type,
+      route,
+      uploadId: base64Field(object, 'uploadId', 16),
+      name: boundedText(object, 'name', phoneFileNameMax),
+      mediaType: boundedText(object, 'mediaType', phoneMediaTypeMax),
+      size,
+      sha256,
     }
   }
   if (route === 'chats') {
@@ -677,6 +732,44 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
     }
   }
   return { ...header, type, route }
+}
+
+function optionalFiles(object: JsonObject): string[] | undefined {
+  if (object.files === undefined) return undefined
+  const list = read.list(object, 'files')
+  if (list.length === 0 || list.length > phoneFilesMax) {
+    throw new ParseError('files', `files must hold 1 to ${phoneFilesMax} uploadIds`)
+  }
+  const ids = list.map((id) => {
+    if (!isString(id) || !fromBase64Url(id, 16)) {
+      throw new ParseError('files', 'each of files must be 16 bytes in base64url')
+    }
+    return id
+  })
+  if (new Set(ids).size !== ids.length) {
+    throw new ParseError('files', 'files must not repeat an uploadId')
+  }
+  return ids
+}
+
+function partData(object: JsonObject): string {
+  const data = read.string(object, 'data')
+  const bytes = /^[A-Za-z0-9+/]*={0,2}$/.test(data) ? Buffer.from(data, 'base64') : undefined
+  if (!bytes || bytes.toString('base64') !== data) {
+    throw new ParseError('data', 'data must be base64')
+  }
+  if (bytes.length > phoneFilePartBytes) {
+    throw new ParseError('data', `data must hold at most ${phoneFilePartBytes} bytes`)
+  }
+  return data
+}
+
+function boundedText(object: JsonObject, field: string, max: number): string {
+  const value = read.string(object, field)
+  if (value.trim() === '' || value.length > max) {
+    throw new ParseError(field, `${field} must be text of 1 to ${max} characters`)
+  }
+  return value
 }
 
 function chatText(object: JsonObject, field: string): string {

@@ -1,4 +1,5 @@
 import type {
+  Attachment,
   ClarifyDepth,
   Factory,
   PhoneFactory,
@@ -8,6 +9,7 @@ import type {
   TaskLead,
 } from '@ted/protocol'
 import {
+  phoneFileMissing,
   phoneLabelMax,
   phoneNewTaskPriority,
   phoneReplyBodyMax,
@@ -20,6 +22,7 @@ import { cutChars, jsonBytes } from './fit.ts'
 import { phoneFactoryIcons, phoneFactoryImage } from './icons.ts'
 import type { PhoneOutcome } from './requests.ts'
 import type { PhoneTasks } from './tasks.ts'
+import { consumeSent, type PhoneFiles } from './uploads.ts'
 
 type PhoneCaller = Extract<Caller, { kind: 'phone' }>
 
@@ -32,6 +35,7 @@ export interface PhoneNewTaskInput {
   description?: string
   priority: Priority
   start: boolean
+  files?: readonly string[]
 }
 
 export interface PhoneTaskCreation {
@@ -47,6 +51,7 @@ export interface PhoneTaskCreation {
       lead: TaskLead
       clarifyDepth: ClarifyDepth
       phoneCreate: { phoneId: string; createId: string }
+      attachments?: Attachment[]
     },
     caller: PhoneCaller,
   ): Promise<Task>
@@ -68,6 +73,7 @@ export function createPhoneNewTask(
   changes: PhoneTaskCreation,
   created: PhoneCreatedTasks,
   tasks: PhoneTasks,
+  files: PhoneFiles,
 ): PhoneNewTask {
   const running = new Map<string, Promise<PhoneOutcome>>()
 
@@ -93,6 +99,8 @@ export function createPhoneNewTask(
     }
     let task: Task
     try {
+      const attachments = input.files ? await files.attach(caller.phoneId, input.files) : []
+      if (!attachments) return { code: 'refused', message: phoneFileMissing }
       const defaults = await changes.defaults(factory.id)
       task = await changes.create(
         {
@@ -103,6 +111,7 @@ export function createPhoneNewTask(
           lead: defaults.lead,
           clarifyDepth: defaults.clarifyDepth,
           phoneCreate: { phoneId: caller.phoneId, createId: input.createId },
+          ...(attachments.length > 0 && { attachments }),
         },
         caller,
       )
@@ -116,6 +125,7 @@ export function createPhoneNewTask(
       return { code: 'refused' }
     }
     await created.persisted()
+    if (input.files) await consumeSent(files, caller.phoneId, input.files)
     if (!input.start) return shown(task.id)
     try {
       await changes.start(task.id)

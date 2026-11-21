@@ -8,6 +8,7 @@ import type { PhoneImages } from './images.ts'
 import type { PhoneNewTask } from './new-task.ts'
 import type { PhoneOutcome, PhoneRequests } from './requests.ts'
 import type { PhoneTasks } from './tasks.ts'
+import type { PhoneUploads } from './uploads.ts'
 
 export type PhoneCaller = Extract<Caller, { kind: 'phone' }>
 
@@ -21,6 +22,7 @@ export interface PhoneRouteContext {
   tasks: PhoneTasks
   actions: PhoneActions
   newTask: PhoneNewTask
+  uploads: Pick<PhoneUploads, 'part' | 'done'>
   chats: PhoneChats
   chatActions: PhoneChatActions
   images: PhoneImages
@@ -139,7 +141,7 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     name: 'task-comment',
     async handle(caller, request, { actions }) {
       if (request.taskId === undefined || request.text === undefined) return { code: 'bad-request' }
-      return actions.comment(caller, request.taskId, request.text)
+      return actions.comment(caller, request.taskId, request.text, request.files)
     },
   },
   {
@@ -182,7 +184,11 @@ export const phoneRoutes: readonly PhoneRoute[] = [
   },
   {
     name: 'task-create',
-    async handle(caller, { createId, factory, title, description, priority, start }, { newTask }) {
+    async handle(
+      caller,
+      { createId, factory, title, description, priority, start, files },
+      { newTask },
+    ) {
       if (
         createId === undefined ||
         factory === undefined ||
@@ -197,7 +203,30 @@ export const phoneRoutes: readonly PhoneRoute[] = [
         ...(description !== undefined && { description }),
         priority,
         start,
+        ...(files !== undefined && { files }),
       })
+    },
+  },
+  {
+    name: 'file-part',
+    async handle({ phoneId }, { uploadId, index, data }, { uploads }) {
+      if (uploadId === undefined || index === undefined || data === undefined)
+        return { code: 'bad-request' }
+      return uploads.part(phoneId, uploadId, index, data)
+    },
+  },
+  {
+    name: 'file-done',
+    async handle({ phoneId }, { uploadId, name, mediaType, size, sha256 }, { uploads }) {
+      if (
+        uploadId === undefined ||
+        name === undefined ||
+        mediaType === undefined ||
+        size === undefined ||
+        sha256 === undefined
+      )
+        return { code: 'bad-request' }
+      return uploads.done(phoneId, { uploadId, name, mediaType, size, sha256 })
     },
   },
   {
