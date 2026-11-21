@@ -109,7 +109,7 @@ Test runs share the machine through `packages/daemon/test/support/suite-lock.ts`
 ## Inside a sandbox
 
 - Inside Codex’s sandbox (`CODEX_SANDBOX` set), and on macOS inside Ted’s own sandbox (`TED_SANDBOX=1`, which `sandbox.ts` sets on every command it wraps), the Electron test files are skipped with a warning. macOS stops Electron registering as an app there, and every launch aborts with a “quit unexpectedly” dialog.
-- `pnpm app` refuses there for the same reason (`sandboxRefusal` in `packages/app/scripts/sandbox-refusal.ts`), unless the sandbox is an Electron App’s, which allows the one service Electron needs and sets `TED_SANDBOX_ELECTRON=1`. Ted Dev is that kind of App in `.ted/workflow.yaml`, so an Automation Run’s `ted run-app "Ted Dev"` starts it hidden in the sandbox.
+- On macOS, `pnpm app`, `withApp` and the demo screenshot command use `sandboxRefusal` in `packages/app/scripts/sandbox-refusal.ts` before starting Electron. They refuse in Codex’s sandbox and in Ted’s sandbox without Electron access. A declared Electron App runs in Ted’s sandbox with the access Electron needs, marked by `TED_SANDBOX_ELECTRON=1`. Ted Dev is that kind of App in `.ted/workflow.yaml`, so `ted run-app "Ted Dev"` starts it hidden in the sandbox.
 
 ## Release
 
