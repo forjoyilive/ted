@@ -1024,8 +1024,8 @@ async function startPlan(s: Awaited<ReturnType<typeof setup>>, steps: unknown[])
     waitUntil(async () => {
       const current = await status()
       if (current.status === 'failed') throw new Error(`plan failed: ${current.error}`)
-      const chat = await s.call<RunChat>('GET', `/runs/${plan.id}/chat`)
-      return chat.items.some((i) => i.kind === 'agent' && i.text === text)
+      const chat = await s.call<RunChat>('GET', `/runs/${plan.id}/chat`).catch(() => undefined)
+      return chat?.items.some((i) => i.kind === 'agent' && i.text === text)
     }, text)
   return { plan, status, said }
 }
