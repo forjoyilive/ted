@@ -1,5 +1,6 @@
 import type { Edition, PhoneProblemsBody, PhoneRequest, PhoneRouteName } from '@ted/protocol'
 import { phoneChatChangeRoutes, phoneProtocolVersion } from '@ted/protocol'
+import { RequestError } from '../errors.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import type { PhoneActions } from './actions.ts'
 import type { PhoneChatActions } from './chat-actions.ts'
@@ -27,6 +28,7 @@ export interface PhoneRouteContext {
   chatActions: PhoneChatActions
   images: PhoneImages
   problems(): PhoneProblemsBody
+  dismissProblem(id: string, raisedAt: string): void
   setPushToken(phoneId: string, token: string): boolean
 }
 
@@ -79,6 +81,22 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     name: 'problems',
     async handle(_, __, { problems }) {
       return { body: problems() }
+    },
+  },
+  {
+    name: 'problem-dismiss',
+    async handle(_, { problemId, raisedAt }, { dismissProblem }) {
+      if (!problemId || !raisedAt) return { code: 'bad-request' }
+      try {
+        dismissProblem(problemId, raisedAt)
+        return { body: {} }
+      } catch (error) {
+        if (error instanceof RequestError) {
+          if (error.status === 404) return { code: 'gone' }
+          return { code: 'refused', message: 'This problem has changed. Refresh and try again.' }
+        }
+        throw error
+      }
     },
   },
   {

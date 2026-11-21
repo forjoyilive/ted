@@ -9,7 +9,7 @@ import {
   readDaemonInfo,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from 'vitest'
 import { createBanners } from '../src/banners.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -132,10 +132,14 @@ describe('banners in the store', () => {
     ])
   })
 
-  test('a warning dismisses for 24 hours; a stops-work banner can’t be dismissed', () => {
+  test('a warning dismisses for 24 hours and a stopped problem dismisses for its occurrence', () => {
     const banners = createBanners({ store })
     banners.raise({ problem: 'disk-almost-full', severity: 'warning', text: 'Disk almost full' })
-    banners.raise({ problem: 'disk-full', severity: 'stops-work', text: 'Disk full' })
+    const problem = banners.raise({
+      problem: 'disk-full',
+      severity: 'stops-work',
+      text: 'Disk full',
+    })
 
     const before = Date.now()
     const dismissed = banners.dismiss('disk-almost-full:app')
@@ -143,8 +147,26 @@ describe('banners in the store', () => {
     expect(until - before).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000 - 1000)
     expect(until - before).toBeLessThanOrEqual(24 * 60 * 60 * 1000 + 1000)
 
-    expect(() => banners.dismiss('disk-full:app')).toThrow(/can’t be dismissed/)
+    expect(banners.dismiss(problem.id, problem.raisedAt).dismissed).toBe(true)
+    expect(banners.dismiss(problem.id, problem.raisedAt).dismissed).toBe(true)
+    expect(banners.raise({ ...problem, text: 'Still full' }).dismissed).toBe(true)
+    banners.clear(problem)
+    expect(banners.raise(problem).dismissed).toBeUndefined()
     expect(() => banners.dismiss('nothing:app')).toThrow(/no such banner/)
+  })
+
+  test('an in-memory problem stays dismissed when refreshed', () => {
+    const emit = vi.fn()
+    const banners = createBanners({ store, emit })
+    const input = { problem: 'disk-full', severity: 'stops-work', text: 'Disk full' } as const
+    const banner = banners.raiseUnsaved(input)
+    const dismissed = banners.dismissProblem(banner.id, banner.raisedAt)
+
+    expect(emit).toHaveBeenLastCalledWith({ type: 'banner-updated', banner: dismissed })
+    expect(banners.raiseUnsaved({ ...input, text: 'Still full' }).dismissed).toBe(true)
+    expect(banners.list()).toMatchObject([{ id: banner.id, dismissed: true }])
+    banners.clear(input)
+    expect(banners.raiseUnsaved(input).dismissed).toBeUndefined()
   })
 
   test('dismissing a repo-added warning clears it for good', () => {
@@ -184,19 +206,22 @@ describe('banners in the store', () => {
   })
 
   test('banners survive a reopen of the store', async () => {
-    createBanners({ store }).raise({
+    const banners = createBanners({ store })
+    const banner = banners.raise({
       problem: 'clone-failed',
       factoryId: 'f1',
       severity: 'stops-work',
       text: 'Couldn’t clone kriya/billing-web',
       action: { label: 'Retry' },
     })
+    banners.dismiss(banner.id, banner.raisedAt)
     await store.close()
     store = await openStore({ directory: dir })
 
     expect(createBanners({ store }).list()).toMatchObject([
       {
         id: 'clone-failed:f1',
+        dismissed: true,
         factoryId: 'f1',
         severity: 'stops-work',
         action: { label: 'Retry' },
@@ -326,6 +351,10 @@ describe('banners over the daemon API', () => {
     await expect(ted.actOnBanner(id)).rejects.toThrow(/Couldn’t clone/)
     expect((await ted.listBanners()).some((b) => b.id === id)).toBe(true)
 
+    if (!failed) throw new Error('Clone failure did not raise a banner')
+    await expect(ted.dismissBanner(id, 'older')).rejects.toMatchObject({ status: 409 })
+    await expect(ted.dismissBanner(id, failed.raisedAt)).resolves.toMatchObject({ dismissed: true })
+
     await rename(hidden, origin)
     await ted.actOnBanner(id)
 
@@ -350,7 +379,7 @@ describe('banners over the daemon API', () => {
     expect((await ted.listBanners()).some((b) => b.problem === 'clone-failed')).toBe(false)
   })
 
-  test('a client dismisses a warning but not a stops-work banner', async () => {
+  test('a client dismisses a warning', async () => {
     const ted = await start()
     const factory = (await ted.addFactory({ repo: origin, key: 'NB' })) as Factory
 

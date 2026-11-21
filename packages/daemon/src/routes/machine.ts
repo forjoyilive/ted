@@ -26,6 +26,7 @@ import {
   listSorts,
   type MachineSettings,
   parseBannerActionInput,
+  parseBannerDismissInput,
   parseChangeAgentAvailabilityRequest,
   parseOutsideSandboxApprovalsRequest,
   parsePresenceReport,
@@ -119,11 +120,15 @@ export const machineRoutes: Route[] = [
     path: /^\/banners$/,
     handle: async (_, { banners }) => [200, banners.list()],
   },
-  {
+  jsonRoute(parseBannerDismissInput, {
+    optionalBody: true,
     method: 'POST',
     path: /^\/banners\/([^/]+)\/dismiss$/,
-    handle: async ({ params: [id = ''] }, { banners }) => [200, banners.dismiss(id)],
-  },
+    handle: async ({ body, params: [id = ''] }, { banners }) => [
+      200,
+      banners.dismiss(id, body.raisedAt),
+    ],
+  }),
   jsonRoute(parseBannerActionInput, {
     optionalBody: true,
     method: 'POST',

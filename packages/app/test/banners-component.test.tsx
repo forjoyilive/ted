@@ -44,7 +44,7 @@ test('Factory warnings show only on their Factory pages and dismiss through the 
     }),
   )
   await u.click(screen.getByRole('button', { name: 'Dismiss for 24 hours' }))
-  expect(a.request).toHaveBeenCalledWith('dismissBanner', 'b1')
+  expect(a.request).toHaveBeenCalledWith('dismissBanner', 'b1', warning.raisedAt)
   await act(async () =>
     a.emit({
       type: 'banner-updated',
@@ -54,7 +54,7 @@ test('Factory warnings show only on their Factory pages and dismiss through the 
   expect(screen.queryByText(warning.text)).toBeNull()
 })
 
-test('stops-work banners cannot dismiss and their action stays separate from warnings', async () => {
+test('stops-work banners can be dismissed independently of their action', async () => {
   const action = vi.fn()
   const dismiss = vi.fn()
   const stop: Banner = {
@@ -79,6 +79,8 @@ test('stops-work banners cannot dismiss and their action stays separate from war
   await user().click(screen.getByRole('button', { name: 'Retry' }))
   expect(action).toHaveBeenCalledWith(stop)
   expect(dismiss).not.toHaveBeenCalled()
+  await user().click(within(screen.getByRole('alert')).getByRole('button', { name: 'Dismiss' }))
+  expect(dismiss).toHaveBeenCalledWith(stop)
 })
 
 test('clone failure shows Retry and the setup panel follows cloning progress', async () => {

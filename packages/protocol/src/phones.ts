@@ -108,6 +108,7 @@ export const phoneRouteNames = [
   'answer',
   'push-token',
   'problems',
+  'problem-dismiss',
   'tasks',
   'task',
   'task-comments',
@@ -176,6 +177,8 @@ export type PhoneRequest =
       type: 'request'
       route: string
       requestId?: string
+      problemId?: string
+      raisedAt?: string
       answer?: PhoneAnswer
       token?: string
       taskId?: string
@@ -510,6 +513,15 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
     return { ...header, type, pairing: base64Field(object, 'pairing', 16) }
   }
   const route = read.string(object, 'route')
+  if (route === 'problem-dismiss') {
+    return {
+      ...header,
+      type,
+      route,
+      problemId: read.string(object, 'problemId'),
+      raisedAt: read.string(object, 'raisedAt'),
+    }
+  }
   if (route === 'request') return { ...header, type, route, requestId: requestId(object) }
   if (route === 'answer') {
     return {

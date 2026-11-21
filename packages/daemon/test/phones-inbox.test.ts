@@ -1041,11 +1041,22 @@ test('the phone lists current stops-work problems, redacted, and never warnings'
     id: disk.id,
     text: 'Disk full · new work held',
     raisedAt: disk.raisedAt,
+    dismissible: true,
   })
   const clone = listedProblems.find((problem) => problem.id === stops.id)
   expect(clone?.factory).toBe(factory.name)
   expect(clone?.text).toContain('https://[redacted]@example.com')
   expect(clone?.text).not.toContain('hunter2')
+
+  const dismissed = await phone.send({
+    type: 'request',
+    route: 'problem-dismiss',
+    problemId: disk.id,
+    raisedAt: disk.raisedAt,
+  })
+  expect(dismissed.ok).toBe(true)
+  expect((await problems()).map((problem) => problem.id)).toEqual([stops.id])
+  expect(store.getBanner(disk.id)?.dismissed).toBe(true)
 
   store.clearBanner(stops.id)
   store.clearBanner(disk.id)

@@ -32,7 +32,7 @@ import {
   factoryBanners,
   settingsStopsWork,
 } from './banners.ts'
-import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
+import { StoppedConnectionNotice } from './ConnectionNotice.tsx'
 import {
   type Command,
   type CommandContext,
@@ -785,9 +785,8 @@ export function App({ start }: { start?: AppStart | undefined }) {
       onDismiss={(banner) =>
         banner.problem === updateFailedProblem
           ? setUpdateFailureDismissed(true)
-          : ted.dismissBanner(banner.id)
+          : void ted.dismissBanner(banner.id, banner.raisedAt).catch(console.error)
       }
-      menu={keepsStoppingMenu}
     />
   )
 
@@ -1176,7 +1175,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
 
   const problems =
     connection.state === 'stopped' ? (
-      bannerStack('Problems', keepsStoppingBanner(connection))
+      <StoppedConnectionNotice connection={connection} />
     ) : (
       <Offline when={offline}>
         {bannerStack('Problems', [...appWideBanners(banners), ...shownUpdateBanner])}

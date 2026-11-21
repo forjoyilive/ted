@@ -36,6 +36,7 @@ export interface MachineArea {
   checkWork(): CheckWork
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
+  dismissProblem(id: string, raisedAt: string): Banner
   dismissBanner(id: string, until: string): Banner | undefined
   clearBanner(id: string): void
   getBanner(id: string): Banner | undefined
@@ -98,6 +99,7 @@ export function machineArea(ctx: StoreContext): MachineArea {
     text: row.text,
     ...(row.action !== null && { action: JSON.parse(row.action) as BannerAction }),
     raisedAt: row.raisedAt,
+    ...(row.dismissed === 1 && { dismissed: true }),
     ...(row.dismissedUntil !== null && { dismissedUntil: row.dismissedUntil }),
   })
   const bannerRow = (id: string) => store.query(queryDb(banners.where({ id }))).at(0)
@@ -250,6 +252,12 @@ export function machineArea(ctx: StoreContext): MachineArea {
       )
       const banner = requireBanner(id)
       emit({ type: current ? 'banner-updated' : 'banner-raised', banner })
+      return banner
+    },
+    dismissProblem(id, raisedAt) {
+      commit(events.problemDismissed({ id, raisedAt }))
+      const banner = requireBanner(id)
+      emit({ type: 'banner-updated', banner })
       return banner
     },
     dismissBanner(id, until) {

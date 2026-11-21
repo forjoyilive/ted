@@ -64,6 +64,7 @@ function BannerRow({
 >) {
   const [busy, setBusy] = useState(false)
   const stopsWork = banner.severity === 'stops-work'
+  const dismissForGood = stopsWork || dismissClears(banner)
 
   async function act() {
     setBusy(true)
@@ -87,22 +88,20 @@ function BannerRow({
           {banner.action.label}
         </ActionButton>
       )}
-      {!stopsWork && (
-        <ActionButton
-          type="button"
-          className={styles.dismiss}
-          aria-label={dismissClears(banner) ? 'Dismiss' : 'Dismiss for 24 hours'}
-          title={dismissClears(banner) ? 'Dismiss' : 'Hide for 24 hours'}
-          onClick={() => onDismiss(banner)}
-        >
-          ×
-        </ActionButton>
-      )}
+      <ActionButton
+        type="button"
+        className={styles.dismiss}
+        aria-label={dismissForGood ? 'Dismiss' : 'Dismiss for 24 hours'}
+        title={dismissForGood ? 'Dismiss' : 'Hide for 24 hours'}
+        onClick={() => onDismiss(banner)}
+      >
+        ×
+      </ActionButton>
     </div>
   )
 }
 
-function MenuButton({ label, items }: { label: string; items: BannerMenuItem[] }) {
+export function MenuButton({ label, items }: { label: string; items: BannerMenuItem[] }) {
   const [position, setPosition] = useState<CSSProperties>()
   const [busy, setBusy] = useState(false)
   const button = useRef<HTMLButtonElement>(null)

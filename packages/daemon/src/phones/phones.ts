@@ -40,6 +40,7 @@ export interface PhonesOptions {
   chatChanges: PhoneChatChanges
   images: PhoneImages
   problems: Pick<PhoneProblemSource, 'banners' | 'factoryName'>
+  dismissProblem(id: string, raisedAt: string): void
   keyrings: PhoneKeyrings
   version: string
   relayUrl?: string
@@ -230,6 +231,7 @@ export function createPhones(options: PhonesOptions): Phones {
         chatActions,
         images: options.images,
         problems: () => phoneProblems(options.problems),
+        dismissProblem: options.dismissProblem,
         setPushToken: (phoneId, token) => options.phones.setPushToken(phoneId, token),
       },
       now,

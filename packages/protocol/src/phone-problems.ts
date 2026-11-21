@@ -9,6 +9,7 @@ export interface PhoneProblem {
   factory?: string
   text: string
   raisedAt: string
+  dismissible?: true
 }
 
 export interface PhoneProblemsBody {
@@ -25,6 +26,7 @@ export function parsePhoneProblem(value: Untyped): PhoneProblem {
     ...(factory !== undefined && { factory }),
     text: read.string(object, 'text'),
     raisedAt: read.string(object, 'raisedAt'),
+    ...(object.dismissible === true && { dismissible: true }),
   }
 }
 

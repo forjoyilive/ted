@@ -20,7 +20,8 @@ export interface Banners {
   clear(ref: BannerRef): void
   clearFactory(factoryId: string): void
   list(): Banner[]
-  dismiss(id: string): Banner
+  dismiss(id: string, raisedAt?: string): Banner
+  dismissProblem(id: string, raisedAt: string): Banner
   act(id: string, input?: BannerActionInput): Promise<void>
   onAction(problem: string, handler: BannerHandler): void
 }
@@ -41,7 +42,21 @@ export function createBanners({
     return banner
   }
 
+  function dismissProblem(id: string, raisedAt: string): Banner {
+    const banner = find(id)
+    if (banner.severity !== 'stops-work' || banner.raisedAt !== raisedAt) {
+      throw new RequestError(409, 'This problem has changed. Refresh and try again.')
+    }
+    if (banner.dismissed) return banner
+    if (!unsaved.has(id)) return store.dismissProblem(id, raisedAt)
+    const dismissed = { ...banner, dismissed: true }
+    unsaved.set(id, dismissed)
+    emit({ type: 'banner-updated', banner: dismissed })
+    return dismissed
+  }
+
   return {
+    dismissProblem,
     raise(input) {
       const { subject: _, ...banner } = input
       return store.raiseBanner({ ...banner, id: bannerId(input) })
@@ -56,6 +71,7 @@ export function createBanners({
         ...(factoryId !== undefined && { factoryId }),
         ...(action !== undefined && { action }),
         raisedAt: current?.raisedAt ?? new Date().toISOString(),
+        ...(current?.dismissed && { dismissed: true }),
       }
       unsaved.set(id, banner)
       emit({ type: current ? 'banner-updated' : 'banner-raised', banner })
@@ -77,10 +93,15 @@ export function createBanners({
       }
     },
     list: () => [...store.listBanners(), ...unsaved.values()].sort(bannerOrder),
-    dismiss(id) {
+    dismiss(id, raisedAt) {
       const banner = find(id)
       if (banner.severity === 'stops-work') {
-        throw new RequestError(409, 'a problem that stops work can’t be dismissed')
+        if (raisedAt === undefined)
+          throw new RequestError(409, 'The problem’s start time is required.')
+        return dismissProblem(id, raisedAt)
+      }
+      if (raisedAt !== undefined && banner.raisedAt !== raisedAt) {
+        throw new RequestError(409, 'This notice has changed. Refresh and try again.')
       }
       if (dismissClears(banner)) {
         if (unsaved.delete(id)) emit({ type: 'banner-cleared', id })
