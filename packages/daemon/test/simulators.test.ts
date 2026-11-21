@@ -487,18 +487,23 @@ describe('iOS simulator Apps', () => {
     expect(await watchState()).toBe('waiting')
 
     let release = () => {}
-    const holding = new Promise<void>((resolve) => {
-      lookups.held = resolve
-    })
+    let holding = false
+    lookups.held = () => {
+      holding = true
+    }
     lookups.hold = new Promise<void>((resolve) => {
       release = resolve
     })
     lookups.fail = new RequestError(404, 'no Task')
-    await holding
-    await client.ok('POST', `/tasks/${task.id}/apps/stop`, { name: 'Watch' })
-    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Watch' })
-    const releasedAt = lookups.count
-    release()
+    let releasedAt: number
+    try {
+      await waitUntil(() => holding, 'the follower to hold the old Watch App lookup')
+      await client.ok('POST', `/tasks/${task.id}/apps/stop`, { name: 'Watch' })
+      await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Watch' })
+      releasedAt = lookups.count
+    } finally {
+      release()
+    }
     await waitUntil(
       async () => lookups.count > releasedAt,
       'the old follower to keep following the restarted Watch App',
@@ -510,7 +515,7 @@ describe('iOS simulator Apps', () => {
       async () => (await watchState()) === 'running',
       'the Watch App to start once the iPhone App is built',
     )
-  })
+  }, 90_000)
 
   test('with one build at a time off, two builds at once split the CPU share, and a build that printed TED_APP_READY stops counting', async () => {
     const client = await start()

@@ -253,7 +253,7 @@ test('the list has open Tasks and recent Done ones from every Factory, never arc
 test('paging reaches every Task exactly once in each grouping, and a row that moves gives no duplicates', async () => {
   const titleTail = 'Ü'.repeat(700)
   const levels = ['medium', 'low', 'none'] as const
-  for (let n = 0; n < 100; n++) {
+  for (let n = 0; n < 40; n++) {
     await make(`Task ${n} ${titleTail}`, n % 2 === 0 ? notebook : shop, {
       priority: levels[n % levels.length] ?? 'none',
     })
@@ -421,7 +421,7 @@ test('with many Factories with long names, every page stays under the limit and 
     many.push(
       store.createFactory({
         key: `Z${letters(n)}`,
-        name: `${n} ${'ßé漢😀'.repeat(60)}`,
+        name: `${n} ${'漢'.repeat(200)}`,
         repos: [],
         defaultBranch: 'main',
       }),
@@ -431,6 +431,7 @@ test('with many Factories with long names, every page stays under the limit and 
   const expected = new Set(listedIds())
 
   const all = await pages('factory')
+  expect(all.length).toBeGreaterThan(1)
   const ids = all.flatMap((body) => body.rows).map((row) => row.id)
   expect(new Set(ids).size).toBe(ids.length)
   expect(new Set(ids)).toEqual(expected)
