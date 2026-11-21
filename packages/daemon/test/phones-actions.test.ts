@@ -232,7 +232,9 @@ test('Start, Stop and Resume from the phone change the Task as the Mac does, and
   )
   expect(resumeEarly).toEqual({ code: 'refused', message: `${task.displayId} isn’t stopped` })
 
-  const started = shown(await send({ type: 'request', route: 'task-start', taskId: task.id }))
+  const startReply = await send({ type: 'request', route: 'task-start', taskId: task.id })
+  const started = shown(startReply)
+  expect(startReply).not.toHaveProperty('body.waitingForBlockers')
   expect(started.stage.id).not.toBe('backlog')
   expect(store.getTask(task.id)?.stage).toBe(started.stage.id)
   await waitUntil(() => store.getTask(task.id)?.leadRunId, 'the Task Lead to start')
@@ -266,6 +268,16 @@ test('Start, Stop and Resume from the phone change the Task as the Mac does, and
   ).toBe('gone')
   await waitUntil(() => store.getTask(task.id)?.leadRunId, 'the Task Lead to start again')
   await ok('POST', `/tasks/${task.id}/stop`)
+
+  const blocker = await make('Unfinished prerequisite')
+  const blocked = await make(idle)
+  await ok('POST', `/tasks/${blocked.id}/blockers`, { by: blocker.id })
+  const blockedReply = await send({ type: 'request', route: 'task-start', taskId: blocked.id })
+  expect(blockedReply).toMatchObject({ ok: true, body: { waitingForBlockers: true } })
+  expect(shown(blockedReply).stage.id).toBe('backlog')
+  await ok('DELETE', `/tasks/${blocked.id}/blockers/${blocker.id}`)
+  await waitUntil(() => store.getTask(blocked.id)?.leadRunId, 'the queued Task Lead to start')
+  await ok('POST', `/tasks/${blocked.id}/stop`)
 }, 90_000)
 
 test('Priority and Comment from the phone change the Task, and a comment leaves line comment drafts unsent', async () => {

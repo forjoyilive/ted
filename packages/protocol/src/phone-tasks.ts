@@ -114,6 +114,7 @@ export interface PhoneTaskDetail extends PhoneTaskRow {
 
 export interface PhoneTaskBody {
   task: PhoneTaskDetail
+  waitingForBlockers?: boolean
 }
 
 export interface PhoneCommentRequest {
@@ -274,7 +275,9 @@ export function parsePhoneTasksBody(value: Untyped): PhoneTasksBody {
 export function parsePhoneTaskBody(value: Untyped): PhoneTaskBody {
   const object = read.object(value, 'body')
   const task = read.object(object.task, 'task')
+  const waitingForBlockers = read.optional(object, 'waitingForBlockers', read.boolean)
   return {
+    ...(waitingForBlockers !== undefined && { waitingForBlockers }),
     task: {
       ...rowFields(task),
       description: read.string(task, 'description'),

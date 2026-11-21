@@ -385,7 +385,7 @@ Seven routes change a Task. Each runs the same Tasks module code as the Mac’s 
 
 | Route | Fields | Does |
 | - | - | - |
-| `task-start` | `taskId` | Start, as the Mac’s Start: the Task leaves Backlog and joins the queue. The Mac’s Factory setup reminder before a Start isn’t shown. |
+| `task-start` | `taskId` | Start, as the Mac’s Start. With unfinished blockers, the Task stays in Backlog with a start request recorded. The successful reply includes `waitingForBlockers: true` alongside `task` so the phone can explain it will start automatically when its blockers clear. The Mac’s Factory setup reminder before a Start isn’t shown. |
 | `task-stop` | `taskId` | Stop Task. Refused when the Task hasn’t started, is Done or is already stopped. |
 | `task-resume` | `taskId`, optional `text` | Resume (or Retry, for a failed Task). `text` is at most 10,000 characters and is posted as the user’s comment first when it isn’t blank. Refused when the Task isn’t stopped or failed. |
 | `task-priority` | `taskId`, `priority` | Sets `urgent`, `high`, `medium`, `low` or `none`. |
