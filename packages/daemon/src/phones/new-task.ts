@@ -13,7 +13,7 @@ import {
   phoneReplyBodyMax,
   RequestValidationError,
 } from '@ted/protocol'
-import { RequestError } from '../errors.ts'
+import { AlreadyStartedError, RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { cutChars, jsonBytes } from './fit.ts'
@@ -118,6 +118,7 @@ export function createPhoneNewTask(
     try {
       await changes.start(task.id)
     } catch (error) {
+      if (error instanceof AlreadyStartedError) return shown(task.id)
       const message =
         error instanceof RequestError || error instanceof RequestValidationError
           ? redactSecrets(error.message)

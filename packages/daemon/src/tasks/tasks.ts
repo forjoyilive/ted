@@ -237,7 +237,7 @@ import type { InstructionTries } from '../check-tries.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import type { FileStore } from '../downloads.ts'
-import { RequestError } from '../errors.ts'
+import { AlreadyStartedError, RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import { bannerSubject } from '../factory-setup.ts'
 import * as git from '../git.ts'
@@ -10098,7 +10098,7 @@ export function createTasks(options: {
     const task = live(ref)
     const factory = factoryOf(task)
     if (task.stage !== 'backlog' || inFlight.is(task.id, 'starting')) {
-      throw new RequestError(409, `${task.displayId} has already started`)
+      throw new AlreadyStartedError(`${task.displayId} has already started`)
     }
     if (unmergedBlockers(task.id).length > 0) {
       if (prepare) throw new RequestError(409, `${task.displayId} has unfinished blockers`)
