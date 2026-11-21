@@ -35,7 +35,7 @@ export function createAgents(options: {
     claude: claudeAgent(options.claudeBin ?? 'claude', options.platform),
     codex: codexAgent(options.codexBin ?? 'codex', options.home, options.platform),
     antigravity: antigravityAgent(options.antigravityBin ?? 'agy'),
-    pi: piAgent(options.piBin ?? 'pi'),
+    pi: piAgent(options.piBin ?? 'pi', options.home),
   }
   const env = options.env ?? (() => process.env)
   const installed = (kind: AgentKind) => findBinSync(byKind[kind].binary, env()) !== undefined

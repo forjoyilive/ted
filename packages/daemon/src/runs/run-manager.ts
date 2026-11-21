@@ -22,6 +22,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type {
   AgentKind,
+  Attachment,
   Billing,
   PermissionMode,
   PlanWindow,
@@ -88,6 +89,7 @@ import {
   revokeLaunchAuthority,
 } from './launch-authority.ts'
 import { parsedOutput } from './parsed-output.ts'
+import { piFilesText } from './pi-files.ts'
 import { piSandboxScope } from './pi-sandbox.ts'
 import { createRunOutput, type RunOutputReader } from './run-output.ts'
 
@@ -187,7 +189,7 @@ export interface RunManager {
   restart(runId: string, flags: RunFlags): Promise<Run>
   sleep(runId: string, quietSince: number): Promise<boolean>
   asleep(runId: string): boolean
-  send(runId: string, text: string): Promise<void>
+  send(runId: string, text: string, files?: readonly Attachment[]): Promise<void>
   steer(runId: string, texts: readonly string[]): Promise<void>
   dispatch(
     runId: string,
@@ -324,6 +326,15 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(options.sandboxProgram !== undefined && { program: options.sandboxProgram }),
     }
   }
+
+  const forAgent = (
+    kind: AgentKind,
+    runId: string,
+    taskId: string | undefined,
+    text: string,
+    files: readonly Attachment[] = [],
+  ): Promise<string> =>
+    kind === 'pi' ? piFilesText({ home, store, runId, taskId, text, files }) : Promise.resolve(text)
 
   const environment = (): NodeJS.ProcessEnv => {
     const base = filterTedEnv(options.env?.() ?? process.env)
@@ -1160,6 +1171,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (!canDispatch()) return false
       await sleep(pollMs)
     }
+    const lines = new Map<string, string>()
+    for (const message of messages) {
+      const text = await forAgent(run.agent, runId, run.taskId, message.text)
+      lines.set(message.id, steer ? agent.steer(text) : agent.message(text))
+    }
     if (!canDispatch()) return false
     const inputBytes = readInput(files.input)
     const input = inputBytes.toString('utf8')
@@ -1190,7 +1206,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           deliveryIds: [message.id],
           text: message.text,
           outputFrom,
-          line: steer ? agent.steer(message.text) : agent.message(message.text),
+          line: lines.get(message.id) ?? '',
         }
       })
       const buffer = Buffer.from(
@@ -1332,7 +1348,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           })
           permissions = runPermissions(store, { taskId })
           const launch = agent.launch({
-            prompt,
+            prompt: await forAgent(kind, id, taskId, prompt),
             runDir,
             env: runEnv(id, rememberEnv(id, env)),
             ...(resume !== undefined && { resume }),
@@ -1413,7 +1429,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         const permissions = runPermissions(store, run)
         const choice = flags ?? run
         const launch = agents.get(run.agent).launch({
-          prompt,
+          prompt: await forAgent(run.agent, runId, run.taskId, prompt),
           runDir,
           env: runEnv(runId, rememberEnv(runId, env)),
           ...(sessionId !== undefined && { resume: sessionId }),
@@ -1607,21 +1623,25 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         .filter((record) => inputAccepted(runId, record, records))
         .flatMap((record) => record.deliveryIds)
     },
-    async send(runId, text) {
+    async send(runId, text, files = []) {
       const input = runFiles(path.join(runsDir, runId)).input
       const run = store.getRun(runId)
       if (!run) throw new Error(`no Run ${runId}`)
+      const sent = await forAgent(run.agent, runId, run.taskId, text, files)
       await wakeForInput(runId)
-      await appendFile(input, `${agents.get(run.agent).message(text)}\n`, { mode: 0o600 })
+      await appendFile(input, `${agents.get(run.agent).message(sent)}\n`, { mode: 0o600 })
     },
     async steer(runId, texts) {
       const run = store.getRun(runId)
       if (!run) throw new Error(`no Run ${runId}`)
       const agent = agents.get(run.agent)
+      const sent = await Promise.all(
+        texts.map((text) => forAgent(run.agent, runId, run.taskId, text)),
+      )
       await wakeForInput(runId)
       await appendFile(
         runFiles(path.join(runsDir, runId)).input,
-        texts.map((text) => `${agent.steer(text)}\n`).join(''),
+        sent.map((text) => `${agent.steer(text)}\n`).join(''),
         { mode: 0o600 },
       )
     },

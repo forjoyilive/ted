@@ -7,6 +7,7 @@ import { clonePath } from '../factories.ts'
 import type { SandboxScope } from '../sandbox.ts'
 import type { TedStore } from '../store/index.ts'
 import { runFiles } from './host-files.ts'
+import { piFilesFolderMade } from './pi-files.ts'
 
 export interface PiScopeInput {
   home: string
@@ -40,6 +41,13 @@ export async function piSandboxScope(input: PiScopeInput): Promise<PiSandbox> {
   }
   const task = taskId === undefined ? undefined : store.getTask(taskId)
   const ownsCwd = !inside(runDir, cwd) && (await insideReal(home, cwd))
+
+  readable.add(
+    await piFilesFolderMade(home, {
+      runId,
+      ...(task !== undefined && { taskDisplayId: task.displayId }),
+    }),
+  )
 
   if (task === undefined) {
     if (ownsCwd) {

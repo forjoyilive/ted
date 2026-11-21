@@ -15,6 +15,7 @@ import {
   piText,
 } from './pi-chat.ts'
 import type { PiPlan } from './pi-driver.ts'
+import { fromPiFiles } from './pi-files.ts'
 import { piHealth, piSavedModel } from './pi-health.ts'
 import { piModels } from './pi-models.ts'
 
@@ -45,7 +46,8 @@ export function piSessionFile(sessions: string, sessionId: string): string | und
 
 const modelMissing = /model.*(not found|unknown|unavailable|not available|no such)/i
 
-export function piAgent(binary: string): Agent {
+export function piAgent(binary: string, home?: string): Agent {
+  const shown = (text: string) => (home === undefined ? text : fromPiFiles(home, text))
   return {
     kind: 'pi',
     binary,
@@ -99,7 +101,7 @@ export function piAgent(binary: string): Agent {
     },
     acceptedTextFrom(line) {
       const event = piLine(line)
-      return event?.ted_pi === 'started' ? piText(event.text) : undefined
+      return event?.ted_pi === 'started' ? shown(piText(event.text)) : undefined
     },
     agentTextFrom(line) {
       const event = piLine(line)
@@ -156,8 +158,8 @@ export function piAgent(binary: string): Agent {
       return total > 0 ? total : undefined
     },
     keyHelp: () => 'Pi reads its own keys and sign-ins from its settings.',
-    chat: piChat,
-    chatFrom: piChatFrom,
+    chat: (entries, cwd) => piChat(entries, cwd, shown),
+    chatFrom: (cwd) => piChatFrom(cwd, shown),
     savedModel: piSavedModel,
     health: {
       minimumVersion: '1.5.2',

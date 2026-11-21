@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 import type { JsonObject } from '@ted/protocol/parse'
 
@@ -90,7 +97,7 @@ function originalAgentDir(agentDir: string): string {
   return settings.tedOriginal ?? agentDir
 }
 
-function probeSandbox() {
+function probeSandbox(text: string) {
   const home = process.env.TED_HOME ?? ''
   const agentDir = process.env.PI_CODING_AGENT_DIR ?? ''
   const result = {
@@ -109,8 +116,14 @@ function probeSandbox() {
     ted: attempt(() =>
       execFileSync('ted', ['task', 'list'], { encoding: 'utf8', timeout: 60_000 }),
     ),
+    attachmentsList: attempt(() => readdirSync(path.join(home, 'attachments')).join(',')),
+    attached: [...text.matchAll(/^- [^:\n]+: (\/.+)$/gm)].map(([, file = '']) => ({
+      file,
+      read: attempt(() => readFileSync(file, 'utf8')),
+    })),
   }
   writeFileSync(path.join(sessionDir, 'stub-pi-probe.json'), JSON.stringify(result))
+  appendFileSync(path.join(sessionDir, 'stub-pi-probes.jsonl'), `${JSON.stringify(result)}\n`)
 }
 
 const usage = (input: number, output: number, cost: number) => ({
@@ -142,7 +155,7 @@ function assistant(content: JsonObject[], stopReason: string, extra: JsonObject 
 }
 
 async function turn(text: string) {
-  if (text.includes('STUB_PROBE')) probeSandbox()
+  if (text.includes('STUB_PROBE')) probeSandbox(text)
   streaming = true
   send({ type: 'agent_start' })
   send({ type: 'turn_start' })

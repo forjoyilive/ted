@@ -75,7 +75,10 @@ function resultText(result: Json | undefined): string {
     .join('\n')
 }
 
-export function piChatFrom(cwd: string): AgentChat {
+export function piChatFrom(
+  cwd: string,
+  shown: (text: string) => string = (text) => text,
+): AgentChat {
   const chat = chatList()
   let message = ''
   const open = new Set<string>()
@@ -153,7 +156,7 @@ export function piChatFrom(cwd: string): AgentChat {
         chat.put({
           kind: 'user',
           key: `user:${entry.offset}`,
-          text: piText(event.text),
+          text: shown(piText(event.text)),
           ...(at !== undefined && { at }),
         })
         return
@@ -234,8 +237,12 @@ export function piChatFrom(cwd: string): AgentChat {
   }
 }
 
-export function piChat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[] {
-  const chat = piChatFrom(cwd)
+export function piChat(
+  entries: readonly ConversationEntry[],
+  cwd: string,
+  shown?: (text: string) => string,
+): AgentChatEntry[] {
+  const chat = piChatFrom(cwd, shown)
   for (const entry of entries) chat.add(entry)
   return [...chat.entries()]
 }
