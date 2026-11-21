@@ -5,21 +5,26 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import {
   type Banner,
+  type CheckRun,
   type Factory,
   type Run,
   type RunSummary,
   type Task,
+  type TaskApp,
   type TaskReposResult,
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from 'vitest'
+import type { DaemonWrappers } from '../src/daemon.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import type { MergeArea } from '../src/store/merge.ts'
 import {
   api,
   assistantTexts,
   commitToOrigin,
+  killAppHosts,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -73,6 +78,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
+  await killAppHosts(home)
   await killRunHosts(home, { waitForStart: true })
   process.env = { ...savedEnv }
   await cleanup()
@@ -105,11 +111,12 @@ const twoRepos = (apiWorktree = '') =>
     ].join('\n'),
   })
 
-async function start(options: { home?: string } = {}) {
+async function start(options: { home?: string; wrap?: DaemonWrappers } = {}) {
   daemon = await startDaemon({
     home: options.home ?? home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    ...(options.wrap !== undefined && { wrap: options.wrap, simulators: { supported: true } }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const call = async (method: string, route: string, body?: unknown) =>
@@ -229,7 +236,7 @@ describe('a multi-repo Task', () => {
     expect(lines.map((l) => l.text)).toContain('Task Lead set Repos to widgets, api')
     expect(lines.filter((line) => line.text.startsWith('Setting up api ·'))).toHaveLength(1)
     expect(lines.filter((line) => line.text === 'Setup finished in api')).toHaveLength(1)
-  })
+  }, 90_000)
 
   test('removing a repo whose worktree has commits waits for --yes, then removes the worktree', async () => {
     await twoRepos()
@@ -305,6 +312,113 @@ describe('a multi-repo Task', () => {
       expect(output).toContain('Operation not permitted')
     },
   )
+
+  test('a mobile-only Validate Lead starts sandboxed paired preview dependencies without changing its repos', async () => {
+    const stub = `node -e 'require("node:http").createServer((_, res) => res.end(JSON.stringify({ home: process.env.TED_HOME, relay: process.env.TED_RELAY_URL, keyring: process.env.TED_KEYRING_MODULE, state: process.env.TED_PREVIEW_DIR }))).listen(Number(process.env.PORT), "127.0.0.1")'`
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate, review, merge]',
+        'repos:',
+        '  - name: widgets',
+        '    worktree:',
+        '      setup: touch preview-setup',
+        '    apps:',
+        '      - name: Desktop Preview',
+        '        kind: command',
+        '        electron: true',
+        '        preview_only: true',
+        '        run: >-',
+        `          ${stub} -- $TED_ELECTRON_ARGS`,
+        '  - name: api',
+        '    remote: https://github.com/acme/api.git',
+        '    apps:',
+        '      - name: Local Relay',
+        '        preview_only: true',
+        '        run: >-',
+        `          ${stub}`,
+        `        url: http://127.0.0.1:\${PORT}/health`,
+        '      - name: iPhone',
+        '        kind: ios-simulator',
+        '        run: echo TED_APP_READY',
+        '        paired_preview: { desktop: Desktop Preview, relay: Local Relay }',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Mobile check, repo: api, run: "true" }',
+      ].join('\n'),
+    })
+    const client = await start({
+      wrap: {
+        apps: (apps) => ({
+          ...apps,
+          async start(taskId, ref, by, options) {
+            if (ref.name !== 'iPhone') return apps.start(taskId, ref, by, options)
+            const listed = await apps.list(taskId)
+            const phone = listed.find((app) => app.name === 'iPhone')
+            if (!phone) throw new Error('missing iPhone App')
+            expect(listed.filter((app) => app.name !== 'iPhone').map((app) => app.state)).toEqual([
+              'running',
+              'running',
+            ])
+            return { ...phone, state: 'running' }
+          },
+        }),
+      },
+    })
+    const running = daemon
+    if (!running) throw new Error('daemon not started')
+    await addFactory(client)
+    const task = await createTask(client, steps({ endTurn: true }))
+    await client.ok('PUT', `/tasks/${task.id}/repos`, { set: ['acme/api'] })
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const run = await leadRun(client, task)
+    const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+    const lead = api(running.port, tokens.issue(run.id))
+    const route = `/tasks/${task.id}`
+    const advance = () => lead.call('POST', `${route}/outcome`, { outcome: 'advance' })
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'the idle Lead')
+    expect((await advance()).status).toBe(200)
+    await writeFile(path.join(taskFolder(), 'api', 'feature.txt'), 'implemented\n')
+    expect((await advance()).status).toBe(200)
+    const before = await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current?.stage === 'validate' && !current.checksActive ? current : undefined
+    }, 'Validate')
+    const checkRuns = () => client.ok<CheckRun[]>('GET', `${route}/check-runs`)
+    const checked = await checkRuns()
+    expect(checked.at(-1)?.outcome).toBe('passed')
+    const list = () => client.ok<TaskApp[]>('GET', `${route}/apps`)
+    expect((await list()).map((app) => app.name)).toEqual(['iPhone'])
+    const started = await lead.call('POST', `${route}/apps/start`, { name: 'iPhone' })
+    expect(started.status, JSON.stringify(started.body)).toBe(200)
+
+    const listed = await list()
+    const desktop = listed.find((app) => app.name === 'Desktop Preview')
+    const relay = listed.find((app) => app.name === 'Local Relay')
+    if (!desktop?.port || !relay?.url) throw new Error('preview dependencies did not start')
+    const root = path.join(home, 'paired-previews', task.id)
+    expect(await exists(path.join(root, 'desktop-source', 'preview-setup'))).toBe(true)
+    expect(await (await fetch(`http://127.0.0.1:${desktop.port}`)).json()).toEqual({
+      home: path.join(root, 'ted-home'),
+      relay: new URL(relay.url).origin,
+      keyring: path.join(root, 'ted-home', 'keyring.mjs'),
+    })
+    expect(await (await fetch(relay.url)).json()).toEqual({ state: path.join(root, 'relay') })
+    expect((await client.call('POST', `${route}/apps/start`, { name: desktop.name })).status).toBe(
+      403,
+    )
+    expect((await lead.call('POST', `${route}/apps/stop`, { name: 'iPhone' })).status).toBe(200)
+    expect(await exists(root)).toBe(false)
+    expect((await list()).map((app) => app.name)).toEqual(['iPhone'])
+    expect(await getTask(client, task.id)).toMatchObject({
+      stage: before.stage,
+      chosenRepos: before.chosenRepos,
+      repos: before.repos,
+    })
+    expect(await checkRuns()).toEqual(checked)
+    expect(liveRepos(await getTask(client, task.id))).toEqual(['api'])
+  }, 90_000)
 
   test('the human sets Repos in Backlog; both worktrees and setups are ready before the Task Lead', async () => {
     await twoRepos(['    worktree:', '      setup: "touch setup-ran"', ''].join('\n'))

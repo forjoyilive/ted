@@ -1021,29 +1021,15 @@ export function FollowUpDialog({
 }
 
 export function ArchiveDoneDialog({
-  factoryId,
+  onArchive,
   count,
   onClose,
 }: {
-  factoryId: string
+  onArchive: () => void
   count: number
   onClose: () => void
 }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
   const tasks = count === 1 ? '1 Done Task' : `${count} Done Tasks`
-
-  async function archive() {
-    setBusy(true)
-    setError(undefined)
-    try {
-      await ted.archiveDone(factoryId)
-      onClose()
-    } catch (failure) {
-      setError(readableError(failure))
-      setBusy(false)
-    }
-  }
 
   return (
     <Dialog onClose={onClose}>
@@ -1054,14 +1040,9 @@ export function ArchiveDoneDialog({
             They leave the Board and the List. Comments, briefs and conversations are kept, and you
             can unarchive any of them later.
           </p>
-          {error !== undefined && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          )}
           <div className={styles.buttons}>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() => archive()}>
+            <Button variant="primary" onClick={onArchive}>
               {`Archive ${count}`}
             </Button>
           </div>
