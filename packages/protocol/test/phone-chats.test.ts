@@ -2,7 +2,9 @@ import { expect, test } from 'vitest'
 import {
   encodeChatItemsCursor,
   encodeChatsCursor,
+  type PhoneChatAgentsBody,
   type PhoneChatBody,
+  type PhoneChatCreatedBody,
   type PhoneChatItem,
   type PhoneChatItemBody,
   type PhoneChatItemsBody,
@@ -10,9 +12,13 @@ import {
   type PhoneChatsBody,
   parseChatItemsCursor,
   parseChatsCursor,
+  parsePhoneChatAgentsBody,
   parsePhoneChatBody,
+  parsePhoneChatCreatedBody,
   parsePhoneChatItemBody,
   parsePhoneChatItemsBody,
+  parsePhoneChatMessageBody,
+  parsePhoneChatStoppedBody,
   parsePhoneChatsBody,
 } from '../src/phone-chats.ts'
 import { encodeCommentsCursor, encodeTasksCursor, phoneCursorMax } from '../src/phone-tasks.ts'
@@ -33,6 +39,8 @@ const row = {
   waiting: false,
   archived: false,
   lastAt: '2026-11-20T09:00:00.000Z',
+  send: 'live',
+  canStop: true,
 } satisfies PhoneChatRow
 
 test('the four Chats routes are phone routes', () => {
@@ -135,6 +143,9 @@ test('parsePhoneChatsBody and parsePhoneChatBody read every field', () => {
         status: 'Archived',
         tone: 'stopped',
         archived: true,
+        send: 'off',
+        offReason: 'This chat is archived.',
+        canStop: false,
       },
     ],
     archivedCount: 3,
@@ -148,6 +159,98 @@ test('parsePhoneChatsBody and parsePhoneChatBody read every field', () => {
   const one: PhoneChatBody = { chat: { ...row, waiting: true, tone: 'waiting' } }
   expect(parsePhoneChatBody(roundTrip(one))).toEqual(one)
   expect(() => parsePhoneChatBody({ chat: { ...row, waiting: 'no' } })).toThrow(/waiting/)
+  expect(() => parsePhoneChatBody({ chat: { ...row, send: 'open' } })).toThrow(/send/)
+  expect(() => parsePhoneChatBody({ chat: { ...row, canStop: undefined } })).toThrow(/canStop/)
+})
+
+const createId = toBase64Url(new Uint8Array(16).fill(7))
+
+test('the four chat write routes are phone routes', () => {
+  expect(phoneRouteNames).toEqual(
+    expect.arrayContaining(['chat-message', 'chat-stop', 'chat-agents', 'chat-create']),
+  )
+})
+
+test('parsePhoneRequest reads every field of the chat write routes', () => {
+  const message = {
+    ...header,
+    route: 'chat-message',
+    chatKind: 'plan',
+    chatId: 'plan-1',
+    text: 'Keep the list short',
+    createId,
+  }
+  expect(parsePhoneRequest(message)).toEqual(message)
+  const stop = { ...header, route: 'chat-stop', chatKind: 'coordinator', chatId: 'c' }
+  expect(parsePhoneRequest(stop)).toEqual(stop)
+  const agents = { ...header, route: 'chat-agents', factory: 'TED' }
+  expect(parsePhoneRequest(agents)).toEqual(agents)
+  const create = {
+    ...header,
+    route: 'chat-create',
+    factory: 'TED',
+    agentId: 'planner',
+    text: 'Plan the phone chat field',
+    createId,
+  }
+  expect(parsePhoneRequest(create)).toEqual(create)
+})
+
+test('parsePhoneRequest refuses bad chat write fields', () => {
+  const message = {
+    ...header,
+    route: 'chat-message',
+    chatKind: 'coordinator',
+    chatId: 'c',
+    text: 'Hi',
+    createId,
+  }
+  expect(() => parsePhoneRequest({ ...message, text: '   ' })).toThrow(/text/)
+  expect(() => parsePhoneRequest({ ...message, text: 'x'.repeat(10_001) })).toThrow(/text/)
+  expect(() => parsePhoneRequest({ ...message, text: undefined })).toThrow(/text/)
+  expect(() => parsePhoneRequest({ ...message, createId: 'short' })).toThrow(/createId/)
+  expect(() => parsePhoneRequest({ ...message, createId: undefined })).toThrow(/createId/)
+  expect(() => parsePhoneRequest({ ...message, chatKind: 'task' })).toThrow(/chatKind/)
+  expect(() => parsePhoneRequest({ ...message, chatId: '' })).toThrow(/chatId/)
+  const stop = { ...header, route: 'chat-stop', chatKind: 'plan', chatId: 'p' }
+  expect(() => parsePhoneRequest({ ...stop, chatId: undefined })).toThrow(/chatId/)
+  expect(() => parsePhoneRequest({ ...header, route: 'chat-agents' })).toThrow(/factory/)
+  expect(() =>
+    parsePhoneRequest({ ...header, route: 'chat-agents', factory: 'x'.repeat(201) }),
+  ).toThrow(/factory/)
+  const create = {
+    ...header,
+    route: 'chat-create',
+    factory: 'TED',
+    agentId: 'coordinator',
+    text: 'Hi',
+    createId,
+  }
+  expect(() => parsePhoneRequest({ ...create, agentId: '' })).toThrow(/agentId/)
+  expect(() => parsePhoneRequest({ ...create, factory: '' })).toThrow(/factory/)
+  expect(() => parsePhoneRequest({ ...create, text: '' })).toThrow(/text/)
+  expect(() => parsePhoneRequest({ ...create, createId: 'x' })).toThrow(/createId/)
+})
+
+test('the chat write reply bodies read every field', () => {
+  expect(parsePhoneChatMessageBody({ queued: true })).toEqual({ queued: true })
+  expect(parsePhoneChatMessageBody({ queued: false })).toEqual({ queued: false })
+  expect(() => parsePhoneChatMessageBody({})).toThrow(/queued/)
+  expect(parsePhoneChatStoppedBody({ stopped: true })).toEqual({ stopped: true })
+  expect(() => parsePhoneChatStoppedBody({ stopped: false })).toThrow(/stopped/)
+  const agents: PhoneChatAgentsBody = {
+    agents: [
+      { id: 'coordinator', name: 'Coordinator', description: 'Acts on Tasks.', planner: false },
+      { id: 'planner', name: 'Planner', description: 'Plans.', planner: true },
+    ],
+  }
+  expect(parsePhoneChatAgentsBody(roundTrip(agents))).toEqual(agents)
+  expect(() =>
+    parsePhoneChatAgentsBody({ agents: [{ id: 'a', name: 'A', description: '' }] }),
+  ).toThrow(/planner/)
+  const created: PhoneChatCreatedBody = { chat: { kind: 'plan', id: 'plan-1' } }
+  expect(parsePhoneChatCreatedBody(roundTrip(created))).toEqual(created)
+  expect(() => parsePhoneChatCreatedBody({ chat: { kind: 'task', id: 'x' } })).toThrow(/kind/)
 })
 
 test('parsePhoneChatItemsBody reads every item kind and field', () => {
@@ -163,6 +266,7 @@ test('parsePhoneChatItemsBody reads every item kind and field', () => {
       files: 1,
       unsent: true,
     },
+    { id: 'q', at, kind: 'human', text: 'Next', cut: false, images: [], files: 0, queued: true },
     { id: 'a', at, kind: 'agent', text: 'Hello', cut: true, agent: 'Coordinator' },
     { id: 't', kind: 'ted', title: 'New Run', text: 'The earlier Run ended', cut: false },
     { id: 'i', at, kind: 'interrupted' },
@@ -211,13 +315,16 @@ test('parsePhoneChatItemsBody reads every item kind and field', () => {
   expect(() => parsePhoneChatItemsBody({ items: [{ ...items[0], unsent: false }] })).toThrow(
     /unsent/,
   )
-  expect(() => parsePhoneChatItemsBody({ items: [{ ...items[4], status: 'passed' }] })).toThrow(
+  expect(() => parsePhoneChatItemsBody({ items: [{ ...items[1], queued: false }] })).toThrow(
+    /queued/,
+  )
+  expect(() => parsePhoneChatItemsBody({ items: [{ ...items[5], status: 'passed' }] })).toThrow(
     /status/,
   )
   expect(() =>
-    parsePhoneChatItemsBody({ items: [{ ...items[10], requestKind: 'question' }] }),
+    parsePhoneChatItemsBody({ items: [{ ...items[11], requestKind: 'question' }] }),
   ).toThrow(/requestKind/)
-  expect(() => parsePhoneChatItemsBody({ items: [{ ...items[6], lines: -1 }] })).toThrow(/lines/)
+  expect(() => parsePhoneChatItemsBody({ items: [{ ...items[7], lines: -1 }] })).toThrow(/lines/)
 })
 
 test('parsePhoneChatItemBody reads detail lines and next', () => {
