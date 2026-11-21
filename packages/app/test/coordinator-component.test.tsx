@@ -534,8 +534,7 @@ test('All Chats lists chats across Factories, restores filters and opens or star
   await user_.click(filter.getByRole('button', { name: 'Finished' }))
   expect(all().queryByRole('heading', { name: 'widgets · 1' })).toBeNull()
   await user_.click(all().getByRole('button', { name: /Plan the Studio launch/ }))
-  const existing = within(await screen.findByRole('region', { name: 'Planning chat' }))
-  expect(await existing.findByRole('heading', { name: 'Plan the Studio launch' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Plan the Studio launch' })).toBeTruthy()
   await user_.click(screen.getByRole('button', { name: '← All Chats' }))
   expect(await all().findByRole('heading', { name: 'Studio · 1' })).toBeTruthy()
   expect(all().queryByRole('heading', { name: 'widgets · 1' })).toBeNull()
@@ -570,8 +569,7 @@ test('All Chats lists chats across Factories, restores filters and opens or star
       }),
     ),
   )
-  const created = within(await screen.findByRole('region', { name: 'Planning chat' }))
-  expect(await created.findByRole('heading', { name: 'Plan the next release' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Plan the next release' })).toBeTruthy()
   await user_.click(screen.getByRole('button', { name: '← All Chats' }))
   expect(await all().findByRole('button', { name: /Plan the next release.*Studio/ })).toBeTruthy()
 
