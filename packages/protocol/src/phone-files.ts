@@ -5,6 +5,7 @@ export const phoneFilesMax = 10
 export const phoneFileNameMax = 255
 export const phoneMediaTypeMax = 255
 export const phoneStagedBytesMax = 100 * 1024 * 1024
+export const phoneUploadsMax = 10 * phoneFilesMax
 export const phoneUploadLifetimeMs = 60 * 60_000
 
 export const phoneFileMissing = 'A file didn’t reach your Mac. Send again.'

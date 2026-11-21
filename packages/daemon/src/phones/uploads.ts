@@ -13,6 +13,7 @@ import {
   phoneFileTooBig,
   phoneStagedBytesMax,
   phoneUploadLifetimeMs,
+  phoneUploadsMax,
 } from '@ted/protocol'
 import { cleanMediaType } from '../attachments.ts'
 import { redactSecrets } from '../redact.ts'
@@ -84,6 +85,9 @@ export function createPhoneUploads(options: PhoneUploadsOptions): PhoneUploads {
 
   const find = (phoneId: string, uploadId: string) => phones.get(phoneId)?.get(uploadId)
 
+  const full = (phoneId: string, uploadId: string) =>
+    !find(phoneId, uploadId) && (phones.get(phoneId)?.size ?? 0) >= phoneUploadsMax
+
   const open = (phoneId: string, uploadId: string): Upload | undefined => {
     if (!safeName.test(phoneId) || !safeName.test(uploadId)) return undefined
     const found = find(phoneId, uploadId)
@@ -153,6 +157,7 @@ export function createPhoneUploads(options: PhoneUploadsOptions): PhoneUploads {
   const finishedFile = (upload: Upload) => path.join(upload.dir, 'file')
 
   const missing: PhoneOutcome = { code: 'refused', message: phoneFileMissing }
+  const waiting: PhoneOutcome = { code: 'refused', message: phoneFilesWaiting }
 
   async function join(upload: Upload, file: PhoneFileDone): Promise<PhoneOutcome> {
     const count = phoneFileParts(file.size)
@@ -199,6 +204,7 @@ export function createPhoneUploads(options: PhoneUploadsOptions): PhoneUploads {
   return {
     async part(phoneId, uploadId, index, data) {
       await sweep()
+      if (full(phoneId, uploadId)) return waiting
       const upload = open(phoneId, uploadId)
       if (!upload) return missing
       return locked(upload, async () => {
@@ -208,7 +214,7 @@ export function createPhoneUploads(options: PhoneUploadsOptions): PhoneUploads {
         const earlier = upload.parts.get(index) ?? 0
         if (staged(phoneId) - earlier + bytes.length > stagedBytesMax) {
           if (upload.parts.size === 0) forget(upload)
-          return { code: 'refused', message: phoneFilesWaiting }
+          return waiting
         }
         upload.parts.set(index, bytes.length)
         try {
@@ -229,6 +235,7 @@ export function createPhoneUploads(options: PhoneUploadsOptions): PhoneUploads {
         if (upload) await locked(upload, () => remove(upload))
         return { code: 'refused', message: phoneFileTooBig }
       }
+      if (file.size === 0 && full(phoneId, file.uploadId)) return waiting
       const upload =
         find(phoneId, file.uploadId) ?? (file.size === 0 ? open(phoneId, file.uploadId) : undefined)
       if (!upload) return missing

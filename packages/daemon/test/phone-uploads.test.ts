@@ -9,6 +9,7 @@ import {
   phoneFilesWaiting,
   phoneFileTooBig,
   phoneUploadLifetimeMs,
+  phoneUploadsMax,
   toBase64Url,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -227,4 +228,19 @@ test('clear removes everything left from before the daemon started', async () =>
   await uploads.clear()
   expect(await readdir(scratch)).not.toContain('phone-uploads')
   expect(await uploads.done(phone, doneOf(id, randomBytes(10)))).toEqual(missing)
+})
+
+test('a phone can hold only so many uploads at once, even empty ones', async () => {
+  const empty = Buffer.alloc(0)
+  for (let i = 0; i < phoneUploadsMax; i++) {
+    expect(await uploads.done(phone, doneOf(uploadId(), empty, 'empty.txt'))).toEqual(ok)
+  }
+  const refused = { code: 'refused', message: phoneFilesWaiting }
+  expect(await uploads.done(phone, doneOf(uploadId(), empty, 'empty.txt'))).toEqual(refused)
+  expect(await uploads.part(phone, uploadId(), 0, randomBytes(10).toString('base64'))).toEqual(
+    refused,
+  )
+  expect(await uploads.done(other, doneOf(uploadId(), empty, 'empty.txt'))).toEqual(ok)
+  clock += phoneUploadLifetimeMs
+  expect(await uploads.done(phone, doneOf(uploadId(), empty, 'empty.txt'))).toEqual(ok)
 })

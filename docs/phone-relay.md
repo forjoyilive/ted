@@ -393,7 +393,7 @@ The phone sends each file in parts before the `task-create` or `task-comment` th
 | `index` | 0 to 426, the part’s place in the file. |
 | `data` | Standard base64 of at most 24,576 file bytes. Every part but the last holds exactly 24,576 bytes. |
 
-Sending a part again replaces it. The phone keeps up to 4 parts of a file in flight. A part for a file already finished is answered `{}` and ignored. When the phone’s staged parts and files would pass 100 MB, the part is `refused` with “Too many files are waiting on your Mac. Send again in a little while.”
+Sending a part again replaces it. The phone keeps up to 4 parts of a file in flight. A part for a file already finished is answered `{}` and ignored. When the phone’s staged parts and files would pass 100 MB, or the part starts a new upload while the phone already has 100, the part is `refused` with “Too many files are waiting on your Mac. Send again in a little while.” An empty file (`size` 0) needs no parts; its `file-done` counts as a new upload in the same way.
 
 ### `file-done`
 
