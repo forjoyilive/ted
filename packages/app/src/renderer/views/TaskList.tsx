@@ -469,6 +469,19 @@ export function FilterMenu({
 }
 
 function DisplayMenu({ view, onChange }: { view: ListView; onChange: (view: ListView) => void }) {
+  const columns = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const list = columns.current
+    if (!list) return
+    const fitColumns = () => {
+      const space = window.innerHeight - list.getBoundingClientRect().top - 16
+      list.style.maxHeight = `${Math.max(31, space)}px`
+    }
+    fitColumns()
+    window.addEventListener('resize', fitColumns)
+    return () => window.removeEventListener('resize', fitColumns)
+  }, [])
+
   return (
     <>
       <div className={styles.menuHeading}>
@@ -509,15 +522,17 @@ function DisplayMenu({ view, onChange }: { view: ListView; onChange: (view: List
       />
       <div className={styles.menuDivider} />
       <div className={styles.menuHeading}>Columns</div>
-      {listColumns.map((column) => (
-        <CheckItem
-          key={column}
-          label={columnLabels[column]}
-          checked={column === 'title' || view.columns.includes(column)}
-          disabled={column === 'title'}
-          onChange={() => onChange({ ...view, columns: toggled(view.columns, column) })}
-        />
-      ))}
+      <div className={styles.menuColumns} ref={columns}>
+        {listColumns.map((column) => (
+          <CheckItem
+            key={column}
+            label={columnLabels[column]}
+            checked={column === 'title' || view.columns.includes(column)}
+            disabled={column === 'title'}
+            onChange={() => onChange({ ...view, columns: toggled(view.columns, column) })}
+          />
+        ))}
+      </div>
     </>
   )
 }

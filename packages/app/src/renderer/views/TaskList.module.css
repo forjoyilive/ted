@@ -147,6 +147,10 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+.menuColumns {
+  overflow-y: auto;
+}
+
 .check {
   box-sizing: border-box;
   display: inline-flex;
