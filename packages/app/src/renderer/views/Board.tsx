@@ -43,6 +43,7 @@ import {
 import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { useStartsOnItsOwn } from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
+import menuStyles from '../components/ContextMenu.module.css'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { FactoryIcon } from '../components/FactoryIcon.tsx'
@@ -62,11 +63,12 @@ import {
   filterTasks,
   toggled,
 } from '../list-view.ts'
+import { usePendingAction } from '../pending-action.ts'
 import { useNow } from '../requests.ts'
 import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
 import { useStages } from '../stages.tsx'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import styles from './Board.module.css'
 import listStyles from './TaskList.module.css'
 import {
@@ -185,7 +187,7 @@ function MoreIcon() {
   )
 }
 
-function DoneMenu({ count, onArchiveAll }: { count: number; onArchiveAll: () => void }) {
+function DoneMenu({ canArchive, onArchiveAll }: { canArchive: boolean; onArchiveAll: () => void }) {
   const [open, setOpen] = useState(false)
   const close = useMemo(() => () => setOpen(false), [])
   const ref = usePopover(open, close)
@@ -207,7 +209,7 @@ function DoneMenu({ count, onArchiveAll }: { count: number; onArchiveAll: () => 
             type="button"
             role="menuitem"
             className={listStyles.menuItem}
-            disabled={count === 0}
+            disabled={!canArchive}
             onClick={() => {
               close()
               onArchiveAll()
@@ -270,7 +272,9 @@ export function Board({
   const shown = filterTasks(tasks, filters, text)
   const columns = boardColumns(stages, shown, now)
   const allDone = tasks.filter((t) => t.stage === 'done' && !t.archived).length
-  const [archivingDone, setArchivingDone] = useState(false)
+  const [confirmArchiveDone, setConfirmArchiveDone] = useState(false)
+  const [archiveError, setArchiveError] = useState<string>()
+  const archiveDone = usePendingAction(`archive-done:${factoryId}`)
   const [dragging, setDragging] = useState<Dragging>()
   const [target, setTarget] = useState<Target>()
   const [refused, setRefused] = useState<{ x: number; y: number }>()
@@ -764,7 +768,10 @@ export function Board({
                     </span>
                   )}
                   {column.stage === 'done' && (
-                    <DoneMenu count={allDone} onArchiveAll={() => setArchivingDone(true)} />
+                    <DoneMenu
+                      canArchive={!archiveDone.pending && allDone > 0}
+                      onArchiveAll={() => setConfirmArchiveDone(true)}
+                    />
                   )}
                 </h2>
                 {cards(column)}
@@ -839,11 +846,22 @@ export function Board({
           </div>
         )}
       </div>
-      {archivingDone && (
+      {archiveError && (
+        <p className={menuStyles.error} role="alert">
+          {archiveError}
+        </p>
+      )}
+      {confirmArchiveDone && (
         <ArchiveDoneDialog
-          factoryId={factoryId}
           count={allDone}
-          onClose={() => setArchivingDone(false)}
+          onClose={() => setConfirmArchiveDone(false)}
+          onArchive={() => {
+            setConfirmArchiveDone(false)
+            setArchiveError(undefined)
+            void archiveDone
+              .run(() => ted.archiveDone(factoryId))
+              ?.catch((failure) => setArchiveError(readableError(failure)))
+          }}
         />
       )}
       {refused && dragging && <RefusedDrop x={refused.x} y={refused.y} dragging={dragging} />}

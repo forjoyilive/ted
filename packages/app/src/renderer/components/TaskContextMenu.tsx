@@ -46,11 +46,13 @@ export function BulkConfirmDialog({
   allTasks,
   kind,
   onKind,
+  onArchiveError,
 }: {
   tasks: readonly Task[]
   allTasks: readonly Task[]
   kind: 'archive' | 'delete'
   onKind: (kind: 'archive' | 'delete' | undefined) => void
+  onArchiveError: (message: string | undefined) => void
 }) {
   const [closePullRequests, setClosePullRequests] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -69,17 +71,32 @@ export function BulkConfirmDialog({
     ),
   )
   const parents = tasks.filter((t) => (t.childIds?.length ?? 0) > 0)
+  const archive = usePendingAction(
+    `bulk-archive:${tasks
+      .map((t) => t.id)
+      .sort()
+      .join(',')}`,
+  )
   const perform = async () => {
+    if (kind === 'archive') {
+      if (archive.pending) return
+      onArchiveError(undefined)
+      onKind(undefined)
+      await archive
+        .run(() =>
+          eachTask(tasks, (task) =>
+            ted.archiveTask(task.id, {
+              closePullRequests: closePullRequests && pullRequests.length > 0,
+            }),
+          ),
+        )
+        ?.catch((failure) => onArchiveError(readableError(failure)))
+      return
+    }
     setBusy(true)
     setError(undefined)
     try {
-      await eachTask(tasks, (t) =>
-        kind === 'archive'
-          ? ted.archiveTask(t.id, {
-              closePullRequests: closePullRequests && pullRequests.length > 0,
-            })
-          : ted.deleteTask(t.id, {}),
-      )
+      await eachTask(tasks, (t) => ted.deleteTask(t.id, {}))
       onKind(undefined)
     } catch (failure) {
       setError(readableError(failure))
@@ -135,7 +152,7 @@ export function BulkConfirmDialog({
               </Button>
             )}
             <Button
-              disabled={busy || parents.length > 0}
+              disabled={busy || (kind === 'archive' && archive.pending) || parents.length > 0}
               variant={kind === 'delete' ? 'danger' : 'primary'}
               onClick={() => perform()}
             >
@@ -296,6 +313,7 @@ function BulkTaskMenu({
           allTasks={allTasks}
           kind={confirmation}
           onKind={setConfirmation}
+          onArchiveError={setError}
         />
       )}
     </>

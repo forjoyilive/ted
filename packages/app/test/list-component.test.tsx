@@ -2,7 +2,7 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
-import { expandFactory, required, user } from './support/component.ts'
+import { deferred, draftHandlers, expandFactory, required, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
 afterEach(() => vi.useRealTimers())
@@ -447,9 +447,17 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   expect(a.request).not.toHaveBeenCalledWith('setPriority', 'MS-1', 'medium')
 })
 
-test('bulk context-menu Archive confirms the group and lists the Tasks it unblocks', async () => {
+test('bulk context-menu Archive confirms the group and leaves New Task usable while pending', async () => {
   const a = await list()
-  a.handle('archiveTask', vi.fn())
+  const archive = deferred<void>()
+  const firstArchive = vi.fn().mockReturnValueOnce(archive.promise)
+  const created = task({ id: 'NB-3', displayId: 'NB-3', title: 'Create during archive' })
+  a.handle('archiveTask', firstArchive)
+  a.handle('checkAgentHealth', draftHandlers().checkAgentHealth)
+  a.handle(
+    'createTask',
+    vi.fn(() => created),
+  )
   await a.emitTask(
     task({ id: 'NB-2', displayId: 'NB-2', title: 'Sync notes', blockedBy: ['NB-1'] }),
   )
@@ -466,6 +474,27 @@ test('bulk context-menu Archive confirms the group and lists the Tasks it unbloc
   expect(within(unblocks).getByText('Sync notes')).toBeTruthy()
   expect(within(dialog).queryByRole('radio')).toBeNull()
   await user().click(within(dialog).getByRole('button', { name: 'Archive 2 Tasks' }))
+  try {
+    expect(screen.queryByRole('dialog', { name: 'Archive 2 Tasks?' })).toBeNull()
+    expect(firstArchive).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(window, { key: 'n', metaKey: true })
+    const form = await screen.findByRole('dialog', { name: 'New Task' })
+    const u = user()
+    const title = within(form).getByLabelText('Title')
+    await vi.waitFor(() => expect(title.matches(':disabled')).toBe(false))
+    await u.type(title, created.title)
+    const create = within(form).getByRole('button', { name: /^Create$/ })
+    await vi.waitFor(() => expect(create.matches(':disabled')).toBe(false))
+    await u.click(create)
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'New Task' })).toBeNull())
+    expect(a.request).toHaveBeenCalledWith(
+      'createTask',
+      expect.objectContaining({ title: created.title }),
+    )
+    expect(firstArchive).toHaveBeenCalledTimes(1)
+  } finally {
+    archive.resolve()
+  }
   for (const id of ['NB-1', 'MS-1'])
     await vi.waitFor(() =>
       expect(a.request).toHaveBeenCalledWith('archiveTask', id, { closePullRequests: false }),

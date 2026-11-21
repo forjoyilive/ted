@@ -74,7 +74,7 @@ export function SelectionBar({
   const [prepareNotice, setPrepareNotice] = useState(false)
   const [noticeSeen, setNoticeSeen] = useState(false)
   const [preparing, setPreparing] = useState(false)
-  const [prepareError, setPrepareError] = useState<string>()
+  const [selectionError, setSelectionError] = useState<string>()
   const [closePullRequests, setClosePullRequests] = useState(true)
   const [moreAt, setMoreAt] = useState<MenuPosition>()
   const moreWasOpen = useRef(false)
@@ -94,7 +94,7 @@ export function SelectionBar({
     setConfirmArchive(false)
     setMoreAt(undefined)
     setAutopilotResult(undefined)
-    setPrepareError(undefined)
+    setSelectionError(undefined)
   }, [none])
 
   const startable = chosen.filter((t) => t.stage === 'backlog' && !t.statuses.includes('blocked'))
@@ -145,7 +145,7 @@ export function SelectionBar({
 
   async function prepareTasks() {
     setPreparing(true)
-    setPrepareError(undefined)
+    setSelectionError(undefined)
     try {
       if (!settings?.preparationNoticeSeen && !noticeSeen) {
         await ted.updateSettings({ preparationNoticeSeen: true })
@@ -162,10 +162,10 @@ export function SelectionBar({
         }),
       )
       const errors = failures.filter((error) => error !== undefined)
-      if (errors.length > 0) setPrepareError(errors.join('\n'))
+      if (errors.length > 0) setSelectionError(errors.join('\n'))
       else setPrepareNotice(false)
     } catch (error) {
-      setPrepareError(readableError(error))
+      setSelectionError(readableError(error))
     } finally {
       setPreparing(false)
     }
@@ -204,7 +204,7 @@ export function SelectionBar({
                   setPrepareNotice(true)
                   return ted
                     .updateSettings({ preparationNoticeSeen: true })
-                    .catch((error: unknown) => setPrepareError(readableError(error)))
+                    .catch((error: unknown) => setSelectionError(readableError(error)))
                 }}
               >
                 {counted('Prepare', preparable, chosen)}
@@ -297,10 +297,10 @@ export function SelectionBar({
               </Button>
             </p>
           )}
-          {prepareError && (
+          {selectionError && (
             <p className={`${styles.selectionNote} ${styles.selectionAlert}`} role="alert">
-              {prepareError}
-              <Button size="small" variant="quiet" onClick={() => setPrepareError(undefined)}>
+              {selectionError}
+              <Button size="small" variant="quiet" onClick={() => setSelectionError(undefined)}>
                 Dismiss
               </Button>
             </p>
@@ -352,6 +352,7 @@ export function SelectionBar({
           allTasks={allTasks}
           kind={deleting}
           onKind={setDeleting}
+          onArchiveError={setSelectionError}
         />
       )}
       {prepareNotice && (
