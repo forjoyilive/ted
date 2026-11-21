@@ -199,7 +199,8 @@ process.on('message', (message: { id: number; command: FixtureCommand }) => {
     try {
       const value = await execute(message.command)
       process.send?.({ id: message.id, value }, () => {
-        if (message.command.action === 'stop') process.exit(0)
+        // Let pending health probes finish before the fixture home is removed.
+        if (message.command.action === 'stop' && process.connected) process.disconnect?.()
       })
     } catch (error) {
       process.send?.({ id: message.id, error: String(error) })
@@ -207,7 +208,7 @@ process.on('message', (message: { id: number; command: FixtureCommand }) => {
   })
 })
 process.on('disconnect', () => {
-  void stop().finally(() => process.exit(0))
+  if (!stopping) void stop().finally(() => process.exit(0))
 })
 process.on('SIGTERM', () => {
   void stop().finally(() => process.exit(0))
