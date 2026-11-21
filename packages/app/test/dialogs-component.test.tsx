@@ -3,6 +3,7 @@ import type { Task } from '@ted/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { FactoryPicker, nextFactoryIndex } from '../src/renderer/components/FactoryPicker.tsx'
+import { emptyTaskDraft } from '../src/renderer/task-draft.ts'
 import { NewTaskDialog } from '../src/renderer/views/NewTaskDialog.tsx'
 import { TaskLeadField } from '../src/renderer/views/TaskLeadField.tsx'
 import { bridge, deferred, draftHandlers, user } from './support/component.ts'
@@ -47,6 +48,54 @@ test('New Task focuses the title and closes without creating', async () => {
   await user().click(screen.getByRole('button', { name: 'Close' }))
   expect(close).toHaveBeenCalledOnce()
   expect(created).not.toHaveBeenCalled()
+})
+
+test('New Task restores the saved title when no typing happens during loading', async () => {
+  const draft = deferred<{ draft: ReturnType<typeof emptyTaskDraft> }>()
+  bridge({
+    ...draftHandlers(),
+    taskDraft: () => draft.promise,
+    taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
+  })
+  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  const title = screen.getByRole('textbox', { name: 'Title' })
+  expect(document.activeElement).toBe(title)
+  await act(async () => draft.resolve({ draft: { ...emptyTaskDraft(), title: 'Saved title' } }))
+  expect(title).toHaveProperty('value', 'Saved title')
+})
+
+test('New Task keeps title typing that starts before the draft loads', async () => {
+  const draft = deferred<{ draft: ReturnType<typeof emptyTaskDraft> }>()
+  const save = vi.fn(draftHandlers().saveTaskDraft)
+  const close = vi.fn()
+  bridge({
+    ...draftHandlers(),
+    taskDraft: () => draft.promise,
+    taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
+    saveTaskDraft: save,
+  })
+  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={close} />)
+  const title = screen.getByRole('textbox', { name: 'Title' })
+  expect(document.activeElement).toBe(title)
+  const u = user()
+  await u.keyboard('Typed immediately')
+  expect(title).toHaveProperty('value', 'Typed immediately')
+  expect(screen.getByRole('button', { name: 'Create' })).toHaveProperty('disabled', true)
+  await u.click(screen.getByRole('button', { name: 'Close' }))
+  expect(close).not.toHaveBeenCalled()
+  expect(save).not.toHaveBeenCalled()
+
+  await act(async () =>
+    draft.resolve({
+      draft: { ...emptyTaskDraft(), title: 'Saved title', description: 'Saved description' },
+    }),
+  )
+  expect(title).toHaveProperty('value', 'Typed immediately')
+  expect(save).toHaveBeenCalledWith(
+    'f1',
+    expect.objectContaining({ title: 'Typed immediately', description: 'Saved description' }),
+  )
+  expect(close).toHaveBeenCalledOnce()
 })
 
 test('New Task needs a title, not a description, and sends Priority and Start now false', async () => {
