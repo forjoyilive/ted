@@ -13,11 +13,14 @@ import {
   phoneLabelMax,
   phoneReplyBodyMax,
   readDaemonInfo,
+  type Task,
+  type TaskDefaults,
   toBase64Url,
 } from '@ted/protocol'
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterAll, beforeAll, expect, expectTypeOf, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { AlreadyStartedError, RequestError } from '../src/errors.ts'
 import { createPhoneNewTask } from '../src/phones/new-task.ts'
 import type { PhoneTasks } from '../src/phones/tasks.ts'
 import type { PhonesArea, TedStore } from '../src/store/index.ts'
@@ -286,4 +289,34 @@ test('factories stops before the reply would pass the size limit and cuts long n
   expect(factories.map((f) => f.key)).toEqual(many.slice(0, factories.length).map((f) => f.key))
   expect(factories[0]?.name).toHaveLength(phoneLabelMax)
   expect(Buffer.byteLength(JSON.stringify(reply.body))).toBeLessThanOrEqual(phoneReplyBodyMax)
+})
+
+test('Start now that finds the Task already started answers without a refusal, and other refusals still carry their sentence', async () => {
+  const startWith = (refusal: Error) =>
+    createPhoneNewTask(
+      {
+        factories: () => [{ id: 'f1', key: 'NB', name: 'Notebook', position: 0 }],
+        defaults: () => Promise.resolve({} as TaskDefaults),
+        task: () => undefined,
+        create: () => Promise.resolve({ id: 't1', displayId: 'NB-1' } as Task),
+        start: () => Promise.reject(refusal),
+      },
+      { createdTask: () => undefined, persisted: () => Promise.resolve() },
+      { ...({} as PhoneTasks), read: () => Promise.resolve({ body: { task: { id: 't1' } } }) },
+    )
+  const caller = { kind: 'phone', phoneId: 'p1' } as const
+  const input = {
+    createId: createId(),
+    factory: 'NB',
+    title: 'Started elsewhere',
+    priority: 'none',
+    start: true,
+  } as const
+
+  expect(
+    await startWith(new AlreadyStartedError('NB-1 has already started')).create(caller, input),
+  ).toEqual({ body: { task: { id: 't1' } } })
+  expect(
+    await startWith(new RequestError(409, 'NB-1 has unfinished blockers')).create(caller, input),
+  ).toEqual({ body: { task: { id: 't1' }, startRefused: 'NB-1 has unfinished blockers' } })
 })

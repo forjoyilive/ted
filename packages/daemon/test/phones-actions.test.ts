@@ -198,6 +198,8 @@ test('Start, Stop and Resume from the phone change the Task as the Mac does, and
   expect(started.stage.id).not.toBe('backlog')
   expect(store.getTask(task.id)?.stage).toBe(started.stage.id)
   await waitUntil(() => store.getTask(task.id)?.leadRunId, 'the Task Lead to start')
+  const startedAgain = shown(await send({ type: 'request', route: 'task-start', taskId: task.id }))
+  expect(startedAgain.stage.id).toBe(started.stage.id)
 
   const stopped = shown(await send({ type: 'request', route: 'task-stop', taskId: task.id }))
   expect(store.getTask(task.id)?.statuses).toContain('stopped')

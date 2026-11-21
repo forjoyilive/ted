@@ -1,6 +1,6 @@
 import type { ArchiveTaskRequest, Comment, DeleteTaskRequest, Priority, Task } from '@ted/protocol'
 import { RequestValidationError } from '@ted/protocol'
-import { RequestError } from '../errors.ts'
+import { AlreadyStartedError, RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import type { PhoneOutcome } from './requests.ts'
@@ -77,7 +77,11 @@ export function createPhoneActions(changes: PhoneTaskChanges, tasks: PhoneTasks)
       act(
         taskId,
         async (id) => {
-          await changes.start(id)
+          try {
+            await changes.start(id)
+          } catch (error) {
+            if (!(error instanceof AlreadyStartedError)) throw error
+          }
         },
         'task',
       ),
