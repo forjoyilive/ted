@@ -1,10 +1,4 @@
 import {
-  type FactoryIconColor,
-  type FactoryIconSymbol,
-  factoryIconColors,
-  factoryIconSymbols,
-} from './factory-icon.ts'
-import {
   isArray,
   isInteger,
   isNumber,
@@ -18,6 +12,7 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
 import { type PhoneRequestKind, phoneRequestKinds } from './phone-requests.ts'
 import { type Priority, priorities } from './task.ts'
 
@@ -50,6 +45,7 @@ export const phoneTaskTones = ['working', 'waiting', 'failed', 'stopped', 'done'
 export type PhoneTaskTone = (typeof phoneTaskTones)[number]
 
 export const phoneTaskIdMax = 200
+export const phoneFactoryIdMax = 200
 export const phoneCursorMax = 512
 export const phoneDoneDays = 7
 export const phoneTaskTitleMax = 500
@@ -57,14 +53,10 @@ export const phoneLabelMax = 200
 export const phoneDescriptionMax = 16_000
 export const phoneCommentTextMax = 2_000
 
-export type PhoneFactoryIcon =
-  | { kind: 'letter'; color: FactoryIconColor }
-  | { kind: 'symbol'; symbol: FactoryIconSymbol; color: FactoryIconColor }
-  | { kind: 'emoji'; emoji: string }
-
 export const phoneNewTaskPriority: Priority = 'none'
 
 export interface PhoneFactory {
+  id: string
   key: string
   name: string
   icon?: PhoneFactoryIcon
@@ -225,15 +217,6 @@ function named(value: Json | undefined, field: string): PhoneNamed {
   return { id: read.string(object, 'id'), name: read.string(object, 'name') }
 }
 
-export function parsePhoneFactoryIcon(value: Untyped): PhoneFactoryIcon {
-  const object = read.object(value, 'icon')
-  const kind = read.oneOf(object, 'kind', ['letter', 'symbol', 'emoji'])
-  if (kind === 'emoji') return { kind, emoji: read.string(object, 'emoji') }
-  const color = read.oneOf(object, 'color', factoryIconColors)
-  if (kind === 'letter') return { kind, color }
-  return { kind, symbol: read.oneOf(object, 'symbol', factoryIconSymbols), color }
-}
-
 function action(value: Json): PhoneTaskAction {
   if (isOneOf(value, phoneTaskActions)) return value
   throw new ParseError('actions', `actions must hold only ${phoneTaskActions.join(', ')}`)
@@ -316,6 +299,7 @@ export function parsePhoneFactoriesBody(value: Untyped): PhoneFactoriesBody {
       const factory = read.object(entry, 'factory')
       const icon = factory.icon === undefined ? undefined : parsePhoneFactoryIcon(factory.icon)
       return {
+        id: read.string(factory, 'id'),
         key: read.string(factory, 'key'),
         name: read.string(factory, 'name'),
         ...(icon !== undefined && { icon }),

@@ -187,4 +187,11 @@ export const phoneRoutes: readonly PhoneRoute[] = [
       })
     },
   },
+  {
+    name: 'factory-icon',
+    async handle(_, { factoryId }, { newTask }) {
+      if (factoryId === undefined) return { code: 'bad-request' }
+      return newTask.factoryImage(factoryId)
+    },
+  },
 ]

@@ -306,25 +306,47 @@ test('parsePhoneRequest reads every field of the Task action routes and refuses 
   )
 })
 
-test('parsePhoneFactoriesBody reads key, name, icon and default priority', () => {
+test('parsePhoneFactoriesBody reads ID, key, name, icon and default priority', () => {
   const body: PhoneFactoriesBody = {
     factories: [
       {
+        id: 'f-ted',
         key: 'TED',
         name: 'Ted',
         icon: { kind: 'symbol', symbol: 'code', color: 'blue' },
         defaultPriority: 'none',
       },
-      { key: 'NB', name: 'Notebook', defaultPriority: 'none' },
+      {
+        id: 'f-nb',
+        key: 'NB',
+        name: 'Notebook',
+        icon: { kind: 'image', version: 'abc123' },
+        defaultPriority: 'none',
+      },
+      { id: 'f-old', key: 'OLD', name: 'Older', defaultPriority: 'none' },
     ],
   }
   expect(parsePhoneFactoriesBody(roundTrip(body))).toEqual(body)
-  expect(() => parsePhoneFactoriesBody({ factories: [{ key: 'NB', name: 'Notebook' }] })).toThrow(
-    /defaultPriority/,
-  )
   expect(() =>
-    parsePhoneFactoriesBody({ factories: [{ name: 'Notebook', defaultPriority: 'none' }] }),
+    parsePhoneFactoriesBody({ factories: [{ id: 'f-nb', key: 'NB', name: 'Notebook' }] }),
+  ).toThrow(/defaultPriority/)
+  expect(() =>
+    parsePhoneFactoriesBody({
+      factories: [{ id: 'f-nb', name: 'Notebook', defaultPriority: 'none' }],
+    }),
   ).toThrow(/key/)
+  expect(() =>
+    parsePhoneFactoriesBody({
+      factories: [{ key: 'NB', name: 'Notebook', defaultPriority: 'none' }],
+    }),
+  ).toThrow(/id/)
+  expect(() =>
+    parsePhoneFactoriesBody({
+      factories: [
+        { id: 'f-nb', key: 'NB', name: 'N', icon: { kind: 'image' }, defaultPriority: 'none' },
+      ],
+    }),
+  ).toThrow(/version/)
 })
 
 test('parsePhoneTaskCreatedBody reads the Task and an optional start refusal', () => {

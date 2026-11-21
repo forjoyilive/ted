@@ -210,6 +210,8 @@ test('the phone lists what the desktop Inbox waits on, newest first, without sno
     source: 'task',
     kind: 'question',
     factory: factory.name,
+    factoryId: factory.id,
+    factoryIcon: { kind: 'letter', color: 'blue' },
     title: 'Pick a parser',
     ref: task.displayId,
     headline: 'Which repo?',

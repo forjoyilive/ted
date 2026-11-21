@@ -3,9 +3,11 @@ import {
   type AnswerRequest,
   archiveChoice,
   type Comment,
+  type Factory,
   type PhoneAnswer,
   type PhoneAnswerability,
   type PhoneErrorCode,
+  type PhoneFactoryIcon,
   type PhoneForm,
   type PhoneReplyBody,
   type PhoneRequestDetail,
@@ -29,6 +31,7 @@ import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { cutChars, fitText, jsonBytes, textBytes } from './fit.ts'
+import { type PhoneIconFactory, phoneFactoryIcons } from './icons.ts'
 
 export interface PhoneAutomationQuestion {
   body: string
@@ -38,7 +41,7 @@ export interface PhoneAutomationQuestion {
 export interface PhoneInbox {
   waiting(): WaitingRequest[]
   read: {
-    factoryName(factoryId: string): string | undefined
+    factories(): PhoneInboxFactory[]
     comment(id: string): Comment | undefined
     task(id: string): Task | undefined
     tasksUnder(taskId: string): number
@@ -51,6 +54,13 @@ export interface PhoneInbox {
     plan(id: string, answer: AnswerRequest): Promise<void>
     automation(id: string, answer: AnswerAutomationRequest): Promise<void>
   }
+}
+
+export type PhoneInboxFactory = PhoneIconFactory & Pick<Factory, 'name'>
+
+interface FactoryShown {
+  name: string
+  icon: PhoneFactoryIcon | undefined
 }
 
 export function storeInbox(store: TedStore, answer: PhoneInbox['answer']): PhoneInbox {
@@ -70,7 +80,7 @@ export function storeInbox(store: TedStore, answer: PhoneInbox['answer']): Phone
   return {
     waiting: () => store.waiting(),
     read: {
-      factoryName: (factoryId) => store.getFactory(factoryId)?.name,
+      factories: () => store.listFactories(),
       comment: (id) => store.getComment(id),
       task: (id) => store.getTask(id),
       tasksUnder,
@@ -192,10 +202,25 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     })
   }
 
-  function describe(waiting: WaitingRequest): Found | undefined {
+  function factoryLookup(): (factoryId: string) => FactoryShown {
+    const factories = read.factories()
+    const icons = phoneFactoryIcons(factories)
+    return (factoryId) => ({
+      name: factories.find((f) => f.id === factoryId)?.name ?? '',
+      icon: icons.get(factoryId),
+    })
+  }
+
+  function describe(
+    waiting: WaitingRequest,
+    factoryOf: (factoryId: string) => FactoryShown,
+  ): Found | undefined {
+    const factory = factoryOf(waiting.factoryId)
     const common = {
       id: waiting.id,
-      factory: read.factoryName(waiting.factoryId) ?? '',
+      factory: factory.name,
+      factoryId: waiting.factoryId,
+      ...(factory.icon !== undefined && { factoryIcon: factory.icon }),
       headline: cutChars(waiting.headline, phoneHeadlineMax),
       createdAt: waiting.createdAt,
     }
@@ -306,7 +331,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
 
   function find(id: string): { waiting: WaitingRequest; found: Found } | undefined {
     const waiting = inbox.waiting().find((request) => request.id === id)
-    const found = waiting && describe(waiting)
+    const found = waiting && describe(waiting, factoryLookup())
     return waiting && found && { waiting, found }
   }
 
@@ -415,8 +440,9 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
 
   return {
     list(): PhoneOutcome {
+      const factoryOf = factoryLookup()
       const all = newestFirst().flatMap((waiting) => {
-        const found = describe(waiting)
+        const found = describe(waiting, factoryOf)
         return found ? [found.summary] : []
       })
       const requests: PhoneRequestSummary[] = []

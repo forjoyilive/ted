@@ -13,6 +13,7 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import type { PhoneFactoryIconBody } from './phone-factory-icon.ts'
 import type { PhoneProblemsBody } from './phone-problems.ts'
 import {
   type PhoneAnswer,
@@ -29,6 +30,7 @@ import {
   type PhoneTaskGroup,
   type PhoneTasksBody,
   phoneCursorMax,
+  phoneFactoryIdMax,
   phoneNewTaskPriority,
   phoneTaskGroups,
   phoneTaskIdMax,
@@ -95,6 +97,7 @@ export const phoneRouteNames = [
   'task-delete',
   'factories',
   'task-create',
+  'factory-icon',
 ] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
@@ -150,6 +153,7 @@ export type PhoneRequest =
       hierarchyRevision?: string
       createId?: string
       factory?: string
+      factoryId?: string
       title?: string
       description?: string
       start?: boolean
@@ -195,6 +199,7 @@ export type PhoneReplyBody =
   | PhoneTaskBody
   | PhoneTaskCommentsBody
   | PhoneFactoriesBody
+  | PhoneFactoryIconBody
   | PhoneTaskCreatedBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
@@ -556,6 +561,7 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       start: read.boolean(object, 'start'),
     }
   }
+  if (route === 'factory-icon') return { ...header, type, route, factoryId: factoryId(object) }
   return { ...header, type, route }
 }
 
@@ -585,6 +591,17 @@ function revision(object: JsonObject): string {
     )
   }
   return value
+}
+
+function factoryId(object: JsonObject): string {
+  const id = read.string(object, 'factoryId')
+  if (!id || id.length > phoneFactoryIdMax) {
+    throw new ParseError(
+      'factoryId',
+      `factoryId must be text of 1 to ${phoneFactoryIdMax} characters`,
+    )
+  }
+  return id
 }
 
 function taskId(object: JsonObject): string {

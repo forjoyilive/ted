@@ -133,6 +133,7 @@ Every message inside a box has:
 - `{"type":"request","route":"tasks","group":"status","cursor":"<cursor>"}`, `{"type":"request","route":"task","taskId":"TED-786"}` and `{"type":"request","route":"task-comments","taskId":"TED-786","cursor":"<cursor>"}` from a paired phone’s key (see Tasks below). `group` is optional and `status` when left out; `cursor` is optional. `taskId` is 1 to 200 characters and `cursor` 1 to 512; anything else gets `bad-request`. A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"task-start","taskId":"TED-788"}`, `task-stop`, `task-resume` (optional `text`), `task-priority` (`priority`), `task-comment` (`text`), `task-archive` (`hierarchyRevision`, `closePullRequests`, optional `children`) and `task-delete` (`hierarchyRevision`, optional `children`) from a paired phone’s key (see Task actions below). A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"factories"}` and `{"type":"request","route":"task-create","createId":"<16 random bytes>","factory":"NB","title":"…","description":"…","priority":"none","start":false}` from a paired phone’s key (see New Task below). A Mac older than these routes answers `unknown-route`.
+- `{"type":"request","route":"factory-icon","factoryId":"<Factory ID>"}` from a paired phone’s key (see Factory icons below). `factoryId` is 1 to 200 characters; anything else gets `bad-request`. A Mac older than this route answers `unknown-route`, and the phone draws its own letter.
 
 ### Mac → phone
 
@@ -150,7 +151,8 @@ Every message inside a box has:
 - `task-comments` → `{"entries":[<entry>, …],"cursor":"<cursor>"}`.
 - `task-start`, `task-stop`, `task-resume`, `task-priority` and `task-comment` → `{"task":<task>}`, the Task as the `task` route shows it after the change.
 - `task-archive` and `task-delete` → `{}`.
-- `factories` → `{"factories":[{"key":"NB","name":"Notebook","icon":<icon>,"defaultPriority":"none"}, …]}`.
+- `factories` → `{"factories":[{"id":"<Factory ID>","key":"NB","name":"Notebook","icon":<icon>,"defaultPriority":"none"}, …]}`.
+- `factory-icon` → `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}`.
 - `task-create` → `{"task":<task>}`, the new Task as the `task` route shows it, with `"startRefused":"<sentence>"` added when Start now was asked for and the start was refused.
 - `problems` → `{"problems":[{"id":"clone-failed:<Factory ID>","factory":"Notebook","text":"Couldn’t clone …","raisedAt":"<ISO time>"}, …]}`: the current stops-work banners, newest first, never warnings. `factory` is the Factory’s name, cut to 200 characters, and is left out for a problem that affects every Factory. `text` is the banner’s text through `redactSecrets`, cut to 500 characters; at most 50 problems, and fewer when the next one would take the reply past `phoneReplyBodyMax` bytes.
 
@@ -192,6 +194,8 @@ The open requests from every Factory, in the desktop Inbox’s order, leaving ou
   "source": "task",
   "kind": "question",
   "factory": "Ted",
+  "factoryId": "<Factory ID>",
+  "factoryIcon": { "kind": "symbol", "symbol": "code", "color": "blue" },
   "title": "List and answer Inbox requests on the phone",
   "ref": "TED-700",
   "headline": "Which repo should hold the parser?",
@@ -203,6 +207,7 @@ The open requests from every Factory, in the desktop Inbox’s order, leaving ou
 
 - `source`: `task`, `plan` (a planning chat), `automation` or `chat` (a Coordinator chat).
 - `kind`: `question`, `round`, `permission`, `signoff`, `proposal`, `review` or `request` (anything else, such as a Coordinator confirmation).
+- `factoryId` and `factoryIcon`: the request’s Factory and its Factory icon (see Factory icons below). `factoryIcon` is left out when the Factory no longer exists. A Mac older than these fields sends neither, and the phone draws its own letter.
 - `title`: the Task title, plan title, Automation name or chat title. `ref` is the Task’s display ID, only for `task`.
 - `headline`: at most 200 characters. `failed` appears only when the request comes from a failed Run.
 - `onPhone`: whether the phone may answer it. When `false` the phone opens it read-only with “Answer on your Mac”.
@@ -276,7 +281,7 @@ Inside a section, rows follow the Mac’s All Tasks order: priority, then rank, 
 ```
 
 - `title` is cut to 500 characters; Factory, Stage and section names and `status` to 200.
-- `icon` is `{"kind":"letter","color":…}`, `{"kind":"symbol","symbol":…,"color":…}` or `{"kind":"emoji","emoji":…}`. It is left out when the Factory has no icon or an image icon; the phone then draws its own letter.
+- `icon` is the **Factory icon** (see Factory icons below).
 - `status` uses the desktop’s wording (“Waiting on you”, “Queued · 3rd”, “Blocked by TED-12”), and is `""` when the Task has no status (Backlog and Done).
 - `tone` is `working` (working, queued), `waiting` (waiting on you, blocked, paused, waiting for GitHub, snoozed), `failed` (failed, partly merged), `stopped`, `done` or `none` (no status).
 - `section` is the row’s section key in the grouping asked for.
@@ -356,10 +361,25 @@ Two routes let the phone create a Task. The protocol number doesn’t change: a 
 Lists every Factory the Mac’s New Task dialog offers, in the sidebar’s order:
 
 ```json
-{ "factories": [{ "key": "NB", "name": "Notebook", "icon": { "kind": "letter", "color": "blue" }, "defaultPriority": "none" }] }
+{ "factories": [{ "id": "<Factory ID>", "key": "NB", "name": "Notebook", "icon": { "kind": "letter", "color": "blue" }, "defaultPriority": "none" }] }
 ```
 
-`icon` has the same shape as a Task row’s Factory icon and is left out when the Factory has none. `name` goes through `redactSecrets` and is cut to 200 characters. The list stops before the Factory that would take the reply past `phoneReplyBodyMax` (40,000 bytes of JSON). `defaultPriority` is the priority the phone’s form starts at; Factories have no priority setting, so it is always `none`, the Mac dialog’s starting value. Nothing else about a Factory is sent.
+`icon` is the Factory icon (see Factory icons below). `id` is the Factory ID that rows, summaries and `factory-icon` use. `name` goes through `redactSecrets` and is cut to 200 characters. The list stops before the Factory that would take the reply past `phoneReplyBodyMax` (40,000 bytes of JSON). `defaultPriority` is the priority the phone’s form starts at; Factories have no priority setting, so it is always `none`, the Mac dialog’s starting value. Nothing else about a Factory is sent.
+
+### Factory icons
+
+A Factory icon tells the phone to draw what the Mac draws for that Factory, in the same colour:
+
+- `{"kind":"letter","color":…}`: the Factory name’s first character, uppercase. A Factory with no icon of its own gets a letter in the automatic colour the Mac’s sidebar gives it (`factoryColors` in `packages/protocol/src/factory-icon.ts`), worked out from every Factory in sidebar order.
+- `{"kind":"symbol","symbol":…,"color":…}`: one of the Mac’s Lucide symbols, by the name in `factoryIconSymbols`.
+- `{"kind":"emoji","emoji":…}`.
+- `{"kind":"image","version":…}`: the Factory’s own image. The reply carries only `version`, a hash of the image, because one image can be up to 32 KB. The phone asks for the image with `factory-icon`, keeps it, and asks again only when `version` changes; until it has the image it draws its own letter.
+
+`color` is one of `factoryIconColors`. A phone that doesn’t know a `kind` draws its own letter.
+
+### `factory-icon`
+
+Answers `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}` for a Factory whose icon is an image, with the same `version` the Factory icon shows. An unknown Factory gets `gone`. A Factory without an image icon, or one whose image would take the reply past `phoneReplyBodyMax`, gets `refused`, and the phone keeps drawing its own letter. The Mac shrinks uploaded images to 64 by 64 pixels, so they fit.
 
 ### `task-create`
 
