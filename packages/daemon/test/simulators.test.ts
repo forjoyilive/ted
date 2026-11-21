@@ -268,14 +268,6 @@ describe('iOS simulator Apps', () => {
     const clone = (await stubDevices()).find((d) => d.name === 'Ted Dev NB-1 iPhone')
     expect(clone?.state).toBe('Booted')
     expect((await stubCalls()).some((c) => c[0] === 'simctl' && c[1] === 'clone')).toBe(true)
-    expect(
-      (await stubCalls()).some(
-        (c) =>
-          c.includes('-g') &&
-          c.includes('com.apple.iphonesimulator') &&
-          c.includes(clone?.udid ?? ''),
-      ),
-    ).toBe(true)
     const line = await waitUntil(
       async () =>
         (await client.ok<{ text: string }>('GET', `/tasks/${task.id}/apps/widgets/iPhone/log`)).text
@@ -293,6 +285,7 @@ describe('iOS simulator Apps', () => {
       ['NB-1', 'iPhone', false],
     ])
 
+    expect((await stubCalls()).filter((c) => c.includes('-b'))).toEqual([])
     await client.ok('POST', `/tasks/${task.id}/apps/show`, { name: 'iPhone' })
     expect(
       (await stubCalls()).some(
