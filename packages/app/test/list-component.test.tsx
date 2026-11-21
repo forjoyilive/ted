@@ -602,11 +602,13 @@ test('selected Ready for Work Tasks offer both Resume and Stop in their context 
   })
 })
 
-test.each(['Archive', 'Delete'])(
-  'bulk %s keeps a later Task failure visible inside its confirmation',
-  async (label) => {
+test.each([
+  { label: 'Archive', method: 'archiveTask', confirmationCloses: true },
+  { label: 'Delete', method: 'deleteTask', confirmationCloses: false },
+])(
+  'bulk $label reports a later Task failure and leaves confirmation closed: $confirmationCloses',
+  async ({ label, method, confirmationCloses }) => {
     const a = await list()
-    const method = label === 'Archive' ? 'archiveTask' : 'deleteTask'
     a.handle(
       method,
       vi.fn(async (id: unknown) => {
@@ -623,7 +625,8 @@ test.each(['Archive', 'Delete'])(
     )
     const dialog = await screen.findByRole('dialog', { name: `${label} 2 Tasks?` })
     await user().click(within(dialog).getByRole('button', { name: `${label} 2 Tasks` }))
-    const error = await within(dialog).findByRole('alert')
+    const error = await (confirmationCloses ? screen : within(dialog)).findByRole('alert')
+    expect(dialog.isConnected).toBe(!confirmationCloses)
     expect(error.textContent).toContain('MS-1: Request refused')
     expect(error.textContent).toContain('Some selected Tasks may already have changed.')
     expect(a.request).toHaveBeenCalledWith(method, 'NB-1', expect.anything())
