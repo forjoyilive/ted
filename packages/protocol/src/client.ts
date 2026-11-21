@@ -2058,11 +2058,15 @@ export class DaemonClient {
   sendRunMessage(
     id: string,
     text: string,
-    { interrupt = false }: { interrupt?: boolean } = {},
+    {
+      interrupt = false,
+      attachments = [],
+    }: { interrupt?: boolean; attachments?: AttachmentRef[] } = {},
   ): Promise<RunMessage> {
     return this.#request('POST', `/runs/${encodeURIComponent(id)}/messages`, {
       text,
       ...(interrupt && { interrupt }),
+      ...(attachments.length > 0 && { attachments }),
     })
   }
 

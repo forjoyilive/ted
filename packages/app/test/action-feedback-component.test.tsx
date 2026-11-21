@@ -212,7 +212,7 @@ test('keyboard chat submission shows pending on Send and keeps the draft after a
   const button = screen.getByRole('button', { name: 'Send' })
   expect(button.getAttribute('aria-busy')).toBe('true')
   fireEvent.click(button)
-  expect(send).toHaveBeenCalledExactlyOnceWith('Keep this draft', false)
+  expect(send).toHaveBeenCalledExactlyOnceWith('Keep this draft', false, [])
   await act(async () => completion.reject(new Error('Couldn’t send')))
   expect(screen.getByRole('alert').textContent).toBe('Couldn’t send')
   expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Keep this draft')

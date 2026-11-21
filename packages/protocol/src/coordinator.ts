@@ -2,6 +2,7 @@ import type { AutomationCard } from './automation-card.ts'
 import type { RunMessage } from './chat.ts'
 import type { ChatAgent, ChatRequest } from './chat-agent.ts'
 import type {
+  AttachmentRef,
   ClarifyDepth,
   Comment,
   DescriptionVersion,
@@ -150,6 +151,7 @@ export interface RenameCoordinatorChatRequest {
 
 export interface CoordinatorMessage {
   text: string
+  attachments?: AttachmentRef[]
   agentId?: string
   agent?: TaskLead['agent']
   model?: string

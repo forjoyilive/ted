@@ -1,5 +1,6 @@
 import type {
   AgentSummary,
+  AttachmentRef,
   ChatAgent,
   CoordinatorConfirmation,
   CoordinatorReceipt,
@@ -135,6 +136,7 @@ export function CoordinatorStart({
           endedPlaceholder={placeholder}
           help={help}
           interrupt={false}
+          attach={false}
           box={box}
           send={async (message) => {
             const started = await ted.startCoordinatorChat(factory.id, {
@@ -321,7 +323,11 @@ export function CoordinatorChat({
                 working: status === 'working' || status === 'queued' || status === 'paused',
                 interrupt: false,
                 box,
-                send: (message: string) => ted.messageCoordinator(chatId, { text: message }),
+                send: (message: string, _interrupt: boolean, attachments: AttachmentRef[]) =>
+                  ted.messageCoordinator(chatId, {
+                    text: message,
+                    ...(attachments.length > 0 && { attachments }),
+                  }),
                 stopTurn: () => ted.stopCoordinator(chatId),
                 stopOutside: () => void ted.stopOutsideCommand(chatId),
               }),

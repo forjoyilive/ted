@@ -5,6 +5,7 @@ import type {
   AgentDraftAnswer,
   AgentSummary,
   AnswerRequest,
+  Attachment,
   Automation,
   AutomationCard,
   AutomationCardAnswer,
@@ -109,6 +110,7 @@ import type { MakeDirectory } from '../files.ts'
 import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
+import type { MessageWithFiles } from '../runs/message-files.ts'
 import { RunEndedBeforeInput, type RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import type { StoredChatAgent } from '../store/chats.ts'
@@ -277,8 +279,8 @@ export interface Coordinators {
   agentFiles(caller: Caller): Promise<AgentFilesForChat[]>
   statuses(): CoordinatorStatus[]
   start(factoryId: string, input: CoordinatorMessage): Promise<Coordinator>
-  message(chatId: string, input: CoordinatorMessage): Promise<Coordinator>
-  send(runId: string, text: string): Promise<RunMessage>
+  message(chatId: string, input: MessageWithFiles): Promise<Coordinator>
+  send(runId: string, text: string, files?: readonly Attachment[]): Promise<RunMessage>
   stop(chatId: string): Promise<Coordinator>
   retry(chatId: string): Promise<Coordinator>
   list(caller: Caller, query: CoordinatorTaskQuery): Promise<CoordinatorTaskList>
@@ -1705,10 +1707,10 @@ export function createCoordinators(options: {
     async message(id, input) {
       const c = requireChat(id)
       notChanging(id)
-      await service.send(c.runId, input.text)
+      await service.send(c.runId, input.text, input.files)
       return publicChat(requireChat(id))
     },
-    async send(runId, text) {
+    async send(runId, text, files = []) {
       if (closed) throw new RequestError(503, 'The Coordinator is shutting down')
       const c = saved.forRun(runId)
       if (!c || c.runId !== runId)
@@ -1722,7 +1724,7 @@ export function createCoordinators(options: {
       if (text.trim() === '' || text.length > 100_000)
         throw new RequestError(400, 'message must contain 1–100000 characters')
       if (c.phase === 'failed') throw new RequestError(409, 'Retry the Coordinator before sending')
-      const message = store.queueRunMessage({ runId, text })
+      const message = store.queueRunMessage({ runId, text, files })
       if (c.phase !== 'working') save({ ...c, phase: 'queued' })
       await store.persisted()
       if (store.getRun(runId)) steering.syncQueuedFlag(runId)
@@ -1803,8 +1805,10 @@ export function createCoordinators(options: {
             opening: store.getRun(latest.runId) ? latest.opening : '',
             unsentMessages: [
               ...(latest.unsentMessages ?? []),
-              ...canceled.flatMap(({ from, id, runId, text, at }) =>
-                from === 'ted' ? [] : [{ id, runId, text, at }],
+              ...canceled.flatMap(({ from, id, runId, text, at, attachments }) =>
+                from === 'ted'
+                  ? []
+                  : [{ id, runId, text, at, ...(attachments && { attachments }) }],
               ),
             ],
           },

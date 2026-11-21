@@ -1,7 +1,7 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { Run, RunMessage } from '@ted/protocol'
+import type { Attachment, Run, RunMessage } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import type { RunInterrupt, TedStore } from '../store/index.ts'
 import { runFiles } from './host-files.ts'
@@ -19,7 +19,11 @@ export interface Steering {
   addSource(source: SteeringSource): void
   changed(runId: string): Promise<void>
   refresh(runId: string): Promise<void>
-  send(runId: string, text: string, options: { interrupt: boolean }): Promise<RunMessage>
+  send(
+    runId: string,
+    text: string,
+    options: { interrupt: boolean; files?: readonly Attachment[] },
+  ): Promise<RunMessage>
   stopTurn(runId: string): Promise<void>
   sendNow(runId: string, messageId: string): Promise<RunMessage>
   remove(runId: string, messageId: string): RunMessage
@@ -379,11 +383,11 @@ export function createSteering(options: {
         })
       }
     },
-    async send(runId, text, { interrupt }) {
+    async send(runId, text, { interrupt, files = [] }) {
       const run = requireLive(runId)
       if (run.state === 'working') {
         if (interrupt) store.recordTurnInterrupted(runId, false)
-        const message = store.queueRunMessage({ runId, text })
+        const message = store.queueRunMessage({ runId, text, files })
         releaseAll(run)
         if (interrupt) interruptThenDeliver(run, message)
         else syncFlag(runId)
@@ -392,14 +396,14 @@ export function createSteering(options: {
       return serially(runId, async () => {
         const live = requireLive(runId)
         if (live.state === 'working' || !options.canDeliver(runId, false)) {
-          const message = store.queueRunMessage({ runId, text })
+          const message = store.queueRunMessage({ runId, text, files })
           releaseAll(live)
           syncFlag(runId)
           return message
         }
         await deliver(live, queued(runId), { includeHeld: true })
         await runs.send(runId, text)
-        return store.recordRunMessage({ runId, text, lead: isCurrentLead(live) })
+        return store.recordRunMessage({ runId, text, lead: isCurrentLead(live), files })
       })
     },
     async stopTurn(runId) {
@@ -422,7 +426,13 @@ export function createSteering(options: {
       } else {
         await serially(runId, () => deliver(run, [message], { first: message.id }))
       }
-      return { id: message.id, runId, text: message.text, at: message.at }
+      return {
+        id: message.id,
+        runId,
+        text: message.text,
+        ...(message.attachments && { attachments: message.attachments }),
+        at: message.at,
+      }
     },
     remove(runId, messageId) {
       if (!store.getRun(runId)) throw new RequestError(404, 'no such Run')

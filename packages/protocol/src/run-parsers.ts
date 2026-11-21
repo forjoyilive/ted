@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import type { SendRunMessageRequest } from './chat.ts'
+import { reader, type Untyped } from './parse.ts'
 import {
   type AgentKind,
   agentKindList,
@@ -10,7 +11,12 @@ import {
   type StartSubAgentRequest,
 } from './run.ts'
 import { type Effort, efforts, isModelName } from './task.ts'
+import { parseAttachmentRefs } from './task-parsers.ts'
 import { RequestValidationError as HttpError } from './validation.ts'
+
+const read = reader((message) => {
+  throw new HttpError(400, message)
+})
 
 export function parseStartSubAgentRequest(body: unknown): StartSubAgentRequest {
   const input = (body ?? {}) as Partial<Record<keyof StartSubAgentRequest, unknown>>
@@ -55,14 +61,19 @@ export function parseSendSubAgentRequest(value: unknown): SendSubAgentRequest {
   return { text }
 }
 
-export function parseSendRunMessageRequest(value: unknown): SendRunMessageRequest {
-  const body = value as Partial<SendRunMessageRequest> | null
-  const text = typeof body?.text === 'string' ? body.text.trim() : ''
-  if (text === '') throw new HttpError(400, 'text is required')
-  if (body?.interrupt !== undefined && typeof body.interrupt !== 'boolean') {
-    throw new HttpError(400, 'interrupt must be true or false')
+export function parseSendRunMessageRequest(value: Untyped): SendRunMessageRequest {
+  const body = read.object(value ?? {}, 'message')
+  const text = read.optional(body, 'text', read.string)?.trim() ?? ''
+  const interrupt = read.optional(body, 'interrupt', (object, field) =>
+    read.boolean(object, field, 'interrupt must be true or false'),
+  )
+  const attachments = parseAttachmentRefs(body.attachments)
+  if (text === '' && attachments.length === 0) throw new HttpError(400, 'text is required')
+  return {
+    text,
+    interrupt: interrupt === true,
+    ...(attachments.length > 0 && { attachments }),
   }
-  return { text, interrupt: body?.interrupt === true }
 }
 
 export function parseStartDevRunRequest(value: unknown): StartDevRunRequest {

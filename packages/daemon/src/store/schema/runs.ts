@@ -92,6 +92,7 @@ export const runMessages = State.SQLite.table({
     queued: State.SQLite.boolean({ default: false }),
     fromTed: State.SQLite.boolean({ default: false }),
     deletedAt: State.SQLite.text({ nullable: true }),
+    files: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -340,6 +341,21 @@ export const runsEvents = {
       from: Schema.String,
     }),
   }),
+  runMessageFilesAttached: Events.synced({
+    name: 'v1.RunMessageFilesAttached',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      files: Schema.Array(
+        Schema.Struct({
+          hash: Schema.String,
+          name: Schema.String,
+          size: Schema.Number,
+          mediaType: Schema.String,
+        }),
+      ),
+    }),
+  }),
   runMessageDelivered: Events.synced({
     name: 'v1.RunMessageDelivered',
     schema: Schema.Struct({
@@ -531,6 +547,8 @@ export const runsMaterializers = State.SQLite.materializers(runsEvents, {
     runMessages.insert({ id, runId, text, at, queued: true }),
   'v2.RunMessageQueued': ({ id, runId, taskId, text, at, from }) =>
     runMessages.insert({ id, runId, taskId, text, at, queued: true, fromTed: from === 'ted' }),
+  'v1.RunMessageFilesAttached': ({ id, files }) =>
+    runMessages.update({ files: JSON.stringify(files) }).where({ id }),
   'v1.RunMessageDelivered': ({ id }) => runMessages.update({ queued: false }).where({ id }),
   'v1.RunMessageDeleted': ({ id, at }) =>
     runMessages.update({ deletedAt: at, queued: false }).where({ id }),

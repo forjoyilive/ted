@@ -5,7 +5,7 @@ import type {
   ResumePlanRequest,
   StartPlanRequest,
 } from './plan.ts'
-import { parseProposalInput, parseRoundInput } from './task-parsers.ts'
+import { parseAttachmentRefs, parseProposalInput, parseRoundInput } from './task-parsers.ts'
 import { agentChoice, bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
 export function parseStartPlanRequest(value: unknown): StartPlanRequest {
@@ -35,11 +35,15 @@ export function parseRenamePlanRequest(value: unknown): RenamePlanRequest {
 }
 
 export function parseResumePlanRequest(value: unknown): ResumePlanRequest {
-  const { message } = bodyObject(value)
+  const { message, attachments } = bodyObject(value)
   if (message !== undefined && typeof message !== 'string') {
     throw new HttpError(400, 'message must be text')
   }
-  return typeof message === 'string' ? { message } : {}
+  const files = parseAttachmentRefs(attachments)
+  return {
+    ...(typeof message === 'string' && { message }),
+    ...(files.length > 0 && { attachments: files }),
+  }
 }
 
 export function parsePostPlanRequest(value: unknown): PostPlanRequest {

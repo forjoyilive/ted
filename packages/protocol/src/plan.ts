@@ -1,6 +1,14 @@
 import type { ChatAgent } from './chat-agent.ts'
 import type { AgentKind } from './run.ts'
-import type { CommentAnswer, Effort, Proposal, Round, StageId, TaskStatus } from './task.ts'
+import type {
+  AttachmentRef,
+  CommentAnswer,
+  Effort,
+  Proposal,
+  Round,
+  StageId,
+  TaskStatus,
+} from './task.ts'
 
 export const planTitleLength = 200
 
@@ -126,6 +134,7 @@ export function openPlanRequest(requests: readonly PlanRequest[]): PlanRequest |
 
 export interface ResumePlanRequest {
   message?: string
+  attachments?: AttachmentRef[]
 }
 
 export interface RenamePlanRequest {

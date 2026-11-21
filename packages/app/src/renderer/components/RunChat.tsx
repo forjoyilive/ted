@@ -1,11 +1,29 @@
 // Adapted from agent-orchestrator (Apache-2.0): frontend/src/renderer/components/chat/
 // ActivityRun.tsx and ChatTimelineItems.tsx. Ted changed: CSS Modules and RunChat items, its own
 // grouping of calls (tool-groups.ts), and Edit rows that expand to their diff.
-import type { RunChat as Chat, ChatDiff, ChatItem, MessageBox, RunSummary } from '@ted/protocol'
+import type {
+  Attachment,
+  AttachmentRef,
+  RunChat as Chat,
+  ChatDiff,
+  ChatItem,
+  MessageBox,
+  RunSummary,
+} from '@ted/protocol'
 import { localFolderLine, notedNotRepository, repoShortName } from '@ted/protocol/local-folder'
-import { memo, type ReactNode, useEffect, useState } from 'react'
+import {
+  createContext,
+  memo,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChatState } from '../data.ts'
+import { useFileDrop } from '../file-drop.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
@@ -13,9 +31,13 @@ import { conversationRows } from '../task-conversations.ts'
 import { readableError, ted } from '../ted.ts'
 import { type ToolGroup, toolGroupSummary, toolGroups } from '../tool-groups.ts'
 import { ActionButton } from './ActionButton.tsx'
+import { AttachButton, useAttachFiles } from './AttachFiles.tsx'
+import { AttachmentTiles } from './AttachmentTiles.tsx'
 import { AgentAvatar, PersonAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
 import column from './ChatColumn.module.css'
+import { CommentFiles } from './CommentFiles.tsx'
+import { DropOverlay } from './DropOverlay.tsx'
 import { EventLine } from './EventLine.tsx'
 import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
@@ -416,6 +438,7 @@ function HumanMessage({
         .filter((part) => part !== undefined)
         .join(' · ')}
       text={item.text}
+      files={item.attachments}
       queued={queued}
     >
       {queued && (
@@ -434,11 +457,13 @@ function HumanMessage({
 export function PersonMessage({
   when,
   text,
+  files = [],
   queued = false,
   children,
 }: {
   when: string
   text: string
+  files?: readonly Attachment[] | undefined
   queued?: boolean
   children?: ReactNode
 }) {
@@ -452,7 +477,8 @@ export function PersonMessage({
           <span className={styles.when}>{when}</span>
           {children}
         </div>
-        <Markdown className={styles.text} text={text} />
+        {text !== '' && <Markdown className={styles.text} text={text} />}
+        {files.length > 0 && <CommentFiles files={files} />}
       </div>
     </div>
   )
@@ -672,7 +698,7 @@ export interface ChatOptions {
   live?: boolean
   working?: boolean
   interrupt?: false
-  send?: (text: string) => Promise<unknown>
+  send?: (text: string, interrupt: boolean, attachments: AttachmentRef[]) => Promise<unknown>
   stopTurn?: () => Promise<unknown>
   stopOutside?: () => void
   box?: MessageBox
@@ -696,12 +722,22 @@ function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }
       box={options.box ?? { kind: 'run', id: run.id }}
       send={
         options.send ??
-        ((text, interrupt) => ted.sendRunMessage(run.id, text, { interrupt: interrupt && working }))
+        ((text, interrupt, attachments) =>
+          ted.sendRunMessage(run.id, text, {
+            interrupt: interrupt && working,
+            ...(attachments.length > 0 && { attachments }),
+          }))
       }
       stopTurn={options.stopTurn ?? (() => ted.interruptRun(run.id))}
     />
   )
 }
+
+type DropReceiver = (files: File[]) => void
+
+const ChatDrop = createContext<RefObject<(() => DropReceiver | undefined) | undefined> | undefined>(
+  undefined,
+)
 
 export function Composer({
   live,
@@ -712,6 +748,7 @@ export function Composer({
   help,
   endedNote,
   interrupt = true,
+  attach: attaches = true,
   box,
   send: sendText,
   stopTurn: stopRequest,
@@ -724,25 +761,39 @@ export function Composer({
   help: string
   endedNote?: string | undefined
   interrupt?: boolean
+  attach?: boolean
   box?: MessageBox | undefined
-  send: (text: string, interrupt: boolean) => Promise<unknown>
+  send: (text: string, interrupt: boolean, attachments: AttachmentRef[]) => Promise<unknown>
   stopTurn: () => Promise<unknown>
 }) {
   const draft = useMessageDraft(box)
-  const { text, setText } = draft
+  const { text, setText, attachments: files, setAttachments: setFiles } = draft
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [interrupting, setInterrupting] = useState(false)
   const [error, setError] = useState<string>()
-  const typed = text.trim() !== ''
+  const { uploading, attach, onPaste } = useAttachFiles({ setFiles, setError })
+  const drop = useContext(ChatDrop)
+  const ready = (text.trim() !== '' || (attaches && files.length > 0)) && uploading === 0
+
+  useEffect(() => {
+    if (!drop || !attaches) return
+    drop.current = () => (live ? attach : undefined)
+    return () => {
+      drop.current = undefined
+    }
+  })
 
   async function send(interrupting: boolean) {
-    if (!typed || sending || !live) return
+    if (!ready || sending || !live) return
     setSending(true)
     setInterrupting(interrupting)
     setError(undefined)
+    const refs = attaches
+      ? files.map(({ hash, name, mediaType }) => ({ hash, name, mediaType }))
+      : []
     try {
-      await sendText(text, interrupting)
+      await sendText(text, interrupting, refs)
       draft.clear()
     } catch (failed) {
       setError(readableError(failed))
@@ -773,14 +824,27 @@ export function Composer({
         disabled={!live}
         value={text}
         onChange={(event) => setText(event.target.value)}
-        onKeyDown={sendOnEnter((command) => send(command))}
+        {...(attaches && live && { onPaste })}
+        onKeyDown={sendOnEnter(
+          (command) => send(command),
+          (typed) => typed.trim() !== '' || (attaches && files.length > 0),
+        )}
       />
+      {attaches && (files.length > 0 || uploading > 0) && (
+        <AttachmentTiles
+          files={files}
+          uploading={uploading > 0}
+          onRemove={(a) => setFiles((current) => current.filter((c) => c !== a))}
+        />
+      )}
       {error !== undefined && (
         <p className={styles.error} role="alert">
           {error}
         </p>
       )}
       <div className={styles.buttons}>
+        {attaches && live && <AttachButton pending={uploading > 0} onPick={attach} />}
+        <span className={styles.spacer} />
         {live && (
           <Button
             aria-label="Stop the turn"
@@ -794,7 +858,7 @@ export function Composer({
         {live && interrupt && (
           <Button
             shortcut="⌘↵"
-            disabled={sending || !typed || !working}
+            disabled={sending || !ready || !working}
             pending={sending && interrupting}
             onClick={() => send(true)}
           >
@@ -806,7 +870,7 @@ export function Composer({
           variant="primary"
           shortcut="↵"
           title={working ? 'Queues the message for the agent’s next step' : undefined}
-          disabled={sending || !typed || !live}
+          disabled={sending || !ready || !live}
           pending={sending && !interrupting}
           onClick={() => send(false)}
         >
@@ -1030,16 +1094,21 @@ export function ChatSection({
   onStopTask?: (() => void) | undefined
   options?: ChatOptions
 }) {
+  const receiver = useRef<(() => DropReceiver | undefined) | undefined>(undefined)
+  const drop = useFileDrop(() => receiver.current?.())
   return (
-    <section className={styles.chat} aria-label="Run chat">
+    <section className={styles.chat} aria-label="Run chat" {...drop.handlers}>
+      {drop.dragging && <DropOverlay caption="Files are added to your next message" />}
       {error && retry && <LoadingError error={error} retry={retry} />}
-      {chat ? (
-        <ChatBody chat={chat} onStopTask={onStopTask} options={options} />
-      ) : !error ? (
-        <div className={styles.loading}>
-          <Skeleton shape="history" label={loading} />
-        </div>
-      ) : null}
+      <ChatDrop.Provider value={receiver}>
+        {chat ? (
+          <ChatBody chat={chat} onStopTask={onStopTask} options={options} />
+        ) : !error ? (
+          <div className={styles.loading}>
+            <Skeleton shape="history" label={loading} />
+          </div>
+        ) : null}
+      </ChatDrop.Provider>
     </section>
   )
 }

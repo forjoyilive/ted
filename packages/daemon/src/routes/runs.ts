@@ -16,6 +16,7 @@ import {
 } from '../diagnostics.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { resolveReference } from '../references.ts'
+import { messageWithFiles } from '../runs/message-files.ts'
 import { jsonRoute, type Route, routePattern } from './route.ts'
 
 const maxWaitMs = 60_000
@@ -153,8 +154,15 @@ const routes: Route[] = [
   jsonRoute(parseSendRunMessageRequest, {
     method: 'POST',
     path: /^\/runs\/([^/]+)\/messages$/,
-    async handle({ body, params: [id = ''] }, { conversations }) {
-      return [201, await conversations.send(id, body.text, { interrupt: body.interrupt === true })]
+    async handle({ body, params: [id = ''] }, { conversations, attachments }) {
+      const message = await messageWithFiles(body.text, body.attachments, attachments)
+      return [
+        201,
+        await conversations.send(id, message.text, {
+          interrupt: body.interrupt === true,
+          files: message.files,
+        }),
+      ]
     },
   }),
   {

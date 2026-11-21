@@ -21,7 +21,11 @@ import {
   taskStatusKinds,
 } from './task.ts'
 import { readMoveReason } from './task-move.ts'
-import { parseCreateTaskRequest, parseSetTaskParentRequest } from './task-parsers.ts'
+import {
+  parseAttachmentRefs,
+  parseCreateTaskRequest,
+  parseSetTaskParentRequest,
+} from './task-parsers.ts'
 import { agentChoice, bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
 const maxMessageLength = 8000
@@ -319,7 +323,13 @@ export function parseCoordinatorMessage(value: unknown): CoordinatorMessage {
   const body = bodyObject(value)
   if (typeof body.text !== 'string') throw new HttpError(400, 'text is required')
   const agentId = parseChatAgentId(body.agentId)
-  return { text: body.text, ...agentChoice(body), ...(agentId !== undefined && { agentId }) }
+  const attachments = parseAttachmentRefs(body.attachments)
+  return {
+    text: body.text,
+    ...agentChoice(body),
+    ...(agentId !== undefined && { agentId }),
+    ...(attachments.length > 0 && { attachments }),
+  }
 }
 
 export function parseRenameCoordinatorChatRequest(value: Untyped): RenameCoordinatorChatRequest {

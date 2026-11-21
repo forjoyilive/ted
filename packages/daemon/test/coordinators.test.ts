@@ -1523,8 +1523,26 @@ test('two human messages waiting when the Run ends resume as one turn with two s
   ])
   const first = 'Look at the release Tasks first.'
   const second = JSON.stringify({ steps: [{ say: 'Resumed reply' }, { endTurn: true }] })
-  await s.message({ text: first })
+  if (!daemon) throw new Error('no daemon')
+  const list = await new DaemonClient({ port: s.port, token: '', pid: 0, version: 'test' }, '', {
+    appKey: daemon.appToken,
+  }).uploadAttachment({ name: 'release.md', mediaType: 'text/markdown' }, new Uint8Array([35]))
+  const ref = { hash: list.hash, name: list.name, mediaType: list.mediaType }
+  expect(
+    (
+      await s.client.call('POST', `${s.base}/messages`, {
+        text: 'Unknown',
+        attachments: [{ ...ref, hash: 'e'.repeat(64) }],
+      })
+    ).status,
+  ).toBe(400)
+  await s.message({ text: first, attachments: [ref] })
   await s.message({ text: second })
+  expect(
+    (await s.ok<RunChat>('GET', `${s.base}/chat`)).items.find(
+      (i) => i.kind === 'human' && i.queued === true,
+    ),
+  ).toMatchObject({ text: first, attachments: [list] })
   await writeFile(path.join(scratch, 'fail'), '')
   const chat = await waitUntil(async () => {
     if ((await s.chat()).status === 'failed') throw new Error('the chat failed instead of resuming')
@@ -1538,6 +1556,18 @@ test('two human messages waiting when the Run ends resume as one turn with two s
     { human: first, sent: true },
     { human: second, sent: true },
   ])
+  expect(chat.items.filter((i) => i.kind === 'human').map((i) => i.attachments)).toEqual([
+    undefined,
+    [list],
+    undefined,
+  ])
+  expect(
+    chat.items.some(
+      (i) =>
+        i.kind === 'ted' &&
+        i.text.includes(`- release.md: ${path.join(home, 'attachments', `${list.hash}.md`)}`),
+    ),
+  ).toBe(false)
 })
 
 test('an opening prompt that carries two pending messages shows each as its own sent bubble', async () => {

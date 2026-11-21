@@ -2,6 +2,7 @@ import type {
   AgentKind,
   AgentSummary,
   AnswerRequest,
+  AttachmentRef,
   ChatRequest,
   Effort,
   Factory,
@@ -838,7 +839,11 @@ function PlanChat({
                     working: false,
                     interrupt: false,
                     help: 'Sending resumes the planner and gives it your message.',
-                    send: (text: string) => ted.resumePlan(plan.id, { message: text }),
+                    send: (text: string, _interrupt: boolean, attachments: AttachmentRef[]) =>
+                      ted.resumePlan(plan.id, {
+                        message: text,
+                        ...(attachments.length > 0 && { attachments }),
+                      }),
                   }
                 : { readOnly }))}
         />

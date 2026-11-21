@@ -1,17 +1,15 @@
 import type { CommentBox as BoxState, RunSummary, Task } from '@ted/protocol'
-import { type ClipboardEvent, type RefObject, useEffect, useRef, useState } from 'react'
+import { type RefObject, useEffect, useRef, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { readableError, ted } from '../ted.ts'
-import { ActionButton } from './ActionButton.tsx'
+import { AttachButton, useAttachFiles } from './AttachFiles.tsx'
 import { AttachmentTiles } from './AttachmentTiles.tsx'
 import { Button } from './Button.tsx'
 import styles from './CommentBox.module.css'
 import { Help } from './Help.tsx'
-import { PaperclipIcon, StopIcon } from './icons.tsx'
+import { StopIcon } from './icons.tsx'
 import grow from './TextGrow.module.css'
-
-const maxAttachmentBytes = 25 * 1024 * 1024
 
 const notes: Partial<Record<BoxState, string>> = {
   paused: 'The Task Lead reads this when it continues.',
@@ -46,8 +44,7 @@ export function CommentBox({
   const submitting = useRef(false)
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string>()
-  const [uploading, setUploading] = useState(0)
-  const fileInput = useRef<HTMLInputElement>(null)
+  const { uploading, attach, onPaste } = useAttachFiles({ setFiles, setError })
   const composer = useRef<HTMLFieldSetElement>(null)
   const direct =
     state === 'live' &&
@@ -82,39 +79,6 @@ export function CommentBox({
         Archived Tasks are read-only. Unarchive to comment.
       </p>
     )
-  }
-
-  async function attach(picked: readonly File[]) {
-    const tooBig = picked.find((file) => file.size > maxAttachmentBytes)
-    if (tooBig) {
-      setError(`${tooBig.name} is over 25 MB.`)
-      return
-    }
-    setError(undefined)
-    setUploading((n) => n + picked.length)
-    for (const file of picked) {
-      try {
-        const bytes = new Uint8Array(await file.arrayBuffer())
-        const name = file.name || `pasted.${file.type.split('/')[1] ?? 'bin'}`
-        const added = await ted.uploadAttachment({ name, mediaType: file.type }, bytes)
-        setFiles((current) =>
-          current.some((a) => a.hash === added.hash && a.name === added.name)
-            ? current
-            : [...current, added],
-        )
-      } catch (failure) {
-        setError(`Couldn’t attach ${file.name}: ${readableError(failure)}`)
-      } finally {
-        setUploading((n) => n - 1)
-      }
-    }
-  }
-
-  function onPaste(event: ClipboardEvent) {
-    const pasted = [...event.clipboardData.files]
-    if (pasted.length === 0) return
-    event.preventDefault()
-    void attach(pasted)
   }
 
   async function send(then?: 'resume' | 'follow-up', interrupting = false) {
@@ -199,27 +163,7 @@ export function CommentBox({
         </p>
       )}
       <div className={styles.buttons}>
-        <ActionButton
-          type="button"
-          className={styles.attach}
-          pending={uploading > 0}
-          aria-label="Attach files"
-          title="Attach files — or drop or paste them into the box"
-          onClick={() => fileInput.current?.click()}
-        >
-          <PaperclipIcon />
-        </ActionButton>
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          hidden
-          aria-label="Choose files to attach"
-          onChange={(event) => {
-            attach([...(event.target.files ?? [])])
-            event.target.value = ''
-          }}
-        />
+        <AttachButton pending={uploading > 0} onPick={attach} />
         <span className={styles.spacer} />
         {direct && run && (
           <Button

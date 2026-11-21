@@ -164,6 +164,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
       { name: 'build-without-tests', command: 'pnpm release build <version> --skip-checks' },
       { name: 'publish', command: 'pnpm release publish' },
       { name: 'discard', command: 'pnpm release discard' },
+      { name: 'update', command: 'pnpm update-installed --yes --skip-checks' },
     ],
   })
   const build = await asked(first.id)
