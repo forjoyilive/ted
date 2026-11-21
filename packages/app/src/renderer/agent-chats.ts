@@ -2,8 +2,10 @@ import type { Coordinator, CoordinatorChatSummary, Plan } from '@ted/protocol'
 import {
   chatArchivedLabel,
   chatWaitingLabel,
+  coordinatorRetryable,
   coordinatorStatusLabels,
   coordinatorStoppable,
+  planMenuResumable,
   planStoppable,
   planWaiting,
 } from '@ted/protocol/agent-chat-view'
@@ -52,22 +54,19 @@ export function coordinatorChatState(
     ref: { agent: 'coordinator', id: chat.id },
     archived,
     stoppable: coordinatorStoppable(chat),
-    ...(!archived &&
-      !chat.chatAgent.removed &&
-      chat.status === 'failed' && { restart: 'Retry' as const }),
+    ...(coordinatorRetryable(chat) && { restart: 'Retry' as const }),
     planMore: false,
   }
 }
 
 export function planChatState(plan: Pick<Plan, 'id' | 'status' | 'archivedAt'>): ChatState {
   const archived = plan.archivedAt !== undefined
-  const restart =
-    plan.status === 'failed' ? 'Retry' : plan.status === 'stopped' ? 'Resume' : undefined
+  const restart = plan.status === 'failed' ? 'Retry' : 'Resume'
   return {
     ref: { agent: 'planner', id: plan.id },
     archived,
     stoppable: planStoppable(plan),
-    ...(!archived && restart !== undefined && { restart }),
+    ...(planMenuResumable(plan) && { restart }),
     planMore: archived || planEnded(plan),
   }
 }

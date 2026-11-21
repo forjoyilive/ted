@@ -16,6 +16,7 @@ import {
   parsePhoneChatItemsBody,
   parsePhoneChatMessageBody,
   parsePhoneChatsBody,
+  phoneChatChangeRoutes,
   type RunChat,
   type RunMessage,
   type StartPlanRequest,
@@ -149,6 +150,31 @@ function changes(w: World): PhoneChatChanges {
       w.stopped.push(id)
       return found
     },
+    async retryCoordinator(id) {
+      refuse()
+      const found = chat(id)
+      if (found.status !== 'failed') throw new RequestError(409, 'The Coordinator has not failed')
+      found.status = 'working'
+      return found
+    },
+    async archiveCoordinator(id) {
+      const found = chat(id)
+      found.endedAt = '2026-11-03T00:00:00.000Z'
+      return found
+    },
+    async unarchiveCoordinator(id) {
+      const found = chat(id)
+      delete found.endedAt
+      return found
+    },
+    async renameCoordinator(id, title) {
+      const found = chat(id)
+      found.title = title
+      return found
+    },
+    async deleteCoordinator(id) {
+      w.coordinators.delete(chat(id).id)
+    },
     async startCoordinator(factoryId, input) {
       refuse()
       if (input.agentId === 'nobody') throw new RequestError(404, 'This Factory has no Agent')
@@ -172,11 +198,41 @@ function changes(w: World): PhoneChatChanges {
         ...(queued && { queued: true }),
       } satisfies RunMessage
     },
-    async resumePlan(id, _, message) {
-      planOf(id)
+    async resumePlan(id, phone, message) {
+      expect(phone).toEqual(caller)
+      const found = planOf(id)
       refuse()
-      w.posted.push({ to: id, text: message.text })
-      return planOf(id)
+      if (message !== undefined) {
+        w.posted.push({ to: id, text: message.text })
+      } else if (found.canResume === true) {
+        found.status = 'working'
+        delete found.canResume
+      } else {
+        throw new RequestError(409, 'only a planning chat whose Run ended can be resumed')
+      }
+      return found
+    },
+    async archivePlan(id, phone) {
+      expect(phone).toEqual(caller)
+      const found = planOf(id)
+      found.archivedAt = '2026-11-03T00:00:00.000Z'
+      return found
+    },
+    async unarchivePlan(id, phone) {
+      expect(phone).toEqual(caller)
+      const found = planOf(id)
+      delete found.archivedAt
+      return found
+    },
+    async renamePlan(id, title, phone) {
+      expect(phone).toEqual(caller)
+      const found = planOf(id)
+      found.title = title
+      return found
+    },
+    async deletePlan(id, phone) {
+      expect(phone).toEqual(caller)
+      w.plans.delete(planOf(id).id)
     },
     async stopPlan(id, phone) {
       expect(phone).toEqual(caller)
@@ -342,6 +398,51 @@ test('chat-stop stops a Coordinator chat or a planning chat as the phone', async
   expect(w.stopped).toEqual(['c-busy', 'p-live'])
 })
 
+test.each(['coordinator', 'plan'] as const)(
+  'the chat management routes change a %s chat as the user',
+  async (chatKind) => {
+    const w = world()
+    const chatId = 'retry-chat'
+    const chat = coordinator(chatId, 'failed')
+    const planning = plan(chatId, 'failed', { canResume: true })
+    w.coordinators.set(chatId, chat)
+    w.plans.set(chatId, planning)
+    const ctx = context(w)
+    const ref = { chatKind, chatId }
+    const target = chatKind === 'coordinator' ? chat : planning
+
+    expect(body(await call(ctx, { ...ref, route: 'chat-retry' }))).toEqual({ changed: true })
+    expect(target.status).toBe('working')
+    expect(w.posted).toEqual([])
+    expect(body(await call(ctx, { ...ref, route: 'chat-rename', title: 'New title' }))).toEqual({
+      changed: true,
+    })
+    expect(target.title).toBe('New title')
+    expect(await call(ctx, { ...ref, route: 'chat-rename' })).toEqual({ code: 'bad-request' })
+    expect(body(await call(ctx, { ...ref, route: 'chat-archive' }))).toEqual({ changed: true })
+    const archive = () => (chatKind === 'coordinator' ? chat.endedAt : planning.archivedAt)
+    expect(archive()).toBeDefined()
+    expect(body(await call(ctx, { ...ref, route: 'chat-unarchive' }))).toEqual({ changed: true })
+    expect(archive()).toBeUndefined()
+    expect(body(await call(ctx, { ...ref, route: 'chat-delete' }))).toEqual({ changed: true })
+    expect(await call(ctx, { ...ref, route: 'chat-delete' })).toEqual({ code: 'gone' })
+    expect((chatKind === 'coordinator' ? w.plans : w.coordinators).has(chatId)).toBe(true)
+  },
+)
+
+test('restarting a working chat returns the Mac’s refusal', async () => {
+  expect(
+    await call(context(world()), {
+      route: 'chat-retry',
+      chatKind: 'coordinator',
+      chatId: 'c-busy',
+    }),
+  ).toEqual({ code: 'refused', message: 'The Coordinator has not failed' })
+  expect(
+    await call(context(world()), { route: 'chat-retry', chatKind: 'plan', chatId: 'p-live' }),
+  ).toEqual({ code: 'refused', message: 'only a planning chat whose Run ended can be resumed' })
+})
+
 test('chat-agents lists the picker’s Agents in its order, with the Planner marked', async () => {
   const w = world()
   const ctx = context(w)
@@ -425,7 +526,13 @@ test('a repeated chat-create createId starts one chat and returns it, even after
 
 test('the write routes refuse a request missing a field', async () => {
   const ctx = context(world())
-  for (const route of ['chat-message', 'chat-stop', 'chat-agents', 'chat-create'] as const) {
+  for (const route of [
+    'chat-message',
+    'chat-stop',
+    'chat-agents',
+    'chat-create',
+    ...phoneChatChangeRoutes,
+  ]) {
     expect(await call(ctx, { route })).toEqual({ code: 'bad-request' })
   }
 })
@@ -502,6 +609,13 @@ test('the chat row says whether the phone can write or stop, and a waiting messa
     ...parsePhoneChatsBody(body(await chats.list(undefined, false, undefined))).rows,
     ...parsePhoneChatsBody(body(await chats.list(undefined, true, undefined))).rows,
   ]
+  const actions = (id: string) => rows.find((row) => row.id === id)?.actions
+  expect(actions('c-working')).toEqual(['stop', 'rename', 'archive', 'delete'])
+  expect(actions('c-ready')).toEqual(['rename', 'archive', 'delete'])
+  expect(actions('c-failed')).toEqual(['retry', 'rename', 'archive', 'delete'])
+  expect(actions('c-archived')).toEqual(['unarchive', 'delete'])
+  expect(actions('p-resumable')).toEqual(['resume', 'rename', 'archive', 'delete'])
+  expect(actions('p-archived')).toEqual(['unarchive', 'delete'])
   const state = (id: string) => {
     const row = rows.find((each) => each.id === id)
     return row && { send: row.send, offReason: row.offReason, canStop: row.canStop }
@@ -510,7 +624,7 @@ test('the chat row says whether the phone can write or stop, and a waiting messa
   expect(state('c-ready')).toEqual({ send: 'live', canStop: false })
   expect(state('c-failed')).toEqual({
     send: 'off',
-    offReason: 'This chat failed. Retry it on your Mac.',
+    offReason: 'This chat failed. Retry it to send a message.',
     canStop: false,
   })
   expect(state('c-removed')).toMatchObject({ send: 'off', canStop: false })

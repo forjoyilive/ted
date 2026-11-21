@@ -12,6 +12,7 @@ import {
   encodeChatItemsCursor,
   encodeChatsCursor,
   type OutsideCommandAsk,
+  type PhoneChatAction,
   type PhoneChatDetailLine,
   type PhoneChatFactory,
   type PhoneChatItem,
@@ -47,9 +48,11 @@ import {
   chatRequestLabels,
   chatWaitingLabel,
   conversationRows,
+  coordinatorRetryable,
   coordinatorStatusLabels,
   coordinatorStoppable,
   planHasEnded,
+  planMenuResumable,
   planStatusLabel,
   planStoppable,
   planWaiting,
@@ -180,7 +183,7 @@ export function coordinatorSend(
     return { send: 'off', offReason: 'This Agent was removed from the Factory’s Agent files.' }
   }
   if (chat.status === 'failed') {
-    return { send: 'off', offReason: 'This chat failed. Retry it on your Mac.' }
+    return { send: 'off', offReason: 'This chat failed. Retry it to send a message.' }
   }
   return { send: 'live' }
 }
@@ -198,6 +201,18 @@ export function planSend(
     return { send: 'off', offReason: 'The planner hasn’t started yet.' }
   }
   return { send: 'live' }
+}
+
+function chatMenu(
+  archived: boolean,
+  canStop: boolean,
+  restart: 'retry' | 'resume' | undefined,
+): PhoneChatAction[] {
+  if (archived) return ['unarchive', 'delete']
+  const first = canStop ? 'stop' : restart
+  const actions: PhoneChatAction[] = ['rename', 'archive', 'delete']
+  if (first !== undefined) actions.unshift(first)
+  return actions
 }
 
 function plain(text: string, max: number): string {
@@ -650,6 +665,7 @@ export function createPhoneChats(source: PhoneChatSource): PhoneChats {
     factories: readonly PhoneTaskFactory[],
   ): PhoneChatRow {
     const archived = chat.endedAt !== undefined
+    const canStop = coordinatorStoppable(chat)
     const waiting = !archived && chat.waiting
     const agent = chat.chatAgent.name
     return {
@@ -671,12 +687,14 @@ export function createPhoneChats(source: PhoneChatSource): PhoneChats {
       archived,
       lastAt: chat.lastAt,
       ...coordinatorSend(chat),
-      canStop: coordinatorStoppable(chat),
+      canStop,
+      actions: chatMenu(archived, canStop, coordinatorRetryable(chat) ? 'retry' : undefined),
     }
   }
 
   function planRow(plan: Plan, factories: readonly PhoneTaskFactory[]): PhoneChatRow {
     const archived = plan.archivedAt !== undefined
+    const canStop = planStoppable(plan)
     const agent = plan.chatAgent.name
     return {
       kind: 'plan',
@@ -690,7 +708,8 @@ export function createPhoneChats(source: PhoneChatSource): PhoneChats {
       archived,
       lastAt: plan.lastAt,
       ...planSend(plan),
-      canStop: planStoppable(plan),
+      canStop,
+      actions: chatMenu(archived, canStop, planMenuResumable(plan) ? 'resume' : undefined),
     }
   }
 
