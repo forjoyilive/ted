@@ -87,6 +87,7 @@ export interface AppRepo {
   worktree: string
   env: Record<string, string>
   apps: AppDeclaration[]
+  preview?: { scope: NonNullable<AppTask['sandbox']>; env: Record<string, string> }
 }
 
 export interface AppTask {
@@ -178,6 +179,7 @@ export interface StartOptions {
   shutDown?: string
   reason?: string
   confirmed?: { declaration?: string }
+  preview?: true
 }
 
 export interface AppsOptions {
@@ -714,6 +716,9 @@ export function createApps(options: AppsOptions): Apps {
     restarting: boolean,
   ): Promise<TaskApp> {
     const { task, repo, app } = await find(taskId, ref)
+    if (app.previewOnly && (start.preview !== true || !repo.preview || by !== 'task-lead')) {
+      throw new RequestError(403, `Ted starts ${app.name} only as a paired preview dependency`)
+    }
     refuseUnconfirmed(task, repo, app, by, start.confirmed ?? {})
     const { runId } = start
     let restart = restarting
@@ -826,7 +831,7 @@ export function createApps(options: AppsOptions): Apps {
       const ports = await allocate(taskId, task)
       const vars = appVars(task, ports)
       const portVars: Record<string, string> = port === undefined ? {} : { PORT: String(port) }
-      const scope = by === 'human' ? undefined : task.sandbox
+      const scope = repo.preview?.scope ?? (by === 'human' ? undefined : task.sandbox)
       const electron = app.electron === true && port !== undefined
       const electronVars = electron ? electronEnv(port, by, scope !== undefined) : {}
       const driven = electron && by !== 'human'
@@ -849,6 +854,7 @@ export function createApps(options: AppsOptions): Apps {
           ...launchVars,
           ...electronVars,
           TED_TASK: task.displayId,
+          ...repo.preview?.env,
         },
         options.env?.() ?? process.env,
       )
@@ -1263,7 +1269,9 @@ export function createApps(options: AppsOptions): Apps {
         if (!supportedApp(app)) continue
         const approval = outsideSandboxApproval(repo, app)
         const ask =
-          task.sandbox !== undefined && !approvedOutsideSandbox(task.outsideSandbox, approval)
+          !app.previewOnly &&
+          task.sandbox !== undefined &&
+          !approvedOutsideSandbox(task.outsideSandbox, approval)
         apps.push({
           ...toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name))),
           ...(ask && { confirmOutsideSandbox: true, outsideSandboxApproval: approval }),
@@ -1283,7 +1291,7 @@ export function createApps(options: AppsOptions): Apps {
     const root = taskDir(taskId)
     const found: { repo: string; app: AppDeclaration; instance: Instance }[] = []
     for (const repoName of safeDirs(root)) {
-      const declared = task.repos.find((r) => r.name === repoName)?.apps ?? []
+      const declared = task.repos.filter((r) => r.name === repoName).flatMap((r) => r.apps)
       for (const appSlug of safeDirs(path.join(root, repoName))) {
         if (declared.some((a) => slug(a.name) === appSlug)) continue
         const instance = await readInstance(path.join(root, repoName, appSlug))
@@ -1463,6 +1471,8 @@ export function createApps(options: AppsOptions): Apps {
     },
     async restart(taskId, ref, by, declaration) {
       const { task, repo, app } = await find(taskId, ref)
+      if (app.previewOnly)
+        throw new RequestError(403, `Restart the paired iPhone App to restart ${app.name}`)
       const confirmed = { ...(declaration !== undefined && { declaration }) }
       refuseUnconfirmed(task, repo, app, by, confirmed)
       return serial(keyOf(taskId, repo.name, app.name), async () => {

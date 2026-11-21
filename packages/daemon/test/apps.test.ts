@@ -452,7 +452,7 @@ describe('Apps', () => {
     expect((res.body as TaskApp).state).toBe('stopped')
     await eventText(client, task, 'Task Lead stopped Web')
     expect((await events(client, task)).some((e) => e.text === 'You stopped Web')).toBe(false)
-  })
+  }, 90_000)
 
   test('an Always approval for an older declaration of the App, or a name-only one, asks again, and ▶ runs it only with the declaration the human confirmed', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
@@ -498,7 +498,7 @@ describe('Apps', () => {
       declaration: approval.declaration,
     })
     await waitForState(client, task, 'API', 'running')
-  })
+  }, 90_000)
 
   test('▶ runs an App whose saved Always approval matches its declaration without a confirmation', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })

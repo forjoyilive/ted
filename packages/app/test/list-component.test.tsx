@@ -2,7 +2,7 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
-import { expandFactory, required, user } from './support/component.ts'
+import { deferred, draftHandlers, expandFactory, required, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
 afterEach(() => vi.useRealTimers())
@@ -482,9 +482,17 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   expect(a.request).not.toHaveBeenCalledWith('setPriority', 'MS-1', 'medium')
 })
 
-test('bulk context-menu Archive confirms the group and lists the Tasks it unblocks', async () => {
+test('bulk context-menu Archive confirms the group and leaves New Task usable while pending', async () => {
   const a = await list()
-  a.handle('archiveTask', vi.fn())
+  const archive = deferred<void>()
+  const firstArchive = vi.fn().mockReturnValueOnce(archive.promise)
+  const created = task({ id: 'NB-3', displayId: 'NB-3', title: 'Create during archive' })
+  a.handle('archiveTask', firstArchive)
+  a.handle('checkAgentHealth', draftHandlers().checkAgentHealth)
+  a.handle(
+    'createTask',
+    vi.fn(() => created),
+  )
   await a.emitTask(
     task({ id: 'NB-2', displayId: 'NB-2', title: 'Sync notes', blockedBy: ['NB-1'] }),
   )
@@ -501,6 +509,27 @@ test('bulk context-menu Archive confirms the group and lists the Tasks it unbloc
   expect(within(unblocks).getByText('Sync notes')).toBeTruthy()
   expect(within(dialog).queryByRole('radio')).toBeNull()
   await user().click(within(dialog).getByRole('button', { name: 'Archive 2 Tasks' }))
+  try {
+    expect(screen.queryByRole('dialog', { name: 'Archive 2 Tasks?' })).toBeNull()
+    expect(firstArchive).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(window, { key: 'n', metaKey: true })
+    const form = await screen.findByRole('dialog', { name: 'New Task' })
+    const u = user()
+    const title = within(form).getByLabelText('Title')
+    await vi.waitFor(() => expect(title.matches(':disabled')).toBe(false))
+    await u.type(title, created.title)
+    const create = within(form).getByRole('button', { name: /^Create$/ })
+    await vi.waitFor(() => expect(create.matches(':disabled')).toBe(false))
+    await u.click(create)
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'New Task' })).toBeNull())
+    expect(a.request).toHaveBeenCalledWith(
+      'createTask',
+      expect.objectContaining({ title: created.title }),
+    )
+    expect(firstArchive).toHaveBeenCalledTimes(1)
+  } finally {
+    archive.resolve()
+  }
   for (const id of ['NB-1', 'MS-1'])
     await vi.waitFor(() =>
       expect(a.request).toHaveBeenCalledWith('archiveTask', id, { closePullRequests: false }),
@@ -608,15 +637,20 @@ test('selected Ready for Work Tasks offer both Resume and Stop in their context 
   })
 })
 
-test.each(['Archive', 'Delete'])(
-  'bulk %s keeps a later Task failure visible inside its confirmation',
-  async (label) => {
+test.each([
+  { label: 'Archive', method: 'archiveTask', confirmationCloses: true },
+  { label: 'Delete', method: 'deleteTask', confirmationCloses: false },
+])(
+  'bulk $label reports a later Task failure and leaves confirmation closed: $confirmationCloses',
+  async ({ label, method, confirmationCloses }) => {
     const a = await list()
-    const method = label === 'Archive' ? 'archiveTask' : 'deleteTask'
+    const pending = deferred<void>()
     a.handle(
       method,
       vi.fn(async (id: unknown) => {
-        if (id === 'MS-1') throw new Error('Request refused')
+        if (id !== 'MS-1') return
+        if (confirmationCloses) await pending.promise
+        throw new Error('Request refused')
       }),
     )
     for (const id of ['NB-1', 'MS-1'])
@@ -629,7 +663,20 @@ test.each(['Archive', 'Delete'])(
     )
     const dialog = await screen.findByRole('dialog', { name: `${label} 2 Tasks?` })
     await user().click(within(dialog).getByRole('button', { name: `${label} 2 Tasks` }))
-    const error = await within(dialog).findByRole('alert')
+    if (confirmationCloses) {
+      try {
+        await vi.waitFor(() =>
+          expect(a.request).toHaveBeenCalledWith(method, 'MS-1', expect.anything()),
+        )
+        expect(screen.queryByRole('alert')).toBeNull()
+        fireEvent.contextMenu(required(document.querySelector('[data-task="NB-2"]')))
+        await screen.findByRole('menu', { name: 'Task actions · NB-2' })
+      } finally {
+        pending.resolve()
+      }
+    }
+    const error = await (confirmationCloses ? screen : within(dialog)).findByRole('alert')
+    expect(dialog.isConnected).toBe(!confirmationCloses)
     expect(error.textContent).toContain('MS-1: Request refused')
     expect(error.textContent).toContain('Some selected Tasks may already have changed.')
     expect(a.request).toHaveBeenCalledWith(method, 'NB-1', expect.anything())
