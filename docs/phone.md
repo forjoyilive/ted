@@ -10,11 +10,9 @@ The Ted app on your iPhone shows your Inbox while you’re away from your Mac an
 2. Open Ted on your iPhone and scan the code.
 3. The phone and the Mac each show a six-digit code. Check they match, then choose **Approve** on the Mac.
 
-The phone asks for Face ID when you open it, and again after it has been in the background for five minutes.
-
 ## Notifications
 
-When a request comes in while you’re away from the Mac (2 minutes idle, or its screen locked), each paired phone gets one notification for it. Tapping it opens the request after Face ID. Each request notifies a phone once, even after you snooze it. Nothing is sent for requests that came in while you were using the Mac or before you paired the phone, for a request you’ve already answered or snoozed, or when Inbox notifications are off in Settings.
+When a request comes in while you’re away from the Mac (2 minutes idle, or its screen locked), each paired phone gets one notification for it. Tapping it opens the request. Each request notifies a phone once, even after you snooze it. Nothing is sent for requests that came in while you were using the Mac or before you paired the phone, for a request you’ve already answered or snoozed, or when Inbox notifications are off in Settings.
 
 A notification shows only the request’s title and a short headline, because Apple and Expo deliver it. A permission request’s command is never in a notification.
 

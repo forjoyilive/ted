@@ -331,7 +331,7 @@ A page holds as many entries as fit; `cursor` (the last entry’s time and ID, o
 
 ## Task actions
 
-Seven routes change a Task. Each runs the same Tasks module code as the Mac’s button, as the user, so the Mac’s own rules decide: when the daemon refuses, the phone gets `refused` with the daemon’s sentence, through `redactSecrets`. Every route takes `taskId`, a display ID (`TED-788`) or full ID of 1 to 200 characters. An unknown or archived Task gets `gone`, and a missing or wrong field gets `bad-request`. The protocol number doesn’t change: a Mac without these routes answers `unknown-route`. Nothing on the Mac turns them off; pairing the phone (and Face ID on the phone) is the gate.
+Seven routes change a Task. Each runs the same Tasks module code as the Mac’s button, as the user, so the Mac’s own rules decide: when the daemon refuses, the phone gets `refused` with the daemon’s sentence, through `redactSecrets`. Every route takes `taskId`, a display ID (`TED-788`) or full ID of 1 to 200 characters. An unknown or archived Task gets `gone`, and a missing or wrong field gets `bad-request`. The protocol number doesn’t change: a Mac without these routes answers `unknown-route`. Nothing on the Mac turns them off; pairing the phone is the gate.
 
 | Route | Fields | Does |
 | - | - | - |
@@ -349,7 +349,7 @@ A comment, or Resume text, from the phone is the user’s, but never sends the T
 
 ## New Task
 
-Two routes let the phone create a Task. The protocol number doesn’t change: a Mac without them answers `unknown-route`. Nothing on the Mac turns them off; pairing the phone (and Face ID on the phone) is the gate.
+Two routes let the phone create a Task. The protocol number doesn’t change: a Mac without them answers `unknown-route`. Nothing on the Mac turns them off; pairing the phone is the gate.
 
 ### `factories`
 
