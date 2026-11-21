@@ -52,6 +52,8 @@ import {
   type PhoneTaskCommentsBody,
   type PhoneTaskCreatedBody,
   type PhoneTaskGroup,
+  type PhoneTaskOptionsBody,
+  type PhoneTaskOverrides,
   type PhoneTasksBody,
   phoneCursorMax,
   phoneFactoryIdMax,
@@ -60,7 +62,8 @@ import {
   phoneTaskIdMax,
   phoneTaskTitleMax,
 } from './phone-tasks.ts'
-import { type Priority, priorities } from './task.ts'
+import { agentKinds } from './run.ts'
+import { clarifyDepths, efforts, isModelName, type Priority, priorities } from './task.ts'
 import { RequestValidationError } from './validation.ts'
 
 export const phoneProtocolVersion = 3
@@ -124,6 +127,8 @@ export const phoneRouteNames = [
   'task-delete',
   'factories',
   'task-create',
+  'task-create-options',
+  'task-create-with-options',
   'file-part',
   'file-done',
   'chats',
@@ -191,6 +196,8 @@ export type PhoneRequest =
       children?: 'archive' | 'detach' | 'delete' | 'unparent'
       closePullRequests?: boolean
       hierarchyRevision?: string
+      overrides?: PhoneTaskOverrides
+      includePiModels?: boolean
       createId?: string
       factory?: string
       factoryId?: string
@@ -260,6 +267,7 @@ export type PhoneReplyBody =
   | PhoneFactoriesBody
   | PhoneFactoryIconBody
   | PhoneTaskCreatedBody
+  | PhoneTaskOptionsBody
   | PhoneChatsBody
   | PhoneChatBody
   | PhoneChatItemsBody
@@ -629,7 +637,21 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       ...(children !== undefined && { children }),
     }
   }
-  if (route === 'task-create') {
+  if (route === 'task-create-options') {
+    const includePiModels = read.optional(object, 'includePiModels', read.boolean)
+    return {
+      ...header,
+      type,
+      route,
+      factory: factoryKey(object),
+      includePiModels: includePiModels ?? false,
+    }
+  }
+  if (route === 'task-create' || route === 'task-create-with-options') {
+    const overrides =
+      route === 'task-create-with-options'
+        ? readTaskOverrides(read.object(object.overrides, 'overrides'))
+        : undefined
     const title = read.optional(object, 'title', read.string)
     if (title !== undefined && title.length > phoneTaskTitleMax) {
       throw new ParseError('title', `title must be at most ${phoneTaskTitleMax} characters`)
@@ -648,6 +670,7 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       type,
       route,
       createId: base64Field(object, 'createId', 16),
+      ...(overrides && { overrides }),
       factory: factoryKey(object),
       ...(title !== undefined && { title }),
       ...(description !== undefined && { description }),
@@ -813,6 +836,38 @@ function chatRef(object: JsonObject): PhoneChatRef {
   return {
     chatKind: read.oneOf(object, 'chatKind', phoneChatKinds),
     chatId: chatText(object, 'chatId'),
+  }
+}
+
+function readTaskOverrides(object: JsonObject): PhoneTaskOverrides {
+  const clarifyDepth = read.optional(object, 'clarifyDepth', (o, f) =>
+    read.oneOf(o, f, clarifyDepths),
+  )
+  const lead = read.optional(object, 'lead', (o, f) => {
+    const fields = read.object(o[f], f)
+    const agent = read.oneOf(fields, 'agent', agentKinds)
+    const model = read.optional(fields, 'model', read.string)
+    if (model !== undefined && !isModelName(model))
+      throw new ParseError('model', 'invalid model name')
+    const effort = read.optional(fields, 'effort', (value, name) =>
+      read.oneOf(value, name, efforts),
+    )
+    const effortMode = read.optional(fields, 'effortMode', (value, name) =>
+      read.oneOf(value, name, ['stage'] as const),
+    )
+    return {
+      agent,
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && { effort }),
+      ...(effortMode !== undefined && { effortMode }),
+    }
+  })
+  if (clarifyDepth === undefined && lead === undefined) {
+    throw new ParseError('overrides', 'give at least one New Task override')
+  }
+  return {
+    ...(clarifyDepth !== undefined && { clarifyDepth }),
+    ...(lead !== undefined && { lead }),
   }
 }
 

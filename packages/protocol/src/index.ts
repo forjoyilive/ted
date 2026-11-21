@@ -1152,6 +1152,7 @@ export {
   type DesignFileInput,
   type DesignReview,
   type DesignReviewInput,
+  defaultModelChoices,
   type EditTaskRequest,
   type Effort,
   efforts,

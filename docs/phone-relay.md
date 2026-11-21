@@ -402,7 +402,7 @@ A comment, or Resume text, from the phone is the user’s, but never sends the T
 
 ## New Task
 
-Two routes let the phone create a Task. The protocol number doesn’t change: a Mac without them answers `unknown-route`. Nothing on the Mac turns them off; pairing the phone is the gate.
+The phone creates a Task using the basic or advanced route below. The protocol number doesn’t change: a Mac without a route answers `unknown-route`. Nothing on the Mac turns them off; pairing the phone is the gate.
 
 ### `factories`
 
@@ -429,6 +429,10 @@ A Factory icon tells the phone to draw what the Mac draws for that Factory, in t
 
 Answers `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}` for a Factory whose icon is an image, with the same `version` the Factory icon shows. An unknown Factory gets `gone`. A Factory without an image icon, or one whose image would take the reply past `phoneReplyBodyMax`, gets `refused`, and the phone keeps drawing its own letter. The Mac shrinks uploaded images to 64 by 64 pixels, so they fit.
 
+### `task-create-options`
+
+Send the selected Factory’s key as `factory`. The Mac replies with `{ "taskOptions": { "clarifyDepth": "auto", "lead": { "agent": "codex", "effortMode": "stage" }, "providers": [{ "agent": "codex", "models": ["gpt-6.2-sol"] }] } }`. The defaults come from the same Factory settings the Mac’s form uses. Choices include only enabled Providers and up to 100 model names per Provider. Set `includePiModels` to `true` when opening the Pi model picker to include Pi’s installed model list. An unknown Factory returns `gone`. On a Mac that answers `unknown-route`, the phone can still use basic creation.
+
 ### `task-create`
 
 | Field | Rules |
@@ -444,6 +448,10 @@ Answers `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}` for
 A wrong type, a value past its limit, a bad `createId` or a bad `files` list gets `bad-request`. No other field is read: the Task Lead and Clarify depth are the Factory’s Task defaults, the same values the Mac’s New Task dialog starts with (the Workflow’s Clarify depth, and its lead adjusted for installed, enabled and paused agents), and there are no blockers or parent. An unknown `factory` is `refused` with “no Factory with key <key>”.
 
 The daemon creates the Task with the same Tasks module call as the Mac’s New Task dialog, as the user (`createdBy` is `human`), in Backlog. When the daemon refuses, for example an unknown Factory, the phone gets `refused` with the daemon’s sentence, through `redactSecrets`, and nothing is created. With `start` on, the daemon then starts the Task with the same call as the Mac’s Start button; if that start is refused, the Task stays in Backlog and the reply carries `startRefused` with the daemon’s sentence, through `redactSecrets`, cut to 500 characters. With `start` off, the Task stays in Backlog.
+
+### `task-create-with-options`
+
+Accepts the same fields as `task-create` plus an `overrides` object containing at least one of `clarifyDepth` or `lead`. Omitted settings use the Factory defaults. Clarify depth is `auto`, `none`, `few` or `grilling`. A lead includes `agent` and may include `model`, `effort` and `effortMode`. The Mac checks the model name and accepts the same effort values as the Mac form. Set `effortMode` to `stage` for Follow Stage settings. A wrong type or invalid value gets `bad-request`, and a Provider that is off gets `refused`. This route shares the basic route’s retry key and reply. If the Mac answers `unknown-route`, the phone keeps the draft and asks the user to update Ted.
 
 **Sending twice.** When a reply is lost, the phone sends the same `task-create` again as a new message (new `id`, nonce and `at`, because the daemon drops a repeated nonce and any `at` more than 120 seconds off) with the same `createId`. The daemon records `v1.PhoneTaskCreated` under the phone and `createId` in the same store commit that creates the Task, and waits for it to reach disk before it starts the Task or answers, so a resend, even after the Mac restarts, gets the first Task as it is now and creates nothing, whatever the other fields say. Two sends with the same `createId` at once share one create. A resend for a Task since deleted or archived gets `gone`. A refused create records nothing, so the phone may send it again. The `createId` belongs to one phone: the same value from another phone is a different Task. The `createId` check comes before the files are looked at, so a resend still gets the first Task after its files were used up.
 

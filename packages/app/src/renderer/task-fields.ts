@@ -1,4 +1,13 @@
-import type { AgentKind, ClarifyDepth, Priority, Task, TaskLead } from '@ted/protocol'
+import {
+  type AgentKind,
+  type ClarifyDepth,
+  defaultModelChoices,
+  type Priority,
+  type Task,
+  type TaskLead,
+} from '@ted/protocol'
+
+export const modelChoices = defaultModelChoices
 
 export const priorityLabels: Record<Priority, string> = {
   none: 'None',
@@ -28,13 +37,6 @@ export const agentLabels: Record<AgentKind, string> = {
   codex: 'Codex',
   antigravity: 'Antigravity',
   pi: 'Pi',
-}
-
-export const modelChoices: Record<AgentKind, readonly string[]> = {
-  claude: ['fable', 'opus', 'sonnet', 'haiku'],
-  codex: ['gpt-6.2-astra', 'gpt-6.2-sol', 'gpt-6.1-terra', 'gpt-6-luna'],
-  antigravity: [],
-  pi: [],
 }
 
 export function modelOptions(

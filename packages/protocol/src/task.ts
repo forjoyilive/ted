@@ -42,6 +42,13 @@ export const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as con
 
 export type Effort = (typeof efforts)[number]
 
+export const defaultModelChoices: Record<AgentKind, readonly string[]> = {
+  claude: ['fable', 'opus', 'sonnet', 'haiku'],
+  codex: ['gpt-6.2-astra', 'gpt-6.2-sol', 'gpt-6.1-terra', 'gpt-6-luna'],
+  antigravity: [],
+  pi: [],
+}
+
 export function isModelName(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/[\]-]{0,127}$/.test(value)
 }
