@@ -1179,11 +1179,6 @@
       "count": 1
     }
   },
-  "packages/app/test/requests-component.test.tsx": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 2
-    }
-  },
   "packages/app/test/search-component.test.tsx": {
     "anti-slop/no-runtime-typeof": {
       "count": 1

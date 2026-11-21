@@ -302,7 +302,6 @@ export function createSimulators(options: {
           `Ted couldn’t boot ${record.device}: ${firstLine(result.stderr)}`,
         )
       }
-      await openViewer(record.udid, false)
       booted.add(record.udid)
     },
     async stop(record) {
@@ -337,15 +336,10 @@ export function createSimulators(options: {
     },
   }
 
-  async function openViewer(udid: string, front: boolean): Promise<SimctlResult> {
+  async function openViewer(udid: string): Promise<SimctlResult> {
     const failures: string[] = []
     for (const viewer of simulatorViewers) {
-      const result = await tools.open([
-        ...(front ? [] : ['-g']),
-        '-b',
-        viewer.bundle,
-        ...viewer.args(udid),
-      ])
+      const result = await tools.open(['-b', viewer.bundle, ...viewer.args(udid)])
       if (result.code === 0) return result
       failures.push(firstLine(result.stderr))
     }
@@ -412,7 +406,7 @@ export function createSimulators(options: {
     },
     async show(taskId, repo, name) {
       const record = needsLive(taskId, repo, name)
-      const opened = await openViewer(record.udid, true)
+      const opened = await openViewer(record.udid)
       if (opened.code !== 0) {
         throw new RequestError(
           409,
