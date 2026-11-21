@@ -247,7 +247,7 @@ export function PhonesPage() {
   return (
     <SettingsPage
       title="Phones"
-      subtitle="Answer Inbox requests from your iPhone when you’re away from this Mac. Requests reach the phone through an end-to-end encrypted relay, and the phone asks for Face ID when it opens."
+      subtitle="Answer Inbox requests from your iPhone when you’re away from this Mac. Requests reach the phone through an end-to-end encrypted relay."
     >
       {(problem ?? phones.error) && (
         <p className={styles.error} role="alert">
