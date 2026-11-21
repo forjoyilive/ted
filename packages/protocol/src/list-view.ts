@@ -36,6 +36,7 @@ export const listColumns = [
   'blocked-by',
   'created',
   'created-by',
+  'provider',
   'tokens',
   'started',
 ] as const

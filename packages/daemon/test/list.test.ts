@@ -274,7 +274,7 @@ describe('List views', () => {
     const view = {
       sort: 'priority',
       group: 'none',
-      columns: ['priority', 'id', 'title', 'tokens'],
+      columns: ['priority', 'id', 'title', 'provider', 'tokens'],
       filters: { statuses: ['queued'], archived: 'included' },
     }
     const saved = await client.ok<{ listViews: unknown }>('PATCH', '/settings', {
