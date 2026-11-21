@@ -214,7 +214,7 @@ export interface Apps {
   emulators(): SimulatorSlots
   show(taskId: string, ref: AppRef): Promise<TaskApp>
   screenshot(taskId: string, ref: AppRef): Promise<{ file: string; app: TaskApp }>
-  control(taskId: string, request: DeviceRequest): Promise<string>
+  control(taskId: string, request: DeviceRequest, scope?: 'ios'): Promise<string>
   record(
     taskId: string,
     ref: AppRef,
@@ -1501,7 +1501,17 @@ export function createApps(options: AppsOptions): Apps {
       const instance = await readInstance(dirOf(taskId, repo.name, app.name))
       return { file, app: toApp(taskId, repo.name, app, instance) }
     },
-    async control(taskId, request) {
+    async control(taskId, request, scope) {
+      if (scope === 'ios') {
+        const { repo, app } = await simulatorApp(taskId, request.app)
+        const instance = await readInstance(dirOf(taskId, repo.name, app.name))
+        if (stateOf(instance) !== 'running' || !instance?.builtAt)
+          throw new RequestError(
+            409,
+            `Start ${app.name} with ted run-app and wait for it to be ready`,
+          )
+        return sims.control(taskId, repo.name, app.name, request)
+      }
       const { repo, app } = await deviceApp(taskId, request.app)
       if (isEmulatorApp(app)) return emus.control(taskId, repo.name, app.name, request)
       if (request.action !== 'size') return sims.control(taskId, repo.name, app.name, request)

@@ -199,6 +199,13 @@ if (verb === 'io') {
         write(current)
         return ''
       }
+      case 'openurl': {
+        const [udid = '', url = ''] = rest
+        const target = device(current, udid)
+        if (target.state !== 'Booted' || !url.startsWith('ted-dev://pair?code='))
+          fail('Unable to open the pairing link', 149)
+        return ''
+      }
       case 'ui': {
         const [udid = '', what, value] = rest
         const target = device(current, udid)

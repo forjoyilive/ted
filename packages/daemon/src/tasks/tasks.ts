@@ -14527,9 +14527,21 @@ export function createTasks(options: {
       return { ...result, attachment: await saveRunCapture(runId, file, shown.name) }
     },
     async runDeviceCommand(runId, caller, request) {
+      if (caller.kind !== 'run' || caller.runId !== runId)
+        throw new RequestError(403, 'A Run can reach only its own Apps')
+      const taskId = store.getRun(runId)?.taskId
+      if (taskId && !store.automations.firing(runId)) {
+        const { task } = taskLead(taskId, caller, 'drives its iOS simulator')
+        if (task.archived || task.stopped || !validates(task.stage) || liveLead(task)?.id !== runId)
+          throw new RequestError(403, 'Only a live Validate Task Lead can drive its iOS simulator')
+        if (request.action !== 'screen' && request.action !== 'tap' && request.action !== 'pair')
+          throw new RequestError(403, 'Validate Task Leads can use screen, tap and pair')
+        if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
+        return { text: await apps.control(task.id, request, 'ios') }
+      }
       await ownedRun(runId, caller)
-      if (caller.kind !== 'run')
-        throw new RequestError(403, 'Only the Automation’s Run uses its Apps this way')
+      if (request.action === 'pair')
+        throw new RequestError(403, 'Only a Validate Task Lead can send a pairing code')
       if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
       if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
       if (request.action !== 'screenshot') return { text: await apps.control(runId, request) }

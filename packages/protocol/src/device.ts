@@ -4,6 +4,7 @@ import type { Attachment } from './task.ts'
 export const deviceActions = [
   'screen',
   'tap',
+  'pair',
   'type',
   'key',
   'swipe',
