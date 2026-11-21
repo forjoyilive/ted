@@ -125,6 +125,11 @@ test('a phone pairs over a signed login, the user approves it, and it reads stat
   expect(listed).toEqual([
     expect.objectContaining({ name: 'iPhone 16', lastReachedAt: expect.any(String) }),
   ])
+  const usage = await phone.send({ type: 'request', route: 'plan-usage' })
+  expect(usage).toMatchObject({ ok: true, body: { providers: expect.any(Array) } })
+  if (usage.ok && 'providers' in usage.body) {
+    expect(usage.body.providers).toContainEqual({ provider: 'pi' })
+  }
   expect(failure(await phone.send({ type: 'request', route: 'settings' }))).toBe('unknown-route')
   expect(failure(await phone.status(phoneProtocolVersion + 1))).toBe('too-new')
   expect(failure(await phone.status(2))).toBe('too-old')

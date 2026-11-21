@@ -1046,6 +1046,27 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
         images: phoneImages,
         problems: phoneProblemSource,
+        planUsage: () => {
+          const providers = health.list()
+          return {
+            providers: store.settings().enabledAgents.map((provider) => {
+              const usage = providers.find(({ agent }) => agent === provider)?.planUsage
+              return {
+                provider,
+                ...(usage?.windows.length && {
+                  usage: {
+                    at: usage.at,
+                    windows: usage.windows.map(({ window, percent, resetsAt }) => ({
+                      window,
+                      percent,
+                      ...(resetsAt !== undefined && { resetsAt }),
+                    })),
+                  },
+                }),
+              }
+            }),
+          }
+        },
         dismissProblem: banners.dismissProblem,
         keyrings: options.phones?.keyrings ?? osPhoneKeyrings,
         version: options.version,

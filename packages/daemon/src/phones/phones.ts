@@ -5,6 +5,7 @@ import {
   type PairedPhones,
   type PhonePairingOffer,
   type PhonePairingState,
+  type PhonePlanUsageBody,
   relayPhonesMax,
   relayUrl,
 } from '@ted/protocol'
@@ -40,6 +41,7 @@ export interface PhonesOptions {
   chatChanges: PhoneChatChanges
   images: PhoneImages
   problems: Pick<PhoneProblemSource, 'banners' | 'factoryName'>
+  planUsage(): PhonePlanUsageBody
   dismissProblem(id: string, raisedAt: string): Promise<void>
   keyrings: PhoneKeyrings
   version: string
@@ -231,6 +233,7 @@ export function createPhones(options: PhonesOptions): Phones {
         chatActions,
         images: options.images,
         problems: () => phoneProblems(options.problems),
+        planUsage: options.planUsage,
         dismissProblem: options.dismissProblem,
         setPushToken: (phoneId, token) => options.phones.setPushToken(phoneId, token),
       },
