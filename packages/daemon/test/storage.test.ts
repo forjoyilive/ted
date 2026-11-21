@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from 
 import { excludeFromTimeMachine } from '../src/disk.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { createSandbox } from '../src/sandbox.ts'
-import { createStorage } from '../src/storage.ts'
+import { createStorage, diskUsage } from '../src/storage.ts'
 import { openStorageLocations } from '../src/storage-locations.ts'
 import type { StoreContext } from '../src/store/context.ts'
 import type { TedStore } from '../src/store/index.ts'
@@ -371,6 +371,20 @@ describe('Changing storage folders', () => {
     expect((await client.call('GET', '/storage/folders')).body).toContainEqual(
       expect.objectContaining({ kind: 'backups', path: backups, available: true }),
     )
+    const backupBytes = await diskUsage(path.join(backups, daily))
+    const backupsBytes = await diskUsage(backups)
+    expect(backupBytes).toBeGreaterThan(0)
+    const refreshed = await client.call('GET', '/storage?refresh=1')
+    expect(refreshed.status).toBe(200)
+    expect(refreshed.body).toMatchObject({
+      backups: expect.arrayContaining([
+        expect.objectContaining({ name: daily, bytes: backupBytes }),
+      ]),
+      categories: expect.arrayContaining([
+        expect.objectContaining({ id: 'backups', bytes: backupsBytes }),
+      ]),
+      storeFiles: { backupsBytes },
+    })
 
     const unplugged = path.join(scratch, 'disconnected')
     await rename(external, unplugged)
@@ -378,7 +392,13 @@ describe('Changing storage folders', () => {
       expect.objectContaining({ kind: 'backups', available: false }),
     )
     expect((await client.call('POST', '/backups/restore', { name: daily })).status).toBe(409)
-    expect((await client.call('GET', '/storage?refresh=1')).status).toBe(200)
+    const disconnected = await client.call('GET', '/storage?refresh=1')
+    expect(disconnected.status).toBe(200)
+    expect(disconnected.body).toMatchObject({
+      backups: [],
+      categories: expect.arrayContaining([expect.objectContaining({ id: 'backups', bytes: 0 })]),
+      storeFiles: { backupsBytes: 0 },
+    })
     await rename(unplugged, external)
 
     expect((await client.call('POST', '/backups/restore', { name: daily })).status).toBe(200)
@@ -457,12 +477,46 @@ describe('Changing storage folders', () => {
     const external = path.join(await realpath(scratch), 'Ted Sandbox Caches')
     const env = await sandbox.buildCaches(cache)
     expect(env.GRADLE_USER_HOME).toBe(path.join(external, 'tasks', 'NB-1', 'cache', 'gradle'))
-    expect((await lstat(env.GRADLE_USER_HOME ?? '')).isDirectory()).toBe(true)
-    await rename(external, path.join(scratch, 'disconnected'))
+    const gradle = path.join(external, 'tasks', 'NB-1', 'cache', 'gradle')
+    expect((await lstat(gradle)).isDirectory()).toBe(true)
+    const initial = await client.call('GET', '/storage')
+    expect(initial.status).toBe(200)
+    await writeFile(path.join(gradle, 'package'), Buffer.alloc(8192, 1))
+    const bytes = await diskUsage(external)
+    const refreshed = await client.call('GET', '/storage?refresh=1')
+    expect(refreshed.status).toBe(200)
+    expect(refreshed.body).toMatchObject({
+      categories: expect.arrayContaining([
+        expect.objectContaining({ id: 'sandbox-caches', bytes }),
+      ]),
+    })
+
+    const marker = path.join(external, '.ted-storage-owner')
+    await rename(marker, path.join(scratch, 'disconnected'))
     await expect(sandbox.buildCaches(cache)).rejects.toThrow('Reconnect the drive')
     expect((await client.call('GET', '/storage/folders')).body).toContainEqual(
       expect.objectContaining({ kind: 'sandbox-caches', available: false }),
     )
+    const disconnected = await client.call('GET', '/storage?refresh=1')
+    expect(disconnected.status).toBe(200)
+    expect(disconnected.body).toMatchObject({
+      categories: expect.arrayContaining([
+        expect.objectContaining({ id: 'sandbox-caches', bytes: 0 }),
+      ]),
+    })
     await expect(lstat(cache)).rejects.toHaveProperty('code', 'ENOENT')
+
+    await daemon?.stop()
+    daemon = undefined
+    await rename(path.join(scratch, 'disconnected'), marker)
+    const storage = createStorage({
+      home,
+      locations,
+      store: { listTasks: () => [], listFactories: () => [] },
+      disk: { check: async () => undefined },
+      data: { summary: async () => ({ backups: [], activeRuns: 0 }) },
+      volumeName: async () => '',
+    })
+    expect((await storage.summary()).usedBytes).toBe(await diskUsage(await realpath(home)))
   })
 })

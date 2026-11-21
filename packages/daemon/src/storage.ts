@@ -48,10 +48,6 @@ export function createStorage(options: {
   const { store, disk } = options
   const now = options.now ?? Date.now
   const paths = tedPaths(options.home)
-  const backupsDir = options.locations?.configured('backups')
-    ? options.locations.active('backups')
-    : paths.backups
-  const caches = options.locations?.configured('sandbox-caches')
   let volume: string | undefined
   let saved: StorageSummary | undefined
   let measuring: Promise<StorageSummary> | undefined
@@ -60,13 +56,13 @@ export function createStorage(options: {
 
   const categoryDirs: Record<StorageCategoryId, string[]> = {
     worktrees: [paths.worktrees, paths.plans, paths.chatCode, paths.automationRuns],
-    'sandbox-caches': caches ? [caches] : [paths.sandbox, paths.seeds],
+    'sandbox-caches': [paths.sandbox, paths.seeds],
     simulators: [paths.simulators],
     clones: [paths.repos],
     'conversations-and-logs': [paths.logs, paths.runs, paths.apps],
     store: [paths.store],
     attachments: [paths.attachments, paths.phoneUploads],
-    backups: [backupsDir],
+    backups: [paths.backups],
     'scratch-worktrees': [paths.scratch],
   }
 
@@ -102,15 +98,24 @@ export function createStorage(options: {
 
   async function measure(signal: AbortSignal): Promise<StorageSummary> {
     const measuredAt = new Date(now()).toISOString()
-    const [home, reading, backups, storeFiles, names, removable, volumeName] = await Promise.all([
+    const backupLocation = options.locations?.status('backups')
+    const [
+      home,
+      reading,
+      backups,
+      backupFolder,
+      cacheFolder,
+      storeFiles,
+      names,
+      removable,
+      volumeName,
+    ] = await Promise.all([
       realpath(paths.home).catch(() => path.resolve(paths.home)),
       disk.check(),
-      options.locations
-        ? options.locations.requireAvailable('backups').then(
-            () => options.data.summary(),
-            () => ({ backups: [] }),
-          )
-        : options.data.summary(),
+      (async () =>
+        (await backupLocation)?.available === false ? { backups: [] } : options.data.summary())(),
+      backupLocation,
+      options.locations?.status('sandbox-caches'),
       storeFileSizes(paths.store),
       childDirs(paths.worktrees),
       unusedClones(),
@@ -121,12 +126,24 @@ export function createStorage(options: {
 
     const totals = new Map<string, UsageTotal>()
     const scanPath = (dir: string) => path.resolve(home, path.relative(paths.home, dir))
+    const backupsDir = backupFolder?.custom ? backupFolder.path : paths.backups
+    const backupScanDir = backupFolder?.custom ? backupFolder.path : scanPath(paths.backups)
+    const relocated = new Map<StorageCategoryId, StorageFolderLocation>()
+    if (backupFolder?.custom) relocated.set('backups', backupFolder)
+    if (cacheFolder?.custom) relocated.set('sandbox-caches', cacheFolder)
+    const roots = [home]
     const used = usageTotal()
     totals.set(home, used)
     const categoryLinks = new Set<string>()
     const categories = storageCategories.map(({ id, label }) => {
       const total = usageTotal(categoryLinks)
-      for (const dir of categoryDirs[id]) totals.set(scanPath(dir), total)
+      const folder = relocated.get(id)
+      if (!folder) {
+        for (const dir of categoryDirs[id]) totals.set(scanPath(dir), total)
+      } else if (folder.available) {
+        totals.set(folder.path, total)
+        roots.push(folder.path)
+      }
       return { id, label, total }
     })
     const tasks = new Map(store.listTasks().map((t) => [t.displayId, t]))
@@ -145,10 +162,10 @@ export function createStorage(options: {
     })
     const backupTotals = backups.backups.map((backup) => {
       const total = usageTotal()
-      totals.set(scanPath(path.join(backupsDir, backup.name)), total)
+      totals.set(path.join(backupScanDir, backup.name), total)
       return { backup, total }
     })
-    await scanUsage(home, totals, signal)
+    for (const root of roots) await scanUsage(root, totals, signal)
 
     const largestWorktrees: WorktreeUse[] = worktrees.map(({ task, total }) => ({
       taskId: task.id,
