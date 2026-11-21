@@ -947,8 +947,10 @@ describe('iOS simulator Apps', () => {
     expect(paired.status).toBe(200)
     expect(paired.body.text).toContain('Sent the pairing link')
     expect(paired.body.text).not.toContain(code)
-    expect((await stubCalls()).filter(([verb]) => verb === 'openurl')).toEqual([
-      ['openurl', clone?.udid, `ted-dev://pair?code=${encodeURIComponent(code)}`],
+    expect(
+      (await stubCalls()).filter(([tool, verb]) => tool === 'simctl' && verb === 'openurl'),
+    ).toEqual([
+      ['simctl', 'openurl', clone?.udid, `ted-dev://pair?code=${encodeURIComponent(code)}`],
     ])
   }, 60_000)
 
