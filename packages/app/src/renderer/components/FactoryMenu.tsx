@@ -140,7 +140,7 @@ export function FactoryMenu({
     { label: 'Move up', act: actions.onMoveUp, disabled: first },
     { label: 'Move down', act: actions.onMoveDown, disabled: last },
     { label: 'Move to Factory group…', act: () => setPage('groups'), keepOpen: true },
-    { label: 'Factory settings', act: actions.onSettings, divider: true },
+    { label: 'Configuration', act: actions.onSettings, divider: true },
     ...(factory.localFolder?.found === true
       ? [{ label: folderLabel, act: actions.onShowFolder }]
       : []),

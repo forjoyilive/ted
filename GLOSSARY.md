@@ -53,7 +53,7 @@ The short code at the start of a Factory’s Task IDs, such as NB in NB-41; uniq
 _Avoid_: Prefix, project key
 
 **Sandbox opening**:
-A setting that widens what sandboxed commands can reach or allows something to run outside the sandbox, listed in Factory settings → Sandbox. An opening that widens access keeps commands in the sandbox; one marked Unsandboxed allows commands outside it.
+A setting that widens what sandboxed commands can reach or allows something to run outside the sandbox, listed in Configuration → Sandbox. An opening that widens access keeps commands in the sandbox; one marked Unsandboxed allows commands outside it.
 _Avoid_: Escape hatch, sandbox bypass (when meaning any opening)
 
 **Workflow**:

@@ -305,7 +305,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
             : ` **${mergeAnywayChoice}** merges without waiting for the checks.`
         }${
           offerNoCi
-            ? ` **${noCiAgainChoice(target.name)}** merges now and saves “Pull request CI: None” for ${target.name} in the Factory settings, through a settings pull request Ted merges.`
+            ? ` **${noCiAgainChoice(target.name)}** merges now and saves “Pull request CI: None” for ${target.name} in Configuration, through a settings pull request Ted merges.`
             : ''
         }`,
       ].join('\n\n'),

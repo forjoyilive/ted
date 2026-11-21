@@ -712,7 +712,7 @@ test('App settings navigation selects real pages and Factory settings leaves the
     }
   }
   await user().click(within(nav).getByRole('button', { name: 'widgets' }))
-  await screen.findByRole('heading', { name: /widgets.*Settings/, level: 1 })
+  await screen.findByRole('heading', { name: /widgets.*Configuration/, level: 1 })
   expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
   expect(screen.getByRole('navigation', { name: 'Sidebar' })).toBeTruthy()
 })
@@ -741,7 +741,7 @@ test('Settings search lists a setting with its page, opens that page and marks t
 
   fireEvent.change(field, { target: { value: 'teardown' } })
   expect(nav.getAllByRole('option')[0]?.textContent).toBe(
-    'Teardown commandwidgets › Settings › Repos',
+    'Teardown commandwidgets › Configuration › Repos',
   )
 
   fireEvent.change(field, { target: { value: 'run' } })

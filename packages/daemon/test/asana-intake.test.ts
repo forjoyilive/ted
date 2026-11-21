@@ -510,7 +510,7 @@ test('the Asana template’s scheduled firings refuse without a scope or a conne
   const noScope = await fire()
   expect(noScope.row.result.kind).toBe('no-new-tasks')
   expect(noScope.results).toMatchObject([{ code: 1 }])
-  expect(noScope.results[0]?.stderr).toContain('Choose one in Factory settings first')
+  expect(noScope.results[0]?.stderr).toContain('Choose one in Configuration first')
 
   await connect(client)
   await client.setFactoryAsanaIntake(factory.id, scope)
