@@ -1,6 +1,12 @@
 import type { ChatRequestKind } from './chat-agent.ts'
 import type { Json, JsonObject } from './parse.ts'
 import { isInteger, isOneOf, isString, ParseError, reader, type Untyped } from './parse.ts'
+import {
+  type PhoneApproval,
+  type PhoneApprovalAnswer,
+  parsePhoneApproval,
+  parsePhoneApprovalAnswer,
+} from './phone-approvals.ts'
 import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
 import { type PhoneImage, parsePhoneImage } from './phone-images.ts'
 import { type PhoneTaskAction, phoneTaskActions } from './phone-tasks.ts'
@@ -38,6 +44,7 @@ export interface PhoneRequestSummary {
   failed?: true
   onPhone: boolean
   agentName?: string
+  approvalChatId?: string
   macReason?: string
   task?: PhoneRequestTask
 }
@@ -119,6 +126,7 @@ export interface PhoneDesign {
 }
 
 export type PhoneForm =
+  | { type: 'approval'; approval: PhoneApproval }
   | { type: 'choices'; choices: string[]; multiple: boolean; text: boolean }
   | { type: 'text' }
   | { type: 'round'; questions: PhoneRoundQuestion[] }
@@ -143,6 +151,7 @@ export interface PhoneRoundAnswer {
 }
 
 export type PhoneAnswer =
+  | PhoneApprovalAnswer
   | { action: 'answer'; choice?: string; choices?: string[]; text?: string }
   | { action: 'answer-round'; answers: PhoneRoundAnswer[] }
   | { action: 'approve' }
@@ -183,7 +192,7 @@ export type PhoneAnswerSubject =
     }
   | { source: 'plan'; kind: PlanRequestKind }
   | { source: 'automation' }
-  | { source: 'chat'; kind?: ChatRequestKind | 'automation' }
+  | { source: 'chat'; kind?: ChatRequestKind | 'automation' | 'confirmation' }
 
 export type PhoneAnswerability = { onPhone: true } | { onPhone: false; reason: string }
 
@@ -195,6 +204,8 @@ export function phoneAnswerability(subject: PhoneAnswerSubject): PhoneAnswerabil
       case 'question':
       case 'round':
       case 'proposal':
+      case 'confirmation':
+      case 'outside-command':
         return { onPhone: true }
       case 'agent':
       case 'automation':
@@ -266,7 +277,12 @@ export function parsePhoneAnswer(value: Untyped): PhoneAnswer {
     'approve',
     'deny',
     'request-changes',
+    'confirm-tasks',
+    'approve-command',
+    'stop-command',
   ])
+  if (action === 'confirm-tasks' || action === 'approve-command' || action === 'stop-command')
+    return parsePhoneApprovalAnswer(object, action)
   if (action === 'answer') {
     const choice = read.optional(object, 'choice', read.string)
     const choices = read.optional(object, 'choices', strings)
@@ -316,12 +332,14 @@ function parseRequestTask(value: Json): PhoneRequestTask {
 
 function optionalTextFields(
   object: JsonObject,
-): Pick<PhoneRequestSummary, 'agentName' | 'macReason'> {
+): Pick<PhoneRequestSummary, 'agentName' | 'macReason' | 'approvalChatId'> {
   const agentName = read.optional(object, 'agentName', read.string)
   const macReason = read.optional(object, 'macReason', read.string)
+  const approvalChatId = read.optional(object, 'approvalChatId', read.string)
   return {
     ...(agentName !== undefined && { agentName }),
     ...(macReason !== undefined && { macReason }),
+    ...(approvalChatId !== undefined && { approvalChatId }),
   }
 }
 
@@ -380,6 +398,7 @@ function parseProposalRow(value: Json, index: number): PhoneProposalRow {
 export function parsePhoneForm(value: Untyped): PhoneForm {
   const object = read.object(value, 'form')
   const type = read.oneOf(object, 'type', [
+    'approval',
     'choices',
     'text',
     'round',
@@ -390,6 +409,8 @@ export function parsePhoneForm(value: Untyped): PhoneForm {
     'mac',
   ])
   switch (type) {
+    case 'approval':
+      return { type, approval: parsePhoneApproval(object.approval) }
     case 'choices':
       return {
         type,

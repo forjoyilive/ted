@@ -231,7 +231,8 @@ The open requests from every Factory, in the desktop Inbox’s order, leaving ou
 - `headline`: at most 200 characters. `failed` appears only when the request comes from a failed Run.
 - `agentName`: the Agent’s display name for a chat or plan. The phone shows it with the chat’s title in the Inbox.
 - `onPhone`: whether the phone may answer it. Coordinator and Factory Agent questions, rounds and proposals, and planning questions, rounds and proposals use the same answer handlers as the Mac. A proposal approved on the phone creates Tasks with the Mac’s default proposal options.
-- `macReason`: an optional read-only message for the Inbox row. Agent drafts and Automation cards say “Review this on your Mac.” Confirmation cards and outside command approvals say “Answer this on your Mac.”
+- `approvalChatId`: the chat that owns a Coordinator confirmation, Coordinator move request or outside command approval. Send it as `chatId` on a `request` read to retrieve an answered approval after it leaves the Inbox.
+- `macReason`: an optional read-only message for the Inbox row. Agent drafts and Automation cards say “Review this on your Mac.”
 - `task`: only for `task`, and left out when the Task can’t be read. Its `id`, `priority` and `actions`, with `actions` as in a Task row below. The phone uses it for the row’s long-press menu; older phones ignore it.
 
 The daemon keeps the reply under the frame limit. When requests had to be left out, `more` counts them and the phone says how many more are on the Mac.
@@ -557,6 +558,23 @@ One item’s whole content, in pieces, for the phone’s detail screen: a tool c
 ```
 
 `kind` is `heading` (a section such as Detail, Output or a file path with its counts, as in `src/a.ts +3 −1`), `text`, `added`, `removed` or `context` (diff lines, starting with `+`, `-` or a space). A diff the Mac cut short ends with the text line “Longer than shown”. A line longer than 2,000 characters is split into several lines of the same kind. `offset` is the index of the first line to send, 0 when left out; the reply holds as many lines as fit from there, and `next` is the index to ask for next, left out after the last line. An item with nothing to open returns no lines. A Mac keeps a tool call’s output to 8,000 characters, its diffs to 400 lines per file and a command’s output to its last 4 KB, so the phone shows what the Mac shows.
+
+## Coordinator approvals
+
+The Inbox’s `request` reply carries `form: { type: "approval", approval }` for a Coordinator confirmation or outside command approval. In chat, `card` and `request` items can carry the same optional `approval`. Each approval has `kind`, `chatId`, `title` and `warnings`. The daemon uses the Mac’s existing handlers and sends refusals through `redactSecrets`. A card too large to show in full asks the user to open it on the Mac. Agent drafts and Automation cards keep their Mac review prompt.
+
+- A `confirmation` has `operation` (`archive`, `delete` or `transfer`) and `tasks`. Each Task has `id`, `label`, `working`, `descendants`, `blocked`, `blockedTogether` and `pullRequests`. The lists contain display text. A Task can carry default `children` and `closePullRequests` choices and an answered `result`. A move can carry a plan `revision` and a `refusal` that disables confirmation. An answered card carries `decision` (`confirm` or `cancel`).
+- An `outside-command` has `command`, optional `argument`, `repo`, `folder`, `runLabel`, `canAlways` and `revision`. An answered approval carries `result`. A running outside command has `stoppable: true` on its distinct `command` chat item.
+
+Use the existing `answer` route. Its `requestId` names the confirmation, Task move request or outside command approval being answered, or the running command item being stopped. The `answer` field takes one of these:
+
+| Action | Other fields |
+|---|---|
+| `confirm-tasks` | `chatId`, `decision` (`confirm` or `cancel`), optional `choices` keyed by Task ID with `children` (`archive`, `detach`, `delete`, `unparent`) and `closePullRequests` where the Mac offers them. Send the shown `revision` when confirming a Task move request. |
+| `approve-command` | `chatId`, `decision` (`run`, `always` or `decline`), and the shown `revision`. The daemon checks the shown revision under the Mac’s approval lock. |
+| `stop-command` | `chatId`. Stops only the outside command whose running item matches `requestId` in that chat. |
+
+Success is `{ "answered": true }`. A stale or already answered approval is refused using the daemon’s message. A Task confirmation can be recorded with individual Tasks refused, as on the Mac. Read the chat or the answered request details for those results. An approval leaves the waiting list when it is answered. The optional `chatId` on `request` reads and the additional fields and actions keep the existing protocol number.
 
 ## Chat actions
 

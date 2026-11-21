@@ -20,6 +20,7 @@ import {
   phoneChatTextMax,
   phoneReplyBodyMax,
   type RunChat,
+  type Task,
 } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { createPhoneChats, fitFactories, type PhoneChatSource } from '../src/phones/chats.ts'
@@ -353,7 +354,16 @@ test('chat-items pages a Coordinator chat back from the newest item, merged with
           operation: 'o',
           fingerprint: 'f',
           askedAt: minute(10),
-          tasks: [{ displayId: 'TED-1' }, { displayId: 'TED-2' }],
+          tasks: ['TED-1', 'TED-2'].map((displayId) => ({
+            id: displayId,
+            displayId,
+            title: 'Task',
+            stage: 'backlog',
+            working: false,
+            descendants: [],
+            blockedTasks: [],
+            pullRequests: [],
+          })),
         },
       ],
       requests: [
@@ -366,8 +376,8 @@ test('chat-items pages a Coordinator chat back from the newest item, merged with
           createdAt: minute(41),
         },
       ],
-      tasks: [{ id: 'task-1', displayId: 'TED-788' }],
-    } as Partial<Coordinator>),
+      tasks: [{ id: 'task-1', displayId: 'TED-788' } as Task],
+    }),
     chat: runChat(items),
   })
   world.chats = [summary('c1')]

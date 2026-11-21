@@ -522,7 +522,16 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       raisedAt: read.string(object, 'raisedAt'),
     }
   }
-  if (route === 'request') return { ...header, type, route, requestId: requestId(object) }
+  if (route === 'request') {
+    const chatId = read.optional(object, 'chatId', (o, f) => boundedText(o, f, 200))
+    return {
+      ...header,
+      type,
+      route,
+      requestId: requestId(object),
+      ...(chatId !== undefined && { chatId }),
+    }
+  }
   if (route === 'answer') {
     return {
       ...header,

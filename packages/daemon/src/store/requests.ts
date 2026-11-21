@@ -61,6 +61,7 @@ export interface RequestsArea {
   messageDraftFiles(taskId: string): Attachment[]
   filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
+  coordinatorMoves(chatId: string): Comment[]
   answerComment(
     id: string,
     answer: CommentAnswer,
@@ -321,6 +322,15 @@ export function requestsArea(ctx: StoreContext): RequestsArea {
         .map(toComment)
     },
     getComment,
+    coordinatorMoves(chatId) {
+      return store
+        .query(queryDb(comments.where({ authorKind: 'ted', kind: 'question' })))
+        .filter((row) => row.move !== null)
+        .map(toComment)
+        .filter(
+          (comment) => comment.move?.askedBy === 'coordinator' && comment.move.chatId === chatId,
+        )
+    },
     answerComment(id, answer, sending, autopilot = false, queueAnswer = false) {
       commit(
         events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }),

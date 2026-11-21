@@ -5,6 +5,7 @@ import {
   type ChatDiff,
   type ChatItem,
   type ChatRequest,
+  type Comment,
   type Coordinator,
   type CoordinatorChatSummary,
   type CoordinatorConfirmation,
@@ -13,6 +14,7 @@ import {
   encodeChatsCursor,
   type OutsideCommandAsk,
   type PhoneAnswerability,
+  type PhoneApproval,
   type PhoneChatAction,
   type PhoneChatDetailLine,
   type PhoneChatFactory,
@@ -61,6 +63,7 @@ import {
 } from '@ted/protocol/agent-chat-view'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
+import { confirmationApproval, outsideApproval, phoneApprovalFits } from './approvals.ts'
 import { cutChars, type Fitted, fitText, jsonBytes } from './fit.ts'
 import { phoneFactoryIcons } from './icons.ts'
 import type { PhoneOutcome } from './requests.ts'
@@ -69,6 +72,7 @@ import type { PhoneTaskFactory } from './tasks.ts'
 export interface PhoneCoordinatorChatRead {
   coordinator: Coordinator
   chat: RunChat
+  moves?: { comment: Comment; approval: PhoneApproval }[]
 }
 
 export interface PhonePlanRead {
@@ -92,6 +96,9 @@ export interface PhoneChatServices {
   plans(): Promise<Plan[]>
   plan(planId: string): Promise<PlanDetail>
   runConversation(runId: string): Promise<RunChat>
+  coordinatorMoves?(chatId: string): Comment[]
+  waitingMoveChats?(): ReadonlySet<string>
+  moveApproval?(comment: Comment): Promise<PhoneApproval | undefined>
 }
 
 async function unlessMissing<T>(read: () => Promise<T>): Promise<T | undefined> {
@@ -115,14 +122,26 @@ export function serviceChatSource(services: PhoneChatServices): PhoneChatSource 
               (await unlessMissing(() => services.coordinatorChats(factory.id))) ?? [],
           ),
       )
-      return lists.flat()
+      const waitingMoves = services.waitingMoveChats?.()
+      return lists
+        .flat()
+        .map((chat) =>
+          !chat.waiting && waitingMoves?.has(chat.id) ? { ...chat, waiting: true } : chat,
+        )
     },
     plans: () => services.plans(),
     async coordinatorChat(chatId) {
       const coordinator = await unlessMissing(() => services.coordinator(chatId))
       if (!coordinator) return undefined
       const chat = await unlessMissing(() => services.coordinatorConversation(chatId))
-      return chat && { coordinator, chat }
+      if (!chat) return undefined
+      const moves = await Promise.all(
+        (services.coordinatorMoves?.(chatId) ?? []).map(async (comment) => {
+          const approval = await services.moveApproval?.(comment)
+          return approval ? [{ comment, approval }] : []
+        }),
+      )
+      return { coordinator, chat, moves: moves.flat() }
     },
     async plan(planId) {
       const detail = await unlessMissing(() => services.plan(planId))
@@ -362,6 +381,7 @@ function chatItemEntry(item: ChatItem, agent: string, live: boolean): Entry | un
         item: {
           ...base,
           kind: 'command',
+          ...(item.outside && item.status === 'running' && { stoppable: true as const }),
           name: plain(item.name, phoneChatToolTitleMax),
           status: item.status,
           ...(item.exitCode !== undefined && { exitCode: item.exitCode }),
@@ -381,6 +401,7 @@ function requestEntry(
   body: string,
   open: boolean,
   answerability?: PhoneAnswerability,
+  approval?: PhoneApproval,
 ): Entry {
   return {
     item: {
@@ -390,6 +411,7 @@ function requestEntry(
       requestKind,
       title: plain(title, phoneChatTitleMax),
       ...shownText(body),
+      ...(approval && phoneApprovalFits(approval) && { approval }),
       open,
       ...(open &&
         answerability &&
@@ -462,7 +484,7 @@ function askedText(asked: Asked): string {
   return parts.filter((part) => part !== '').join('\n\n')
 }
 
-function chatRequestEntry(request: ChatRequest): Entry {
+function chatRequestEntry(chatId: string, request: ChatRequest): Entry {
   return requestEntry(
     request.id,
     request.createdAt,
@@ -470,7 +492,10 @@ function chatRequestEntry(request: ChatRequest): Entry {
     chatRequestTitle(request),
     askedText(request),
     request.answer === undefined,
-    phoneAnswerability({ source: 'chat', kind: request.kind }),
+    request.kind === 'outside-command'
+      ? { onPhone: false, reason: 'Open this approval on your Mac to review all of its details.' }
+      : phoneAnswerability({ source: 'chat', kind: request.kind }),
+    outsideApproval(chatId, request),
   )
 }
 
@@ -489,9 +514,24 @@ function planRequestEntry(request: PlanRequest): Entry {
   )
 }
 
-function cardEntry(id: string, at: string, text: string, open: boolean, macReason: string): Entry {
+function cardEntry(
+  id: string,
+  at: string,
+  text: string,
+  open: boolean,
+  macReason: string,
+  approval?: PhoneApproval,
+): Entry {
   return textEntry(
-    { id, at, kind: 'card', text: plain(text, phoneChatTextMax), open, ...(open && { macReason }) },
+    {
+      id,
+      at,
+      kind: 'card',
+      text: plain(text, phoneChatTextMax),
+      open,
+      ...(open && { macReason }),
+      ...(approval && phoneApprovalFits(approval) && { approval }),
+    },
     textLines(text),
   )
 }
@@ -501,7 +541,7 @@ function decided(answer: { decision: 'confirm' | 'cancel' } | undefined): string
   return answer.decision === 'cancel' ? ' · Canceled' : ' · Confirmed'
 }
 
-function confirmationEntry(confirmation: CoordinatorConfirmation): Entry {
+function confirmationEntry(chatId: string, confirmation: CoordinatorConfirmation): Entry {
   const first = confirmation.tasks[0]
   const headline =
     confirmation.kind === 'transfer'
@@ -516,7 +556,8 @@ function confirmationEntry(confirmation: CoordinatorConfirmation): Entry {
     confirmation.askedAt,
     `${headline}${decided(confirmation.answer)}`,
     confirmation.answer === undefined,
-    'Answer this on your Mac.',
+    'Open this approval on your Mac to review all of its details.',
+    confirmationApproval(chatId, headline, confirmation),
   )
 }
 
@@ -570,11 +611,22 @@ function merged(
   )
 }
 
-function coordinatorEntries({ coordinator, chat }: PhoneCoordinatorChatRead): Entry[] {
+function coordinatorEntries({ coordinator, chat, moves = [] }: PhoneCoordinatorChatRead): Entry[] {
   const extras: Extra[] = [
+    ...moves.map(({ comment, approval }) => ({
+      at: comment.createdAt,
+      entry: cardEntry(
+        comment.id,
+        comment.createdAt,
+        approval.title,
+        !comment.answer,
+        'Open this approval on your Mac to review all of its details.',
+        approval,
+      ),
+    })),
     ...coordinator.confirmations.map((each) => ({
       at: each.askedAt,
-      entry: confirmationEntry(each),
+      entry: confirmationEntry(coordinator.id, each),
     })),
     ...coordinator.receipts.map((each) => ({
       at: each.at,
@@ -584,7 +636,10 @@ function coordinatorEntries({ coordinator, chat }: PhoneCoordinatorChatRead): En
       at: each.askedAt,
       entry: automationEntry(each),
     })),
-    ...coordinator.requests.map((each) => ({ at: each.createdAt, entry: chatRequestEntry(each) })),
+    ...coordinator.requests.map((each) => ({
+      at: each.createdAt,
+      entry: chatRequestEntry(coordinator.id, each),
+    })),
   ]
   return merged(chat, extras, coordinator.startedAt, coordinator.chatAgent.name)
 }
@@ -651,6 +706,10 @@ function factoryOrder(a: PhoneTaskFactory, b: PhoneTaskFactory): number {
 }
 
 function fitted(item: PhoneChatItem, room: number): PhoneChatItem {
+  if ('approval' in item && item.approval !== undefined && jsonBytes(item) > room) {
+    const { approval: _approval, ...fallback } = item
+    return fitted(fallback, room)
+  }
   if (!('cut' in item)) return item
   const shown = fitText(item.text, Math.max(0, room - jsonBytes({ ...item, text: '' })))
   return { ...item, text: shown.text, cut: item.cut || shown.cut }

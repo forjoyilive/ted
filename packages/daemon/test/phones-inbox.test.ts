@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -10,16 +10,20 @@ import {
   type Banner,
   type Comment,
   type Coordinator,
+  type CoordinatorReceipt,
+  type CoordinatorTask,
   type DaemonClient,
   encodePairingLink,
   type Factory,
   type MacReply,
+  type OutsideCommandAllowance,
   type PhoneAnswer,
   type PhoneProblemsBody,
   type PhoneRequestDetail,
   type PhoneRequestSummary,
   type Plan,
   type PlanDetail,
+  parsePhoneChatItemsBody,
   parsePhoneImageBody,
   parsePhoneProblemsBody,
   parsePhoneRequestBody,
@@ -39,6 +43,7 @@ import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import { phoneImageId } from '../src/phones/images.ts'
 import { phoneProblems } from '../src/phones/problems.ts'
 import type { PushMessage } from '../src/phones/push.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import type { NewComment, TedStore } from '../src/store/index.ts'
 import {
   api,
@@ -77,9 +82,12 @@ beforeAll(async () => {
   ;({ home, cleanup } = await makeTempHome())
   scratch = await mkdtemp(path.join(tmpdir(), 'ted-phones-inbox-'))
   const origin = await makeOriginRepo(scratch)
+  const localFolder = path.join(scratch, 'local')
+  await mkdir(localFolder)
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\n',
-    '.ted/agents.yaml': 'release:\n  name: Release Agent\n  powers: [propose_tasks]\n',
+    '.ted/agents.yaml':
+      'release:\n  name: Release Agent\n  powers: [propose_tasks, run_outside]\n  outside_commands:\n    pause: /bin/sleep <seconds>\n',
     '.ted/agents/release.md': 'Plan the release checklist.\n',
   })
   relay = await startRelayStub()
@@ -122,7 +130,7 @@ beforeAll(async () => {
   if (!info) throw new Error('No daemon.json')
   client = appClient(info, daemon.appToken)
   http = api(daemon.port, { appKey: daemon.appToken })
-  factory = await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  factory = await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB', localFolder })
   phone = await pairedPhone('Inbox Phone')
 }, 60_000)
 
@@ -819,6 +827,287 @@ test('a Run’s permission request is approved from the phone as from the deskto
   expect(await phone.answer(pocket.id, { action: 'approve' })).toMatchObject({ ok: true })
   expect(answerOf(pocket.id)).toEqual(answerOf(desk.id))
   expect(answerOf(pocket.id)).toMatchObject({ kind: 'approved' })
+}, 90_000)
+
+async function phoneTestChat(commands: unknown[] = [], agentId?: string) {
+  const ready = path.join(scratch, `ready-${randomBytes(6).toString('hex')}`)
+  const end = `${ready}-end`
+  const chat = await ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
+    text: steps({ say: 'Ready' }, ...commands, { waitFor: end }, { endTurn: true }),
+    agent: 'claude',
+    ...(agentId !== undefined && { agentId }),
+  })
+  const run = api(daemon.port, (await loadRunTokens(tedPaths(home).runTokenKey)).issue(chat.runId))
+  return { chat, run, end }
+}
+
+async function taskVersion(run: ReturnType<typeof api>, taskId: string): Promise<string> {
+  const task = await waitUntil(async () => {
+    const result = await run.call('GET', `/coordinator/tasks/${taskId}`)
+    if (result.status !== 200) return undefined
+    const { context } = result.body as { context: string }
+    return JSON.parse(context.split('\n').slice(1, -1).join('\n')) as CoordinatorTask
+  }, 'the Coordinator can read the Task')
+  return task.version
+}
+
+async function answeredCard(chatId: string, requestId: string) {
+  const reply = await phone.send({ type: 'request', route: 'request', requestId, chatId })
+  if (!reply.ok) throw new Error(`request failed: ${reply.error.code}`)
+  return parsePhoneRequestBody(reply.body).request.form
+}
+
+test('a paired phone confirms and cancels Coordinator removal cards with per-Task choices', async () => {
+  const { chat, run, end } = await phoneTestChat()
+  try {
+    const parent = await newTask('Phone archive parent')
+    const child = await ok<Task>('POST', '/tasks', {
+      title: 'Keep this child',
+      factory: 'NB',
+      parent: parent.id,
+    })
+    const removal = async (kind: 'archive' | 'delete', task: Task, operation: string) => {
+      const result = await run.call('POST', `/coordinator/${kind}`, {
+        operation,
+        tasks: [{ id: task.id, version: await taskVersion(run, task.id) }],
+      })
+      expect(result.status, JSON.stringify(result.body)).toBe(200)
+      return (result.body as { confirmation: { id: string } }).confirmation.id
+    }
+    const archive = await removal('archive', parent, 'phone-archive')
+    expect((await listed()).requests.find((r) => r.id === archive)).toMatchObject({
+      onPhone: true,
+      approvalChatId: chat.id,
+    })
+    expect((await opened(archive)).form).toMatchObject({
+      type: 'approval',
+      approval: {
+        kind: 'confirmation',
+        operation: 'archive',
+        tasks: [{ id: parent.id, descendants: [expect.stringContaining(child.displayId)] }],
+      },
+    })
+    const confirm = {
+      action: 'confirm-tasks',
+      chatId: chat.id,
+      decision: 'confirm',
+      choices: { [parent.id]: { children: 'detach' } },
+    } as const
+    expect(await phone.answer(archive, confirm)).toMatchObject({ ok: true })
+    expect(store.getTask(parent.id)?.archived).toBeDefined()
+    expect(store.getTask(child.id)?.archived).toBeUndefined()
+    expect(store.parentOf(child.id)).toBeUndefined()
+    expect(await answeredCard(chat.id, archive)).toMatchObject({
+      approval: { decision: 'confirm', tasks: [{ result: expect.stringContaining('Archived') }] },
+    })
+    expect(await phone.answer(archive, confirm)).toMatchObject({
+      ok: false,
+      error: { code: 'refused', message: 'This confirmation was already answered' },
+    })
+
+    const cancel = { action: 'confirm-tasks', chatId: chat.id, decision: 'cancel' } as const
+    const deletion = await removal('delete', child, 'phone-delete-cancel')
+    expect(await phone.answer(deletion, cancel)).toMatchObject({ ok: true })
+    expect(store.getTask(child.id)).toBeDefined()
+    expect(await answeredCard(chat.id, deletion)).toMatchObject({
+      approval: { decision: 'cancel' },
+    })
+    const answeredOnMac = await removal('delete', child, 'mac-delete-cancel')
+    await ok('POST', `/coordinator-chats/${chat.id}/confirmations/${answeredOnMac}`, {
+      decision: 'cancel',
+    })
+    expect(await answeredCard(chat.id, answeredOnMac)).toMatchObject({
+      approval: { decision: 'cancel' },
+    })
+    expect(failure(await phone.answer(answeredOnMac, { ...cancel, decision: 'confirm' }))).toBe(
+      'refused',
+    )
+    expect(store.getTask(child.id)).toBeDefined()
+    const next = await removal('delete', child, 'phone-delete-confirm')
+    expect(
+      await phone.answer(next, { action: 'confirm-tasks', chatId: chat.id, decision: 'confirm' }),
+    ).toMatchObject({ ok: true })
+    expect(store.getTask(child.id)).toBeUndefined()
+  } finally {
+    await writeFile(end, '')
+  }
+}, 45_000)
+
+test('a paired phone reviews a Coordinator move and uses the plan that was shown', async () => {
+  const otherRoot = path.join(scratch, 'phone-move')
+  await mkdir(otherRoot)
+  const origin = await makeOriginRepo(otherRoot)
+  const movedRepo = path.join(otherRoot, 'acme', 'move-target.git')
+  await rename(origin, movedRepo)
+  const other = await ok<Factory>('POST', '/dev/factories', {
+    repo: movedRepo,
+    key: 'MOVE',
+  })
+  const task = await newTask('Move to the other Factory')
+  const { chat, run, end } = await phoneTestChat()
+  try {
+    const move = async (operation: string) => {
+      const result = await run.call('POST', '/coordinator/transfer', {
+        operation,
+        task: { id: task.id, version: await taskVersion(run, task.id) },
+        factory: 'MOVE',
+        reason: 'Phone move trial',
+      })
+      expect(result.body).toMatchObject({ receipts: [{ operation: 'transfer' }] } satisfies {
+        receipts: Partial<CoordinatorReceipt>[]
+      })
+      return await waitUntil(
+        async () =>
+          (await listed()).requests.find(
+            (r) => r.ref === task.displayId && r.approvalChatId === chat.id,
+          ),
+        'the Inbox move',
+      )
+    }
+    const cancel = await move('phone-move-cancel')
+    expect(
+      await phone.answer(cancel.id, {
+        action: 'confirm-tasks',
+        chatId: chat.id,
+        decision: 'cancel',
+      }),
+    ).toMatchObject({ ok: true })
+    expect(store.getTask(task.id)?.factoryId).toBe(factory.id)
+    const pending = await move('phone-move-confirm')
+    const { form } = await opened(pending.id)
+    if (form.type !== 'approval' || form.approval.kind !== 'confirmation')
+      throw new Error('Missing move card')
+    expect(form.approval).toMatchObject({ operation: 'transfer', revision: expect.any(String) })
+    const heading = form.approval.warnings.indexOf('What changes')
+    expect(heading).toBeGreaterThanOrEqual(0)
+    expect(form.approval.warnings[heading + 1]).toMatch(/^• Repos becomes /)
+    const chatRow = await phone.send({
+      type: 'request',
+      route: 'chat',
+      chatKind: 'coordinator',
+      chatId: chat.id,
+    })
+    expect(chatRow).toMatchObject({ ok: true, body: { chat: { waiting: true } } })
+    const chatItems = await phone.send({
+      type: 'request',
+      route: 'chat-items',
+      chatKind: 'coordinator',
+      chatId: chat.id,
+    })
+    expect(chatItems).toMatchObject({
+      ok: true,
+      body: {
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            id: pending.id,
+            approval: expect.objectContaining({ operation: 'transfer' }),
+          }),
+        ]),
+      },
+    })
+
+    const confirm = { action: 'confirm-tasks', chatId: chat.id, decision: 'confirm' } as const
+    expect(failure(await phone.answer(pending.id, { ...confirm, revision: 'stale' }))).toBe(
+      'refused',
+    )
+    expect(store.getTask(task.id)?.factoryId).toBe(factory.id)
+    const revision = form.approval.revision
+    if (revision === undefined) throw new Error('Missing plan revision')
+    expect(await phone.answer(pending.id, { ...confirm, revision })).toMatchObject({ ok: true })
+    expect(store.getTask(task.id)?.factoryId).toBe(other.id)
+    expect(await answeredCard(chat.id, pending.id)).toMatchObject({
+      approval: {
+        decision: 'confirm',
+        tasks: [{ result: expect.stringContaining('Moved as MOVE-') }],
+      },
+    })
+  } finally {
+    await writeFile(end, '')
+  }
+}, 45_000)
+
+test('a paired phone declines, runs and always allows an outside command, and stops only the shown command', async () => {
+  for (const decision of ['decline', 'run', 'always'] as const) {
+    const { chat, end } = await phoneTestChat(
+      [{ run: ['ted', 'agent', 'run-outside', 'pause', '600'] }],
+      'release',
+    )
+    try {
+      const request = await waitUntil(
+        async () => (await listed()).requests.find((r) => r.approvalChatId === chat.id),
+        'the Inbox outside command',
+      )
+      const { form } = await opened(request.id)
+      if (form.type !== 'approval' || form.approval.kind !== 'outside-command')
+        throw new Error('Missing command card')
+      expect(form.approval).toMatchObject({
+        command: '/bin/sleep 600',
+        argument: '600',
+        folder: expect.stringContaining('local'),
+        repo: expect.any(String),
+      })
+      const answer = {
+        action: 'approve-command',
+        chatId: chat.id,
+        decision,
+        revision: form.approval.revision,
+      } as const
+      expect(failure(await phone.answer(request.id, { ...answer, revision: 'stale' }))).toBe(
+        'refused',
+      )
+      expect(await phone.answer(request.id, answer)).toMatchObject({ ok: true })
+      expect(failure(await phone.answer(request.id, answer))).toBe('refused')
+      const allowances = await ok<OutsideCommandAllowance[]>(
+        'GET',
+        `/factories/${factory.id}/outside-command-allowances`,
+      )
+      expect(allowances).toHaveLength(decision === 'always' ? 1 : 0)
+      if (decision === 'always')
+        expect(allowances[0]).toMatchObject({
+          name: 'pause',
+          agentId: 'release',
+          command: '/bin/sleep <seconds>',
+        })
+      if (decision === 'decline') {
+        expect(await answeredCard(chat.id, request.id)).toMatchObject({
+          approval: { result: 'Declined' },
+        })
+        continue
+      }
+      const command = await waitUntil(async () => {
+        const reply = await phone.send({
+          type: 'request',
+          route: 'chat-items',
+          chatKind: 'coordinator',
+          chatId: chat.id,
+        })
+        return reply.ok
+          ? parsePhoneChatItemsBody(reply.body).items.find(
+              (item) => item.kind === 'command' && item.stoppable,
+            )
+          : undefined
+      }, 'the stoppable command item')
+      const stop = { action: 'stop-command', chatId: chat.id } as const
+      expect(failure(await phone.answer(request.id, stop))).toBe('refused')
+      expect(await phone.answer(command.id, stop)).toMatchObject({ ok: true })
+      await waitUntil(async () => {
+        const reply = await phone.send({
+          type: 'request',
+          route: 'chat-items',
+          chatKind: 'coordinator',
+          chatId: chat.id,
+        })
+        return reply.ok
+          ? parsePhoneChatItemsBody(reply.body).items.find(
+              (item) =>
+                item.id === command.id && item.kind === 'command' && item.status === 'stopped',
+            )
+          : undefined
+      }, 'the stopped command item')
+    } finally {
+      await writeFile(end, '')
+    }
+  }
 }, 90_000)
 
 test('the phone answers Coordinator questions and rounds and a Factory Agent proposal', async () => {
