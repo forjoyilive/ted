@@ -1,6 +1,5 @@
-import type { FactoryIcon } from '@ted/protocol/factory-icon'
 import { expect, test } from 'vitest'
-import { factoryColors } from '../src/renderer/factory-colors.ts'
+import { type FactoryIcon, factoryColors } from '../src/factory-icon.ts'
 
 const made = (icons: (FactoryIcon | undefined)[]) =>
   icons.map((icon, index) => ({ id: `f${index}`, ...(icon && { icon }) }))

@@ -1,8 +1,10 @@
 import type { Factory } from '@ted/protocol'
-import type {
-  FactoryIconColor,
-  FactoryIconSymbol,
-  FactoryIcon as Icon,
+import {
+  type FactoryIconColor,
+  type FactoryIconSymbol,
+  factoryColors,
+  type FactoryIcon as Icon,
+  ownColor,
 } from '@ted/protocol/factory-icon'
 import {
   Anchor,
@@ -104,7 +106,6 @@ import {
   Zap,
 } from 'lucide-react'
 import { createContext, type ReactNode, useContext, useMemo } from 'react'
-import { factoryColors, ownColor } from '../factory-colors.ts'
 import styles from './FactoryIcon.module.css'
 
 const FactoryColors = createContext<ReadonlyMap<string, FactoryIconColor>>(new Map())

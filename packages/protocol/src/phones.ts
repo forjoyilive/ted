@@ -13,6 +13,8 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import type { PhoneFactoryIconBody } from './phone-factory-icon.ts'
+import { type PhoneImageBody, phoneImageIdMax } from './phone-images.ts'
 import type { PhoneProblemsBody } from './phone-problems.ts'
 import {
   type PhoneAnswer,
@@ -29,6 +31,7 @@ import {
   type PhoneTaskGroup,
   type PhoneTasksBody,
   phoneCursorMax,
+  phoneFactoryIdMax,
   phoneNewTaskPriority,
   phoneTaskGroups,
   phoneTaskIdMax,
@@ -86,6 +89,7 @@ export const phoneRouteNames = [
   'tasks',
   'task',
   'task-comments',
+  'image',
   'task-start',
   'task-stop',
   'task-resume',
@@ -95,6 +99,7 @@ export const phoneRouteNames = [
   'task-delete',
   'factories',
   'task-create',
+  'factory-icon',
 ] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
@@ -150,9 +155,12 @@ export type PhoneRequest =
       hierarchyRevision?: string
       createId?: string
       factory?: string
+      factoryId?: string
       title?: string
       description?: string
       start?: boolean
+      image?: string
+      part?: number
     })
 
 export interface PhoneReplyError {
@@ -194,7 +202,9 @@ export type PhoneReplyBody =
   | PhoneTasksBody
   | PhoneTaskBody
   | PhoneTaskCommentsBody
+  | PhoneImageBody
   | PhoneFactoriesBody
+  | PhoneFactoryIconBody
   | PhoneTaskCreatedBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
@@ -476,6 +486,9 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       ...(cursor !== undefined && { cursor }),
     }
   }
+  if (route === 'image') {
+    return { ...header, type, route, image: imageId(object), part: imagePart(object) }
+  }
   if (route === 'task-start' || route === 'task-stop') {
     return { ...header, type, route, taskId: taskId(object) }
   }
@@ -556,6 +569,7 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       start: read.boolean(object, 'start'),
     }
   }
+  if (route === 'factory-icon') return { ...header, type, route, factoryId: factoryId(object) }
   return { ...header, type, route }
 }
 
@@ -585,6 +599,31 @@ function revision(object: JsonObject): string {
     )
   }
   return value
+}
+
+function factoryId(object: JsonObject): string {
+  const id = read.string(object, 'factoryId')
+  if (!id || id.length > phoneFactoryIdMax) {
+    throw new ParseError(
+      'factoryId',
+      `factoryId must be text of 1 to ${phoneFactoryIdMax} characters`,
+    )
+  }
+  return id
+}
+
+function imageId(object: JsonObject): string {
+  const id = read.string(object, 'image')
+  if (!id || id.length > phoneImageIdMax) {
+    throw new ParseError('image', `image must be text of 1 to ${phoneImageIdMax} characters`)
+  }
+  return id
+}
+
+function imagePart(object: JsonObject): number {
+  const part = read.integer(object, 'part')
+  if (part < 0) throw new ParseError('part', 'part must be a whole number from 0')
+  return part
 }
 
 function taskId(object: JsonObject): string {

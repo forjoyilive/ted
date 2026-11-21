@@ -82,9 +82,15 @@ test('parsePhoneTasksBody reads every field, with and without a cursor and an ic
   expect(() =>
     parsePhoneTasksBody({
       ...body,
-      rows: [{ ...row, factory: { ...row.factory, icon: { kind: 'image', dataUrl: 'x' } } }],
+      rows: [{ ...row, factory: { ...row.factory, icon: { kind: 'sticker' } } }],
     }),
   ).toThrow(/kind/)
+  expect(() =>
+    parsePhoneTasksBody({
+      ...body,
+      rows: [{ ...row, factory: { ...row.factory, icon: { kind: 'image', dataUrl: 'x' } } }],
+    }),
+  ).toThrow(/version/)
   expect(() => parsePhoneTasksBody({ ...body, rows: [{ ...row, actions: ['edit'] }] })).toThrow(
     /actions/,
   )
@@ -155,6 +161,10 @@ test('parsePhoneTaskCommentsBody reads notes and open and answered requests', ()
         text: 'A long note',
         cut: true,
         images: 2,
+        imageList: [
+          { image: 'aW1n', caption: 'before.png' },
+          { image: 'aW1o', caption: 'after.png' },
+        ],
         attachments: 1,
         formattedBlocks: 3,
       },
@@ -176,6 +186,9 @@ test('parsePhoneTaskCommentsBody reads notes and open and answered requests', ()
   expect(() => parsePhoneTaskCommentsBody({ entries: [{ ...open, request: undefined }] })).toThrow(
     /request/,
   )
+  expect(() =>
+    parsePhoneTaskCommentsBody({ entries: [{ ...note, imageList: [{ caption: 'x' }] }] }),
+  ).toThrow(/image/)
 })
 
 test('cursors round-trip and refuse anything that isn’t exactly what the Mac made', () => {
@@ -306,25 +319,47 @@ test('parsePhoneRequest reads every field of the Task action routes and refuses 
   )
 })
 
-test('parsePhoneFactoriesBody reads key, name, icon and default priority', () => {
+test('parsePhoneFactoriesBody reads ID, key, name, icon and default priority', () => {
   const body: PhoneFactoriesBody = {
     factories: [
       {
+        id: 'f-ted',
         key: 'TED',
         name: 'Ted',
         icon: { kind: 'symbol', symbol: 'code', color: 'blue' },
         defaultPriority: 'none',
       },
-      { key: 'NB', name: 'Notebook', defaultPriority: 'none' },
+      {
+        id: 'f-nb',
+        key: 'NB',
+        name: 'Notebook',
+        icon: { kind: 'image', version: 'abc123' },
+        defaultPriority: 'none',
+      },
+      { id: 'f-old', key: 'OLD', name: 'Older', defaultPriority: 'none' },
     ],
   }
   expect(parsePhoneFactoriesBody(roundTrip(body))).toEqual(body)
-  expect(() => parsePhoneFactoriesBody({ factories: [{ key: 'NB', name: 'Notebook' }] })).toThrow(
-    /defaultPriority/,
-  )
   expect(() =>
-    parsePhoneFactoriesBody({ factories: [{ name: 'Notebook', defaultPriority: 'none' }] }),
+    parsePhoneFactoriesBody({ factories: [{ id: 'f-nb', key: 'NB', name: 'Notebook' }] }),
+  ).toThrow(/defaultPriority/)
+  expect(() =>
+    parsePhoneFactoriesBody({
+      factories: [{ id: 'f-nb', name: 'Notebook', defaultPriority: 'none' }],
+    }),
   ).toThrow(/key/)
+  expect(() =>
+    parsePhoneFactoriesBody({
+      factories: [{ key: 'NB', name: 'Notebook', defaultPriority: 'none' }],
+    }),
+  ).toThrow(/id/)
+  expect(() =>
+    parsePhoneFactoriesBody({
+      factories: [
+        { id: 'f-nb', key: 'NB', name: 'N', icon: { kind: 'image' }, defaultPriority: 'none' },
+      ],
+    }),
+  ).toThrow(/version/)
 })
 
 test('parsePhoneTaskCreatedBody reads the Task and an optional start refusal', () => {

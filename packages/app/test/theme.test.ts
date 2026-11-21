@@ -62,9 +62,15 @@ describe('theme tokens', () => {
   })
 
   test('every token the renderer uses is defined', async () => {
-    const defined = await tokens()
+    const files = await sources()
+    const defined = new Set([
+      ...(await tokens()).keys(),
+      ...files.flatMap(({ text }) =>
+        [...text.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1] ?? ''),
+      ),
+    ])
     const used = new Set(
-      (await sources()).flatMap(({ text }) =>
+      files.flatMap(({ text }) =>
         [...text.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1] ?? ''),
       ),
     )

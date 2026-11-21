@@ -24,6 +24,7 @@ import {
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { phoneImageId } from '../src/phones/images.ts'
 import type { TedStore } from '../src/store/index.ts'
 import {
   api,
@@ -211,7 +212,7 @@ test('the list has open Tasks and recent Done ones from every Factory, never arc
     id: open.id,
     ref: open.displayId,
     title: 'Sketch the phone list',
-    factory: { id: notebook.id, name: notebook.name },
+    factory: { id: notebook.id, name: notebook.name, icon: { kind: 'letter', color: 'blue' } },
     stage: { id: 'backlog', name: 'Backlog' },
     status: '',
     tone: 'none',
@@ -220,7 +221,10 @@ test('the list has open Tasks and recent Done ones from every Factory, never arc
     updatedAt: expect.any(String),
     actions: ['start', 'priority', 'comment', 'archive', 'delete'],
   })
-  expect(rows.find((row) => row.id === elsewhere.id)?.factory.id).toBe(shop.id)
+  expect(rows.find((row) => row.id === elsewhere.id)?.factory).toMatchObject({
+    id: shop.id,
+    icon: { kind: 'letter', color: 'orange' },
+  })
   expect(rows.find((row) => row.id === done.id)).toMatchObject({ section: 'done', tone: 'done' })
 
   expect(await opened(open.displayId)).toMatchObject({
@@ -373,9 +377,11 @@ test('secrets come out redacted, and requests show open with an ID or answered w
     text: expect.not.stringContaining(secret),
     cut: false,
     images: 1,
+    imageList: [{ image: phoneImageId(note.id, 'a'.repeat(64)), caption: 'shot.png' }],
     attachments: 1,
     formattedBlocks: 2,
   })
+  expect(entries.find((entry) => entry.id === answered.id)).not.toHaveProperty('imageList')
   expect(entries.find((entry) => entry.id === answered.id)).toMatchObject({
     author: 'Ted',
     kind: 'request',

@@ -5,7 +5,6 @@ import {
   encodeCommentsCursor,
   encodeTasksCursor,
   type Factory,
-  type FactoryIcon,
   type PhoneCommentEntry,
   type PhoneCommentsCursor,
   type PhoneFactoryIcon,
@@ -40,6 +39,8 @@ import { statusLabel } from '@ted/protocol/task-status'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { cutChars, fitText, jsonBytes } from './fit.ts'
+import { phoneFactoryIcons } from './icons.ts'
+import { isImage, phoneImageList } from './images.ts'
 import { commentRequestKind, type PhoneOutcome } from './requests.ts'
 import { phoneTaskActions } from './task-actions.ts'
 
@@ -121,19 +122,6 @@ function tone(task: Task): PhoneTaskTone {
       return 'stopped'
     default:
       return 'waiting'
-  }
-}
-
-export function phoneIcon(icon: FactoryIcon | undefined): PhoneFactoryIcon | undefined {
-  switch (icon?.kind) {
-    case 'letter':
-      return { kind: 'letter', color: icon.color }
-    case 'symbol':
-      return { kind: 'symbol', symbol: icon.name, color: icon.color }
-    case 'emoji':
-      return { kind: 'emoji', emoji: icon.emoji }
-    default:
-      return undefined
   }
 }
 
@@ -270,9 +258,9 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     task: Task,
     section: string,
     factory: PhoneTaskFactory | undefined,
+    icon: PhoneFactoryIcon | undefined,
     stages: readonly BoardStage[],
   ): PhoneTaskRow {
-    const icon = phoneIcon(factory?.icon)
     return {
       id: task.id,
       ref: task.displayId,
@@ -339,6 +327,7 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     const tasks = source.tasks().filter((task) => listed(task, cutoff))
     const factories = source.factories().toSorted(factoryOrder)
     const lists = await stageLists(factories)
+    const icons = phoneFactoryIcons(factories)
     const order = sectionOrder(group, tasks, factories, lists)
     const placed: Placed[] = tasks
       .map((task) => {
@@ -352,7 +341,13 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
             createdAt: task.createdAt,
             taskId: task.id,
           },
-          row: row(task, key, factory, lists.get(task.factoryId) ?? defaultStageList),
+          row: row(
+            task,
+            key,
+            factory,
+            icons.get(task.factoryId),
+            lists.get(task.factoryId) ?? defaultStageList,
+          ),
         }
       })
       .toSorted((a, b) => compareKeys(a.key, b.key))
@@ -398,6 +393,7 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
       task,
       statusSection(task),
       factory,
+      phoneFactoryIcons(source.factories()).get(task.factoryId),
       lists.get(task.factoryId) ?? defaultStageList,
     )
     const descendants = source.descendants(task.id)
@@ -427,7 +423,8 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     const redacted = redactSecrets(comment.peer?.text ?? comment.body)
     const text = cutChars(redacted, phoneCommentTextMax)
     const files = comment.attachments ?? []
-    const images = files.filter((file) => file.mediaType.startsWith('image/')).length
+    const images = files.filter(isImage).length
+    const imageList = phoneImageList(comment.id, files).images
     const common = {
       id: comment.id,
       author: plain(authorOf(comment), phoneLabelMax),
@@ -435,6 +432,7 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
       text,
       cut: text !== redacted,
       images,
+      ...(imageList.length > 0 && { imageList }),
       attachments: files.length - images,
       formattedBlocks: formattedBlocks(redacted),
     }

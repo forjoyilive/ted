@@ -2,6 +2,7 @@ import type { Edition, PhoneProblemsBody, PhoneRequest, PhoneRouteName } from '@
 import { phoneProtocolVersion } from '@ted/protocol'
 import type { Caller } from '../tasks/tasks.ts'
 import type { PhoneActions } from './actions.ts'
+import type { PhoneImages } from './images.ts'
 import type { PhoneNewTask } from './new-task.ts'
 import type { PhoneOutcome, PhoneRequests } from './requests.ts'
 import type { PhoneTasks } from './tasks.ts'
@@ -18,6 +19,7 @@ export interface PhoneRouteContext {
   tasks: PhoneTasks
   actions: PhoneActions
   newTask: PhoneNewTask
+  images: PhoneImages
   problems(): PhoneProblemsBody
   setPushToken(phoneId: string, token: string): boolean
 }
@@ -91,6 +93,13 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     async handle(_, request, { tasks }) {
       if (request.taskId === undefined) return { code: 'bad-request' }
       return tasks.comments(request.taskId, request.cursor)
+    },
+  },
+  {
+    name: 'image',
+    async handle(_, request, { images }) {
+      if (request.image === undefined || request.part === undefined) return { code: 'bad-request' }
+      return images.read(request.image, request.part)
     },
   },
   {
@@ -185,6 +194,13 @@ export const phoneRoutes: readonly PhoneRoute[] = [
         priority,
         start,
       })
+    },
+  },
+  {
+    name: 'factory-icon',
+    async handle(_, { factoryId }, { newTask }) {
+      if (factoryId === undefined) return { code: 'bad-request' }
+      return newTask.factoryImage(factoryId)
     },
   },
 ]
