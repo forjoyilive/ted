@@ -244,7 +244,8 @@ One request with what the phone needs to answer it. The **detail** is the summar
 
 - `body`: the request’s text as Markdown. `cut` is `true` when the daemon shortened it to fit; the phone then shows “The rest is on your Mac”. Images linked in the Markdown show as “Open on your Mac”.
 - `images`: the request’s image attachments, in order, each with its file name as `caption` (cut to 200 characters). The phone loads each one through the `image` route. Left out when there are none; an older Mac never sends it.
-- `attachments` counts the attached files that aren’t in `images`; the phone shows them as “Open on your Mac”. For a design review, the files its `design` form names (screenshots, prototype, video) are in neither.
+- `moreImages` counts the request images omitted to fit the reply. The phone shows “N more images on your Mac”. When a design review falls back to a `mac` form, this count also includes its screenshots.
+- `attachments` counts the other attached files, excluding omitted images and the design review’s screenshots, prototype and video. The phone shows these files as “Open on your Mac”.
 - `form` is one of:
   - `{"type":"choices","choices":[…],"multiple":false,"text":true}`: pick one choice (or several with `multiple`), and when `text` is `true`, optionally add text.
   - `{"type":"text"}`: free text only.
@@ -254,12 +255,15 @@ One request with what the phone needs to answer it. The **detail** is the summar
   - `{"type":"design","stage":"Design","brief":"<Markdown>","cut":false,"design":{…}}`: a design review (request `kind` `review`), answered like `signoff`. A phone that doesn’t know `design` shows it as `mac`. `design` holds:
     - `summary` (Markdown) and `worthYourEye` (a list of Markdown lines), each left out when empty.
     - `screenshots`: `[{"image":"<image ID>","caption":"Step 1 · Welcome"}]`, in order; `caption` is left out when the review has none.
+    - `moreScreenshots` counts the screenshots omitted to fit the reply and uses the same phone notice as `moreImages`.
     - `figma`: `{"url":"https://www.figma.com/…","label":"Onboarding v2"}`, `label` optional. The phone opens only `https://` Figma links.
     - `prototype` and `video`: `{"name":"onboarding.html","caption":"…"}`, `caption` optional. The phone names them and says to open them on the Mac.
     - `setup`: a Setup proposal, as plain lines: `{"workflow":[{"stage":"Clarify","setting":"few questions"}],"checks":[{"name":"Tests","command":"pnpm test","repo":"app","passed":false,"seconds":41,"reason":"…"}],"apps":[{"name":"Web","kind":"web","run":"pnpm dev","repo":"app","passed":true,"reason":"…"}],"agents":[{"name":"Reviewer","about":"…"}],"worktree":[{"repo":"app","step":"setup","access":["~/.npm"]}],"files":[{"path":".ted/workflow.yaml","about":"…"}],"defaults":"…"}`. Every list and optional field is left out when empty. Approving from the phone keeps every suggested Agent, as Approve on the Mac does when none is unticked.
     Every text goes through `redactSecrets`. Texts are cut to fit the reply: the brief first, then `worthYourEye`, then `summary`; `cut` is `true` when any of them was cut, and the phone shows “The rest is on your Mac”.
   - `{"type":"proposal","title":"…","summary":"…","rows":[{"title":"…","scope":"…","priority":"high","blockedBy":[1]}]}`: approve or send back with text. Rows can’t be edited on the phone.
   - `{"type":"mac","reason":"<plain sentence>"}`: read-only; answer on the Mac.
+
+Request text fits first. Request images and then design screenshots fill the remaining space in order. Omitted counts are sent only when positive.
 
 ### `answer`
 
@@ -354,7 +358,7 @@ Every entry in the Task’s thread, newest first: notes from the user, the Task 
 - `author` is “You”, “Ted”, “Task Lead”, or for a message from another agent “Peer · <sender>” (or “Peer message”), as the Mac’s thread shows them.
 - `kind` is `note` or `request`. Only a request has `request`.
 - `text` is cut at 2,000 characters, and further only when a single entry would not fit the reply; `cut` says so.
-- `images` counts the image attachments and `imageList` lists them, like a request’s `images`, for the phone to load through the `image` route (left out when there are none; an older phone uses the count). `attachments` counts the other files, and `formattedBlocks` the Markdown tables and fenced code blocks, which the phone says read better on the Mac.
+- `images` counts all image attachments. `imageList` lists those that the phone can load through the `image` route and is omitted when empty. An oversized first entry fits its text first and then adds images in order. `moreImages`, when present, counts images omitted and the phone shows how many are on the Mac. `attachments` counts the other files, and `formattedBlocks` the Markdown tables and fenced code blocks, which the phone says read better on the Mac.
 - `request.kind` uses the same values as the Inbox `kind`. `stage` is left out when the request has none. `open` is `true` until the request is answered, withdrawn or superseded. `requestId` is the ID the `request` route takes, sent only while the request waits in the Inbox (open and not snoozed).
 
 A page holds as many entries as fit; `cursor` (the last entry’s time and ID, opaque like the list cursor) gets older entries and is left out when none are left. A bad cursor gets `bad-request`; an unknown or archived Task gets `gone`.
