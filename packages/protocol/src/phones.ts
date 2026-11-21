@@ -14,6 +14,20 @@ import {
   type Untyped,
 } from './parse.ts'
 import {
+  type PhoneChatAgentsBody,
+  type PhoneChatBody,
+  type PhoneChatCreatedBody,
+  type PhoneChatItemBody,
+  type PhoneChatItemsBody,
+  type PhoneChatKind,
+  type PhoneChatMessageBody,
+  type PhoneChatStoppedBody,
+  type PhoneChatsBody,
+  phoneChatIdMax,
+  phoneChatKinds,
+} from './phone-chats.ts'
+import type { PhoneFactoryIconBody } from './phone-factory-icon.ts'
+import {
   phoneFileNameMax,
   phoneFilePartBytes,
   phoneFilePartsMax,
@@ -37,6 +51,7 @@ import {
   type PhoneTaskGroup,
   type PhoneTasksBody,
   phoneCursorMax,
+  phoneFactoryIdMax,
   phoneNewTaskPriority,
   phoneTaskGroups,
   phoneTaskIdMax,
@@ -106,6 +121,15 @@ export const phoneRouteNames = [
   'task-create',
   'file-part',
   'file-done',
+  'chats',
+  'chat',
+  'chat-items',
+  'chat-item',
+  'factory-icon',
+  'chat-message',
+  'chat-stop',
+  'chat-agents',
+  'chat-create',
 ] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
@@ -161,6 +185,7 @@ export type PhoneRequest =
       hierarchyRevision?: string
       createId?: string
       factory?: string
+      factoryId?: string
       title?: string
       description?: string
       start?: boolean
@@ -172,6 +197,13 @@ export type PhoneRequest =
       mediaType?: string
       size?: number
       sha256?: string
+      chatKind?: PhoneChatKind
+      chatId?: string
+      agentId?: string
+      archived?: boolean
+      before?: string
+      itemId?: string
+      offset?: number
       image?: string
       part?: number
     })
@@ -217,7 +249,16 @@ export type PhoneReplyBody =
   | PhoneTaskCommentsBody
   | PhoneImageBody
   | PhoneFactoriesBody
+  | PhoneFactoryIconBody
   | PhoneTaskCreatedBody
+  | PhoneChatsBody
+  | PhoneChatBody
+  | PhoneChatItemsBody
+  | PhoneChatItemBody
+  | PhoneChatMessageBody
+  | PhoneChatStoppedBody
+  | PhoneChatAgentsBody
+  | PhoneChatCreatedBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
     | { ok: true; body: PhoneReplyBody }
@@ -619,6 +660,68 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       sha256,
     }
   }
+  if (route === 'chats') {
+    const factoryId = read.optional(object, 'factoryId', (o, f) => chatText(o, f))
+    const archived = read.optional(object, 'archived', read.boolean)
+    const cursor = optionalCursor(object)
+    return {
+      ...header,
+      type,
+      route,
+      ...(factoryId !== undefined && { factoryId }),
+      archived: archived ?? false,
+      ...(cursor !== undefined && { cursor }),
+    }
+  }
+  if (route === 'chat') {
+    return { ...header, type, route, ...chatRef(object) }
+  }
+  if (route === 'chat-items') {
+    const before = optionalCursor(object, 'before')
+    return { ...header, type, route, ...chatRef(object), ...(before !== undefined && { before }) }
+  }
+  if (route === 'chat-item') {
+    const offset = read.optional(object, 'offset', read.integer)
+    if (offset !== undefined && offset < 0) {
+      throw new ParseError('offset', 'offset must be a whole number from 0')
+    }
+    return {
+      ...header,
+      type,
+      route,
+      ...chatRef(object),
+      itemId: chatText(object, 'itemId'),
+      ...(offset !== undefined && { offset }),
+    }
+  }
+  if (route === 'factory-icon') return { ...header, type, route, factoryId: factoryId(object) }
+  if (route === 'chat-message') {
+    const text = read.string(object, 'text')
+    actionText(text, true)
+    return {
+      ...header,
+      type,
+      route,
+      ...chatRef(object),
+      text,
+      createId: base64Field(object, 'createId', 16),
+    }
+  }
+  if (route === 'chat-stop') return { ...header, type, route, ...chatRef(object) }
+  if (route === 'chat-agents') return { ...header, type, route, factory: factoryKey(object) }
+  if (route === 'chat-create') {
+    const text = read.string(object, 'text')
+    actionText(text, true)
+    return {
+      ...header,
+      type,
+      route,
+      factory: factoryKey(object),
+      agentId: chatText(object, 'agentId'),
+      text,
+      createId: base64Field(object, 'createId', 16),
+    }
+  }
   return { ...header, type, route }
 }
 
@@ -660,6 +763,26 @@ function boundedText(object: JsonObject, field: string, max: number): string {
   return value
 }
 
+function chatText(object: JsonObject, field: string): string {
+  const value = read.string(object, field)
+  if (!value || value.length > phoneChatIdMax) {
+    throw new ParseError(field, `${field} must be text of 1 to ${phoneChatIdMax} characters`)
+  }
+  return value
+}
+
+interface PhoneChatRef {
+  chatKind: PhoneChatKind
+  chatId: string
+}
+
+function chatRef(object: JsonObject): PhoneChatRef {
+  return {
+    chatKind: read.oneOf(object, 'chatKind', phoneChatKinds),
+    chatId: chatText(object, 'chatId'),
+  }
+}
+
 function factoryKey(object: JsonObject): string {
   const key = read.string(object, 'factory')
   if (!key || key.length > phoneFactoryKeyMax) {
@@ -688,6 +811,17 @@ function revision(object: JsonObject): string {
   return value
 }
 
+function factoryId(object: JsonObject): string {
+  const id = read.string(object, 'factoryId')
+  if (!id || id.length > phoneFactoryIdMax) {
+    throw new ParseError(
+      'factoryId',
+      `factoryId must be text of 1 to ${phoneFactoryIdMax} characters`,
+    )
+  }
+  return id
+}
+
 function imageId(object: JsonObject): string {
   const id = read.string(object, 'image')
   if (!id || id.length > phoneImageIdMax) {
@@ -710,10 +844,10 @@ function taskId(object: JsonObject): string {
   return id
 }
 
-function optionalCursor(object: JsonObject): string | undefined {
-  const cursor = read.optional(object, 'cursor', read.string)
+function optionalCursor(object: JsonObject, field = 'cursor'): string | undefined {
+  const cursor = read.optional(object, field, read.string)
   if (cursor !== undefined && (!cursor || cursor.length > phoneCursorMax)) {
-    throw new ParseError('cursor', `cursor must be text of 1 to ${phoneCursorMax} characters`)
+    throw new ParseError(field, `${field} must be text of 1 to ${phoneCursorMax} characters`)
   }
   return cursor
 }

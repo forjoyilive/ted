@@ -9,6 +9,7 @@ import {
   type MacReply,
   type PhoneTaskCreatedBody,
   parsePhoneFactoriesBody,
+  parsePhoneFactoryIconBody,
   parsePhoneTaskCreatedBody,
   phoneFileMissing,
   phoneFilePartBytes,
@@ -158,16 +159,56 @@ const fileMissing = { ok: false, error: { code: 'refused', message: phoneFileMis
 
 const idle = JSON.stringify({ steps: [{ everyMessage: [{ endTurn: true }] }] })
 
-test('factories lists each Factory with only its key, name, icon and default priority', async () => {
+test('factories lists each Factory with only its ID, key, name, icon and default priority', async () => {
   expectTypeOf<TedStore>().toExtend<PhonesArea>()
   const reply = await send({ type: 'request', route: 'factories' })
   if (!reply.ok) throw new Error(reply.error.message)
   const { factories } = parsePhoneFactoriesBody(reply.body)
   expect(factories.map((f) => f.key)).toEqual(['NB'])
-  expect(factories[0]).toMatchObject({ key: 'NB', name: notebook.name, defaultPriority: 'none' })
+  expect(factories[0]).toMatchObject({
+    id: notebook.id,
+    key: 'NB',
+    name: notebook.name,
+    defaultPriority: 'none',
+  })
   const raw = (reply.body.factories as JsonObject[])[0] ?? {}
   for (const field of Object.keys(raw)) {
-    expect(['key', 'name', 'icon', 'defaultPriority']).toContain(field)
+    expect(['id', 'key', 'name', 'icon', 'defaultPriority']).toContain(field)
+  }
+})
+
+const tinyPng =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+
+test('factories sends the icon the Mac draws, and factory-icon sends an image icon once', async () => {
+  const listed = async () => {
+    const reply = await send({ type: 'request', route: 'factories' })
+    if (!reply.ok) throw new Error(reply.error.message)
+    return parsePhoneFactoriesBody(reply.body).factories[0]?.icon
+  }
+  try {
+    await client.setFactoryIcon(notebook.id, null)
+    expect(await listed()).toEqual({ kind: 'letter', color: 'blue' })
+    await client.setFactoryIcon(notebook.id, { kind: 'image', dataUrl: tinyPng })
+    const icon = await listed()
+    if (icon?.kind !== 'image')
+      throw new Error(`expected an image icon, got ${JSON.stringify(icon)}`)
+    const image = await send({ type: 'request', route: 'factory-icon', factoryId: notebook.id })
+    if (!image.ok) throw new Error(image.error.message)
+    expect(parsePhoneFactoryIconBody(image.body)).toEqual({
+      dataUrl: tinyPng,
+      version: icon.version,
+    })
+    expect(
+      await send({ type: 'request', route: 'factory-icon', factoryId: 'no-such-factory' }),
+    ).toMatchObject({ ok: false, error: { code: 'gone' } })
+    await client.setFactoryIcon(notebook.id, { kind: 'symbol', name: 'code', color: 'teal' })
+    expect(await listed()).toEqual({ kind: 'symbol', symbol: 'code', color: 'teal' })
+    expect(
+      await send({ type: 'request', route: 'factory-icon', factoryId: notebook.id }),
+    ).toMatchObject({ ok: false, error: { code: 'refused' } })
+  } finally {
+    await client.setFactoryIcon(notebook.id, null)
   }
 })
 
@@ -300,6 +341,7 @@ test('factories stops before the reply would pass the size limit and cuts long n
     key: `F${i}`,
     name: 'N'.repeat(300),
     position: i,
+    createdAt: '2026-11-20T09:00:00.000Z',
   }))
   const newTask = createPhoneNewTask(
     {
@@ -327,7 +369,15 @@ test('Start now that finds the Task already started answers without a refusal, a
   const startWith = (refusal: Error) =>
     createPhoneNewTask(
       {
-        factories: () => [{ id: 'f1', key: 'NB', name: 'Notebook', position: 0 }],
+        factories: () => [
+          {
+            id: 'f1',
+            key: 'NB',
+            name: 'Notebook',
+            position: 0,
+            createdAt: '2026-11-20T09:00:00.000Z',
+          },
+        ],
         defaults: () => Promise.resolve({} as TaskDefaults),
         task: () => undefined,
         create: () => Promise.resolve({ id: 't1', displayId: 'NB-1' } as Task),

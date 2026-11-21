@@ -1,4 +1,5 @@
 import type { AgentSummary, Factory } from '@ted/protocol'
+import { pickerOrder } from '@ted/protocol/agent-chat-view'
 import { type ReactNode, useEffect, useState } from 'react'
 import {
   type AgentChatRef,
@@ -480,13 +481,6 @@ function ChatRow({
   )
 }
 
-const builtInOrder = [builtInCoordinator.id, builtInPlanner.id]
-
 function orderedAgents(agents: readonly AgentSummary[] | undefined): AgentSummary[] {
-  const all = agents ?? [builtInCoordinator, builtInPlanner]
-  const place = (agent: AgentSummary) => {
-    const at = builtInOrder.indexOf(agent.id)
-    return at === -1 ? builtInOrder.length : at
-  }
-  return [...all].sort((a, b) => place(a) - place(b) || a.name.localeCompare(b.name))
+  return pickerOrder(agents ?? [builtInCoordinator, builtInPlanner])
 }

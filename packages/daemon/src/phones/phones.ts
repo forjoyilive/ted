@@ -13,6 +13,8 @@ import { redactSecrets } from '../redact.ts'
 import type { PhoneStore } from '../store/index.ts'
 import { createPhoneActions, type PhoneTaskChanges } from './actions.ts'
 import { createPhoneBridge, type PhoneBridge } from './bridge.ts'
+import { createPhoneChatActions, type PhoneChatChanges } from './chat-actions.ts'
+import { createPhoneChats, type PhoneChatSource } from './chats.ts'
 import { createPhoneImages, type PhoneImageOptions } from './images.ts'
 import { loadPhoneKeys, type PhoneKeyrings, type PhoneKeys, replaceRelayKey } from './keys.ts'
 import { computerName } from './mac-name.ts'
@@ -34,6 +36,8 @@ export interface PhonesOptions {
     dir: string
     save(source: string, name: string, mediaType: string): Promise<Attachment>
   }
+  chats: PhoneChatSource
+  chatChanges: PhoneChatChanges
   images: PhoneImageOptions
   problems: Pick<PhoneProblemSource, 'banners' | 'factoryName'>
   keyrings: PhoneKeyrings
@@ -81,6 +85,8 @@ export function createPhones(options: PhonesOptions): Phones {
   const uploads = createPhoneUploads({ ...options.uploads, now })
   const actions = createPhoneActions(options.taskChanges, tasks, uploads)
   const newTask = createPhoneNewTask(options.taskCreation, options.phones, tasks, uploads)
+  const chats = createPhoneChats(options.chats)
+  const chatActions = createPhoneChatActions(options.chatChanges, options.phones)
   const images = createPhoneImages(options.images)
   const tickets = new Map<string, Ticket>()
   const ending = new Map<string, number>()
@@ -221,6 +227,8 @@ export function createPhones(options: PhonesOptions): Phones {
         actions,
         newTask,
         uploads,
+        chats,
+        chatActions,
         images,
         problems: () => phoneProblems(options.problems),
         setPushToken: (phoneId, token) => options.phones.setPushToken(phoneId, token),

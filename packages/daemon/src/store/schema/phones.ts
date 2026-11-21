@@ -64,6 +64,20 @@ export const phoneTaskCreates = State.SQLite.table({
   },
 })
 
+export const phoneChatSends = State.SQLite.table({
+  name: 'phoneChatSends',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    phoneId: State.SQLite.text(),
+    createId: State.SQLite.text(),
+    action: State.SQLite.text(),
+    chatKind: State.SQLite.text(),
+    chatId: State.SQLite.text(),
+    queued: State.SQLite.boolean(),
+    at: State.SQLite.text(),
+  },
+})
+
 export function phoneTaskCreateId(phoneId: string, createId: string) {
   return JSON.stringify([phoneId, createId])
 }
@@ -140,6 +154,18 @@ export const phonesEvents = {
       at: Schema.String,
     }),
   }),
+  phoneChatSent: Events.synced({
+    name: 'v1.PhoneChatSent',
+    schema: Schema.Struct({
+      phoneId: Schema.String,
+      createId: Schema.String,
+      action: Schema.String,
+      chatKind: Schema.String,
+      chatId: Schema.String,
+      queued: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
 }
 
 export const phonesMaterializers = State.SQLite.materializers(phonesEvents, {
@@ -172,5 +198,9 @@ export const phonesMaterializers = State.SQLite.materializers(phonesEvents, {
   'v1.PhoneTaskCreated': ({ phoneId, createId, taskId, at }) =>
     phoneTaskCreates
       .insert({ id: phoneTaskCreateId(phoneId, createId), phoneId, createId, taskId, at })
+      .onConflict('id', 'ignore'),
+  'v1.PhoneChatSent': (row) =>
+    phoneChatSends
+      .insert({ id: phoneTaskCreateId(row.phoneId, row.createId), ...row })
       .onConflict('id', 'ignore'),
 })

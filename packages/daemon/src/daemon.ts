@@ -50,6 +50,7 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
+import { serviceChatSource } from './phones/chats.ts'
 import type { ImageShrinker } from './phones/images.ts'
 import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
 import { createPhoneNotifier } from './phones/notifier.ts'
@@ -896,6 +897,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
       })
       await execution.start()
+      const conversations = createConversations({
+        coordinators,
+        steering,
+        store,
+        runs,
+        agents,
+        health,
+        disk,
+      })
       const phonePlans = plans
       const phones = createPhones({
         phones: store.phones,
@@ -936,6 +946,28 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         uploads: {
           dir: paths.phoneUploads,
           save: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+        },
+        chats: serviceChatSource({
+          factories: () => store.listFactories(),
+          coordinatorChats: (factoryId) => coordinators.chats(factoryId),
+          coordinator: (chatId) => coordinators.get(chatId),
+          coordinatorConversation: (chatId) => conversations.coordinatorChat(chatId),
+          plans: () => phonePlans.list(),
+          plan: (planId) => phonePlans.detail(planId),
+          runConversation: (runId) => conversations.chat(runId),
+        }),
+        chatChanges: {
+          factories: () => store.listFactories(),
+          agents: (factoryId) => coordinators.agents(factoryId),
+          coordinator: (chatId) => coordinators.get(chatId),
+          messageCoordinator: (chatId, message) => coordinators.message(chatId, message),
+          stopCoordinator: (chatId) => coordinators.stop(chatId),
+          startCoordinator: (factoryId, input) => coordinators.start(factoryId, input),
+          plan: async (planId) => (await phonePlans.detail(planId)).plan,
+          sendToRun: (runId, text) => conversations.send(runId, text, { interrupt: false }),
+          resumePlan: (planId, caller, message) => phonePlans.resume(planId, caller, message),
+          stopPlan: (planId, caller) => phonePlans.stop(planId, caller),
+          startPlan: (input, caller) => phonePlans.start(input, caller),
         },
         images: {
           comment: (id) => store.getComment(id),
@@ -985,15 +1017,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       const stayAwakeOnPower = options.holdOnPower && stayAwakeForPhones(store, options.holdOnPower)
-      const conversations = createConversations({
-        coordinators,
-        steering,
-        store,
-        runs,
-        agents,
-        health,
-        disk,
-      })
       const taskTokens = followTaskTokens({ store, runs, agents })
       const versionRestarts = await restartOnNewVersions({
         store,

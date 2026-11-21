@@ -19,8 +19,9 @@ import { AlreadyStartedError, RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { cutChars, jsonBytes } from './fit.ts'
+import { phoneFactoryIcons, phoneFactoryImage } from './icons.ts'
 import type { PhoneOutcome } from './requests.ts'
-import { type PhoneTasks, phoneIcon } from './tasks.ts'
+import type { PhoneTasks } from './tasks.ts'
 import { consumeSent, type PhoneFiles } from './uploads.ts'
 
 type PhoneCaller = Extract<Caller, { kind: 'phone' }>
@@ -38,7 +39,7 @@ export interface PhoneNewTaskInput {
 }
 
 export interface PhoneTaskCreation {
-  factories(): readonly Pick<Factory, 'id' | 'key' | 'name' | 'icon' | 'position'>[]
+  factories(): readonly Pick<Factory, 'id' | 'key' | 'name' | 'icon' | 'position' | 'createdAt'>[]
   defaults(factoryId: string): Promise<TaskDefaults>
   task(ref: string): Task | undefined
   create(
@@ -64,6 +65,7 @@ export interface PhoneCreatedTasks {
 
 export interface PhoneNewTask {
   factories(): PhoneOutcome
+  factoryImage(factoryId: string): PhoneOutcome
   create(caller: PhoneCaller, input: PhoneNewTaskInput): Promise<PhoneOutcome>
 }
 
@@ -144,9 +146,15 @@ export function createPhoneNewTask(
   return {
     factories() {
       const factories: PhoneFactory[] = []
-      for (const factory of [...changes.factories()].sort((a, b) => a.position - b.position)) {
-        const icon = phoneIcon(factory.icon)
+      const all = changes.factories()
+      const icons = phoneFactoryIcons(all)
+      const ordered = [...all].sort(
+        (a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt),
+      )
+      for (const factory of ordered) {
+        const icon = icons.get(factory.id)
         const entry: PhoneFactory = {
+          id: factory.id,
           key: factory.key,
           name: cutChars(redactSecrets(factory.name), phoneLabelMax),
           ...(icon !== undefined && { icon }),
@@ -156,6 +164,9 @@ export function createPhoneNewTask(
         factories.push(entry)
       }
       return { body: { factories } }
+    },
+    factoryImage(factoryId) {
+      return phoneFactoryImage(changes.factories(), factoryId)
     },
     create(caller, input) {
       const key = JSON.stringify([caller.phoneId, input.createId])

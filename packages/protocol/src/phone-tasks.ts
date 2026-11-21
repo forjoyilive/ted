@@ -1,10 +1,4 @@
 import {
-  type FactoryIconColor,
-  type FactoryIconSymbol,
-  factoryIconColors,
-  factoryIconSymbols,
-} from './factory-icon.ts'
-import {
   isArray,
   isInteger,
   isNumber,
@@ -18,6 +12,7 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
 import { type PhoneImage, parsePhoneImage } from './phone-images.ts'
 import { type PhoneRequestKind, phoneRequestKinds } from './phone-requests.ts'
 import { type Priority, priorities } from './task.ts'
@@ -51,6 +46,7 @@ export const phoneTaskTones = ['working', 'waiting', 'failed', 'stopped', 'done'
 export type PhoneTaskTone = (typeof phoneTaskTones)[number]
 
 export const phoneTaskIdMax = 200
+export const phoneFactoryIdMax = 200
 export const phoneCursorMax = 512
 export const phoneDoneDays = 7
 export const phoneTaskTitleMax = 500
@@ -58,14 +54,10 @@ export const phoneLabelMax = 200
 export const phoneDescriptionMax = 16_000
 export const phoneCommentTextMax = 2_000
 
-export type PhoneFactoryIcon =
-  | { kind: 'letter'; color: FactoryIconColor }
-  | { kind: 'symbol'; symbol: FactoryIconSymbol; color: FactoryIconColor }
-  | { kind: 'emoji'; emoji: string }
-
 export const phoneNewTaskPriority: Priority = 'none'
 
 export interface PhoneFactory {
+  id: string
   key: string
   name: string
   icon?: PhoneFactoryIcon
@@ -165,11 +157,11 @@ export interface PhoneCommentsCursor {
 
 const read = reader()
 
-function encodeCursor(value: Json): string {
+export function encodePhoneCursor(value: Json): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
 }
 
-function cursorParts(text: string): JsonArray | undefined {
+export function phoneCursorParts(text: string): JsonArray | undefined {
   if (text.length === 0 || text.length > phoneCursorMax || !/^[A-Za-z0-9_-]+$/.test(text)) {
     return undefined
   }
@@ -184,7 +176,7 @@ function shortText(value: Json | undefined): value is string {
 }
 
 export function encodeTasksCursor(cursor: PhoneTasksCursor): string {
-  return encodeCursor([
+  return encodePhoneCursor([
     cursor.section,
     cursor.priority,
     cursor.rank,
@@ -194,7 +186,7 @@ export function encodeTasksCursor(cursor: PhoneTasksCursor): string {
 }
 
 export function parseTasksCursor(text: string): PhoneTasksCursor | undefined {
-  const parts = cursorParts(text)
+  const parts = phoneCursorParts(text)
   if (parts?.length !== 5) return undefined
   const [section, priority, rank, createdAt, taskId] = parts
   if (!isInteger(section) || section < 0) return undefined
@@ -205,11 +197,11 @@ export function parseTasksCursor(text: string): PhoneTasksCursor | undefined {
 }
 
 export function encodeCommentsCursor(cursor: PhoneCommentsCursor): string {
-  return encodeCursor([cursor.createdAt, cursor.id])
+  return encodePhoneCursor([cursor.createdAt, cursor.id])
 }
 
 export function parseCommentsCursor(text: string): PhoneCommentsCursor | undefined {
-  const parts = cursorParts(text)
+  const parts = phoneCursorParts(text)
   if (parts?.length !== 2) return undefined
   const [createdAt, id] = parts
   if (!shortText(createdAt) || !shortText(id)) return undefined
@@ -225,15 +217,6 @@ function count(object: JsonObject, field: string): number {
 function named(value: Json | undefined, field: string): PhoneNamed {
   const object = read.object(value, field)
   return { id: read.string(object, 'id'), name: read.string(object, 'name') }
-}
-
-export function parsePhoneFactoryIcon(value: Untyped): PhoneFactoryIcon {
-  const object = read.object(value, 'icon')
-  const kind = read.oneOf(object, 'kind', ['letter', 'symbol', 'emoji'])
-  if (kind === 'emoji') return { kind, emoji: read.string(object, 'emoji') }
-  const color = read.oneOf(object, 'color', factoryIconColors)
-  if (kind === 'letter') return { kind, color }
-  return { kind, symbol: read.oneOf(object, 'symbol', factoryIconSymbols), color }
 }
 
 function action(value: Json): PhoneTaskAction {
@@ -318,6 +301,7 @@ export function parsePhoneFactoriesBody(value: Untyped): PhoneFactoriesBody {
       const factory = read.object(entry, 'factory')
       const icon = factory.icon === undefined ? undefined : parsePhoneFactoryIcon(factory.icon)
       return {
+        id: read.string(factory, 'id'),
         key: read.string(factory, 'key'),
         name: read.string(factory, 'name'),
         ...(icon !== undefined && { icon }),

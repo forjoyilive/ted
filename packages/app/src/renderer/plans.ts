@@ -1,13 +1,8 @@
 import type { ChatItem, ChatRequest, Plan, PlanRequest, PlanStatus } from '@ted/protocol'
+import { planStatusLabel } from '@ted/protocol/agent-chat-view'
 import type { StatusGlyph, StatusTone } from './components/StatusChip.tsx'
 import { clockTime } from './requests.ts'
 import { formatDate } from './time.ts'
-
-function ordinal(n: number): string {
-  const tens = n % 100
-  const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th')
-  return `${n}${suffix}`
-}
 
 const day = {
   format: (at: Date) => formatDate(at, { weekday: 'short', day: 'numeric', month: 'short' }),
@@ -27,27 +22,24 @@ export function planStatusChip(plan: Pick<Plan, 'status' | 'queuePlace' | 'pause
   glyph?: StatusGlyph
   label: string
 } {
+  const label = planStatusLabel(plan)
   switch (plan.status) {
     case 'waiting':
-      return { tone: 'waiting', glyph: 'waiting', label: 'Waiting on you' }
+      return { tone: 'waiting', glyph: 'waiting', label }
     case 'working':
-      return { tone: 'working', glyph: 'working', label: 'Working' }
+      return { tone: 'working', glyph: 'working', label }
     case 'idle':
-      return { tone: 'neutral', label: 'Idle' }
+      return { tone: 'neutral', label }
     case 'queued':
-      return {
-        tone: 'neutral',
-        glyph: 'queued',
-        label: plan.queuePlace === undefined ? 'Queued' : `Queued · ${ordinal(plan.queuePlace)}`,
-      }
+      return { tone: 'neutral', glyph: 'queued', label }
     case 'paused':
-      return { tone: 'neutral', glyph: 'paused', label: `Paused · ${plan.paused ?? 'usage limit'}` }
+      return { tone: 'neutral', glyph: 'paused', label }
     case 'failed':
-      return { tone: 'failed', glyph: 'failed', label: 'Failed' }
+      return { tone: 'failed', glyph: 'failed', label }
     case 'finished':
-      return { tone: 'success', label: 'Finished' }
+      return { tone: 'success', label }
     case 'stopped':
-      return { tone: 'stopped', glyph: 'stopped', label: 'Stopped' }
+      return { tone: 'stopped', glyph: 'stopped', label }
   }
 }
 

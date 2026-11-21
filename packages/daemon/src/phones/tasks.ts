@@ -5,12 +5,10 @@ import {
   encodeCommentsCursor,
   encodeTasksCursor,
   type Factory,
-  type FactoryIcon,
   type PhoneCommentEntry,
   type PhoneCommentsCursor,
   type PhoneFactoryIcon,
   type PhoneStatusSection,
-  type PhoneTaskAction,
   type PhoneTaskCommentsBody,
   type PhoneTaskDetail,
   type PhoneTaskGroup,
@@ -36,13 +34,15 @@ import {
 import { stageDisplayName } from '@ted/protocol/stage'
 import { defaultStageList, mergeStageLists, stageNameIn } from '@ted/protocol/stage-list'
 import { priorities } from '@ted/protocol/task'
-import { openPullRequests, statusActionKind } from '@ted/protocol/task-actions'
+import { openPullRequests } from '@ted/protocol/task-actions'
 import { statusLabel } from '@ted/protocol/task-status'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { cutChars, fitText, jsonBytes } from './fit.ts'
+import { phoneFactoryIcons } from './icons.ts'
 import { isImage, phoneImageList } from './images.ts'
 import { commentRequestKind, type PhoneOutcome } from './requests.ts'
+import { phoneTaskActions } from './task-actions.ts'
 
 export type PhoneTaskFactory = Pick<Factory, 'id' | 'name' | 'icon' | 'position' | 'createdAt'>
 
@@ -125,19 +125,6 @@ function tone(task: Task): PhoneTaskTone {
   }
 }
 
-export function phoneIcon(icon: FactoryIcon | undefined): PhoneFactoryIcon | undefined {
-  switch (icon?.kind) {
-    case 'letter':
-      return { kind: 'letter', color: icon.color }
-    case 'symbol':
-      return { kind: 'symbol', symbol: icon.name, color: icon.color }
-    case 'emoji':
-      return { kind: 'emoji', emoji: icon.emoji }
-    default:
-      return undefined
-  }
-}
-
 function factoryOrder(a: PhoneTaskFactory, b: PhoneTaskFactory): number {
   return a.position - b.position || a.createdAt.localeCompare(b.createdAt)
 }
@@ -158,19 +145,6 @@ function newerFirst(a: PhoneCommentsCursor, b: PhoneCommentsCursor): number {
 
 const fencePattern = /^ {0,3}(`{3,}|~{3,})/
 const delimiterPattern = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
-
-export function phoneTaskActions(task: Task): PhoneTaskAction[] {
-  if (task.archived) return []
-  const kind = statusActionKind(task)
-  const status: PhoneTaskAction[] =
-    kind === 'start' || kind === 'stop'
-      ? [kind]
-      : kind === 'resume' || kind === 'retry'
-        ? ['resume']
-        : []
-  const comment: PhoneTaskAction[] = task.commentBox === 'merge-pending' ? [] : ['comment']
-  return [...status, 'priority', ...comment, 'archive', 'delete']
-}
 
 export function formattedBlocks(markdown: string): number {
   const lines = markdown.split('\n')
@@ -284,9 +258,9 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     task: Task,
     section: string,
     factory: PhoneTaskFactory | undefined,
+    icon: PhoneFactoryIcon | undefined,
     stages: readonly BoardStage[],
   ): PhoneTaskRow {
-    const icon = phoneIcon(factory?.icon)
     return {
       id: task.id,
       ref: task.displayId,
@@ -353,6 +327,7 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     const tasks = source.tasks().filter((task) => listed(task, cutoff))
     const factories = source.factories().toSorted(factoryOrder)
     const lists = await stageLists(factories)
+    const icons = phoneFactoryIcons(factories)
     const order = sectionOrder(group, tasks, factories, lists)
     const placed: Placed[] = tasks
       .map((task) => {
@@ -366,7 +341,13 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
             createdAt: task.createdAt,
             taskId: task.id,
           },
-          row: row(task, key, factory, lists.get(task.factoryId) ?? defaultStageList),
+          row: row(
+            task,
+            key,
+            factory,
+            icons.get(task.factoryId),
+            lists.get(task.factoryId) ?? defaultStageList,
+          ),
         }
       })
       .toSorted((a, b) => compareKeys(a.key, b.key))
@@ -412,6 +393,7 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
       task,
       statusSection(task),
       factory,
+      phoneFactoryIcons(source.factories()).get(task.factoryId),
       lists.get(task.factoryId) ?? defaultStageList,
     )
     const descendants = source.descendants(task.id)

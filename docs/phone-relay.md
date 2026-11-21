@@ -135,6 +135,9 @@ Every message inside a box has:
 - `{"type":"request","route":"image","image":"<image ID>","part":0}` from a paired phone’s key (see Images below). `image` is 1 to 200 characters and `part` a whole number from 0; anything else gets `bad-request`. A Mac older than this route answers `unknown-route`.
 - `{"type":"request","route":"factories"}` and `{"type":"request","route":"task-create","createId":"<16 random bytes>","factory":"NB","title":"…","description":"…","priority":"none","start":false}` from a paired phone’s key (see New Task below), with optional `"files":["<uploadId>", …]`. A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"file-part","uploadId":"<16 random bytes>","index":0,"data":"<base64>"}` and `{"type":"request","route":"file-done","uploadId":"<16 random bytes>","name":"IMG_2031.jpg","mediaType":"image/jpeg","size":123456,"sha256":"<64 lowercase hex>"}` from a paired phone’s key (see Files below). A Mac older than these routes answers `unknown-route`.
+- `{"type":"request","route":"chats","factoryId":"<Factory ID>","archived":false,"cursor":"<cursor>"}`, `{"type":"request","route":"chat","chatKind":"coordinator","chatId":"<chat ID>"}`, `{"type":"request","route":"chat-items","chatKind":"coordinator","chatId":"<chat ID>","before":"<cursor>"}` and `{"type":"request","route":"chat-item","chatKind":"plan","chatId":"<chat ID>","itemId":"<item ID>","offset":120}` from a paired phone’s key (see Chats below). `factoryId`, `archived`, `cursor`, `before` and `offset` are optional. `chatKind` is `coordinator` or `plan`; `factoryId`, `chatId` and `itemId` are 1 to 200 characters, `cursor` and `before` 1 to 512, and `offset` a whole number from 0; anything else gets `bad-request`. A Mac older than these routes answers `unknown-route`.
+- `{"type":"request","route":"chat-message","chatKind":"plan","chatId":"<chat ID>","text":"…","createId":"<16 random bytes>"}`, `{"type":"request","route":"chat-stop","chatKind":"coordinator","chatId":"<chat ID>"}`, `{"type":"request","route":"chat-agents","factory":"NB"}` and `{"type":"request","route":"chat-create","factory":"NB","agentId":"planner","text":"…","createId":"<16 random bytes>"}` from a paired phone’s key (see Chat actions below). Every field is required. `text` is 1 to 10,000 characters and not only spaces, `agentId` 1 to 200 characters, `factory` a Factory key of 1 to 200 characters; anything else gets `bad-request`. A Mac older than these routes answers `unknown-route`.
+- `{"type":"request","route":"factory-icon","factoryId":"<Factory ID>"}` from a paired phone’s key (see Factory icons below). `factoryId` is 1 to 200 characters; anything else gets `bad-request`. A Mac older than this route answers `unknown-route`, and the phone draws its own letter.
 
 ### Mac → phone
 
@@ -153,9 +156,18 @@ Every message inside a box has:
 - `task-start`, `task-stop`, `task-resume`, `task-priority` and `task-comment` → `{"task":<task>}`, the Task as the `task` route shows it after the change.
 - `task-archive` and `task-delete` → `{}`.
 - `image` → `{"mediaType":"image/jpeg","parts":3,"part":0,"data":"<base64url bytes>"}`.
-- `factories` → `{"factories":[{"key":"NB","name":"Notebook","icon":<icon>,"defaultPriority":"none"}, …]}`.
+- `factories` → `{"factories":[{"id":"<Factory ID>","key":"NB","name":"Notebook","icon":<icon>,"defaultPriority":"none"}, …]}`.
+- `factory-icon` → `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}`.
 - `task-create` → `{"task":<task>}`, the new Task as the `task` route shows it, with `"startRefused":"<sentence>"` added when Start now was asked for and the start was refused.
 - `file-part` and `file-done` → `{}`.
+- `chats` → `{"factories":[<chat Factory>, …],"rows":[<chat row>, …],"archivedCount":3,"cursor":"<cursor>"}`.
+- `chat` → `{"chat":<chat row>}`.
+- `chat-items` → `{"items":[<chat item>, …],"cursor":"<cursor>"}`.
+- `chat-item` → `{"lines":[<detail line>, …],"next":240}`.
+- `chat-message` → `{"queued":true}`: `true` when the chat was working, so the message waits for the current reply.
+- `chat-stop` → `{"stopped":true}`.
+- `chat-agents` → `{"agents":[{"id":"coordinator","name":"Coordinator","description":"…","planner":false}, …]}`.
+- `chat-create` → `{"chat":{"kind":"plan","id":"<chat ID>"}}`.
 - `problems` → `{"problems":[{"id":"clone-failed:<Factory ID>","factory":"Notebook","text":"Couldn’t clone …","raisedAt":"<ISO time>"}, …]}`: the current stops-work banners, newest first, never warnings. `factory` is the Factory’s name, cut to 200 characters, and is left out for a problem that affects every Factory. `text` is the banner’s text through `redactSecrets`, cut to 500 characters; at most 50 problems, and fewer when the next one would take the reply past `phoneReplyBodyMax` bytes.
 
 ### Push notifications
@@ -176,9 +188,9 @@ With Problems notifications on (machine setting `notifyProblems`), the same away
 | `too-new` | The phone’s `protocol` is above the daemon’s. The phone says “Update Ted on your Mac.” |
 | `bad-request` | The message has the wrong shape. |
 | `unknown-route` | `request` names a route not marked for phones. |
-| `gone` | The request was answered, withdrawn or superseded elsewhere, or its Task, plan or Automation is gone; or, on `task`, `task-comments` and the Task actions, no Task has that ID or the Task is archived; or, on a repeated `task-create`, the Task it made is deleted or archived. The phone says so and drops it from the list. |
+| `gone` | The request was answered, withdrawn or superseded elsewhere, or its Task, plan or Automation is gone; or, on `task`, `task-comments` and the Task actions, no Task has that ID or the Task is archived; or, on a repeated `task-create`, the Task it made is deleted or archived; or, on `chat`, `chat-items` and `chat-item`, no chat of that kind has that ID (deleted on the Mac), or, on `chat-item`, the chat has no item with that ID; or, on `chat-message` and `chat-stop`, no chat of that kind has that ID; or, on `chat-agents` and `chat-create`, no Factory has that key. The phone says so and drops it from the list. |
 | `answer-on-mac` | The phone may not answer this request. The daemon refuses it whatever the phone sends. |
-| `refused` | Ted’s own code refused the answer (for example a choice that isn’t offered), the Task action (for example Stop on a Task that hasn’t started, or Archive after the Task’s family changed) or the new Task (for example no title, or an unknown Factory). `message` is the daemon’s sentence, through `redactSecrets`. |
+| `refused` | Ted’s own code refused the answer (for example a choice that isn’t offered), the Task action (for example Stop on a Task that hasn’t started, or Archive after the Task’s family changed) the new Task (for example no title, or an unknown Factory), or the chat action (for example a message to an archived chat, or an Agent the Factory doesn’t have). `message` is the daemon’s sentence, through `redactSecrets`. |
 
 A phone that gets a reply with a `protocol` above its own says “Update the Ted app on your phone.”
 
@@ -196,20 +208,25 @@ The open requests from every Factory, in the desktop Inbox’s order, leaving ou
   "source": "task",
   "kind": "question",
   "factory": "Ted",
+  "factoryId": "<Factory ID>",
+  "factoryIcon": { "kind": "symbol", "symbol": "code", "color": "blue" },
   "title": "List and answer Inbox requests on the phone",
   "ref": "TED-700",
   "headline": "Which repo should hold the parser?",
   "createdAt": "2026-11-19T18:22:53.000Z",
   "failed": true,
-  "onPhone": true
+  "onPhone": true,
+  "task": { "id": "<Task ID>", "priority": "high", "actions": ["stop", "priority", "comment", "archive", "delete"] }
 }
 ```
 
 - `source`: `task`, `plan` (a planning chat), `automation` or `chat` (a Coordinator chat).
 - `kind`: `question`, `round`, `permission`, `signoff`, `proposal`, `review` or `request` (anything else, such as a Coordinator confirmation).
+- `factoryId` and `factoryIcon`: the request’s Factory and its Factory icon (see Factory icons below). `factoryIcon` is left out when the Factory no longer exists. A Mac older than these fields sends neither, and the phone draws its own letter.
 - `title`: the Task title, plan title, Automation name or chat title. `ref` is the Task’s display ID, only for `task`.
 - `headline`: at most 200 characters. `failed` appears only when the request comes from a failed Run.
 - `onPhone`: whether the phone may answer it. When `false` the phone opens it read-only with “Answer on your Mac”.
+- `task`: only for `task`, and left out when the Task can’t be read. Its `id`, `priority` and `actions`, with `actions` as in a Task row below. The phone uses it for the row’s long-press menu; older phones ignore it.
 
 The daemon keeps the reply under the frame limit. When requests had to be left out, `more` counts them and the phone says how many more are on the Mac.
 
@@ -290,7 +307,7 @@ Inside a section, rows follow the Mac’s All Tasks order: priority, then rank, 
 ```
 
 - `title` is cut to 500 characters; Factory, Stage and section names and `status` to 200.
-- `icon` is `{"kind":"letter","color":…}`, `{"kind":"symbol","symbol":…,"color":…}` or `{"kind":"emoji","emoji":…}`. It is left out when the Factory has no icon or an image icon; the phone then draws its own letter.
+- `icon` is the **Factory icon** (see Factory icons below).
 - `status` uses the desktop’s wording (“Waiting on you”, “Queued · 3rd”, “Blocked by TED-12”), and is `""` when the Task has no status (Backlog and Done).
 - `tone` is `working` (working, queued), `waiting` (waiting on you, blocked, paused, waiting for GitHub, snoozed), `failed` (failed, partly merged), `stopped`, `done` or `none` (no status).
 - `section` is the row’s section key in the grouping asked for.
@@ -379,10 +396,25 @@ Two routes let the phone create a Task. The protocol number doesn’t change: a 
 Lists every Factory the Mac’s New Task dialog offers, in the sidebar’s order:
 
 ```json
-{ "factories": [{ "key": "NB", "name": "Notebook", "icon": { "kind": "letter", "color": "blue" }, "defaultPriority": "none" }] }
+{ "factories": [{ "id": "<Factory ID>", "key": "NB", "name": "Notebook", "icon": { "kind": "letter", "color": "blue" }, "defaultPriority": "none" }] }
 ```
 
-`icon` has the same shape as a Task row’s Factory icon and is left out when the Factory has none. `name` goes through `redactSecrets` and is cut to 200 characters. The list stops before the Factory that would take the reply past `phoneReplyBodyMax` (40,000 bytes of JSON). `defaultPriority` is the priority the phone’s form starts at; Factories have no priority setting, so it is always `none`, the Mac dialog’s starting value. Nothing else about a Factory is sent.
+`icon` is the Factory icon (see Factory icons below). `id` is the Factory ID that rows, summaries and `factory-icon` use. `name` goes through `redactSecrets` and is cut to 200 characters. The list stops before the Factory that would take the reply past `phoneReplyBodyMax` (40,000 bytes of JSON). `defaultPriority` is the priority the phone’s form starts at; Factories have no priority setting, so it is always `none`, the Mac dialog’s starting value. Nothing else about a Factory is sent.
+
+### Factory icons
+
+A Factory icon tells the phone to draw what the Mac draws for that Factory, in the same colour:
+
+- `{"kind":"letter","color":…}`: the Factory name’s first character, uppercase. A Factory with no icon of its own gets a letter in the automatic colour the Mac’s sidebar gives it (`factoryColors` in `packages/protocol/src/factory-icon.ts`), worked out from every Factory in sidebar order.
+- `{"kind":"symbol","symbol":…,"color":…}`: one of the Mac’s Lucide symbols, by the name in `factoryIconSymbols`.
+- `{"kind":"emoji","emoji":…}`.
+- `{"kind":"image","version":…}`: the Factory’s own image. The reply carries only `version`, a hash of the image, because one image can be up to 32 KB. The phone asks for the image with `factory-icon`, keeps it, and asks again only when `version` changes; until it has the image it draws its own letter.
+
+`color` is one of `factoryIconColors`. A phone that doesn’t know a `kind` draws its own letter.
+
+### `factory-icon`
+
+Answers `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}` for a Factory whose icon is an image, with the same `version` the Factory icon shows. An unknown Factory gets `gone`. A Factory without an image icon, or one whose image would take the reply past `phoneReplyBodyMax`, gets `refused`, and the phone keeps drawing its own letter. The Mac shrinks uploaded images to 64 by 64 pixels, so they fit.
 
 ### `task-create`
 
@@ -436,6 +468,97 @@ Parts and finished files wait in `TED_HOME/phone-uploads/<phone ID>/<uploadId>/`
 
 `task-create` and `task-comment` name finished files in `files`. Before creating anything, the daemon checks that each one is a finished file of this phone; otherwise it answers `refused` with “A file didn’t reach your Mac. Send again.” and creates nothing, and the phone keeps the draft and its files. The daemon then copies each file into the attachment store, under its name and media type, and passes the attachments to the same Tasks module calls the Mac uses for a New Task’s files and a comment’s files. After the Task or comment is created, its uploads are deleted, so naming them again is refused.
 
+## Chats
+
+Four read-only routes show the Mac’s agent chats: Coordinator chats, planning chats and chats with Agents a Factory defines, the same chats the Mac’s Agents screens show, from every Factory. Nothing a phone sends through them changes anything on the Mac, and chat requests can’t be answered through them. Four more routes write to, stop and start chats (see Chat actions below). Every text goes through `redactSecrets` first, and every reply’s JSON body stays under `phoneReplyBodyMax` (40,000 bytes). The protocol number doesn’t change: a Mac without these routes answers `unknown-route`, and the phone’s Chats tab then says “Update Ted on your Mac to use Chats.”
+
+A chat is named by `chatKind` and `chatId`: `coordinator` with the Coordinator chat’s ID (Coordinator chats and chats with a Factory’s own Agents), or `plan` with the planning chat’s ID.
+
+### `chats`
+
+Chats newest activity first: by `lastAt`, then kind, then ID. With `archived` left out or `false`, open chats only; with `archived` `true`, archived chats only (a Coordinator chat with `endedAt`, a planning chat with `archivedAt`). `factoryId` limits the list to one Factory; an unknown `factoryId` gives an empty list. A **chat row**:
+
+```json
+{
+  "kind": "coordinator",
+  "id": "<chat ID>",
+  "title": "Clean up the stale Validate failures",
+  "agent": "Coordinator",
+  "factory": { "id": "<Factory ID>", "name": "Ted", "icon": { "kind": "emoji", "emoji": "🛠️" } },
+  "status": "Working",
+  "tone": "working",
+  "waiting": false,
+  "archived": false,
+  "lastAt": "2026-11-20T09:00:00.000Z",
+  "send": "live",
+  "canStop": true
+}
+```
+
+- `title` is the Mac’s chat title, else “<Agent> chat”, cut to 500 characters. `agent` is the chat’s Agent name, and the Factory name and `status` are cut to 200. `icon` is the Factory icon (see Factory icons below).
+- `status` uses the Mac’s Agents screen wording. Coordinator chats: Waiting on you (when `waiting`), Ready, Queued, Working, Paused, Failed. Planning chats: Waiting on you, Working, Idle, Queued (or “Queued · 3rd”), “Paused · <reason>” (“Paused · usage limit” without one), Failed, Finished, Stopped. An archived chat is “Archived”.
+- `tone` is `working` (working, queued), `waiting` (waiting on you, paused), `failed`, `stopped` (stopped, archived), `done` (finished) or `none` (ready, idle).
+- `waiting` is `true` when the chat has an open request for the user, as the Mac’s Waiting chip: an unanswered question, round, proposal, Agent draft, outside command, confirmation or automation card in a Coordinator chat, or a planning chat waiting on the user or with an open request. It is always `false` for an archived chat.
+- `send` says what the phone’s message field does, following the Mac’s chat screen: `live` (the field is shown and `chat-message` goes to the running chat), `resume` (a planning chat that ended and can resume; sending resumes it with the message, as the Mac’s field does) or `off` (no field). With `off`, `offReason` is the sentence the phone shows instead: “This chat is archived.”, “This planning chat has ended.” (ended and can’t resume), “The planner hasn’t started yet.” (a planning chat still queued for its first Run), “This chat failed. Retry it on your Mac.” or “This Agent was removed from the Factory’s Agent files.”
+- `canStop` is `true` when the Mac’s chat menu offers Stop: a Coordinator chat that is working, queued or paused, or a planning chat that hasn’t ended (working, waiting, idle, queued or paused). Always `false` for an archived chat. The Mac and the daemon share this rule (`coordinatorStoppable`, `planStoppable` in `@ted/protocol/agent-chat-view`).
+
+`factories` lists `{"id":"<Factory ID>","name":"Ted","icon":<icon>}` for every Factory that has at least one chat, open or archived, in the sidebar’s order, on every page, so the phone can offer its Factory filter. `factories` never takes more than half of `phoneReplyBodyMax`, so at least one row always fits: when it would, the Mac cuts every name to 100 characters, then 50, then 20, then none, and as a last resort sends only the Factories that fit, with empty names and no icons; the phone then draws its own letter. `archivedCount` counts the archived chats the same `factoryId` would list, on every page.
+
+**Paging.** As `tasks`: a page holds as many rows as fit; `cursor` holds the last row’s place (`lastAt`, kind, ID) and is sent back with the same `factoryId` and `archived` for the next page. A bad cursor, or one made for another route, gets `bad-request`. A chat that moves between pages may be skipped or show twice; the phone replaces a row it already holds.
+
+### `chat`
+
+One chat’s row, to draw the chat screen’s header and refresh it. An unknown chat gets `gone`.
+
+### `chat-items`
+
+The chat’s conversation as the Mac draws it, oldest to newest: the Run chat’s items for every Run of the chat, merged by time with, for a Coordinator chat, its Task action results, requests, confirmation cards and automation cards, and, for a planning chat, its rounds, proposals, notes and the final “Planning Run finished”, “failed” or “stopped” line. The instructions Ted sends the agent are left out (the Mac shows them collapsed).
+
+Without `before`, the reply holds the newest items that fit, ending with the newest item. With `before`, it holds the items that fit just before the item that cursor names. `cursor` is set when older items are left; the phone sends it back as `before`. A cursor holds the chat kind and an item ID, not a time, because several item kinds have no time; a cursor made for the other chat kind gets `bad-request`. A cursor whose item is no longer in the chat gets `gone`, and the phone starts again from the newest page.
+
+A **chat item** has `id`, `kind` and, when the Mac knows it, `at` (ISO time), plus:
+
+| `kind` | Fields |
+| - | - |
+| `human` | `text` (Markdown), `cut`, `images` (the names of image attachments), `files` (the number of other attachments), and `unsent: true` when the Mac shows the message as Not sent, or `queued: true` while the message waits for the agent’s current reply and hasn’t reached the agent yet. |
+| `agent` | `text` (Markdown), `cut`. `agent` is the Agent’s name. |
+| `ted` | `title`, `text`, `cut`: a message from Ted, such as “New Run”, the opening prompt when the Mac shows it as a Prompt, or a planning chat’s final line. |
+| `interrupted` | Nothing more. |
+| `tool` | `tool` (such as `Bash` or `Edit`), `title`, `status` (`running`, `done`, `failed` or `stopped`), `additions` and `deletions` (diff line counts, when it has diffs), `lines` (output line count, when it has output) and `detail: true` when it has detail, diffs or output to open. |
+| `command` | `name`, `status` (`running`, `passed`, `failed` or `stopped`), `exitCode` when known, `lines` (output line count, 0 when none), `detail: true` when it has output. |
+| `action` | `text`, the Task action result as the Mac’s line says it, and `taskRef` (such as `TED-788`) when it names a Task. |
+| `request` | `requestKind` (Question, Round, Proposal, Agent draft, Outside command, Note), `title` (the request’s title, else a label such as “Round 2” or “Proposal · 3 Tasks”), `text` (Markdown: the request’s body, then its choices, each round question with its choices and recommended answer, each proposed Task with its priority, scope and the rows it waits for, an Agent draft’s name, powers and instructions, or an outside command line and its folder), `cut`, `open`. Shown read-only; an open one says to answer on the Mac. |
+| `card` | `text`: a confirmation card, automation card or permission request as one line, and `open`. |
+
+`text` is cut at 4,000 characters, and further only when a single item would not fit the reply; `cut` is then `true`, and `chat-item` returns the whole text. Tool titles and command names are cut to 200 characters.
+
+The phone refreshes an open chat by asking again without `before` and replacing items by `id`, so an item that changed, such as a tool call going from running to done, is updated in place. If the new page shares no item with what the phone shows, the phone drops what it had and starts from that page.
+
+### `chat-item`
+
+One item’s whole content, in pieces, for the phone’s detail screen: a tool call’s detail, diffs and output; a command’s output; or the whole text of an item whose `text` was cut. The content is a list of **detail lines**:
+
+```json
+{ "kind": "added", "text": "+     timeout: 600" }
+```
+
+`kind` is `heading` (a section such as Detail, Output or a file path with its counts, as in `src/a.ts +3 −1`), `text`, `added`, `removed` or `context` (diff lines, starting with `+`, `-` or a space). A diff the Mac cut short ends with the text line “Longer than shown”. A line longer than 2,000 characters is split into several lines of the same kind. `offset` is the index of the first line to send, 0 when left out; the reply holds as many lines as fit from there, and `next` is the index to ask for next, left out after the last line. An item with nothing to open returns no lines. A Mac keeps a tool call’s output to 8,000 characters, its diffs to 400 lines per file and a command’s output to its last 4 KB, so the phone shows what the Mac shows.
+
+## Chat actions
+
+Four routes let the phone write to a chat, stop it, and start a new one. Each runs the same daemon code as the Mac’s own field or button, as the user, so the Mac’s rules decide: when the daemon refuses, the phone gets `refused` with the daemon’s sentence, through `redactSecrets`. The protocol number doesn’t change: a Mac without these routes answers `unknown-route`. Nothing on the Mac turns them off; pairing the phone is the gate.
+
+| Route | Fields | Does |
+| - | - | - |
+| `chat-message` | `chatKind`, `chatId`, `text`, `createId` | Sends `text` as the user’s message, shown on the Mac exactly like one typed there. The phone never interrupts: while the agent works, the message waits for its current reply, and the reply says `queued: true`. A Coordinator chat takes it as the Mac’s field does (`Coordinators.message`). A live planning chat takes it as the Mac’s planning chat field does, through the Run’s message queue without interrupting (`Conversations.send`). A planning chat whose row says `send: "resume"` is resumed with the message (`Plans.resume`). A chat whose row says `send: "off"` is refused with its `offReason`. |
+| `chat-stop` | `chatKind`, `chatId` | Stop, as the Mac’s chat menu: `Coordinators.stop` for a Coordinator chat (ends the current reply and cancels messages still waiting), `Plans.stop` for a planning chat (ends its Run; the chat can be resumed later). Refused, for example, for a planning chat that already ended. |
+| `chat-agents` | `factory` | The Agents the Mac’s New chat picker shows for the Factory, in its order: the Coordinator, the Planner, then the others by name; no New Agent entry. `description` is the picker card’s line (Ted’s own line for the built-in Agents, else the Agent’s `description`, else empty), cut to 500 characters; `name` is cut to 200. `planner` is `true` only for the Planner. |
+| `chat-create` | `factory`, `agentId`, `text`, `createId` | Starts a chat with `text` as its first message. `agentId` `planner` starts a new planning chat (`Plans.start`, never from a Task or an earlier chat); any other Agent starts a Coordinator-style chat with that Agent (`Coordinators.start`). Provider, model and effort aren’t sent: the Factory’s defaults for that Agent apply, as when the user doesn’t change them on the Mac. An Agent the Factory doesn’t have is `refused`. |
+
+`createId` is 16 random bytes in base64url, made once per message or new chat the user sends and reused on every resend of it.
+
+**Sending twice.** When a reply is lost, the phone sends the same `chat-message` or `chat-create` again as a new message with the same `createId`. Two sends with the same `createId` at once share one call. After the call succeeds, the daemon records `v1.PhoneChatSent` under the phone and `createId` (the route, chat kind, chat ID and `queued`) and waits for it to reach disk before it answers, so a resend, even after the Mac restarts, gets the first reply and posts nothing, whatever the other fields say. A daemon crash between the message being saved and the record being saved may let a resend post the message again. A refused call records nothing, so the phone may send it again. A `createId` already used by the other route gets `bad-request`. The `createId` belongs to one phone.
+
 ## Pairing
 
 1. The app asks the daemon for a pairing link. The daemon makes a pairing ID and secret, keeps them in memory, connects to the relay if it isn’t already, and sends `pairing` with the ticket hash. It returns the link only after `pairing-ok`; with no answer in 5 seconds the app says Ted can’t reach the relay. A new link cancels the previous one.
@@ -448,7 +571,7 @@ The daemon sends `pairing-end` right after it answers a `pair-status` with `appr
 
 ## Paired phones
 
-The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer`, `push-token`, `problems`, `tasks`, `task`, `task-comments`, `image`, `task-start`, `task-stop`, `task-resume`, `task-priority`, `task-comment`, `task-archive`, `task-delete`, `factories`, `task-create`, `file-part` and `file-done`. Removing a phone on the Mac records `v1.PhoneRemoved` and sends the new list; the relay then refuses that phone. A message that still reaches the daemon from a removed key gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there. Phones paired before protocol 3 have no relay key, so they aren’t on the relay’s list and must pair again.
+The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer`, `push-token`, `problems`, `tasks`, `task`, `task-comments`, `image`, `task-start`, `task-stop`, `task-resume`, `task-priority`, `task-comment`, `task-archive`, `task-delete`, `factories`, `task-create`, `chats`, `chat`, `chat-items`, `chat-item`, `chat-message`, `chat-stop`, `chat-agents`, `chat-create` `factory-icon`, `file-part` and `file-done`. Removing a phone on the Mac records `v1.PhoneRemoved` and sends the new list; the relay then refuses that phone. A message that still reaches the daemon from a removed key gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there. Phones paired before protocol 3 have no relay key, so they aren’t on the relay’s list and must pair again.
 
 The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so the relay’s list stays current). It reconnects with backoff (1, 2, 5, 10, 30 seconds).
 
