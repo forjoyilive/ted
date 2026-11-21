@@ -2510,6 +2510,7 @@ export async function openContext({
             kind: row.kind as CommentKind,
             planId: plan.id,
             planTitle: plan.title,
+            agentName: chatStore.agent(plan.id)?.name ?? 'Planner',
           },
         ]
       })

@@ -12,9 +12,8 @@ import type {
   PlanStatus,
   PlanTask,
   PlanTaskGone,
+  PostPlanRequest,
   ProposalCreated,
-  ProposalInput,
-  RoundInput,
   Run,
   RunSlots,
   StartPlanRequest,
@@ -32,11 +31,13 @@ import {
   chatTitle,
   planPost,
   proposalRows,
+  questionAnswer,
   roundAnswerMessage,
 } from '../chats/requests.ts'
 import { AnswerSavedError, RequestError } from '../errors.ts'
 import { promptGuidance } from '../guidance.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
+import { redactSecrets } from '../redact.ts'
 import type { MessageWithFiles } from '../runs/message-files.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredChatAgent } from '../store/chats.ts'
@@ -111,10 +112,7 @@ export interface Plans {
   delete(id: string, caller: Caller): Promise<void>
   removeFactory(factoryId: string): Promise<void>
   inbox(): Promise<PlanInboxItem[]>
-  post(
-    caller: Caller,
-    input: { round?: RoundInput; proposal?: ProposalInput; supersedes?: string },
-  ): PlanRequest
+  post(caller: Caller, input: PostPlanRequest): PlanRequest
   answer(id: string, request: AnswerRequest): Promise<PlanRequest>
   runCommand(caller: Caller, name: string): Promise<ChatCommandResult>
   commandResult(caller: Caller, id: string): Promise<ChatCommandResult>
@@ -142,6 +140,7 @@ function firstLine(text: string, max = 500): string {
 }
 
 export function createPlans(options: PlansOptions): Plans {
+  const answeringQuestions = new Set<string>()
   const { store, runs, health, banners, workflows } = options
   const planHold = (plan: StoredPlan) =>
     agentStartHold(store, plan.agent, plan.id, {
@@ -948,44 +947,54 @@ export function createPlans(options: PlansOptions): Plans {
     async commandResult(caller, id) {
       return options.commands.wait(ownPlan(caller).id, id)
     },
-    post(caller, { round, proposal, supersedes }) {
+    post(caller, { question, round, proposal, supersedes }) {
       const plan = ownPlan(caller)
-      if ((round === undefined) === (proposal === undefined)) {
-        throw new RequestError(400, 'send a round or a proposal')
+      if ([question, round, proposal].filter((item) => item !== undefined).length !== 1) {
+        throw new RequestError(400, 'send one question, round or proposal')
       }
-      requirePower(agentOf(plan), round ? 'ask' : 'propose_tasks')
-      const kind = round ? 'round' : 'proposal'
+      const kind = question ? 'question' : round ? 'round' : 'proposal'
+      requirePower(agentOf(plan), kind === 'proposal' ? 'propose_tasks' : 'ask')
       const task = linkedTask(plan)
       const requests = saved.requests(plan.id)
       const decided = planPost(requests, { kind, ...(supersedes !== undefined && { supersedes }) })
-      const posted = round
+      const posted = question
         ? saved.postRequest({
             planId: plan.id,
             runId: plan.id,
-            kind: 'round',
+            kind: 'question',
             author: 'run',
-            title: round.title,
-            body: round.summary ?? '',
-            round: {
-              number: decided.roundNumber,
-              questions: round.questions,
-            },
+            body: redactSecrets(question.text),
+            ...(question.choices && { choices: question.choices }),
+            ...(question.multiple && { multiple: question.multiple }),
           })
-        : saved.postRequest({
-            planId: plan.id,
-            runId: plan.id,
-            kind: 'proposal',
-            author: 'run',
-            title: proposal?.title ?? '',
-            body: proposal?.summary ?? '',
-            proposal: {
-              ...(task && { firstPiece: { id: task.id, displayId: task.displayId } }),
-              rows: proposalRows(
-                proposal?.tasks ?? [],
-                (factoryOf(plan)?.repos ?? []).map((r) => r.name),
-              ),
-            },
-          })
+        : round
+          ? saved.postRequest({
+              planId: plan.id,
+              runId: plan.id,
+              kind: 'round',
+              author: 'run',
+              title: round.title,
+              body: round.summary ?? '',
+              round: {
+                number: decided.roundNumber,
+                questions: round.questions,
+              },
+            })
+          : saved.postRequest({
+              planId: plan.id,
+              runId: plan.id,
+              kind: 'proposal',
+              author: 'run',
+              title: proposal?.title ?? '',
+              body: proposal?.summary ?? '',
+              proposal: {
+                ...(task && { firstPiece: { id: task.id, displayId: task.displayId } }),
+                rows: proposalRows(
+                  proposal?.tasks ?? [],
+                  (factoryOf(plan)?.repos ?? []).map((r) => r.name),
+                ),
+              },
+            })
       if (decided.supersedes !== undefined) {
         saved.answerRequest(decided.supersedes, {
           kind: 'superseded',
@@ -1007,6 +1016,19 @@ export function createPlans(options: PlansOptions): Plans {
       }
       if (plan.state !== 'started' && !resumable(plan)) {
         throw new RequestError(409, 'this planning chat has ended')
+      }
+      if (found.kind === 'question') {
+        if (answeringQuestions.has(id)) throw new RequestError(409, 'This answer is being sent')
+        const { message, answer } = questionAnswer(found, request, new Date().toISOString())
+        answeringQuestions.add(id)
+        try {
+          await deliver(plan, message)
+          const answered = saved.answerRequest(id, answer)
+          await resumeAfterAnswer(plan)
+          return view(plan, answered)
+        } finally {
+          answeringQuestions.delete(id)
+        }
       }
       if (found.kind === 'round') {
         const round = found.round

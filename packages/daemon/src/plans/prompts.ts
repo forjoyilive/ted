@@ -67,7 +67,7 @@ export function plannerInstructions(input: {
       ...(ask || propose || run.length > 0 ? [''] : []),
       ...(ask
         ? [
-            `- Ask the human questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; Ted sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
+            `- Ask a single question with \`ted ask "<question>"\`, or ask a round with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; Ted sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
           ]
         : []),
       ...(propose

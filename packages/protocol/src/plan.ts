@@ -1,4 +1,4 @@
-import type { ChatAgent } from './chat-agent.ts'
+import type { ChatAgent, ChatQuestionInput } from './chat-agent.ts'
 import type { AgentKind } from './run.ts'
 import type {
   AttachmentRef,
@@ -22,7 +22,7 @@ export type PlanStatus =
   | 'finished'
   | 'stopped'
 
-export type PlanRequestKind = 'round' | 'proposal' | 'note'
+export type PlanRequestKind = 'question' | 'round' | 'proposal' | 'note'
 
 export interface PlanRequest {
   id: string
@@ -32,6 +32,8 @@ export interface PlanRequest {
   author: 'run' | 'ted'
   title?: string
   body: string
+  choices?: string[]
+  multiple?: true
   round?: Round
   proposal?: Proposal
   answer?: CommentAnswer
@@ -120,6 +122,7 @@ export function planTitle(message: string): string {
 }
 
 export function planRequestLabel(request: PlanRequest): string {
+  if (request.kind === 'question') return 'Question'
   if (request.kind === 'round') return `Round ${request.round?.number ?? ''}`
   if (request.kind === 'proposal') {
     const count = request.proposal?.rows.length ?? 0
@@ -141,6 +144,7 @@ export interface RenamePlanRequest {
   title: string
 }
 export interface PostPlanRequest {
+  question?: ChatQuestionInput
   round?: import('./task.ts').RoundInput
   proposal?: import('./task.ts').ProposalInput
   supersedes?: string

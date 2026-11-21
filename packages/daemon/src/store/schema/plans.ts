@@ -45,6 +45,8 @@ export const planRequests = State.SQLite.table({
     author: State.SQLite.text(),
     title: State.SQLite.text({ nullable: true }),
     body: State.SQLite.text(),
+    choices: State.SQLite.text({ nullable: true }),
+    multiple: State.SQLite.integer({ nullable: true }),
     round: State.SQLite.text({ nullable: true }),
     proposal: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
@@ -117,6 +119,18 @@ export const plansEvents = {
       body: Schema.String,
       round: Schema.NullOr(Schema.String),
       proposal: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  planQuestionPosted: Events.synced({
+    name: 'v1.PlanQuestionPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      planId: Schema.String,
+      runId: Schema.String,
+      body: Schema.String,
+      choices: Schema.Array(Schema.String),
+      multiple: Schema.Boolean,
       at: Schema.String,
     }),
   }),
@@ -237,6 +251,15 @@ export const plansMaterializers = State.SQLite.materializers(plansEvents, {
   'v1.PlanUnarchived': ({ id }) => plans.update({ archivedAt: null }).where({ id }),
   'v1.PlanRequestPosted': ({ at, ...request }) =>
     planRequests.insert({ ...request, createdAt: at }),
+  'v1.PlanQuestionPosted': ({ at, choices, multiple, ...question }) =>
+    planRequests.insert({
+      ...question,
+      kind: 'question',
+      author: 'run',
+      choices: JSON.stringify(choices),
+      multiple: multiple ? 1 : null,
+      createdAt: at,
+    }),
   'v1.PlanRequestAnswered': ({ id, answer }) => [
     planRequests.update({ answer }).where({ id }),
     requestSnoozes.delete().where({ requestId: id }),

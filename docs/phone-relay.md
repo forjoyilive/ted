@@ -224,12 +224,14 @@ The open requests from every Factory, in the desktop Inbox’s order, leaving ou
 }
 ```
 
-- `source`: `task`, `plan` (a planning chat), `automation` or `chat` (a Coordinator chat).
+- `source`: `task`, `plan` (a planning chat), `automation` or `chat` (a Coordinator or Factory Agent chat).
 - `kind`: `question`, `round`, `permission`, `signoff`, `proposal`, `review` or `request` (anything else, such as a Coordinator confirmation).
 - `factoryId` and `factoryIcon`: the request’s Factory and its Factory icon (see Factory icons below). `factoryIcon` is left out when the Factory no longer exists. A Mac older than these fields sends neither, and the phone draws its own letter.
 - `title`: the Task title, plan title, Automation name or chat title. `ref` is the Task’s display ID, only for `task`.
 - `headline`: at most 200 characters. `failed` appears only when the request comes from a failed Run.
-- `onPhone`: whether the phone may answer it. When `false` the phone opens it read-only with “Answer on your Mac”.
+- `agentName`: the Agent’s display name for a chat or plan. The phone shows it with the chat’s title in the Inbox.
+- `onPhone`: whether the phone may answer it. Coordinator and Factory Agent questions, rounds and proposals, and planning questions, rounds and proposals use the same answer handlers as the Mac. A proposal approved on the phone creates Tasks with the Mac’s default proposal options.
+- `macReason`: an optional read-only message for the Inbox row. Agent drafts and Automation cards say “Review this on your Mac.” Confirmation cards and outside command approvals say “Answer this on your Mac.”
 - `task`: only for `task`, and left out when the Task can’t be read. Its `id`, `priority` and `actions`, with `actions` as in a Task row below. The phone uses it for the row’s long-press menu; older phones ignore it.
 
 The daemon keeps the reply under the frame limit. When requests had to be left out, `more` counts them and the phone says how many more are on the Mac.
@@ -478,7 +480,9 @@ Parts and finished files wait in `TED_HOME/phone-uploads/<phone ID>/<uploadId>/`
 
 ## Chats
 
-Four read-only routes show the Mac’s agent chats: Coordinator chats, planning chats and chats with Agents a Factory defines, the same chats the Mac’s Agents screens show, from every Factory. Nothing a phone sends through them changes anything on the Mac, and chat requests can’t be answered through them. Four more routes write to, stop and start chats (see Chat actions below). Every text goes through `redactSecrets` first, and every reply’s JSON body stays under `phoneReplyBodyMax` (40,000 bytes). The protocol number doesn’t change: a Mac without these routes answers `unknown-route`, and the phone’s Chats tab then says “Update Ted on your Mac to use Chats.”
+Four read-only routes show the Mac’s agent chats: Coordinator chats, planning chats and chats with Agents a Factory defines, the same chats the Mac’s Agents screens show, from every Factory. Nothing a phone sends through them changes anything on the Mac. The phone opens chat requests through the existing `request` route and sends answers through `answer`. Four more routes write to, stop and start chats (see Chat actions below). Every text goes through `redactSecrets` first, and every reply’s JSON body stays under `phoneReplyBodyMax` (40,000 bytes). The protocol number doesn’t change: a Mac without these routes answers `unknown-route`, and the phone’s Chats tab then says “Update Ted on your Mac to use Chats.”
+
+After an answer, the phone refreshes the chat and the Inbox. When no open request remains, the chat’s Waiting mark clears. The existing away rules also apply to chat requests. A failed send keeps the draft in the open form. A request already answered or withdrawn returns `gone`, and the phone drops it from the Inbox.
 
 A chat is named by `chatKind` and `chatId`: `coordinator` with the Coordinator chat’s ID (Coordinator chats and chats with a Factory’s own Agents), or `plan` with the planning chat’s ID.
 
@@ -522,7 +526,7 @@ One chat’s row, to draw the chat screen’s header and refresh it. An unknown 
 
 ### `chat-items`
 
-The chat’s conversation as the Mac draws it, oldest to newest: the Run chat’s items for every Run of the chat, merged by time with, for a Coordinator chat, its Task action results, requests, confirmation cards and automation cards, and, for a planning chat, its rounds, proposals, notes and the final “Planning Run finished”, “failed” or “stopped” line. The instructions Ted sends the agent are left out (the Mac shows them collapsed).
+The chat’s conversation as the Mac draws it, oldest to newest: the Run chat’s items for every Run of the chat, merged by time with, for a Coordinator chat, its Task action results, requests, confirmation cards and automation cards, and, for a planning chat, its questions, rounds, proposals, notes and the final “Planning Run finished”, “failed” or “stopped” line. The instructions Ted sends the agent are left out (the Mac shows them collapsed).
 
 Without `before`, the reply holds the newest items that fit, ending with the newest item. With `before`, it holds the items that fit just before the item that cursor names. `cursor` is set when older items are left; the phone sends it back as `before`. A cursor holds the chat kind and an item ID, not a time, because several item kinds have no time; a cursor made for the other chat kind gets `bad-request`. A cursor whose item is no longer in the chat gets `gone`, and the phone starts again from the newest page.
 
@@ -537,8 +541,8 @@ A **chat item** has `id`, `kind` and, when the Mac knows it, `at` (ISO time), pl
 | `tool` | `tool` (such as `Bash` or `Edit`), `title`, `status` (`running`, `done`, `failed` or `stopped`), `additions` and `deletions` (diff line counts, when it has diffs), `lines` (output line count, when it has output) and `detail: true` when it has detail, diffs or output to open. |
 | `command` | `name`, `status` (`running`, `passed`, `failed` or `stopped`), `exitCode` when known, `lines` (output line count, 0 when none), `detail: true` when it has output. |
 | `action` | `text`, the Task action result as the Mac’s line says it, and `taskRef` (such as `TED-788`) when it names a Task. |
-| `request` | `requestKind` (Question, Round, Proposal, Agent draft, Outside command, Note), `title` (the request’s title, else a label such as “Round 2” or “Proposal · 3 Tasks”), `text` (Markdown: the request’s body, then its choices, each round question with its choices and recommended answer, each proposed Task with its priority, scope and the rows it waits for, an Agent draft’s name, powers and instructions, or an outside command line and its folder), `cut`, `open`. Shown read-only; an open one says to answer on the Mac. |
-| `card` | `text`: a confirmation card, automation card or permission request as one line, and `open`. |
+| `request` | `requestKind` (Question, Round, Proposal, Agent draft, Outside command, Note), `title` (the request’s title, else a label such as “Round 2” or “Proposal · 3 Tasks”), `text` (Markdown: the request’s body, then its choices, each round question with its choices and recommended answer, each proposed Task with its priority, scope and the rows it waits for, an Agent draft’s name, powers and instructions, or an outside command line and its folder), `cut`, `open`. An open item with optional `onPhone: true` opens the existing request screen using its `id`. An open read-only item may carry `macReason`. Older Macs omit these fields. |
+| `card` | `text`: a confirmation card, automation card or permission request as one line, `open`, and optional `macReason` on an open card. |
 
 `text` is cut at 4,000 characters, and further only when a single item would not fit the reply; `cut` is then `true`, and `chat-item` returns the whole text. Tool titles and command names are cut to 200 characters.
 

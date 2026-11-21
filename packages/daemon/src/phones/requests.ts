@@ -2,6 +2,7 @@ import {
   type AnswerAutomationRequest,
   type AnswerRequest,
   archiveChoice,
+  type ChatRequest,
   type Comment,
   type DesignReview,
   type Factory,
@@ -47,17 +48,20 @@ export interface PhoneAutomationQuestion {
 
 export interface PhoneInbox {
   waiting(): WaitingRequest[]
+  snoozedChats(): WaitingRequest[]
   read: {
     factories(): PhoneInboxFactory[]
     comment(id: string): Comment | undefined
     task(id: string): Task | undefined
     tasksUnder(taskId: string): number
     brief(taskId: string): TaskBrief | undefined
+    chatRequest(id: string): ChatRequest | undefined
     planRequest(id: string): PlanRequest | undefined
     automationQuestion(id: string): PhoneAutomationQuestion | undefined
   }
   answer: {
     task(id: string, answer: AnswerRequest): Promise<void>
+    chat(chatId: string, id: string, answer: AnswerRequest): Promise<void>
     plan(id: string, answer: AnswerRequest): Promise<void>
     automation(id: string, answer: AnswerAutomationRequest): Promise<void>
   }
@@ -86,12 +90,15 @@ export function storeInbox(store: TedStore, answer: PhoneInbox['answer']): Phone
   }
   return {
     waiting: () => store.waiting(),
+    snoozedChats: () =>
+      store.snoozed().filter(({ source }) => source === 'coordinator' || source === 'plan'),
     read: {
       factories: () => store.listFactories(),
       comment: (id) => store.getComment(id),
       task: (id) => store.getTask(id),
       tasksUnder,
       brief: (taskId) => store.latestBrief(taskId),
+      chatRequest: (id) => store.chats.request(id),
       planRequest: (id) => store.plans.request(id),
       automationQuestion: (id) => {
         const comment = store.automations.comment(id)
@@ -170,6 +177,15 @@ function proposalForm(title: string, summary: string, proposal: Proposal | undef
       blockedBy: row.blockedBy,
     })),
   }
+}
+
+function chatForm(request: ChatRequest | PlanRequest): PhoneForm {
+  if (request.kind === 'round') return roundForm(request.round)
+  if (request.kind === 'proposal')
+    return proposalForm(request.title ?? '', request.body, request.proposal)
+  return request.choices?.length
+    ? { type: 'choices', choices: request.choices, multiple: request.multiple === true, text: true }
+    : { type: 'text' }
 }
 
 function onMacOr(answerability: PhoneAnswerability, form: () => PhoneForm): PhoneForm {
@@ -393,7 +409,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       factory: factory.name,
       factoryId: waiting.factoryId,
       ...(factory.icon !== undefined && { factoryIcon: factory.icon }),
-      headline: cutChars(waiting.headline, phoneHeadlineMax),
+      headline: cutChars(redactSecrets(waiting.headline), phoneHeadlineMax),
       createdAt: waiting.createdAt,
     }
     if (waiting.source === 'task') {
@@ -467,19 +483,15 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
           ...common,
           source: 'plan',
           kind: wireKind(request.kind),
-          title: waiting.planTitle,
+          title: redactSecrets(waiting.planTitle),
+          agentName: redactSecrets(waiting.agentName ?? 'Planner'),
           onPhone: answerability.onPhone,
         },
         answerability,
-        body: request.body,
+        body: redactSecrets(request.body),
         attachments: 0,
         images: [],
-        form: () =>
-          onMacOr(answerability, () =>
-            request.kind === 'round'
-              ? roundForm(request.round)
-              : proposalForm(request.title ?? '', request.body, request.proposal),
-          ),
+        form: () => onMacOr(answerability, () => chatForm(request)),
       }
     }
     if (waiting.source === 'automation') {
@@ -501,20 +513,27 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
         form: () => onMacOr(answerability, () => choicesForm(question.choices ?? [], false, true)),
       }
     }
-    const answerability = phoneAnswerability({ source: 'chat' })
+    const request = read.chatRequest(waiting.id)
+    const kind = request?.kind ?? waiting.requestKind
+    const answerability = phoneAnswerability({
+      source: 'chat',
+      ...(waiting.automationCard !== undefined ? { kind: 'automation' } : kind && { kind }),
+    })
     return {
       summary: {
         ...common,
         source: 'chat',
-        kind: wireKind(waiting.requestKind ?? 'request'),
-        title: waiting.chatTitle,
+        kind: wireKind(kind ?? 'request'),
+        title: redactSecrets(waiting.chatTitle),
+        agentName: redactSecrets(waiting.agentName),
         onPhone: answerability.onPhone,
+        ...(!answerability.onPhone && { macReason: answerability.reason }),
       },
       answerability,
-      body: waiting.headline,
+      body: redactSecrets(request?.body ?? waiting.headline),
       attachments: 0,
       images: [],
-      form: () => onMacOr(answerability, () => ({ type: 'text' })),
+      form: () => onMacOr(answerability, () => (request ? chatForm(request) : { type: 'text' })),
     }
   }
 
@@ -525,7 +544,9 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
   }
 
   function find(id: string): { waiting: WaitingRequest; found: Found } | undefined {
-    const waiting = inbox.waiting().find((request) => request.id === id)
+    const waiting =
+      inbox.waiting().find((request) => request.id === id) ??
+      inbox.snoozedChats().find((request) => request.id === id)
     const found = waiting && describe(waiting, factoryLookup())
     return waiting && found && { waiting, found }
   }
@@ -673,7 +694,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     }
   }
 
-  function planAnswer(request: PlanRequest, answer: PhoneAnswer): AnswerRequest {
+  function chatAnswer(request: ChatRequest | PlanRequest, answer: PhoneAnswer): AnswerRequest {
     return answer.action === 'approve' && request.kind === 'proposal'
       ? { action: 'approve', proposal: unproposed }
       : answer
@@ -698,12 +719,14 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     if (waiting.source === 'plan') {
       const request = read.planRequest(waiting.id)
       if (!request) throw new RequestError(404, 'This request is gone.')
-      return inbox.answer.plan(waiting.id, planAnswer(request, answer))
+      return inbox.answer.plan(waiting.id, chatAnswer(request, answer))
     }
     if (waiting.source === 'automation') {
       return inbox.answer.automation(waiting.id, automationAnswer(answer))
     }
-    throw new RequestError(403, 'Requests from Coordinator chats are answered on your Mac.')
+    const request = read.chatRequest(waiting.id)
+    if (!request) throw new RequestError(404, 'This request is gone.')
+    return inbox.answer.chat(waiting.chatId, waiting.id, chatAnswer(request, answer))
   }
 
   return {

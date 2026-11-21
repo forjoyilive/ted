@@ -24,7 +24,13 @@ export type WaitingRequest =
       taskTitle: string
     })
   | (WaitingBase & { source: 'automation'; automationId: string; automationName: string })
-  | (WaitingBase & { source: 'plan'; kind: CommentKind; planId: string; planTitle: string })
+  | (WaitingBase & {
+      source: 'plan'
+      kind: CommentKind
+      planId: string
+      planTitle: string
+      agentName?: string
+    })
   | (WaitingBase & {
       source: 'coordinator'
       chatId: string

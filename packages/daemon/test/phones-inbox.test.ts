@@ -9,6 +9,7 @@ import {
   type AutomationDetail,
   type Banner,
   type Comment,
+  type Coordinator,
   type DaemonClient,
   encodePairingLink,
   type Factory,
@@ -76,7 +77,11 @@ beforeAll(async () => {
   ;({ home, cleanup } = await makeTempHome())
   scratch = await mkdtemp(path.join(tmpdir(), 'ted-phones-inbox-'))
   const origin = await makeOriginRepo(scratch)
-  await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\n' })
+  await commitToOrigin(scratch, {
+    '.ted/workflow.yaml': 'version: 1\n',
+    '.ted/agents.yaml': 'release:\n  name: Release Agent\n  powers: [propose_tasks]\n',
+    '.ted/agents/release.md': 'Plan the release checklist.\n',
+  })
   relay = await startRelayStub()
   daemon = await startDaemon({
     home,
@@ -816,6 +821,116 @@ test('a Run’s permission request is approved from the phone as from the deskto
   expect(answerOf(pocket.id)).toMatchObject({ kind: 'approved' })
 }, 90_000)
 
+test('the phone answers Coordinator questions and rounds and a Factory Agent proposal', async () => {
+  const roundFile = path.join(scratch, 'chat-round.json')
+  const proposalFile = path.join(scratch, 'chat-proposal.json')
+  await writeFile(
+    roundFile,
+    JSON.stringify({
+      title: 'Release timing',
+      questions: [{ question: 'Which day?', recommended: 'Tuesday' }],
+    }),
+  )
+  await writeFile(
+    proposalFile,
+    JSON.stringify({
+      title: 'Release checklist',
+      tasks: [
+        {
+          title: 'Write the release checklist',
+          scope: 'List the release steps',
+          files: ['release-checklist.md'],
+        },
+      ],
+    }),
+  )
+  const scenarios: {
+    kind: 'question' | 'round' | 'proposal'
+    command: string[]
+    answer: PhoneAnswer
+  }[] = [
+    {
+      kind: 'question',
+      command: ['ted', 'ask', 'Which release?', '--choice', 'Beta'],
+      answer: { action: 'answer', choice: 'Beta' },
+    },
+    {
+      kind: 'round',
+      command: ['ted', 'ask', '--round', roundFile],
+      answer: { action: 'answer-round', answers: [{ answer: 'Wednesday' }] },
+    },
+    {
+      kind: 'proposal',
+      command: ['ted', 'task', 'propose', '--file', proposalFile],
+      answer: { action: 'approve' },
+    },
+  ]
+  for (const { kind, command, answer } of scenarios) {
+    const chat = await ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
+      text: steps({ run: command }, { endTurn: true }),
+      agent: 'claude',
+      ...(kind === 'proposal' && { agentId: 'release' }),
+    })
+    const route = `/coordinator-chats/${chat.id}`
+    await ok('PATCH', route, { title: `Phone ${kind}` })
+    const summary = await waitUntil(
+      async () =>
+        (await listed()).requests.find((r) => r.source === 'chat' && r.title === `Phone ${kind}`),
+      `phone Inbox shows chat ${kind}`,
+      30_000,
+    )
+    expect(summary).toMatchObject({
+      kind,
+      agentName: kind === 'proposal' ? 'Release Agent' : 'Coordinator',
+      onPhone: true,
+    })
+    expect(await opened(summary.id)).toMatchObject({
+      form: { type: kind === 'question' ? 'choices' : kind },
+    })
+    expect(await phone.answer(summary.id, answer)).toMatchObject({
+      ok: true,
+      body: { answered: true },
+    })
+    const after = await ok<Coordinator>('GET', route)
+    expect(after.requests.find((request) => request.id === summary.id)?.answer).toMatchObject({
+      kind: kind === 'proposal' ? 'approved' : 'answered',
+    })
+    if (kind === 'proposal') {
+      expect(
+        store.listTasks().filter((task) => task.title === 'Write the release checklist'),
+      ).toHaveLength(1)
+    }
+    expect(failure(await phone.answer(summary.id, answer))).toBe('gone')
+  }
+}, 90_000)
+
+test('a plain planning question can be answered from the phone', async () => {
+  const plan = await ok<Plan>('POST', '/plans', {
+    factory: 'NB',
+    message: `Plan the release\n${steps({ run: ['ted', 'ask', 'What date works?'] }, { endTurn: true })}`,
+  })
+  const summary = await waitUntil(
+    async () =>
+      (await listed()).requests.find((r) => r.source === 'plan' && r.title === 'Plan the release'),
+    'phone Inbox shows the planning question',
+    30_000,
+  )
+  expect(summary).toMatchObject({ kind: 'question', agentName: 'Planner', onPhone: true })
+  expect(await opened(summary.id)).toMatchObject({
+    form: { type: 'text' },
+    body: 'What date works?',
+  })
+  expect(await phone.answer(summary.id, { action: 'answer', text: 'Wednesday' })).toMatchObject({
+    ok: true,
+  })
+  expect((await ok<PlanDetail>('GET', `/plans/${plan.id}`)).requests).toContainEqual(
+    expect.objectContaining({
+      id: summary.id,
+      answer: expect.objectContaining({ kind: 'answered', text: 'Wednesday' }),
+    }),
+  )
+}, 60_000)
+
 test('a planning chat’s round and an Automation’s question are answered from the phone', async () => {
   const roundFile = path.join(scratch, 'round.json')
   await writeFile(
@@ -963,6 +1078,28 @@ test('a phone registers its push token and gets one notification per request whi
     (await pushPhone.request(asked.id)).ok,
     'the notification’s requestId opens the request',
   ).toBe(true)
+
+  await client.reportPresence({ away: false })
+  const chat = await ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
+    text: steps({ run: ['ted', 'ask', 'When should we ship?'] }, { endTurn: true }),
+    agent: 'claude',
+  })
+  await ok('PATCH', `/coordinator-chats/${chat.id}`, { title: 'Plan the beta' })
+  const question = await waitUntil(
+    async () => (await ok<Coordinator>('GET', `/coordinator-chats/${chat.id}`)).requests.at(0),
+    'the Coordinator’s question',
+    30_000,
+  )
+  expect(pushed.filter((message) => message.requestId === question.id)).toEqual([])
+  await client.reportPresence({ away: true })
+  await expect
+    .poll(() => pushed.filter((message) => message.requestId === question.id))
+    .toEqual([
+      { to: token, title: 'Plan the beta', body: 'When should we ship?', requestId: question.id },
+    ])
+  expect(await pushPhone.answer(question.id, { action: 'answer', text: 'Friday' })).toMatchObject({
+    ok: true,
+  })
 
   await client.removePhone(phoneId)
   expect(store.phones.pushToken(phoneId)).toBeUndefined()

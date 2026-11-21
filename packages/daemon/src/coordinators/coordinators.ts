@@ -102,6 +102,7 @@ import {
   chatTitle,
   planPost,
   proposalRows,
+  questionAnswer,
   refuseWhileWaiting,
   roundAnswerMessage,
 } from '../chats/requests.ts'
@@ -2887,34 +2888,9 @@ export function createCoordinators(options: {
         if (asked.kind === 'outside-command')
           throw new RequestError(400, 'Answer an outside command with Run or Don’t run on its card')
         if (asked.kind === 'question') {
-          if (answer.action !== 'answer')
-            throw new RequestError(400, 'Answer a question with a choice or a message')
-          const text = answer.text?.trim() ?? ''
-          if (answer.choice !== undefined && !asked.choices?.includes(answer.choice))
-            throw new RequestError(409, `“${answer.choice}” isn’t one of the question’s choices`)
-          if (answer.choices !== undefined && !asked.multiple)
-            throw new RequestError(400, 'This question takes one choice')
-          const outside = answer.choices?.find((x) => !asked.choices?.includes(x))
-          if (outside !== undefined)
-            throw new RequestError(409, `“${outside}” isn’t one of the question’s choices`)
-          if (text === '' && answer.choice === undefined && (answer.choices ?? []).length === 0)
-            throw new RequestError(400, 'Pick a choice or write an answer')
-          const picked = answer.choices ?? (answer.choice !== undefined ? [answer.choice] : [])
-          deliver(
-            [
-              `The human answered your question (request ${asked.id}):`,
-              asked.body,
-              ...(picked.length > 0 ? [`Their choice: ${picked.join('; ')}`] : []),
-              ...(text !== '' ? [`Their words: ${text}`] : []),
-            ].join('\n\n'),
-          )
-          store.chats.answer(asked.id, {
-            kind: 'answered',
-            at,
-            ...(answer.choice !== undefined && { choice: answer.choice }),
-            ...(answer.choices !== undefined && { choices: answer.choices }),
-            ...(text !== '' && { text }),
-          })
+          const question = questionAnswer(asked, answer, at)
+          deliver(question.message)
+          store.chats.answer(asked.id, question.answer)
         } else if (asked.kind === 'round') {
           if (!asked.round) throw new RequestError(409, 'this round has no questions')
           const answers = roundAnswers(asked.round, answer)

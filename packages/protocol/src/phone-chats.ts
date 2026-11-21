@@ -179,8 +179,10 @@ export type PhoneChatItem =
       text: string
       cut: boolean
       open: boolean
+      onPhone?: true
+      macReason?: string
     })
-  | (ItemBase & { kind: 'card'; text: string; open: boolean })
+  | (ItemBase & { kind: 'card'; text: string; open: boolean; macReason?: string })
 
 export interface PhoneChatItemsBody {
   items: PhoneChatItem[]
@@ -435,7 +437,8 @@ export function parsePhoneChatItem(value: Untyped): PhoneChatItem {
         ...(taskRef !== undefined && { taskRef }),
       }
     }
-    case 'request':
+    case 'request': {
+      const macReason = read.optional(object, 'macReason', read.string)
       return {
         ...base,
         kind,
@@ -444,14 +447,20 @@ export function parsePhoneChatItem(value: Untyped): PhoneChatItem {
         text: read.string(object, 'text'),
         cut: read.boolean(object, 'cut'),
         open: read.boolean(object, 'open'),
+        ...(read.optional(object, 'onPhone', read.boolean) === true && { onPhone: true as const }),
+        ...(macReason !== undefined && { macReason }),
       }
-    case 'card':
+    }
+    case 'card': {
+      const macReason = read.optional(object, 'macReason', read.string)
       return {
         ...base,
         kind,
         text: read.string(object, 'text'),
         open: read.boolean(object, 'open'),
+        ...(macReason !== undefined && { macReason }),
       }
+    }
   }
 }
 

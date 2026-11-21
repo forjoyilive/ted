@@ -926,6 +926,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           task: async (id, answer) => {
             await tasks.answerFromPhone(id, answer)
           },
+          chat: async (chatId, id, answer) => {
+            await coordinators.answerRequest(chatId, id, answer)
+          },
           plan: async (id, answer) => {
             await phonePlans.answer(id, answer)
           },
