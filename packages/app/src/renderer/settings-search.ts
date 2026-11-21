@@ -308,7 +308,7 @@ const entries = {
   'app.library.workflow.cleanup': {
     name: 'Cleanup',
     keywords: 'after merge stage',
-    help: 'Turns Cleanup on for every Factory that doesn’t say otherwise. A Factory runs it only once it has at least one step, set in that Factory’s settings under Cleanup.',
+    help: 'Turns Cleanup on for every Factory that doesn’t say otherwise. A Factory runs it only once it has at least one step. Set the steps in its Configuration → Cleanup.',
   },
   'app.library.stage-files': { name: 'Stage files', heading: true },
   'app.library.agents': {
