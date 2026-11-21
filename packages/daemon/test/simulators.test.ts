@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type {
   Automation,
   AutomationDetail,
@@ -47,7 +47,8 @@ let daemon: RunningDaemon | undefined
 beforeEach(async () => {
   ;({ home, cleanup } = await makeTempHome())
   scratch = await mkdtemp(path.join(tmpdir(), 'ted-sims-'))
-  origin = await makeOriginRepo(scratch)
+  // Use Git’s transport instead of its local object-copy path, which can fail in the check sandbox.
+  origin = pathToFileURL(await makeOriginRepo(scratch)).href
   stubState = path.join(scratch, 'xcrun.json')
   await writeStub({})
   process.env.TED_STUB_XCRUN = stubState
