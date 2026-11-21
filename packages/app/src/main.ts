@@ -84,7 +84,6 @@ import {
   quitPlan,
   showsTray,
   statusMenu,
-  trayLabel,
   trayToolTip,
   trayWarning,
   windowTitle,
@@ -807,12 +806,11 @@ function refresh(): void {
     tray?.destroy()
     tray = undefined
   } else {
-    const warning = trayWarning(state.banners, now)
+    const warning = trayWarning(platform, state.banners, now)
     const icon = image(trayIconPng({ scale: 2, warning }))
     icon.setTemplateImage(!warning)
     tray ??= new Tray(icon)
     tray.setImage(icon)
-    if (platform === 'darwin') tray.setTitle(trayLabel(waiting))
     tray.setToolTip(trayToolTip(waiting))
     tray.setContextMenu(Menu.buildFromTemplate(toElectron(statusMenu(state, now))))
   }

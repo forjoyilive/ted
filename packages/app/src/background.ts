@@ -197,12 +197,12 @@ export function showsTray(platform: Platform, showTrayIcon: boolean): boolean {
   return (platform === 'darwin' || platform === 'linux') && showTrayIcon
 }
 
-export function trayLabel(waiting: number): string {
-  return waiting > 0 ? String(waiting) : ''
-}
-
-export function trayWarning(banners: readonly Banner[], now: Date = new Date()): boolean {
-  return appWideProblems(banners, now).length > 0
+export function trayWarning(
+  platform: Platform,
+  banners: readonly Banner[],
+  now: Date = new Date(),
+): boolean {
+  return platform === 'linux' && appWideProblems(banners, now).length > 0
 }
 
 export function windowTitle(platform: Platform, waiting: number): string {
