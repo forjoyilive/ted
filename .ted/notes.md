@@ -32,7 +32,7 @@ Two repos, both pnpm workspaces on Node 24. Each has its own `AGENTS.md`; read t
 
 - In `ted-mobile`: `pnpm typecheck`, `pnpm lint` and `pnpm test`. Ted runs them as the Mobile Typecheck, Mobile Lint and Mobile Tests checks.
 - Start the phone app only with `ted run-app "Ted Dev iPhone"` (pairs with Ted Dev) or `ted run-app "Ted iPhone"` (pairs with release Ted), never `pnpm ios` yourself. Each runs in the Task’s own simulator; `ted app screenshot <App>` saves its screen.
-- `pnpm relay` starts a local relay at `http://127.0.0.1:8787` for pairing Ted Dev with Ted Dev iPhone. Stop it when you are done.
+- In Validate, starting Ted Dev iPhone also starts an isolated desktop preview and local relay, including on mobile-only Tasks. Use [Paired iPhone previews](../docs/development/paired-iphone-preview.md). For pairing during ordinary local development, `pnpm relay` starts the relay at `http://127.0.0.1:8787`. Stop it when you are done.
 - Agents never deploy the relay or change a Cloudflare account, and never build for TestFlight or the App Store (`eas build`, `eas submit`, `eas update`).
 
 ## Where things live

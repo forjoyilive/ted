@@ -7,7 +7,7 @@ import {
   previewPresets,
   type SandboxAccess,
 } from '@ted/protocol'
-import { isArray, isString, type Untyped } from '@ted/protocol/parse'
+import { isArray, isObject, isString, type Untyped } from '@ted/protocol/parse'
 
 export interface AppDeclaration {
   name: string
@@ -20,6 +20,8 @@ export interface AppDeclaration {
   device?: string
   electron?: true
   preview?: PreviewPreset
+  previewOnly?: true
+  pairedPreview?: { desktop: string; relay: string }
   sandboxAccess?: SandboxAccess[]
 }
 
@@ -65,6 +67,16 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
         : kind === 'web' || electron
           ? 'url'
           : 'start'
+    const previewOnly: AppDeclaration['previewOnly'] =
+      fields.preview_only === true ? true : undefined
+    const pairing = fields.paired_preview
+    const pairedPreview =
+      kind === 'ios-simulator' &&
+      isObject(pairing) &&
+      isString(pairing.desktop) &&
+      isString(pairing.relay)
+        ? { desktop: pairing.desktop.trim(), relay: pairing.relay.trim() }
+        : undefined
     return [
       {
         name,
@@ -77,6 +89,8 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
         ...(typeof fields.device === 'string' && { device: fields.device }),
         ...(electron && { electron: true as const }),
         ...(preview !== undefined && { preview }),
+        ...(previewOnly && { previewOnly }),
+        ...(pairedPreview?.desktop && pairedPreview.relay && { pairedPreview }),
         ...(access.length > 0 && { sandboxAccess: access }),
       },
     ]
