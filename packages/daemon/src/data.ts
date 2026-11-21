@@ -98,6 +98,7 @@ export interface StartedServices extends Omit<Services, 'store'> {
 }
 
 export interface DataOptions {
+  backupLocation?: { directory: string; requireAvailable: () => Promise<void> }
   home: string
   version: string
   startServices: (store: TedStore, emit: (event: DaemonEvent) => void) => Promise<StartedServices>
@@ -113,6 +114,7 @@ export interface DataOptions {
 export interface Data {
   status(): DataStatus
   services(): Promise<Services>
+  beginStorageChange(): () => void
   summary(): Promise<BackupsSummary>
   restore(request: RestoreBackupRequest): Promise<RestoreBackupResult>
   subscribe(listener: (event: DaemonEvent) => void): () => void
@@ -132,7 +134,12 @@ export function createData(options: DataOptions): Data {
   const paths = tedPaths(options.home)
   const { version } = options
   const now = options.now ?? (() => new Date())
-  const backups: Backups = createBackups({ home: options.home, version, now })
+  const backups: Backups = createBackups({
+    home: options.home,
+    version,
+    now,
+    ...options.backupLocation,
+  })
   const listeners = new Set<(event: DaemonEvent) => void>()
   const emit = (event: DaemonEvent) => {
     for (const listener of listeners) listener(event)
@@ -143,6 +150,8 @@ export function createData(options: DataOptions): Data {
   const firstOpen = Promise.withResolvers<void>()
   let opening: Promise<void> = firstOpen.promise
   let busy = false
+  let changingStorage = false
+  let daily: Promise<void> | undefined
   let dailyTimer: NodeJS.Timeout | undefined
   let lastProgressAt = 0
 
@@ -154,7 +163,7 @@ export function createData(options: DataOptions): Data {
 
   async function takeDaily(): Promise<void> {
     const open = services
-    if (!open) return
+    if (!open || busy || changingStorage) return
     try {
       await backups.takeDaily(() => open.store.exportEventlog())
       open.banners.clear({ problem: dailyBackupProblem })
@@ -515,6 +524,15 @@ export function createData(options: DataOptions): Data {
       if (!services) throw unavailable()
       return services
     },
+    beginStorageChange() {
+      if (busy || changingStorage || status.state !== 'ready') {
+        throw new RequestError(409, 'Ted is busy with its data. Try again in a moment.')
+      }
+      changingStorage = true
+      return () => {
+        changingStorage = false
+      }
+    },
     async summary() {
       return {
         backups: await backups.list(),
@@ -524,7 +542,7 @@ export function createData(options: DataOptions): Data {
     async restore({ name, stopRuns = false }) {
       const backup: Backup | undefined = await backups.find(name)
       if (!backup) throw new RequestError(404, `no backup ${name}`)
-      if (busy || status.state === 'opening' || status.state === 'updating') {
+      if (busy || changingStorage || status.state === 'opening' || status.state === 'updating') {
         throw new RequestError(409, 'Ted is busy with its data. Try again in a moment.')
       }
       const running = await activeRuns()
@@ -535,8 +553,12 @@ export function createData(options: DataOptions): Data {
           `${plural(running.length, 'Run')} ${running.length === 1 ? 'is' : 'are'} running. Stop ${them} to restore.`,
         )
       }
+      if (busy || changingStorage) {
+        throw new RequestError(409, 'Ted is busy with its data. Try again in a moment.')
+      }
       busy = true
       try {
+        await daily
         for (const runId of running) await services?.runs.stop(runId)
         await closeServices()
         let saved: Backup | undefined
@@ -576,13 +598,21 @@ export function createData(options: DataOptions): Data {
         setStatus(await failedStatus(error instanceof Error ? error.message : String(error)))
       })
       firstOpen.resolve()
-      dailyTimer = setInterval(() => void takeDaily(), options.dailyCheckMs ?? 60 * 60_000)
+      dailyTimer = setInterval(
+        () => {
+          daily ??= takeDaily().finally(() => {
+            daily = undefined
+          })
+        },
+        options.dailyCheckMs ?? 60 * 60_000,
+      )
       dailyTimer.unref()
     },
     async close(onStep) {
       clearInterval(dailyTimer)
       onStep?.('opening')
       await opening
+      await daily
       await closeServices(onStep)
     },
   }

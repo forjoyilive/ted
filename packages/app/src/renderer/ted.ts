@@ -8,6 +8,7 @@ import type {
   PlanRequest,
   RunFixRequest,
 } from '@ted/protocol'
+import type { StorageFolderChange } from '@ted/protocol/storage'
 import type { MenuCommand } from '../background.ts'
 import { type CustomRequests, customRequest } from '../custom-requests.ts'
 import { daemonRequests } from '../daemon-requests.ts'
@@ -163,6 +164,7 @@ export const ted = {
   openNotificationSettings: () => request('openNotificationSettings'),
   connection: () => request('connection'),
   restartDaemon: () => request('restartDaemon'),
+  changeStorageFolder: (change: StorageFolderChange) => request('changeStorageFolder', change),
   updateStatus: () => request('updateStatus'),
   checkForUpdates: () => request('checkForUpdates'),
   restartToUpdate: () => request('restartToUpdate'),

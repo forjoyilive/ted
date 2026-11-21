@@ -1,4 +1,6 @@
 import type { Backup } from './data.ts'
+import { reader, type Untyped } from './parse.ts'
+import { RequestValidationError } from './validation.ts'
 
 export const diskLimits = {
   warnBelowBytes: 10e9,
@@ -68,4 +70,31 @@ export function formatBytes(bytes: number): string {
   if (bytes >= 1e6) return `${Math.round(bytes / 1e6)} MB`
   if (bytes >= 1e3) return `${Math.round(bytes / 1e3)} KB`
   return `${bytes} bytes`
+}
+
+export const storageFolderKinds = ['backups', 'sandbox-caches'] as const
+export type StorageFolderKind = (typeof storageFolderKinds)[number]
+
+export interface StorageFolderChange {
+  kind: StorageFolderKind
+  parent: string | null
+}
+
+export interface StorageFolderLocation {
+  kind: StorageFolderKind
+  path: string
+  custom: boolean
+  available: boolean
+  problem?: string
+}
+
+export function parseStorageFolderChange(value: Untyped): StorageFolderChange {
+  const read = reader((message) => {
+    throw new RequestValidationError(400, message)
+  })
+  const body = read.object(value, 'storage folder')
+  return {
+    kind: read.oneOf(body, 'kind', storageFolderKinds),
+    parent: body.parent === null ? null : read.string(body, 'parent'),
+  }
 }

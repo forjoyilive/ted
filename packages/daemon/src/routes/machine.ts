@@ -48,6 +48,7 @@ import { parseDiagnosticsSort } from '@ted/protocol/diagnostics-sort'
 import { isInteger, isString } from '@ted/protocol/parse'
 import { isReportEmail } from '@ted/protocol/problem-report'
 import { builtInStageOrder, isStageId } from '@ted/protocol/stage'
+import { parseStorageFolderChange } from '@ted/protocol/storage'
 import { parseEditorCommand } from '../editors.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { readProfile } from '../profile.ts'
@@ -146,6 +147,23 @@ export const machineRoutes: Route[] = [
       return [200, await storage.summary({ refresh: refresh === '1' })]
     },
   },
+  {
+    method: 'GET',
+    appOnly: true,
+    path: /^\/storage\/folders$/,
+    handle: async (_, { storage }) => [200, await storage.folders()],
+  },
+  jsonRoute(parseStorageFolderChange, {
+    method: 'POST',
+    appOnly: true,
+    path: /^\/storage\/folders$/,
+    async handle({ body, res }, { storage }) {
+      await storage.changeFolder(body)
+      if (res.destroyed) setImmediate(storage.restart)
+      else res.once('close', () => setImmediate(storage.restart))
+      return [200, {}]
+    },
+  }),
   {
     method: 'POST',
     path: /^\/storage\/viewed$/,

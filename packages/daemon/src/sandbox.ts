@@ -16,6 +16,7 @@ import {
 import { nodeEntry } from './node-entry.ts'
 import { protectedPaths } from './protected-folders.ts'
 import { redactSecrets } from './redact.ts'
+import type { StorageLocations } from './storage-locations.ts'
 
 export interface SandboxScope {
   writable: readonly string[]
@@ -127,6 +128,7 @@ const probeTimeoutMs = 10_000
 
 export function createSandbox(options: {
   tedHome: string
+  storageLocations?: StorageLocations
   env: () => NodeJS.ProcessEnv
   platform?: NodeJS.Platform
   program?: string
@@ -206,7 +208,7 @@ export function createSandbox(options: {
       const why = await problem()
       if (why !== undefined || ready === undefined) throw new SandboxUnavailable(why)
       const env = options.env()
-      const paths = await sandboxPaths(platform, options.tedHome, scope)
+      const paths = await sandboxPaths(platform, options.tedHome, scope, options.storageLocations)
       const groups = accessGroups(scope.groups)
       const electron = groups.includes('electron')
       const xcode = scope.ownTempOnly !== true && groups.includes('ios-xcode')
@@ -260,7 +262,7 @@ export function createSandbox(options: {
         // The JVM on macOS ignores TMPDIR and uses the per-user temp folder.
         JAVA_TOOL_OPTIONS: `-Djava.io.tmpdir="${paths.tmp}"`,
         ...(electron && { TED_SANDBOX_ELECTRON: '1' }),
-        ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
+        ...(await makeBuildCaches(paths.cacheRoot, paths.cacheRoot, paths.cache)),
       }
       if (platform === 'darwin') {
         const umask = process.umask()
@@ -384,7 +386,8 @@ export function createSandbox(options: {
     async buildCaches(cache) {
       const home = await real(options.tedHome)
       const given = path.resolve(options.tedHome)
-      return makeBuildCaches(home, given, await plainFolder(home, given, cache, true))
+      const resolved = await cacheFolder(home, given, cache, options.storageLocations)
+      return makeBuildCaches(resolved.root, resolved.root, resolved.dir)
     },
   }
 }
@@ -395,6 +398,8 @@ interface SandboxPaths {
   tmp: string
   cache: string
   tedHome: string
+  cacheRoot: string
+  externalStorage: string[]
   sharedTmp?: string
   saves?: string
   userTemp?: string
@@ -472,10 +477,19 @@ function userTempFolder(): Promise<string | undefined> {
   })
 }
 
+async function cacheFolder(home: string, given: string, dir: string, locations?: StorageLocations) {
+  const mapped = (await locations?.cachePath(dir)) ?? dir
+  if (mapped === dir) return { root: home, dir: await plainFolder(home, given, dir, true) }
+  const root = locations?.configured('sandbox-caches')
+  if (!root) throw new SandboxUnavailable('Sandbox cache location is unavailable.')
+  return { root, dir: await plainFolder(root, root, mapped, true) }
+}
+
 async function sandboxPaths(
   platform: NodeJS.Platform,
   tedHome: string,
   scope: SandboxScope,
+  locations?: StorageLocations,
 ): Promise<SandboxPaths> {
   const daemonTmp = await real(tmpdir())
   const sharedTmp =
@@ -488,7 +502,7 @@ async function sandboxPaths(
   const writable = await Promise.all(scope.writable.map((dir) => plain(dir)))
   const readable = await Promise.all(scope.readable.map((dir) => plain(dir)))
   const tmp = await plain(scope.tmp)
-  const cache = await plain(scope.cache, true)
+  const { dir: cache, root: cacheRoot } = await cacheFolder(home, given, scope.cache, locations)
   const open = [...writable, tmp, cache]
   for (const dir of [...open, ...readable]) {
     const outer = open.find((other) => other !== dir && inside(other, dir))
@@ -503,6 +517,11 @@ async function sandboxPaths(
     readable,
     tmp,
     cache,
+    cacheRoot,
+    externalStorage: [
+      locations?.configured('backups'),
+      locations?.configured('sandbox-caches'),
+    ].filter((folder) => folder !== undefined),
     tedHome: home,
     ...(sharedTmp !== undefined && !inside(sharedTmp, daemonTmp) && { sharedTmp }),
   }
@@ -772,7 +791,7 @@ function seatbeltArgs(
     ...(paths.sharedTmp === undefined
       ? []
       : [`(allow file-read-data file-read-xattr (subpath "${paths.sharedTmp}"))`]),
-    `(deny file-write* file-read-data file-read-xattr ${param('H', [paths.tedHome])})`,
+    `(deny file-write* file-read-data file-read-xattr ${param('H', [paths.tedHome, ...paths.externalStorage])})`,
     `(deny file-write* file-read-data file-read-xattr ${param('P', personal)})`,
     `(allow file-read-data file-read-xattr ${param('R', [...paths.readable, ...own])})`,
     `(allow file-write* ${param('W', own)})`,
@@ -873,6 +892,7 @@ function bwrapArgs(
     ...hidden.flatMap((dir) => ['--tmpfs', dir]),
     '--tmpfs',
     paths.tedHome,
+    ...paths.externalStorage.flatMap((dir) => ['--tmpfs', dir]),
     ...taskBinds.flat(),
     ...sockets.restores.flatMap((socket) => ['--ro-bind', socket, socket]),
     ...sockets.masks.flatMap((socket) => ['--ro-bind', '/dev/null', socket]),
@@ -1090,7 +1110,8 @@ async function openPinned(dir: string, paths: SandboxPaths): Promise<FileHandle>
   const handle = await open(dir, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
   try {
     const opened = await handle.stat()
-    const checked = await plainFolderStats(paths.tedHome, paths.tedHome, dir)
+    const root = dir === paths.cache ? paths.cacheRoot : paths.tedHome
+    const checked = await plainFolderStats(root, root, dir)
     if (opened.dev !== checked.dev || opened.ino !== checked.ino) {
       throw new SandboxUnavailable(
         `${dir} changed while Ted opened it, so Ted won’t sandbox a command in it`,

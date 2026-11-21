@@ -15,6 +15,7 @@ import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import type { Sandbox, SandboxGrants } from '../sandbox.ts'
+import type { StorageLocations } from '../storage-locations.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import { type CommandLaunch, runTaskCommand } from './command.ts'
 import { endTaskProcesses } from './leftovers.ts'
@@ -96,6 +97,7 @@ export function createLocalLifecycle(options: {
   logsDir: string
   sandbox: Sandbox
   sandboxGrants: (taskId: string) => Promise<SandboxGrants>
+  locations?: StorageLocations
   startCache: (factoryId: string, cache: string) => Promise<void>
   env: () => NodeJS.ProcessEnv
 }): LocalLifecycle {
@@ -485,6 +487,13 @@ export function createLocalLifecycle(options: {
     await plain(home, sandboxDir, false, true)
     await removeInside(options.worktreesDir, task.displayId)
     await removeInside(sandboxDir, task.displayId)
+    const external = options.locations?.configured('sandbox-caches')
+    if (external) {
+      await options.locations?.requireAvailable('sandbox-caches')
+      const taskCaches = path.join(external, 'tasks')
+      await plain(external, taskCaches, false, true)
+      await removeInside(taskCaches, task.displayId)
+    }
   }
 
   async function rollback(made: CreatedWorktree): Promise<void> {
