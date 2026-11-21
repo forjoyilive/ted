@@ -1,7 +1,9 @@
 import { type ChildProcess, execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { createInterface } from 'node:readline'
 import type {
   AppSimulator,
   AppStarter,
@@ -12,6 +14,7 @@ import type {
   SimulatorSlots,
 } from '@ted/protocol'
 import { identity } from '@ted/protocol'
+import { isObject, isString, parseJson as parseProtocolJson } from '@ted/protocol/parse'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
@@ -37,7 +40,7 @@ export interface SimctlResult {
 
 export interface SimulatorTools {
   simctl(args: string[]): Promise<SimctlResult>
-  idb(args: string[], input?: boolean): Promise<SimctlResult>
+  idb(udid: string, args: string[], input: boolean): Promise<SimctlResult>
   open(args: string[]): Promise<SimctlResult>
   record(udid: string, file: string): ChildProcess
 }
@@ -51,12 +54,12 @@ export function createSimulatorTools(options: {
   const xcrun = options.xcrun ?? 'xcrun'
   const idb = options.idb ?? 'idb'
   const opener = options.open ?? '/usr/bin/open'
-  const run = (command: string, args: string[], env = options.env()) =>
+  const run = (command: string, args: string[], env = options.env(), cwd?: string) =>
     new Promise<SimctlResult>((resolve) => {
       execFile(
         command,
         args,
-        { env, timeout: 300_000, maxBuffer: 32 * 1024 * 1024 },
+        { cwd, env, timeout: 300_000, maxBuffer: 32 * 1024 * 1024 },
         (error, stdout, stderr) => {
           const code =
             error === null ? 0 : typeof error.code === 'number' ? error.code : error.code ? 127 : 1
@@ -66,31 +69,40 @@ export function createSimulatorTools(options: {
     })
   return {
     simctl: (args) => run(xcrun, ['simctl', ...args]),
-    async idb(args, input) {
+    async idb(udid, args, input) {
       const env = options.env()
+      const legacy = () => run(idb, [...args.slice(0, 2), '--udid', udid, ...args.slice(2)], env)
       const version = await run(xcrun, ['xcodebuild', '-version'], env)
       const major = version.stdout.match(/^Xcode (\d+)/m)?.[1]
       if (version.code !== 0 || major === undefined) {
-        if (!input) return run(idb, args, env)
+        if (!input) return legacy()
         throw new RequestError(
           409,
           'Ted couldn’t check the active Xcode version for iPhone simulator input. Run xcrun xcodebuild -version to check the selected Xcode.',
         )
       }
-      if (Number(major) < 27) return run(idb, args, env)
+      if (Number(major) < 27) return legacy()
 
-      const companion = env.IDB_COMPANION_PATH || 'idb_companion'
+      const configured = env.IDB_COMPANION_PATH || 'idb_companion'
+      const companion = configured.includes('/') ? path.resolve(configured) : configured
       const help = await run(companion, ['--help'], env)
       // idb_companion --version reports only a build date. This flag was added after Xcode 27 HID support.
       if (help.code !== 0 || !help.stdout.includes('--log-hid-details')) {
-        if (!input) return run(idb, args, env)
+        if (!input) return legacy()
         throw new RequestError(
           409,
-          'Xcode 27 or later needs an updated Meta idb companion for iPhone simulator input. Update the companion, then stop and start this simulator App. See https://github.com/meta/idb/releases/tag/v1.7.8.',
+          'Xcode 27 or later needs an updated Meta idb companion for iPhone simulator input. Update the companion and try again. See https://github.com/meta/idb/releases/tag/v1.7.8.',
         )
       }
-      // idb reuses a running companion for this simulator, including one started by a screen read.
-      return run(idb, ['--companion-path', companion, ...args], env)
+      // With --udid, idb reuses the shared companion even when --companion-path changes.
+      return withIdbCompanion(companion, udid, env, (socket, cwd) =>
+        run(
+          idb.includes('/') ? path.resolve(idb) : idb,
+          ['--companion', socket, ...args],
+          env,
+          cwd,
+        ),
+      )
     },
     open: (args) => run(opener, args),
     record(udid, file) {
@@ -99,6 +111,76 @@ export function createSimulatorTools(options: {
         stdio: 'ignore',
       })
     },
+  }
+}
+
+async function withIdbCompanion(
+  executable: string,
+  udid: string,
+  env: NodeJS.ProcessEnv,
+  command: (socket: string, cwd: string) => Promise<SimctlResult>,
+): Promise<SimctlResult> {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'ted-idb-'))
+  try {
+    // A relative socket path fits macOS’s Unix socket limit even under a long TMPDIR.
+    const socket = './idb.sock'
+    const child = spawn(
+      executable,
+      [
+        '--udid',
+        udid,
+        '--grpc-domain-sock',
+        socket,
+        '--terminate-offline',
+        'true',
+        '--idle-shutdown-time',
+        '300',
+      ],
+      { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
+    let errorOutput = ''
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+      errorOutput = (errorOutput + chunk).slice(-4096)
+    })
+    child.on('error', (error) => {
+      errorOutput = error.message
+    })
+    const lines = createInterface({ input: child.stdout })
+    const ready = new Promise<boolean>((resolve) => {
+      lines.on('line', (line) => {
+        const report = parseProtocolJson(line)
+        if (
+          isObject(report) &&
+          isString(report.grpc_path) &&
+          path.resolve(cwd, report.grpc_path) === path.resolve(cwd, socket)
+        )
+          resolve(true)
+      })
+    })
+    let timer: NodeJS.Timeout | undefined
+    const deadline = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), 30_000)
+    })
+    try {
+      if (!(await Promise.race([ready, closed.then(() => false), deadline]))) {
+        const detail = errorOutput.trim().split('\n').at(-1) || 'No socket was reported.'
+        throw new RequestError(
+          409,
+          `Ted couldn’t start the iPhone simulator’s idb companion. ${detail}`,
+        )
+      }
+      return await command(socket, cwd)
+    } finally {
+      clearTimeout(timer)
+      lines.close()
+      child.kill()
+      const force = setTimeout(() => child.kill('SIGKILL'), 1_000)
+      await closed
+      clearTimeout(force)
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true })
   }
 }
 
@@ -457,11 +539,7 @@ export function createSimulators(options: {
       const key = keyOf(taskId, repo, name)
       const udid = record.udid
       const idb = async (args: string[], what: string) => {
-        const [group = '', verb = '', ...rest] = args
-        const result = await tools.idb(
-          [group, verb, '--udid', udid, ...rest],
-          verb !== 'describe-all',
-        )
+        const result = await tools.idb(udid, args, args[1] !== 'describe-all')
         if (result.code === 127 || /ENOENT/.test(result.stderr))
           throw new RequestError(409, idbMissing)
         if (result.code !== 0)

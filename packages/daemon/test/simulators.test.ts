@@ -942,7 +942,8 @@ describe('iOS simulator Apps', () => {
     await client.ok('POST', `/tasks/${task.id}/apps/start`, app)
     await waitForApp(client, task, (a) => !!a.builtAt, 'the ready simulator App')
     const clone = (await stubDevices()).find((device) => device.name === 'Ted Dev NB-1 iPhone')
-    expect(clone?.state).toBe('Booted')
+    if (!clone) throw new Error('missing Task simulator')
+    expect(clone.state).toBe('Booted')
     const before = await actions(screen)
     expect(before.status).toBe(200)
     expect(before.body.text).toContain('Open details')
@@ -954,11 +955,18 @@ describe('iOS simulator Apps', () => {
     )
     expect((await actions(screen)).body.text).toContain('Open details')
 
-    const state = JSON.parse(await readFile(stubState, 'utf8')) as { idbSupportsXcode27?: boolean }
+    const state = JSON.parse(await readFile(stubState, 'utf8')) as {
+      legacyCompanions?: string[]
+    }
+    expect(state.legacyCompanions).toContain(clone.udid)
     const updatedState = `${stubState}.tmp`
     await writeFile(updatedState, JSON.stringify({ ...state, idbSupportsXcode27: true }))
     await rename(updatedState, stubState)
     expect((await actions(screen)).body.text).toContain('Open details')
+    const inspected = JSON.parse(await readFile(stubState, 'utf8')) as {
+      ui: Record<string, { screenCompanion?: string }>
+    }
+    expect(inspected.ui[clone.udid]?.screenCompanion).toBe('private')
     expect((await actions(tap)).status).toBe(200)
     expect((await actions(screen)).body.text).toContain('Price: 10 widgets for $5')
 
