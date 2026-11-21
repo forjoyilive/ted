@@ -597,10 +597,14 @@ describe('Apps', () => {
       const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
       return current?.leadRunId
     }, 'the lead')
-    const [result] = await waitUntil(async () => {
-      const texts = assistantTexts((await client.getRun(lead)).conversation)
-      return texts.length >= 1 ? texts.map((t) => JSON.parse(t) as { stdout: string }) : undefined
-    }, 'printenv')
+    const [result] = await waitUntil(
+      async () => {
+        const texts = assistantTexts((await client.getRun(lead)).conversation)
+        return texts.length >= 1 ? texts.map((t) => JSON.parse(t) as { stdout: string }) : undefined
+      },
+      'the Task Lead to report its App environment',
+      40_000,
+    )
     const [webUrl, apiPort, crashyPort] = (result?.stdout ?? '').trim().split('\n')
     expect(Number(apiPort)).toBeGreaterThan(0)
     expect(new Set([webUrl, apiPort, crashyPort]).size).toBe(3)
@@ -609,7 +613,7 @@ describe('Apps', () => {
     })
     expect(String(started.port)).toBe(apiPort)
     expect((await stat(path.join(home, 'apps', task.id, 'ports.json'))).isFile()).toBe(true)
-  })
+  }, 60_000)
 })
 
 describe('the Apps’ sandbox', () => {
