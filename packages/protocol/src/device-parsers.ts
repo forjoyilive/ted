@@ -6,6 +6,7 @@ import {
   deviceKeys,
   deviceLimits,
 } from './device.ts'
+import { parsePairingLink } from './phones.ts'
 import { bodyObject, RequestValidationError, text } from './validation.ts'
 
 function shortText(value: unknown, name: string, limit: number): string {
@@ -84,6 +85,16 @@ export function parseDeviceRequest(value: unknown): DeviceRequest {
     throw new RequestValidationError(400, 'Tap an element reference from screen, or a point x,y')
   if (action === 'swipe' && (request.point === undefined || request.to === undefined))
     throw new RequestValidationError(400, 'Give the swipe’s start and end points')
+  if (action === 'pair') {
+    let link: ReturnType<typeof parsePairingLink>
+    try {
+      link = parsePairingLink(request.text ?? '')
+    } catch {
+      throw new RequestValidationError(400, 'Give a Ted Dev pairing code')
+    }
+    if (link.edition !== 'dev' || link.v !== 1)
+      throw new RequestValidationError(400, 'Give a Ted Dev pairing code')
+  }
   if (action === 'type' && (request.text === undefined || request.text === ''))
     throw new RequestValidationError(400, 'Give the text to type')
   if (action === 'key' && request.key === undefined)

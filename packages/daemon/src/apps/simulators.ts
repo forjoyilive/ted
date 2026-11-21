@@ -484,6 +484,14 @@ export function createSimulators(options: {
           await idb(['ui', 'tap', String(point.x), String(point.y)], 'tap')
           return `Tapped ${point.x},${point.y}. Run ted app screen ${name} to see what changed.`
         }
+        case 'pair': {
+          const url = `ted-dev://pair?code=${encodeURIComponent(request.text ?? '')}`
+          const result = await tools.simctl(['openurl', udid, url])
+          if (result.code !== 0)
+            throw new RequestError(409, 'Ted couldn’t deliver the pairing link to the simulator')
+          screens.delete(key)
+          return 'Sent the pairing link. Compare the six digits and approve pairing in Ted Dev.'
+        }
         case 'swipe': {
           const { point: from, to } = request
           if (!from || !to) throw new RequestError(400, 'Give the swipe’s start and end points')

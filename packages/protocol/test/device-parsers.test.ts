@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { devicePoint, parseDeviceRequest } from '../src/index.ts'
+import { devicePoint, encodePairingLink, parseDeviceRequest } from '../src/index.ts'
 import { rejects, roundTrip, variants } from './parser-cases.ts'
 
 roundTrip(parseDeviceRequest, {
@@ -27,6 +27,31 @@ variants(parseDeviceRequest, [
   { action: 'size', app: { name: 'android' }, size: '1080x1920', density: 420 },
   { action: 'screenshot', app: { name: 'android' } },
 ])
+
+test('pair accepts a Ted Dev code and rejects malformed and release codes', () => {
+  const app = { name: 'iPhone' }
+  const key = Buffer.alloc(32).toString('base64url')
+  const link = {
+    v: 1,
+    relay: 'http://127.0.0.1:8787',
+    channel: key,
+    macKey: key,
+    pairing: Buffer.alloc(16).toString('base64url'),
+    secret: key,
+    expiresAt: Date.now() + 60_000,
+  }
+  const dev = { action: 'pair', app, text: encodePairingLink({ ...link, edition: 'dev' }) }
+  expect(parseDeviceRequest(dev)).toEqual(dev)
+  for (const text of [
+    undefined,
+    'https://example.com',
+    encodePairingLink({ ...link, edition: 'release' }),
+  ]) {
+    expect(() => parseDeviceRequest({ action: 'pair', app, text })).toThrow(
+      'Give a Ted Dev pairing code',
+    )
+  }
+})
 
 const app = { name: 'android' }
 rejects(parseDeviceRequest, null, 'body must be a JSON object')

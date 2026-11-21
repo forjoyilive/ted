@@ -1006,13 +1006,22 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
 
   async function device(action: DeviceAction): Promise<void> {
     const runId = tedEnv('TED_RUN', env)
+    const task = tedEnv('TED_TASK', env)
+    const automation = !task && tedEnv('TED_AUTOMATION', env)
+    const validateAction = action === 'screen' || action === 'tap' || action === 'pair'
     if (
       options.task !== undefined ||
-      tedEnv('TED_TASK', env) ||
-      !tedEnv('TED_AUTOMATION', env) ||
-      !runId
-    )
-      throw new UsageError(`ted app ${action} works only in an Automation Run`)
+      !runId ||
+      !(task ? validateAction : automation && action !== 'pair')
+    ) {
+      const who =
+        action === 'pair'
+          ? 'a Validate Task Lead Run'
+          : validateAction
+            ? 'a Validate Task Lead Run or an Automation Run'
+            : 'an Automation Run'
+      throw new UsageError(`ted app ${action} works only in ${who}`)
+    }
     const request: Record<string, unknown> = {
       action,
       app: { name: args[0] ?? '', ...(options.repo && { repo: options.repo }) },
@@ -1032,6 +1041,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       request.to = point(args[2])
     }
     if (action === 'type') request.text = args[1] ?? (await readStdin()).replace(/\r?\n$/, '')
+    if (action === 'pair') request.text = (await readStdin()).trim()
     if (action === 'key') request.key = args[1]
     if (action === 'appearance') request.appearance = args[1]
     if (action === 'size') {
@@ -1565,6 +1575,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       await runApp(args[0])
     },
     appScreen: () => device('screen'),
+    appPair: () => device('pair'),
     appTap: () => device('tap'),
     appType: () => device('type'),
     appKey: () => device('key'),

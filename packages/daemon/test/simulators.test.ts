@@ -8,17 +8,19 @@ import type {
   AutomationTemplate,
   Banner,
   Comment,
+  DeviceRequest,
   Factory,
   SimulatorSlots,
   Task,
   TaskApp,
   ThreadEvent,
 } from '@ted/protocol'
-import { tedPaths } from '@ted/protocol'
+import { encodePairingLink, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { DaemonWrappers } from '../src/daemon.ts'
 import { RequestError } from '../src/errors.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import { checkCpus } from '../src/tasks/check-slots.ts'
 import {
   api,
@@ -882,6 +884,75 @@ describe('iOS simulator Apps', () => {
       'Ted couldn’t open Simulator or Xcode’s DeviceHub: Unable to find application with identifier com.apple.iphonesimulator; Unable to find application with identifier com.apple.dt.Devices',
     )
   })
+
+  test('only the current Validate Lead can pair and drive its own running iOS App', async () => {
+    const client = await start()
+    if (!daemon) throw new Error('daemon not started')
+    const { port } = daemon
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': workflow().replace(
+        'order: [intake, work, merge]',
+        'order: [intake, work, validate, review, merge]',
+      ),
+    })
+    await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+    const task = await taskWithWorktree(client)
+    const runId = (await taskNow(client, task)).leadRunId
+    if (!runId) throw new Error('missing Lead')
+    const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+    const lead = api(port, tokens.issue(runId))
+    const route = `/runs/${runId}/apps/device`
+    const app = { name: 'iPhone' }
+    const screen: DeviceRequest = { action: 'screen', app }
+    const actions = (body: DeviceRequest) => lead.call('POST', route, body)
+    const advance = () => lead.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })
+
+    await waitUntil(async () => (await client.getRun(runId)).run.state === 'idle', 'the idle Lead')
+    expect((await actions(screen)).status).toBe(403)
+    expect((await advance()).status).toBe(200)
+    const repo = (await taskNow(client, task)).repos[0]
+    if (!repo) throw new Error('missing worktree')
+    await writeFile(path.join(repo.worktree, 'feature.txt'), 'implemented\n')
+    expect((await advance()).status).toBe(200)
+    await waitUntil(async () => (await taskNow(client, task)).stage === 'validate', 'Validate')
+    const other = await client.startRun([{ endTurn: true }], scratch)
+    expect((await api(port, tokens.issue(other.id)).call('POST', route, screen)).status).toBe(403)
+    expect((await client.call('POST', route, screen)).status).toBe(403)
+    expect((await actions(screen)).status).toBe(409)
+    expect((await actions({ action: 'key', app, key: 'home' })).status).toBe(403)
+
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, app)
+    await waitForApp(client, task, (a) => !!a.builtAt, 'the ready simulator App')
+    const clone = (await stubDevices()).find((device) => device.name === 'Ted Dev NB-1 iPhone')
+    expect(clone?.state).toBe('Booted')
+    const before = await actions(screen)
+    expect(before.status).toBe(200)
+    expect(before.body.text).toContain('Open details')
+    expect((await actions({ action: 'tap', app, point: { x: 201, y: 325 } })).status).toBe(200)
+    expect((await actions(screen)).body.text).toContain('Price: 10 widgets for $5')
+
+    const key = Buffer.alloc(32).toString('base64url')
+    const code = encodePairingLink({
+      v: 1,
+      edition: 'dev',
+      relay: 'http://127.0.0.1:8787',
+      channel: key,
+      macKey: key,
+      pairing: Buffer.alloc(16).toString('base64url'),
+      secret: key,
+      expiresAt: Date.now() + 60_000,
+    })
+    expect((await actions({ action: 'pair', app, text: 'https://example.com' })).status).toBe(400)
+    const paired = await actions({ action: 'pair', app, text: code })
+    expect(paired.status).toBe(200)
+    expect(paired.body.text).toContain('Sent the pairing link')
+    expect(paired.body.text).not.toContain(code)
+    expect(
+      (await stubCalls()).filter(([tool, verb]) => tool === 'simctl' && verb === 'openurl'),
+    ).toEqual([
+      ['simctl', 'openurl', clone?.udid, `ted-dev://pair?code=${encodeURIComponent(code)}`],
+    ])
+  }, 60_000)
 
   test('ted app screenshot and record save files to the Task', async () => {
     const client = await start()
