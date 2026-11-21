@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { queryDb } from '@livestore/livestore'
-import { type Edition, relayListHash } from '@ted/protocol'
+import { type Edition, type PhoneChatKind, phoneChatKinds, relayListHash } from '@ted/protocol'
+import { isOneOf } from '@ted/protocol/parse'
 import type { StoreContext } from './context.ts'
 import {
   events,
+  phoneChatSends,
   phoneNotificationId,
   phoneNotifications,
   phoneRelayAck,
@@ -80,7 +82,21 @@ export interface PhoneStore {
   }): boolean
   waitingSince(request: { id: string; createdAt: string }): string
   createdTask(phoneId: string, createId: string): string | undefined
+  chatSent(phoneId: string, createId: string): PhoneChatSent | undefined
+  markChatSent(sent: PhoneChatSent): void
   persisted(): Promise<void>
+}
+
+export const phoneChatActions = ['message', 'create'] as const
+
+export interface PhoneChatSent {
+  phoneId: string
+  createId: string
+  action: (typeof phoneChatActions)[number]
+  chatKind: PhoneChatKind
+  chatId: string
+  queued: boolean
+  at: string
 }
 
 export interface PhonesArea {
@@ -210,6 +226,22 @@ export function phonesArea(ctx: StoreContext): PhonesArea {
         store.query(
           queryDb(phoneTaskCreates.where({ id: phoneTaskCreateId(phoneId, createId) })),
         )[0]?.taskId,
+      chatSent(phoneId, createId) {
+        const row = store.query(
+          queryDb(phoneChatSends.where({ id: phoneTaskCreateId(phoneId, createId) })),
+        )[0]
+        if (
+          !row ||
+          !isOneOf(row.action, phoneChatActions) ||
+          !isOneOf(row.chatKind, phoneChatKinds)
+        )
+          return undefined
+        const { id: _, ...sent } = row
+        return { ...sent, action: row.action, chatKind: row.chatKind }
+      },
+      markChatSent(sent) {
+        commit(events.phoneChatSent(sent))
+      },
       persisted,
     },
   }

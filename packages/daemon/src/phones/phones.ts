@@ -12,6 +12,7 @@ import { redactSecrets } from '../redact.ts'
 import type { PhoneStore } from '../store/index.ts'
 import { createPhoneActions, type PhoneTaskChanges } from './actions.ts'
 import { createPhoneBridge, type PhoneBridge } from './bridge.ts'
+import { createPhoneChatActions, type PhoneChatChanges } from './chat-actions.ts'
 import { createPhoneChats, type PhoneChatSource } from './chats.ts'
 import type { PhoneImages } from './images.ts'
 import { loadPhoneKeys, type PhoneKeyrings, type PhoneKeys, replaceRelayKey } from './keys.ts'
@@ -30,6 +31,7 @@ export interface PhonesOptions {
   taskChanges: PhoneTaskChanges
   taskCreation: PhoneTaskCreation
   chats: PhoneChatSource
+  chatChanges: PhoneChatChanges
   images: PhoneImages
   problems: Pick<PhoneProblemSource, 'banners' | 'factoryName'>
   keyrings: PhoneKeyrings
@@ -76,6 +78,7 @@ export function createPhones(options: PhonesOptions): Phones {
   const actions = createPhoneActions(options.taskChanges, tasks)
   const newTask = createPhoneNewTask(options.taskCreation, options.phones, tasks)
   const chats = createPhoneChats(options.chats)
+  const chatActions = createPhoneChatActions(options.chatChanges, options.phones)
   const tickets = new Map<string, Ticket>()
   const ending = new Map<string, number>()
   let keysLoaded: Promise<PhoneKeys> | undefined
@@ -214,6 +217,7 @@ export function createPhones(options: PhonesOptions): Phones {
         actions,
         newTask,
         chats,
+        chatActions,
         images: options.images,
         problems: () => phoneProblems(options.problems),
         setPushToken: (phoneId, token) => options.phones.setPushToken(phoneId, token),

@@ -4,11 +4,12 @@ import { modelChoices, modelOptions, withoutStageName } from '../src/renderer/ta
 test('modelOptions lists the agent’s top models, then extras and the current value, once each', () => {
   expect(modelOptions('claude', '')).toEqual(['fable', 'opus', 'sonnet', 'haiku'])
   expect(modelOptions('codex', undefined)).toEqual([
-    'gpt-6-astra',
-    'gpt-6.1-sol',
+    'gpt-6.2-astra',
+    'gpt-6.2-sol',
     'gpt-6.1-terra',
     'gpt-6-luna',
   ])
+  expect(modelOptions('codex', 'gpt-6.1-sol')).toEqual([...modelChoices.codex, 'gpt-6.1-sol'])
   expect(modelOptions('claude', 'claude-opus-5-5', ['sonnet', undefined, 'pinned'])).toEqual([
     ...modelChoices.claude,
     'pinned',

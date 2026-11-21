@@ -18,6 +18,7 @@ import {
   type PhoneChatItemsBody,
   type PhoneChatKind,
   type PhoneChatRow,
+  type PhoneChatSend,
   type PhoneChatsBody,
   type PhoneChatsCursor,
   type PhoneTaskTone,
@@ -47,7 +48,10 @@ import {
   chatWaitingLabel,
   conversationRows,
   coordinatorStatusLabels,
+  coordinatorStoppable,
+  planHasEnded,
   planStatusLabel,
+  planStoppable,
   planWaiting,
 } from '@ted/protocol/agent-chat-view'
 import { RequestError } from '../errors.ts'
@@ -163,7 +167,38 @@ const planTones: Readonly<Record<PlanStatus, PhoneTaskTone>> = {
   stopped: 'stopped',
 }
 
-const endedPlanStatuses: readonly PlanStatus[] = ['finished', 'stopped', 'failed']
+export interface PhoneSendState {
+  send: PhoneChatSend
+  offReason?: string
+}
+
+export function coordinatorSend(
+  chat: Pick<CoordinatorChatSummary, 'status' | 'endedAt' | 'chatAgent'>,
+): PhoneSendState {
+  if (chat.endedAt !== undefined) return { send: 'off', offReason: 'This chat is archived.' }
+  if (chat.chatAgent.removed) {
+    return { send: 'off', offReason: 'This Agent was removed from the Factory’s Agent files.' }
+  }
+  if (chat.status === 'failed') {
+    return { send: 'off', offReason: 'This chat failed. Retry it on your Mac.' }
+  }
+  return { send: 'live' }
+}
+
+export function planSend(
+  plan: Pick<Plan, 'status' | 'archivedAt' | 'canResume' | 'runId'>,
+): PhoneSendState {
+  if (plan.archivedAt !== undefined) return { send: 'off', offReason: 'This chat is archived.' }
+  if (planHasEnded(plan)) {
+    return plan.canResume === true
+      ? { send: 'resume' }
+      : { send: 'off', offReason: 'This planning chat has ended.' }
+  }
+  if (plan.runId === undefined) {
+    return { send: 'off', offReason: 'The planner hasn’t started yet.' }
+  }
+  return { send: 'live' }
+}
 
 function plain(text: string, max: number): string {
   return cutChars(redactSecrets(text), max)
@@ -240,6 +275,7 @@ function chatItemEntry(item: ChatItem, agent: string, live: boolean): Entry | un
       const files = item.attachments ?? []
       const images = files.filter((file) => file.mediaType.startsWith('image/'))
       const unsent = item.unsent === true || (item.queued === true && !live)
+      const queued = !unsent && item.queued === true
       return {
         item: {
           ...base,
@@ -248,6 +284,7 @@ function chatItemEntry(item: ChatItem, agent: string, live: boolean): Entry | un
           images: images.map((file) => plain(file.name, phoneLabelMax)),
           files: files.length - images.length,
           ...(unsent && { unsent: true as const }),
+          ...(queued && { queued: true as const }),
         },
         lines: () => textLines(item.text),
       }
@@ -533,7 +570,7 @@ function planEntries({ detail, chat }: PhonePlanRead): Entry[] {
     at: each.createdAt,
     entry: planRequestEntry(each),
   }))
-  if (plan.finishedAt !== undefined && endedPlanStatuses.includes(plan.status)) {
+  if (plan.finishedAt !== undefined && planHasEnded(plan)) {
     const line =
       plan.status === 'finished'
         ? 'Planning Run finished'
@@ -633,6 +670,8 @@ export function createPhoneChats(source: PhoneChatSource): PhoneChats {
       waiting,
       archived,
       lastAt: chat.lastAt,
+      ...coordinatorSend(chat),
+      canStop: coordinatorStoppable(chat),
     }
   }
 
@@ -650,6 +689,8 @@ export function createPhoneChats(source: PhoneChatSource): PhoneChats {
       waiting: planWaiting(plan),
       archived,
       lastAt: plan.lastAt,
+      ...planSend(plan),
+      canStop: planStoppable(plan),
     }
   }
 

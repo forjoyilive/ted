@@ -45,6 +45,12 @@ export const phoneChatToolStatuses = [
 export const phoneChatCommandStatuses = ['running', 'passed', 'failed', 'stopped'] as const
 export type PhoneChatCommandStatus = (typeof phoneChatCommandStatuses)[number]
 
+export const phoneChatSendStates = ['live', 'resume', 'off'] as const
+export type PhoneChatSend = (typeof phoneChatSendStates)[number]
+
+export const phoneChatOffReasonMax = 300
+export const phoneChatAgentDescriptionMax = 500
+
 export const phoneChatLineKinds = ['heading', 'text', 'added', 'removed', 'context'] as const
 export type PhoneChatLineKind = (typeof phoneChatLineKinds)[number]
 
@@ -65,6 +71,9 @@ export interface PhoneChatRow {
   waiting: boolean
   archived: boolean
   lastAt: string
+  send: PhoneChatSend
+  offReason?: string
+  canStop: boolean
 }
 
 export interface PhoneChatsBody {
@@ -76,6 +85,29 @@ export interface PhoneChatsBody {
 
 export interface PhoneChatBody {
   chat: PhoneChatRow
+}
+
+export interface PhoneChatMessageBody {
+  queued: boolean
+}
+
+export interface PhoneChatStoppedBody {
+  stopped: true
+}
+
+export interface PhoneChatAgent {
+  id: string
+  name: string
+  description: string
+  planner: boolean
+}
+
+export interface PhoneChatAgentsBody {
+  agents: PhoneChatAgent[]
+}
+
+export interface PhoneChatCreatedBody {
+  chat: { kind: PhoneChatKind; id: string }
 }
 
 interface ItemBase {
@@ -91,6 +123,7 @@ export type PhoneChatItem =
       images: string[]
       files: number
       unsent?: true
+      queued?: true
     })
   | (ItemBase & { kind: 'agent'; text: string; cut: boolean; agent: string })
   | (ItemBase & { kind: 'ted'; title: string; text: string; cut: boolean })
@@ -213,6 +246,7 @@ function parseChatFactory(value: Json | undefined): PhoneChatFactory {
 
 export function parsePhoneChatRow(value: Untyped): PhoneChatRow {
   const object = read.object(value, 'chat')
+  const offReason = read.optional(object, 'offReason', read.string)
   return {
     kind: read.oneOf(object, 'kind', phoneChatKinds),
     id: read.string(object, 'id'),
@@ -224,6 +258,9 @@ export function parsePhoneChatRow(value: Untyped): PhoneChatRow {
     waiting: read.boolean(object, 'waiting'),
     archived: read.boolean(object, 'archived'),
     lastAt: read.string(object, 'lastAt'),
+    send: read.oneOf(object, 'send', phoneChatSendStates),
+    ...(offReason !== undefined && { offReason }),
+    canStop: read.boolean(object, 'canStop'),
   }
 }
 
@@ -241,6 +278,40 @@ export function parsePhoneChatsBody(value: Untyped): PhoneChatsBody {
 export function parsePhoneChatBody(value: Untyped): PhoneChatBody {
   const object = read.object(value, 'body')
   return { chat: parsePhoneChatRow(object.chat) }
+}
+
+export function parsePhoneChatMessageBody(value: Untyped): PhoneChatMessageBody {
+  const object = read.object(value, 'body')
+  return { queued: read.boolean(object, 'queued') }
+}
+
+export function parsePhoneChatStoppedBody(value: Untyped): PhoneChatStoppedBody {
+  const object = read.object(value, 'body')
+  if (object.stopped !== true) throw new ParseError('stopped', 'stopped must be true')
+  return { stopped: true }
+}
+
+function parsePhoneChatAgent(value: Json): PhoneChatAgent {
+  const object = read.object(value, 'agent')
+  return {
+    id: read.string(object, 'id'),
+    name: read.string(object, 'name'),
+    description: read.string(object, 'description'),
+    planner: read.boolean(object, 'planner'),
+  }
+}
+
+export function parsePhoneChatAgentsBody(value: Untyped): PhoneChatAgentsBody {
+  const object = read.object(value, 'body')
+  return { agents: read.list(object, 'agents').map(parsePhoneChatAgent) }
+}
+
+export function parsePhoneChatCreatedBody(value: Untyped): PhoneChatCreatedBody {
+  const object = read.object(value, 'body')
+  const chat = read.object(object.chat, 'chat')
+  return {
+    chat: { kind: read.oneOf(chat, 'kind', phoneChatKinds), id: read.string(chat, 'id') },
+  }
 }
 
 function imageName(value: Json): string {
@@ -266,6 +337,7 @@ export function parsePhoneChatItem(value: Untyped): PhoneChatItem {
   switch (kind) {
     case 'human': {
       const unsent = onlyTrue(object, 'unsent')
+      const queued = onlyTrue(object, 'queued')
       return {
         ...base,
         kind,
@@ -274,6 +346,7 @@ export function parsePhoneChatItem(value: Untyped): PhoneChatItem {
         images: read.list(object, 'images').map(imageName),
         files: count(object, 'files'),
         ...(unsent && { unsent }),
+        ...(queued && { queued }),
       }
     }
     case 'agent':
