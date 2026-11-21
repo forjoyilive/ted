@@ -976,7 +976,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ),
         taskChanges: {
           task: (ref) => store.getTask(ref),
-          start: (ref) => tasks.start(ref),
+          start: (ref) => tasks.startWithOutcome(ref),
           stop: (ref) => tasks.stop(ref),
           resume: (ref, comment) => tasks.resumeFromPhone(ref, comment),
           setPriority: (ref, priority) => tasks.setPriority(ref, priority),

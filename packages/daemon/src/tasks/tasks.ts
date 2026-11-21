@@ -768,6 +768,7 @@ export interface Tasks {
     request?: import('@ted/protocol').StartTaskRequest,
     cause?: StartCause,
   ): Promise<Task>
+  startWithOutcome(ref: string): Promise<{ task: Task; waitingForBlockers: boolean }>
   moveToBacklog(ref: string): Task
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
@@ -10069,13 +10070,21 @@ export function createTasks(options: {
     request: import('@ted/protocol').StartTaskRequest = {},
     cause?: StartCause,
   ): Promise<Task> {
+    return (await startWithOutcome(ref, request, cause)).task
+  }
+
+  async function startWithOutcome(
+    ref: string,
+    request: import('@ted/protocol').StartTaskRequest = {},
+    cause?: StartCause,
+  ): Promise<{ task: Task; waitingForBlockers: boolean }> {
     const task = live(ref)
     autoStartFailures.delete(task.id)
     if (!(await queueStart(task.id, { prepare: request.prepare === true, cause })))
-      return publicTask(task.id)
+      return { task: publicTask(task.id), waitingForBlockers: true }
     await pump()
     await beginning.get(task.id)
-    return publicTask(task.id)
+    return { task: publicTask(task.id), waitingForBlockers: false }
   }
 
   async function queueAndAnswer(ref: string, cause?: StartCause): Promise<Task> {
@@ -12880,6 +12889,7 @@ export function createTasks(options: {
     },
 
     start,
+    startWithOutcome,
     stop: stopByHand,
     resume: resumeByHand,
     resumeFromPhone: (ref, comment) =>
