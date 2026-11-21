@@ -266,28 +266,23 @@ export class FixtureMachine {
     }
     return count
   }
+  async #waitForExit(child: ChildProcess, timeoutMs: number) {
+    await eventWait(
+      (changed) => {
+        child.once('exit', changed)
+        return () => child.off('exit', changed)
+      },
+      () => child.exitCode !== null || child.signalCode !== null,
+      'fixture process exit',
+      timeoutMs,
+    )
+  }
   async kill() {
     const child = this.child
     if (!child) return
-    if (child.pid === undefined) {
-      this.child = undefined
-      this.ready = undefined
-      return
-    }
-    const exited = child.exitCode !== null || child.signalCode !== null
-    if (!exited) {
-      await eventWait(
-        (changed) => {
-          child.once('exit', changed)
-          return () => child.off('exit', changed)
-        },
-        () => {
-          child.kill('SIGKILL')
-          return child.exitCode !== null || child.signalCode !== null
-        },
-        'fixture process exit',
-        10_000,
-      )
+    if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL')
+      await this.#waitForExit(child, 10_000)
     }
     this.child = undefined
     this.ready = undefined
@@ -295,7 +290,12 @@ export class FixtureMachine {
   async close() {
     if (this.#closed) return
     for (const link of this.#links) await link.disconnect()
-    if (this.child?.connected) await this.rpc({ action: 'stop' }, 5000).catch(() => undefined)
+    const child = this.child
+    if (child?.connected) {
+      await this.rpc({ action: 'stop' }, 5000)
+        .then(() => this.#waitForExit(child, 15_000))
+        .catch(() => undefined)
+    }
     await this.kill()
     await killMarked('TED_HOME', this.home)
     if ((await findMarked('TED_HOME', this.home)).length)
