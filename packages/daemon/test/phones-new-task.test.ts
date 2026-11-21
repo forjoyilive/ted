@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createHash, randomBytes } from 'node:crypto'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -11,6 +11,8 @@ import {
   parsePhoneFactoriesBody,
   parsePhoneFactoryIconBody,
   parsePhoneTaskCreatedBody,
+  phoneFileMissing,
+  phoneFilePartBytes,
   phoneLabelMax,
   phoneReplyBodyMax,
   readDaemonInfo,
@@ -125,6 +127,35 @@ function created(reply: MacReply): PhoneTaskCreatedBody {
 }
 
 const named = (title: string) => store.listTasks().filter((task) => task.title === title)
+
+const noFiles = { attach: () => Promise.resolve([]), consume: () => Promise.resolve() }
+
+const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
+
+async function upload(bytes: Buffer, name: string, mediaType: string): Promise<string> {
+  const uploadId = toBase64Url(randomBytes(16))
+  const sends: Promise<MacReply>[] = []
+  for (let index = 0; index * phoneFilePartBytes < bytes.length; index++) {
+    const data = bytes.subarray(index * phoneFilePartBytes, (index + 1) * phoneFilePartBytes)
+    sends.push(
+      send({ type: 'request', route: 'file-part', uploadId, index, data: data.toString('base64') }),
+    )
+  }
+  for (const reply of await Promise.all(sends)) expect(reply).toMatchObject({ ok: true, body: {} })
+  const done = await send({
+    type: 'request',
+    route: 'file-done',
+    uploadId,
+    name,
+    mediaType,
+    size: bytes.length,
+    sha256: sha(bytes),
+  })
+  expect(done).toMatchObject({ ok: true, body: {} })
+  return uploadId
+}
+
+const fileMissing = { ok: false, error: { code: 'refused', message: phoneFileMissing } }
 
 const idle = JSON.stringify({ steps: [{ everyMessage: [{ endTurn: true }] }] })
 
@@ -322,6 +353,7 @@ test('factories stops before the reply would pass the size limit and cuts long n
     },
     { createdTask: () => undefined, persisted: () => Promise.resolve() },
     {} as PhoneTasks,
+    noFiles,
   )
   const reply = newTask.factories()
   if (!('body' in reply)) throw new Error('refused')
@@ -353,6 +385,7 @@ test('Start now that finds the Task already started answers without a refusal, a
       },
       { createdTask: () => undefined, persisted: () => Promise.resolve() },
       { ...({} as PhoneTasks), read: () => Promise.resolve({ body: { task: { id: 't1' } } }) },
+      noFiles,
     )
   const caller = { kind: 'phone', phoneId: 'p1' } as const
   const input = {
@@ -369,4 +402,103 @@ test('Start now that finds the Task already started answers without a refusal, a
   expect(
     await startWith(new RequestError(409, 'NB-1 has unfinished blockers')).create(caller, input),
   ).toEqual({ body: { task: { id: 't1' }, startRefused: 'NB-1 has unfinished blockers' } })
+})
+
+test('task-create with files attaches each to the new Task, and the files are used up', async () => {
+  const photo = randomBytes(phoneFilePartBytes * 2 + 500)
+  const notes = Buffer.from('Steps to reproduce\n')
+  const files = [
+    await upload(photo, 'IMG_2031.jpg', 'image/jpeg'),
+    await upload(notes, 'notes.txt', 'text/plain'),
+  ]
+  const request = {
+    type: 'request',
+    route: 'task-create',
+    createId: createId(),
+    factory: 'NB',
+    title: 'Login loop, with files',
+    start: false,
+    files,
+  } as const
+  const reply = created(await send(request))
+  expect(store.getTask(reply.task.id)?.attachments).toEqual([
+    { hash: sha(photo), name: 'IMG_2031.jpg', size: photo.length, mediaType: 'image/jpeg' },
+    { hash: sha(notes), name: 'notes.txt', size: notes.length, mediaType: 'text/plain' },
+  ])
+  expect(await readFile(path.join(home, 'attachments', `${sha(photo)}.jpg`))).toEqual(photo)
+
+  expect(created(await send(request)).task.id).toBe(reply.task.id)
+  expect(await send({ ...request, createId: createId(), title: 'Files used twice' })).toMatchObject(
+    fileMissing,
+  )
+  expect(named('Files used twice')).toEqual([])
+})
+
+test('a file whose hash doesn’t match is refused, and task-create naming it creates nothing until it arrives', async () => {
+  const bytes = randomBytes(1_000)
+  const uploadId = toBase64Url(randomBytes(16))
+  const part = { type: 'request', route: 'file-part', uploadId, index: 0 } as const
+  expect(await send({ ...part, data: bytes.toString('base64') })).toMatchObject({ ok: true })
+  const done = {
+    type: 'request',
+    route: 'file-done',
+    uploadId,
+    name: 'scan.pdf',
+    mediaType: 'application/pdf',
+    size: bytes.length,
+    sha256: sha(randomBytes(1_000)),
+  } as const
+  expect(await send(done)).toMatchObject(fileMissing)
+
+  const ready = await upload(randomBytes(10), 'ready.txt', 'text/plain')
+  const request = {
+    type: 'request',
+    route: 'task-create',
+    createId: createId(),
+    factory: 'NB',
+    title: 'Waits for its files',
+    start: false,
+    files: [ready, uploadId],
+  } as const
+  const before = store.listTasks().length
+  expect(await send(request)).toMatchObject(fileMissing)
+  expect(store.listTasks().length).toBe(before)
+
+  expect(await send({ ...done, sha256: sha(bytes) })).toMatchObject({ ok: true, body: {} })
+  const task = store.getTask(created(await send(request)).task.id)
+  expect(task?.attachments.map((file) => file.name)).toEqual(['ready.txt', 'scan.pdf'])
+})
+
+test('task-comment with files posts a Comment carrying them, even with no text', async () => {
+  const { task } = created(
+    await send({
+      type: 'request',
+      route: 'task-create',
+      createId: createId(),
+      factory: 'NB',
+      title: 'Gets a Comment with a photo',
+      start: false,
+    }),
+  )
+  const photo = randomBytes(5_000)
+  const files = [await upload(photo, 'IMG_0001.jpg', 'image/jpeg')]
+  const comment = {
+    type: 'request',
+    route: 'task-comment',
+    taskId: task.id,
+    text: '',
+    files,
+  } as const
+  expect(await send(comment)).toMatchObject({ ok: true })
+  const posted = store.listComments(task.id).filter((c) => c.author.kind === 'human')
+  expect(posted).toHaveLength(1)
+  expect(posted[0]).toMatchObject({
+    body: '',
+    attachments: [
+      { hash: sha(photo), name: 'IMG_0001.jpg', size: photo.length, mediaType: 'image/jpeg' },
+    ],
+  })
+
+  expect(await send({ ...comment, text: 'Again' })).toMatchObject(fileMissing)
+  expect(store.listComments(task.id).filter((c) => c.author.kind === 'human')).toHaveLength(1)
 })

@@ -51,7 +51,7 @@ export function createStorage(options: {
     clones: [paths.repos],
     'conversations-and-logs': [paths.logs, paths.runs, paths.apps],
     store: [paths.store],
-    attachments: [paths.attachments],
+    attachments: [paths.attachments, paths.phoneUploads],
     backups: [paths.backups],
     'scratch-worktrees': [paths.scratch],
   }

@@ -26,6 +26,7 @@ export function tedPaths(home: string) {
     library: path.join(home, 'library'),
     backups: path.join(home, 'backups'),
     attachments: path.join(home, 'attachments'),
+    phoneUploads: path.join(home, 'phone-uploads'),
     tmp: path.join(home, 'tmp'),
     phoneImages: path.join(home, 'cache', 'phone-images'),
     runs: path.join(home, 'runs'),

@@ -956,6 +956,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           create: (input, caller) => tasks.create(input, caller),
           start: (ref) => tasks.start(ref),
         },
+        uploads: {
+          dir: paths.phoneUploads,
+          save: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+        },
         chats: serviceChatSource({
           factories: () => store.listFactories(),
           coordinatorChats: (factoryId) => coordinators.chats(factoryId),

@@ -131,9 +131,10 @@ Every message inside a box has:
 - `{"type":"request","route":"push-token","token":"ExponentPushToken[…]"}` from a paired phone’s key. The daemon accepts only `ExponentPushToken[…]` or `ExpoPushToken[…]` with 1 to 200 letters, digits, `_` or `-` inside the brackets, and stores it with that phone’s pairing; any other value gets `bad-request`. A token another paired phone held moves to this phone.
 - `{"type":"request","route":"problems"}` from a paired phone’s key. A Mac older than this route answers `unknown-route`, which the phone treats as no problems.
 - `{"type":"request","route":"tasks","group":"status","cursor":"<cursor>"}`, `{"type":"request","route":"task","taskId":"TED-786"}` and `{"type":"request","route":"task-comments","taskId":"TED-786","cursor":"<cursor>"}` from a paired phone’s key (see Tasks below). `group` is optional and `status` when left out; `cursor` is optional. `taskId` is 1 to 200 characters and `cursor` 1 to 512; anything else gets `bad-request`. A Mac older than these routes answers `unknown-route`.
-- `{"type":"request","route":"task-start","taskId":"TED-788"}`, `task-stop`, `task-resume` (optional `text`), `task-priority` (`priority`), `task-comment` (`text`), `task-archive` (`hierarchyRevision`, `closePullRequests`, optional `children`) and `task-delete` (`hierarchyRevision`, optional `children`) from a paired phone’s key (see Task actions below). A Mac older than these routes answers `unknown-route`.
+- `{"type":"request","route":"task-start","taskId":"TED-788"}`, `task-stop`, `task-resume` (optional `text`), `task-priority` (`priority`), `task-comment` (`text`, optional `files`), `task-archive` (`hierarchyRevision`, `closePullRequests`, optional `children`) and `task-delete` (`hierarchyRevision`, optional `children`) from a paired phone’s key (see Task actions below). A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"image","image":"<image ID>","part":0}` from a paired phone’s key (see Images below). `image` is 1 to 200 characters and `part` a whole number from 0; anything else gets `bad-request`. A Mac older than this route answers `unknown-route`.
-- `{"type":"request","route":"factories"}` and `{"type":"request","route":"task-create","createId":"<16 random bytes>","factory":"NB","title":"…","description":"…","priority":"none","start":false}` from a paired phone’s key (see New Task below). A Mac older than these routes answers `unknown-route`.
+- `{"type":"request","route":"factories"}` and `{"type":"request","route":"task-create","createId":"<16 random bytes>","factory":"NB","title":"…","description":"…","priority":"none","start":false}` from a paired phone’s key (see New Task below), with optional `"files":["<uploadId>", …]`. A Mac older than these routes answers `unknown-route`.
+- `{"type":"request","route":"file-part","uploadId":"<16 random bytes>","index":0,"data":"<base64>"}` and `{"type":"request","route":"file-done","uploadId":"<16 random bytes>","name":"IMG_2031.jpg","mediaType":"image/jpeg","size":123456,"sha256":"<64 lowercase hex>"}` from a paired phone’s key (see Files below). A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"chats","factoryId":"<Factory ID>","archived":false,"cursor":"<cursor>"}`, `{"type":"request","route":"chat","chatKind":"coordinator","chatId":"<chat ID>"}`, `{"type":"request","route":"chat-items","chatKind":"coordinator","chatId":"<chat ID>","before":"<cursor>"}` and `{"type":"request","route":"chat-item","chatKind":"plan","chatId":"<chat ID>","itemId":"<item ID>","offset":120}` from a paired phone’s key (see Chats below). `factoryId`, `archived`, `cursor`, `before` and `offset` are optional. `chatKind` is `coordinator` or `plan`; `factoryId`, `chatId` and `itemId` are 1 to 200 characters, `cursor` and `before` 1 to 512, and `offset` a whole number from 0; anything else gets `bad-request`. A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"chat-message","chatKind":"plan","chatId":"<chat ID>","text":"…","createId":"<16 random bytes>"}`, `{"type":"request","route":"chat-stop","chatKind":"coordinator","chatId":"<chat ID>"}`, `{"type":"request","route":"chat-agents","factory":"NB"}` and `{"type":"request","route":"chat-create","factory":"NB","agentId":"planner","text":"…","createId":"<16 random bytes>"}` from a paired phone’s key (see Chat actions below). Every field is required. `text` is 1 to 10,000 characters and not only spaces, `agentId` 1 to 200 characters, `factory` a Factory key of 1 to 200 characters; anything else gets `bad-request`. A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"factory-icon","factoryId":"<Factory ID>"}` from a paired phone’s key (see Factory icons below). `factoryId` is 1 to 200 characters; anything else gets `bad-request`. A Mac older than this route answers `unknown-route`, and the phone draws its own letter.
@@ -158,6 +159,7 @@ Every message inside a box has:
 - `factories` → `{"factories":[{"id":"<Factory ID>","key":"NB","name":"Notebook","icon":<icon>,"defaultPriority":"none"}, …]}`.
 - `factory-icon` → `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}`.
 - `task-create` → `{"task":<task>}`, the new Task as the `task` route shows it, with `"startRefused":"<sentence>"` added when Start now was asked for and the start was refused.
+- `file-part` and `file-done` → `{}`.
 - `chats` → `{"factories":[<chat Factory>, …],"rows":[<chat row>, …],"archivedCount":3,"cursor":"<cursor>"}`.
 - `chat` → `{"chat":<chat row>}`.
 - `chat-items` → `{"items":[<chat item>, …],"cursor":"<cursor>"}`.
@@ -381,7 +383,7 @@ Seven routes change a Task. Each runs the same Tasks module code as the Mac’s 
 | `task-stop` | `taskId` | Stop Task. Refused when the Task hasn’t started, is Done or is already stopped. |
 | `task-resume` | `taskId`, optional `text` | Resume (or Retry, for a failed Task). `text` is at most 10,000 characters and is posted as the user’s comment first when it isn’t blank. Refused when the Task isn’t stopped or failed. |
 | `task-priority` | `taskId`, `priority` | Sets `urgent`, `high`, `medium`, `low` or `none`. |
-| `task-comment` | `taskId`, `text` | Posts `text` (1 to 10,000 characters, not only spaces) as the user’s comment, text only. Refused while Ted is merging the Task’s pull requests. |
+| `task-comment` | `taskId`, `text`, optional `files` | Posts `text` (1 to 10,000 characters, not only spaces) as the user’s comment, with the files named in `files` (see Files below). With `files`, `text` may be empty or left out, as the Mac allows a comment with files and no text. Refused while Ted is merging the Task’s pull requests. |
 | `task-archive` | `taskId`, `hierarchyRevision`, `closePullRequests`, optional `children` | Archive. `closePullRequests` (`true` or `false`, always sent) closes the Task’s open pull requests on GitHub. `children` is `archive` (the child Tasks too, also when left out) or `detach` (archive only this Task; its direct children lose their parent). |
 | `task-delete` | `taskId`, `hierarchyRevision`, optional `children` | Delete. `children` is `delete` (the child Tasks and theirs too) or `unparent` (delete only this Task; its direct children lose their parent). With child Tasks and no `children`, it is refused. |
 
@@ -428,12 +430,47 @@ Answers `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}` for
 | `description` | Optional, at most 10,000 characters; empty when left out. |
 | `priority` | Optional `urgent`, `high`, `medium`, `low` or `none`; `none` when left out. |
 | `start` | `true` or `false`, always sent: Start now. |
+| `files` | Optional: 1 to 10 `uploadId`s of files the phone has sent (see Files below), with no repeats. |
 
-A wrong type, a value past its limit or a bad `createId` gets `bad-request`. No other field is read: the Task Lead and Clarify depth are the Factory’s Task defaults, the same values the Mac’s New Task dialog starts with (the Workflow’s Clarify depth, and its lead adjusted for installed, enabled and paused agents), and there are no blockers, parent or files. An unknown `factory` is `refused` with “no Factory with key <key>”.
+A wrong type, a value past its limit, a bad `createId` or a bad `files` list gets `bad-request`. No other field is read: the Task Lead and Clarify depth are the Factory’s Task defaults, the same values the Mac’s New Task dialog starts with (the Workflow’s Clarify depth, and its lead adjusted for installed, enabled and paused agents), and there are no blockers or parent. An unknown `factory` is `refused` with “no Factory with key <key>”.
 
 The daemon creates the Task with the same Tasks module call as the Mac’s New Task dialog, as the user (`createdBy` is `human`), in Backlog. When the daemon refuses, for example an unknown Factory, the phone gets `refused` with the daemon’s sentence, through `redactSecrets`, and nothing is created. With `start` on, the daemon then starts the Task with the same call as the Mac’s Start button; if that start is refused, the Task stays in Backlog and the reply carries `startRefused` with the daemon’s sentence, through `redactSecrets`, cut to 500 characters. With `start` off, the Task stays in Backlog.
 
-**Sending twice.** When a reply is lost, the phone sends the same `task-create` again as a new message (new `id`, nonce and `at`, because the daemon drops a repeated nonce and any `at` more than 120 seconds off) with the same `createId`. The daemon records `v1.PhoneTaskCreated` under the phone and `createId` in the same store commit that creates the Task, and waits for it to reach disk before it starts the Task or answers, so a resend, even after the Mac restarts, gets the first Task as it is now and creates nothing, whatever the other fields say. Two sends with the same `createId` at once share one create. A resend for a Task since deleted or archived gets `gone`. A refused create records nothing, so the phone may send it again. The `createId` belongs to one phone: the same value from another phone is a different Task.
+**Sending twice.** When a reply is lost, the phone sends the same `task-create` again as a new message (new `id`, nonce and `at`, because the daemon drops a repeated nonce and any `at` more than 120 seconds off) with the same `createId`. The daemon records `v1.PhoneTaskCreated` under the phone and `createId` in the same store commit that creates the Task, and waits for it to reach disk before it starts the Task or answers, so a resend, even after the Mac restarts, gets the first Task as it is now and creates nothing, whatever the other fields say. Two sends with the same `createId` at once share one create. A resend for a Task since deleted or archived gets `gone`. A refused create records nothing, so the phone may send it again. The `createId` belongs to one phone: the same value from another phone is a different Task. The `createId` check comes before the files are looked at, so a resend still gets the first Task after its files were used up.
+
+## Files
+
+The phone sends each file in parts before the `task-create` or `task-comment` that uses it, so every frame stays under the relay’s 65,536-byte limit. The protocol number doesn’t change: a Mac without these routes answers `unknown-route`, and the phone says to update Ted on the Mac.
+
+### `file-part`
+
+| Field | Rules |
+| - | - |
+| `uploadId` | 16 random bytes in base64url, made by the phone, one per file. |
+| `index` | 0 to 426, the part’s place in the file. |
+| `data` | Standard base64 of at most 24,576 file bytes. Every part but the last holds exactly 24,576 bytes. |
+
+Sending a part again replaces it. The phone keeps up to 4 parts of a file in flight. A part for a file already finished is answered `{}` and ignored. When the phone’s staged parts and files would pass 100 MB, or the part starts a new upload while the phone already has 100, the part is `refused` with “Too many files are waiting on your Mac. Send again in a little while.” An empty file (`size` 0) needs no parts; its `file-done` counts as a new upload in the same way.
+
+### `file-done`
+
+| Field | Rules |
+| - | - |
+| `uploadId` | The file’s `uploadId`. |
+| `name` | The file’s name, 1 to 255 characters. The Mac keeps only the part after the last slash. |
+| `mediaType` | The file’s media type, 1 to 255 characters; one the Mac can’t read is kept as `application/octet-stream`. |
+| `size` | The file’s size in bytes. |
+| `sha256` | SHA-256 of the whole file, 64 lowercase hex digits. |
+
+The daemon joins parts 0 to ceil(`size` / 24,576) − 1 and answers `{}` when every part is there, they add up to `size` and the SHA-256 matches. A missing part, a wrong size or a wrong hash is `refused` with “A file didn’t reach your Mac. Send again.”, and the parts stay so a resend of the bad ones can fix it. A `size` over 10 MB (10,485,760 bytes) is `refused` with “Files from your phone must be 10 MB or less.” and its parts are deleted. A repeated `file-done` for a finished file with the same fields answers `{}` again; with other fields, it is refused like a missing part. A wrong type or a value past its limit gets `bad-request`.
+
+### Staging
+
+Parts and finished files wait in `TED_HOME/phone-uploads/<phone ID>/<uploadId>/`, owned by the phone that sent them: another phone’s `uploadId` is unknown to it. Each upload is deleted one hour after its last part or `file-done`, and every upload is deleted when the daemon starts, so a phone whose `uploadId` is gone sends the file again.
+
+### Using the files
+
+`task-create` and `task-comment` name finished files in `files`. Before creating anything, the daemon checks that each one is a finished file of this phone; otherwise it answers `refused` with “A file didn’t reach your Mac. Send again.” and creates nothing, and the phone keeps the draft and its files. The daemon then copies each file into the attachment store, under its name and media type, and passes the attachments to the same Tasks module calls the Mac uses for a New Task’s files and a comment’s files. After the Task or comment is created, its uploads are deleted, so naming them again is refused.
 
 ## Chats
 
@@ -538,7 +575,7 @@ The daemon sends `pairing-end` right after it answers a `pair-status` with `appr
 
 ## Paired phones
 
-The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer`, `push-token`, `problems`, `tasks`, `task`, `task-comments`, `task-start`, `task-stop`, `task-resume`, `task-priority`, `task-comment`, `task-archive`, `task-delete`, `factories`, `task-create`, `chats`, `chat`, `chat-items`, `chat-item`, `chat-message`, `chat-stop`, `chat-agents`, `chat-create` and `factory-icon`. Removing a phone on the Mac records `v1.PhoneRemoved` and sends the new list; the relay then refuses that phone. A message that still reaches the daemon from a removed key gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there. Phones paired before protocol 3 have no relay key, so they aren’t on the relay’s list and must pair again.
+The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `request`, `answer`, `push-token`, `problems`, `tasks`, `task`, `task-comments`, `image`, `task-start`, `task-stop`, `task-resume`, `task-priority`, `task-comment`, `task-archive`, `task-delete`, `factories`, `task-create`, `chats`, `chat`, `chat-items`, `chat-item`, `chat-message`, `chat-stop`, `chat-agents`, `chat-create` `factory-icon`, `file-part` and `file-done`. Removing a phone on the Mac records `v1.PhoneRemoved` and sends the new list; the relay then refuses that phone. A message that still reaches the daemon from a removed key gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there. Phones paired before protocol 3 have no relay key, so they aren’t on the relay’s list and must pair again.
 
 The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so the relay’s list stays current). It reconnects with backoff (1, 2, 5, 10, 30 seconds).
 
