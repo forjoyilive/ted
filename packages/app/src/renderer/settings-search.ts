@@ -322,6 +322,11 @@ const entries = {
     keywords: 'add create custom agent blank',
   },
 
+  'app.storage.locations': {
+    name: 'Folder locations',
+    keywords: 'move change backups sandbox caches external drive',
+    heading: true,
+  },
   'app.storage.space': { name: 'Space used', heading: true },
   'app.storage.worktrees': {
     name: 'Largest worktrees',

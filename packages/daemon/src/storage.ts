@@ -9,17 +9,22 @@ import {
   tedPaths,
   type WorktreeUse,
 } from '@ted/protocol'
+import type { StorageFolderChange, StorageFolderLocation } from '@ted/protocol/storage'
 import { displayPath } from './backups.ts'
 import type { Data } from './data.ts'
 import type { DiskWatch } from './disk.ts'
 import { RequestError } from './errors.ts'
 import { isCloning, removeClone } from './factories.ts'
+import type { StorageLocations } from './storage-locations.ts'
 import { storeFileSizes } from './store/files.ts'
 import type { TedStore } from './store/index.ts'
 
 export interface Storage {
   summary(options?: { refresh?: boolean }): Promise<StorageSummary>
   viewed(): void
+  folders(): Promise<StorageFolderLocation[]>
+  changeFolder(change: StorageFolderChange): Promise<void>
+  restart(): void
   removeUnusedClones(only?: readonly string[]): Promise<RemoveClonesResult>
 }
 
@@ -36,10 +41,17 @@ export function createStorage(options: {
   data: Pick<Data, 'summary'>
   volumeName: () => Promise<string>
   now?: () => number
+  locations?: StorageLocations
+  restart?: () => void
+  changeFolder?: (change: StorageFolderChange) => Promise<void>
 }): Storage {
   const { store, disk } = options
   const now = options.now ?? Date.now
   const paths = tedPaths(options.home)
+  const backupsDir = options.locations?.configured('backups')
+    ? options.locations.active('backups')
+    : paths.backups
+  const caches = options.locations?.configured('sandbox-caches')
   let volume: string | undefined
   let saved: StorageSummary | undefined
   let measuring: Promise<StorageSummary> | undefined
@@ -48,13 +60,13 @@ export function createStorage(options: {
 
   const categoryDirs: Record<StorageCategoryId, string[]> = {
     worktrees: [paths.worktrees, paths.plans, paths.chatCode, paths.automationRuns],
-    'sandbox-caches': [paths.sandbox, paths.seeds],
+    'sandbox-caches': caches ? [caches] : [paths.sandbox, paths.seeds],
     simulators: [paths.simulators],
     clones: [paths.repos],
     'conversations-and-logs': [paths.logs, paths.runs, paths.apps],
     store: [paths.store],
     attachments: [paths.attachments, paths.phoneUploads],
-    backups: [paths.backups],
+    backups: [backupsDir],
     'scratch-worktrees': [paths.scratch],
   }
 
@@ -93,7 +105,12 @@ export function createStorage(options: {
     const [home, reading, backups, storeFiles, names, removable, volumeName] = await Promise.all([
       realpath(paths.home).catch(() => path.resolve(paths.home)),
       disk.check(),
-      options.data.summary(),
+      options.locations
+        ? options.locations.requireAvailable('backups').then(
+            () => options.data.summary(),
+            () => ({ backups: [] }),
+          )
+        : options.data.summary(),
       storeFileSizes(paths.store),
       childDirs(paths.worktrees),
       unusedClones(),
@@ -128,7 +145,7 @@ export function createStorage(options: {
     })
     const backupTotals = backups.backups.map((backup) => {
       const total = usageTotal()
-      totals.set(scanPath(path.join(paths.backups, backup.name)), total)
+      totals.set(scanPath(path.join(backupsDir, backup.name)), total)
       return { backup, total }
     })
     await scanUsage(home, totals, signal)
@@ -156,7 +173,7 @@ export function createStorage(options: {
       },
       simulators: { count: 0, bytes: 0 },
       backups: backupTotals.map(({ backup, total }) => ({ ...backup, bytes: total.bytes })),
-      backupsDir: `${displayPath(paths.backups)}${path.sep}`,
+      backupsDir: `${displayPath(backupsDir)}${path.sep}`,
       storeFiles: {
         ...storeFiles,
         backupsBytes: categories.find((c) => c.id === 'backups')?.total.bytes ?? 0,
@@ -181,6 +198,15 @@ export function createStorage(options: {
   }
 
   return {
+    restart: options.restart ?? (() => undefined),
+    async folders() {
+      const locations = options.locations
+      if (!locations) return []
+      return Promise.all([locations.status('backups'), locations.status('sandbox-caches')])
+    },
+    async changeFolder(change) {
+      await options.changeFolder?.(change)
+    },
     async summary(request = {}) {
       const stale = now() - viewedAt > storageKeptForMs
       viewedAt = now()

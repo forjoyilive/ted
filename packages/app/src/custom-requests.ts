@@ -16,6 +16,7 @@ import type {
   SaveExportResult,
   TaskBrief,
 } from '@ted/protocol'
+import type { StorageFolderChange } from '@ted/protocol/storage'
 import type { LoginItemState } from './login-item.ts'
 import type { NotificationOffer } from './notifications.ts'
 import type { UpdateStatus } from './updates.ts'
@@ -89,6 +90,7 @@ export interface CustomRequests {
   openNotificationSettings: () => Promise<void>
   connection: () => Promise<DaemonConnection>
   restartDaemon: () => Promise<void>
+  changeStorageFolder: (change: StorageFolderChange) => Promise<void>
   updateStatus: () => Promise<UpdateStatus>
   checkForUpdates: () => Promise<UpdateStatus>
   restartToUpdate: () => Promise<void>

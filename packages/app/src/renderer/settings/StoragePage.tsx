@@ -1,6 +1,12 @@
 import type { StorageSummary, StoredBackup } from '@ted/protocol'
 import { archivedTaskDayLimits, runOutputDayLimits } from '@ted/protocol/settings'
-import { formatBytes, storageKeptForMs } from '@ted/protocol/storage'
+import {
+  formatBytes,
+  type StorageFolderChange,
+  type StorageFolderKind,
+  type StorageFolderLocation,
+  storageKeptForMs,
+} from '@ted/protocol/storage'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import dialogStyles from '../components/ArchiveDialogs.module.css'
@@ -233,17 +239,141 @@ function shownAgain(): StorageSummary | undefined {
   return lastShown.storage
 }
 
+const folderLabels = { backups: 'Backups', 'sandbox-caches': 'Sandbox caches' } as const
+
+function FolderLocations({
+  folders,
+  load,
+}: {
+  folders: StorageFolderLocation[]
+  load: () => Promise<void>
+}) {
+  const { epoch } = useConnection()
+  const [confirmation, setConfirmation] = useState<StorageFolderChange>()
+  const [changing, setChanging] = useState<{ kind: StorageFolderKind; epoch: number }>()
+  const [error, setError] = useState<{ kind: StorageFolderKind; message: string }>()
+  const pending = changing?.epoch === epoch ? changing.kind : undefined
+
+  const choose = async (kind: StorageFolderKind) => {
+    try {
+      const parent = await ted.chooseFolder(
+        `Choose where to keep Ted’s ${folderLabels[kind].toLowerCase()}`,
+      )
+      if (parent !== undefined) setConfirmation({ kind, parent })
+    } catch (failure) {
+      setError({ kind, message: readableError(failure) })
+    }
+  }
+
+  const change = async (request: StorageFolderChange) => {
+    setConfirmation(undefined)
+    setChanging({ kind: request.kind, epoch })
+    setError(undefined)
+    try {
+      await ted.changeStorageFolder(request)
+    } catch (failure) {
+      setChanging(undefined)
+      setError({ kind: request.kind, message: readableError(failure) })
+      await load()
+    }
+  }
+
+  if (folders.length === 0) return null
+
+  return (
+    <>
+      <SettingsGroup setting="app.storage.locations">
+        {folders.map(({ kind, path, custom, available, problem }) => (
+          <SettingRow
+            key={kind}
+            title={folderLabels[kind]}
+            detail={
+              <>
+                <span className={styles.folderPath}>{path}</span>
+                {pending === kind && (
+                  <span role="status">
+                    {kind === 'backups' ? 'Moving backups…' : 'Changing cache location…'}
+                  </span>
+                )}
+                {!available && (
+                  <span role="status">
+                    {kind === 'backups'
+                      ? 'Folder unavailable. Reconnect the drive to access or create backups, then refresh Storage.'
+                      : 'Folder unavailable. Reconnect the drive to start work that uses these caches.'}
+                  </span>
+                )}
+                {(error?.kind === kind || problem) && (
+                  <span role="alert">{error?.kind === kind ? error.message : problem}</span>
+                )}
+              </>
+            }
+          >
+            <Button
+              disabled={!available || pending !== undefined}
+              onClick={() => void choose(kind)}
+            >
+              Change location…
+            </Button>
+            {custom && (
+              <Button
+                disabled={!available || pending !== undefined}
+                onClick={() => setConfirmation({ kind, parent: null })}
+              >
+                Use default…
+              </Button>
+            )}
+          </SettingRow>
+        ))}
+      </SettingsGroup>
+      {confirmation && (
+        <Dialog onClose={() => setConfirmation(undefined)}>
+          {(headingId) => (
+            <>
+              <h2 id={headingId} className={dialogStyles.heading}>
+                {confirmation.kind === 'backups'
+                  ? 'Move backups?'
+                  : 'Change sandbox cache location?'}
+              </h2>
+              <p className={dialogStyles.body}>
+                {confirmation.kind === 'backups'
+                  ? 'Ted’s daemon will restart to move your backups and free space at the current location.'
+                  : 'Ted’s daemon will restart and remove the old disposable caches. Ted rebuilds caches as needed, so the first Run may take longer.'}
+              </p>
+              <p className={styles.folderPath}>
+                {confirmation.parent === null
+                  ? 'Default location'
+                  : `${confirmation.parent}/${confirmation.kind === 'backups' ? 'Ted Backups/Backups' : 'Ted Sandbox Caches'}`}
+              </p>
+              <div className={dialogStyles.buttons}>
+                <Button onClick={() => setConfirmation(undefined)}>Cancel</Button>
+                <Button onClick={() => void change(confirmation)}>
+                  {confirmation.kind === 'backups'
+                    ? 'Restart & move backups'
+                    : 'Restart & change location'}
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
+    </>
+  )
+}
+
 export function StoragePage({ settings, dispatch }: SettingsPageProps) {
   const { epoch } = useConnection()
   const [storage, setStorage] = useState<StorageSummary | undefined>(shownAgain)
   const [error, setError] = useState<string>()
+  const [folders, setFolders] = useState<StorageFolderLocation[]>([])
   const [removing, setRemoving] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const now = useNow()
 
   const load = useCallback(async (refresh = false) => {
     try {
+      const locations = ted.storageFolders().then(setFolders, () => undefined)
       setStorage(await ted.getStorage({ refresh }))
+      await locations
       setError(undefined)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -254,6 +384,12 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
     void epoch
     void load()
   }, [epoch, load])
+
+  useEffect(() => {
+    const update = () => void ted.storageFolders().then(setFolders, () => undefined)
+    const timer = setInterval(update, 5000)
+    return () => clearInterval(timer)
+  }, [])
 
   const latest = useRef(storage)
   latest.current = storage
@@ -311,7 +447,14 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
       {!storage && !error && <Skeleton shape="settings" label="Loading storage…" />}
       {storage && (
         <>
-          <SettingsGroup setting="app.storage.space">
+          <SettingsGroup
+            setting="app.storage.space"
+            help={
+              folders.some((folder) => folder.custom)
+                ? 'Category sizes include files on other drives. The total above measures Ted’s home folder.'
+                : undefined
+            }
+          >
             {shown.map((category) => (
               <div key={category.id} className={styles.usageRow}>
                 <span className={styles.usageLabel}>{category.label}</span>
@@ -325,6 +468,8 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
               </div>
             ))}
           </SettingsGroup>
+
+          <FolderLocations folders={folders} load={load} />
 
           <SettingsGroup setting="app.storage.store">
             <SettingRow setting="app.storage.store.event-log">

@@ -17,6 +17,7 @@ import { watchExitWith } from '../../exit-with.ts'
 import { waitForLock } from '../../lock.ts'
 import { homeOfRunDir, quitMarkedSync } from '../../quit-mark.ts'
 import { createSandbox, type Sandboxed, withSandboxEnv } from '../../sandbox.ts'
+import { openStorageLocations } from '../../storage-locations.ts'
 import {
   type DriveAgent,
   type HostDriver,
@@ -150,9 +151,10 @@ async function startAgent(): Promise<Started> {
   }
 }
 
-function wrapInSandbox(sandbox: LaunchSandbox, launch: LaunchFile): Promise<Sandboxed> {
+async function wrapInSandbox(sandbox: LaunchSandbox, launch: LaunchFile): Promise<Sandboxed> {
   return createSandbox({
     tedHome: sandbox.tedHome,
+    storageLocations: await openStorageLocations(sandbox.tedHome, { apply: false }),
     env: () => process.env,
     ...(sandbox.program !== undefined && { program: sandbox.program }),
   }).wrap([launch.command, ...launch.args], sandbox.scope)

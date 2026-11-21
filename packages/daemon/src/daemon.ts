@@ -80,6 +80,7 @@ import { createSideChats } from './side-chats/side-chats.ts'
 import { createSlowMonitor } from './slow-moments.ts'
 import { type HoldAwake, stayAwakeForPhones, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
+import { openStorageLocations } from './storage-locations.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import { createArchiveCleanup } from './tasks/archive-expiry.ts'
 import { createCheckSlots } from './tasks/check-slots.ts'
@@ -283,6 +284,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     lock.release()
     throw new QuitMarkedError()
   }
+  const locations = await openStorageLocations(paths.home).catch((error: Error) => {
+    lock.release()
+    throw error
+  })
   const unattended = options.idleExit?.unattended
   const idle =
     options.idleExit &&
@@ -331,6 +336,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const data = createData({
     home: paths.home,
     version: options.version,
+    ...(locations.configured('backups') !== undefined && {
+      backupLocation: {
+        directory: locations.active('backups'),
+        requireAvailable: () => locations.requireAvailable('backups'),
+      },
+    }),
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
     ...(options.compaction && { compaction: options.compaction }),
     ...(options.outputDrop && { outputDrop: options.outputDrop }),
@@ -353,6 +364,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       const sandbox = createSandbox({
         tedHome: paths.home,
+        storageLocations: locations,
         env: environment.current,
         ...(sandboxProgram && { program: sandboxProgram }),
       })
@@ -395,10 +407,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const diskOptions = options.disk ?? {}
       const fakeFree = tedEnv('TED_FREE_BYTES_FILE')
       let wake: () => void = () => undefined
+      let changingStorage = false
+      let diskHold: string | undefined
       const disk = createDiskWatch({
         storeDir: paths.store,
         banners,
         hold(reason) {
+          diskHold = reason
+          if (changingStorage) return
           store.holdNewWork(reason)
           if (reason === undefined) wake()
         },
@@ -582,6 +598,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       let plans: Plans | undefined
       const tasks = createTasks({
+        storageLocations: locations,
         testReportingEnv: async (task, checkRunId, position, supported) => {
           const registration = await new DaemonClient(info, token, {
             appKey: appToken,
@@ -805,7 +822,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         diskOptions.excludeFromBackups ??
         (tedEnv('TED_TIME_MACHINE') === 'off' ? async () => undefined : excludeFromTimeMachine)
       Promise.all(backupless.map((dir) => mkdir(dir, { recursive: true, mode: 0o700 })))
-        .then(() => excludeFromBackups(backupless))
+        .then(async () => {
+          const cacheRoot = locations.configured('sandbox-caches')
+          const available = await locations.status('sandbox-caches')
+          await excludeFromBackups(
+            cacheRoot !== undefined && available.available
+              ? [...backupless, cacheRoot]
+              : backupless,
+          )
+        })
         .catch((error: unknown) =>
           console.error('couldn’t exclude folders from Time Machine:', error),
         )
@@ -874,6 +899,51 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         disk,
         data,
         volumeName: diskOptions.volumeName ?? (() => volumeName(paths.home)),
+        locations,
+        async changeFolder(change) {
+          const releaseData = data.beginStorageChange()
+          changingStorage = true
+          store.holdNewWork('changing storage location')
+          try {
+            const active = store.activity()
+            const busy =
+              active.runs.active ||
+              active.startingWork ||
+              active.checksRunning ||
+              active.shellsRunning ||
+              active.factoriesSettingUp
+            const apps = busy
+              ? []
+              : await Promise.all(
+                  store
+                    .listTasks()
+                    .filter((task) => !task.archived)
+                    .map((task) => tasks.listApps(task.id, { kind: 'app' })),
+                )
+            if (
+              busy ||
+              apps
+                .flat()
+                .some(
+                  (app) =>
+                    app.state === 'starting' || app.state === 'running' || app.state === 'waiting',
+                )
+            ) {
+              throw new RequestError(
+                409,
+                'Ted is still working. Try again after active Runs, Apps, and checks finish.',
+              )
+            }
+            await locations.request(change)
+          } catch (error) {
+            releaseData()
+            changingStorage = false
+            store.holdNewWork(diskHold)
+            if (diskHold === undefined) wake()
+            throw error
+          }
+        },
+        restart: options.onShutdown ?? (() => undefined),
       })
       started = tasks
       const sideChats = createSideChats({

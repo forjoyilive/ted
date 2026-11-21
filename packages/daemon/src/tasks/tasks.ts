@@ -275,6 +275,7 @@ import { parsedOutput } from '../runs/parsed-output.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import { type Sandbox, type SandboxGrants, type SandboxScope, sandboxGrants } from '../sandbox.ts'
+import type { StorageLocations } from '../storage-locations.ts'
 import type {
   BlockersCleared,
   CleanupCommandResult,
@@ -950,6 +951,7 @@ function withoutRepeats(files: readonly Attachment[]): Attachment[] {
 }
 
 export function createTasks(options: {
+  storageLocations?: StorageLocations
   testReportingEnv?: (
     task: Task,
     checkRunId: string,
@@ -1037,6 +1039,7 @@ export function createTasks(options: {
   const execution = createTaskExecution(store)
   const seeds = createCacheSeeds({
     home: path.dirname(worktreesDir),
+    ...(options.storageLocations && { locations: options.storageLocations }),
     reposDir,
     logsDir,
     store,
@@ -1052,6 +1055,7 @@ export function createTasks(options: {
     worktreesDir,
     logsDir,
     sandbox: options.sandbox,
+    ...(options.storageLocations && { locations: options.storageLocations }),
     sandboxGrants: async (taskId) => taskSandboxGrants(find(taskId)),
     startCache: (factoryId, cache) => seeds.startCache(factoryId, cache),
     env: () => options.env?.() ?? process.env,

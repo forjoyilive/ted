@@ -160,6 +160,15 @@ test('Storage sets when chats and archived tasks are deleted and measures again 
   const api = bridge({
     listFactories: () => [],
     storageViewed: viewed,
+    storageFolders: () => [
+      {
+        kind: 'backups',
+        path: '/Volumes/Archive/Ted Backups/Backups',
+        custom: true,
+        available: true,
+      },
+      { kind: 'sandbox-caches', path: '/ted/sandbox', custom: false, available: true },
+    ],
     getStorage: () => ({
       home: '~/.ted/',
       usedBytes: 2e9,
@@ -185,6 +194,11 @@ test('Storage sets when chats and archived tasks are deleted and measures again 
   const { rerender, unmount } = render(
     <StoragePage settings={defaultMachineSettings} dispatch={vi.fn()} />,
   )
+  const locations = await screen.findByRole('group', { name: 'Folder locations' })
+  expect(within(locations).getByText('/Volumes/Archive/Ted Backups/Backups')).toBeTruthy()
+  expect(within(locations).getByText('/ted/sandbox')).toBeTruthy()
+  expect(within(locations).getAllByRole('button', { name: 'Change location…' })).toHaveLength(2)
+  expect(within(locations).getByRole('button', { name: 'Use default…' })).toBeTruthy()
   const group = await screen.findByRole('group', { name: 'Delete automatically' })
   const days = within(group).getByRole<HTMLSelectElement>('combobox', {
     name: 'Delete agent chats',

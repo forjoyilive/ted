@@ -1,7 +1,17 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
-import { copyFile, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  copyFile,
+  cp,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { type CopiedRepo, makeCopy, removeCopy } from '../code-copy.ts'
@@ -11,6 +21,7 @@ import * as git from '../git.ts'
 import { factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import { type Sandbox, sandboxGrants } from '../sandbox.ts'
+import type { StorageLocations } from '../storage-locations.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import type { CheckSlots } from './check-slots.ts'
@@ -67,11 +78,16 @@ export function createCacheSeeds(options: {
   checkSlots: CheckSlots
   env: () => NodeJS.ProcessEnv
   platform?: NodeJS.Platform
+  locations?: StorageLocations
 }): CacheSeeds {
   const { store } = options
   const platform = options.platform ?? process.platform
-  const root = path.join(options.home, 'seeds')
-  const sandboxRoot = path.join(options.home, 'sandbox')
+  const localRoots = path.join(options.home, 'seeds')
+  const configured = options.locations?.configured('sandbox-caches')
+  const rootsHome = configured ?? options.home
+  const root = path.join(rootsHome, 'seeds')
+  const sandboxRoot = path.join(configured ?? options.home, configured ? 'tasks' : 'sandbox')
+  const available = () => options.locations?.requireAvailable('sandbox-caches')
   const locks = new Map<string, Promise<void>>()
   const fills = new Map<string, { done: Promise<void>; stop: AbortController }>()
   const failed = new Map<string, string>()
@@ -108,7 +124,7 @@ export function createCacheSeeds(options: {
   }
 
   function canClone(): Promise<boolean> {
-    clones ??= filesClone(options.home, [root, sandboxRoot], platform).catch(() => false)
+    clones ??= filesClone(rootsHome, [root, sandboxRoot], platform).catch(() => false)
     return clones
   }
 
@@ -211,14 +227,22 @@ export function createCacheSeeds(options: {
     if (!release) return
     const folder = folderOf(factory.id)
     const fillName = `fill-${randomBytes(6).toString('hex')}`
-    const fillDir = path.join(folder, fillName)
+    const stagingFolder = path.join(localRoots, factory.id)
+    const fillDir = path.join(stagingFolder, fillName)
     let made: CopiedRepo[] = []
     try {
       if (signal.aborted || !usable(factory.id) || store.newWorkHold() !== undefined) return
       if ((await options.sandbox.problem()) !== undefined) return
+      await available()
+      await plainFolder(rootsHome, folder, true)
       await plainFolder(options.home, fillDir, true)
       for (const name of await readdir(folder)) {
         if (name !== fillName && leftover.test(name)) await removeInside(folder, name)
+      }
+      if (stagingFolder !== folder) {
+        for (const name of await readdir(stagingFolder)) {
+          if (name !== fillName && leftover.test(name)) await removeInside(stagingFolder, name)
+        }
       }
       const cache = path.join(fillDir, 'cache')
       const repos = path.join(fillDir, 'repos')
@@ -262,7 +286,9 @@ export function createCacheSeeds(options: {
       }
       if (signal.aborted || !usable(factory.id)) return
       const next = path.join(folder, `next-${randomBytes(6).toString('hex')}`)
-      await cloneTree(platform, cache, next)
+      await available()
+      if (configured) await cp(cache, next, { recursive: true, verbatimSymlinks: true })
+      else await cloneTree(platform, cache, next)
       await locked(factory.id, async () => {
         if (!usable(factory.id)) {
           await removeInside(folder, path.basename(next))
@@ -282,18 +308,20 @@ export function createCacheSeeds(options: {
       failed.delete(factory.id)
     } finally {
       release()
-      await removeCopy(made, folder, fillName).catch(() => undefined)
+      await removeCopy(made, stagingFolder, fillName).catch(() => undefined)
     }
   }
 
   return {
     async startCache(factoryId, cache) {
       if (!usable(factoryId)) return
+      await available()
+      const actual = (await options.locations?.cachePath(cache)) ?? cache
       try {
-        if (!(await lstat(cache).catch(() => undefined)) && (await canClone())) {
+        if (!(await lstat(actual).catch(() => undefined)) && (await canClone())) {
           await locked(factoryId, async () => {
             if (usable(factoryId) && (await seedReady(factoryId))) {
-              await cloneInto(factoryId, cache)
+              await cloneInto(factoryId, actual)
             }
           })
         }
@@ -319,7 +347,8 @@ export function createCacheSeeds(options: {
         const running = fills.get(factoryId)
         running?.stop.abort()
         await running?.done
-        const plainRoot = await plainFolder(options.home, root).then(
+        await available()
+        const plainRoot = await plainFolder(rootsHome, root).then(
           () => true,
           () => false,
         )

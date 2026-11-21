@@ -48,6 +48,7 @@ import {
 } from '@ted/protocol'
 import { factoryIconEmojiOf } from '@ted/protocol/factory-icon'
 import type { Untyped } from '@ted/protocol/parse'
+import { parseStorageFolderChange } from '@ted/protocol/storage'
 import {
   app,
   BrowserWindow,
@@ -303,10 +304,12 @@ const requests = {
     const shown = folder.startsWith(`${home}${path.sep}`) ? `~${folder.slice(home.length)}` : folder
     return { path: `${shown}${path.sep}`, platform: process.platform }
   },
-  showBackupInFolder: async (_, name) => {
+  showBackupInFolder: async (client, name) => {
     const backup = String(name)
     if (!backupName.test(backup)) throw new Error('no such backup')
-    shell.showItemInFolder(path.join(tedPaths(tedHome()).backups, backup))
+    const folder = (await client.storageFolders()).find((folder) => folder.kind === 'backups')
+    if (!folder?.available) throw new Error('Reconnect the backup drive to show this backup.')
+    shell.showItemInFolder(path.join(folder.path, backup))
   },
   showTedFolder: async () => {
     const error = await shell.openPath(tedHome())
@@ -1326,6 +1329,8 @@ async function start(): Promise<void> {
       ? appRequests[name as keyof typeof appRequests]
       : undefined
     if (appRequest) return appRequest()
+    if (name === 'changeStorageFolder')
+      return supervised.changeStorageFolder(parseStorageFolderChange(args[0]))
     if (name === 'sendProblemReport') return sendReport(args[0])
     if (name === 'reportCrash') return rendererCrash(args[0])
     const request = Object.hasOwn(requests, name)
