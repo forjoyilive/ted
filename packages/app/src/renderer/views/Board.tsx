@@ -43,7 +43,6 @@ import {
 import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { useStartsOnItsOwn } from '../components/BacklogStarts.tsx'
 import { Button } from '../components/Button.tsx'
-import menuStyles from '../components/ContextMenu.module.css'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { FactoryIcon } from '../components/FactoryIcon.tsx'
@@ -53,7 +52,7 @@ import { Loading } from '../components/Loading.tsx'
 import { PriorityButton } from '../components/PriorityMenu.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
-import { openTaskActions } from '../components/TaskContextMenu.tsx'
+import { openTaskActions, reportBatchArchiveError } from '../components/TaskContextMenu.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { boardEmpty } from '../empty-states.ts'
 import {
@@ -273,7 +272,6 @@ export function Board({
   const columns = boardColumns(stages, shown, now)
   const allDone = tasks.filter((t) => t.stage === 'done' && !t.archived).length
   const [confirmArchiveDone, setConfirmArchiveDone] = useState(false)
-  const [archiveError, setArchiveError] = useState<string>()
   const archiveDone = usePendingAction(`archive-done:${factoryId}`)
   const [dragging, setDragging] = useState<Dragging>()
   const [target, setTarget] = useState<Target>()
@@ -846,21 +844,16 @@ export function Board({
           </div>
         )}
       </div>
-      {archiveError && (
-        <p className={menuStyles.error} role="alert">
-          {archiveError}
-        </p>
-      )}
       {confirmArchiveDone && (
         <ArchiveDoneDialog
           count={allDone}
           onClose={() => setConfirmArchiveDone(false)}
           onArchive={() => {
             setConfirmArchiveDone(false)
-            setArchiveError(undefined)
+            reportBatchArchiveError(undefined)
             void archiveDone
               .run(() => ted.archiveDone(factoryId))
-              ?.catch((failure) => setArchiveError(readableError(failure)))
+              ?.catch((failure) => reportBatchArchiveError(readableError(failure)))
           }}
         />
       )}

@@ -20,6 +20,20 @@ import { SnoozeTaskDialog } from './SnoozeTaskDialog.tsx'
 import { TaskActionsMenu } from './TaskActions.tsx'
 
 const taskMenuEvent = 'ted:task-context-menu'
+const batchArchiveErrorEvent = 'ted:batch-archive-error'
+
+class BatchArchiveErrorEvent extends Event {
+  readonly message: string | undefined
+
+  constructor(message: string | undefined) {
+    super(batchArchiveErrorEvent)
+    this.message = message
+  }
+}
+
+export function reportBatchArchiveError(error: string | undefined) {
+  window.dispatchEvent(new BatchArchiveErrorEvent(error))
+}
 interface TaskMenuRequest {
   ids: string[]
   at: MenuPosition
@@ -46,13 +60,11 @@ export function BulkConfirmDialog({
   allTasks,
   kind,
   onKind,
-  onArchiveError,
 }: {
   tasks: readonly Task[]
   allTasks: readonly Task[]
   kind: 'archive' | 'delete'
   onKind: (kind: 'archive' | 'delete' | undefined) => void
-  onArchiveError: (message: string | undefined) => void
 }) {
   const [closePullRequests, setClosePullRequests] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -80,7 +92,7 @@ export function BulkConfirmDialog({
   const perform = async () => {
     if (kind === 'archive') {
       if (archive.pending) return
-      onArchiveError(undefined)
+      reportBatchArchiveError(undefined)
       onKind(undefined)
       await archive
         .run(() =>
@@ -90,7 +102,7 @@ export function BulkConfirmDialog({
             }),
           ),
         )
-        ?.catch((failure) => onArchiveError(readableError(failure)))
+        ?.catch((failure) => reportBatchArchiveError(readableError(failure)))
       return
     }
     setBusy(true)
@@ -313,7 +325,6 @@ function BulkTaskMenu({
           allTasks={allTasks}
           kind={confirmation}
           onKind={setConfirmation}
-          onArchiveError={setError}
         />
       )}
     </>
@@ -331,6 +342,7 @@ export function TaskContextMenu({
   onFollowedUp: (task: Task) => void
   onPickBlocker: (task: Task, event?: string) => void
 }) {
+  const [archiveError, setArchiveError] = useState<string>()
   const [request, setRequest] = useState<TaskMenuRequest>()
   const [at, setAt] = useState<MenuPosition>()
   useEffect(() => {
@@ -340,8 +352,15 @@ export function TaskContextMenu({
       setRequest(next)
       setAt(next.at)
     }
+    const archiveFailed = (event: Event) => {
+      if (event instanceof BatchArchiveErrorEvent) setArchiveError(event.message)
+    }
     window.addEventListener(taskMenuEvent, open)
-    return () => window.removeEventListener(taskMenuEvent, open)
+    window.addEventListener(batchArchiveErrorEvent, archiveFailed)
+    return () => {
+      window.removeEventListener(taskMenuEvent, open)
+      window.removeEventListener(batchArchiveErrorEvent, archiveFailed)
+    }
   }, [])
   useEffect(() => {
     void place
@@ -349,29 +368,39 @@ export function TaskContextMenu({
     setAt(undefined)
   }, [place])
   const targets = request?.ids.flatMap((id) => tasks.find((t) => t.id === id) ?? []) ?? []
-  if (!request || targets.length === 0) return null
-  const close = () => setAt(undefined)
-  if (request.ids.length > 1)
-    return (
-      <BulkTaskMenu
-        key={request.ids.join(',')}
-        tasks={targets}
-        allTasks={tasks}
-        at={at}
-        onClose={close}
-      />
-    )
   const target = targets[0]
-  if (!target) return null
+  const close = () => setAt(undefined)
   return (
-    <TaskActionsMenu
-      key={target.id}
-      task={target}
-      contextAt={at}
-      contextOnly
-      onMenuClose={close}
-      onFollowedUp={onFollowedUp}
-      onPickBlocker={onPickBlocker}
-    />
+    <>
+      {archiveError && (
+        <p className={menuStyles.error} role="alert">
+          {archiveError}
+          <Button variant="quiet" size="small" onClick={() => setArchiveError(undefined)}>
+            Dismiss
+          </Button>
+        </p>
+      )}
+      {request &&
+        target &&
+        (request.ids.length > 1 ? (
+          <BulkTaskMenu
+            key={request.ids.join(',')}
+            tasks={targets}
+            allTasks={tasks}
+            at={at}
+            onClose={close}
+          />
+        ) : (
+          <TaskActionsMenu
+            key={target.id}
+            task={target}
+            contextAt={at}
+            contextOnly
+            onMenuClose={close}
+            onFollowedUp={onFollowedUp}
+            onPickBlocker={onPickBlocker}
+          />
+        ))}
+    </>
   )
 }

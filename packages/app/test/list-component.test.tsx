@@ -609,10 +609,13 @@ test.each([
   'bulk $label reports a later Task failure and leaves confirmation closed: $confirmationCloses',
   async ({ label, method, confirmationCloses }) => {
     const a = await list()
+    const pending = deferred<void>()
     a.handle(
       method,
       vi.fn(async (id: unknown) => {
-        if (id === 'MS-1') throw new Error('Request refused')
+        if (id !== 'MS-1') return
+        if (confirmationCloses) await pending.promise
+        throw new Error('Request refused')
       }),
     )
     for (const id of ['NB-1', 'MS-1'])
@@ -625,6 +628,18 @@ test.each([
     )
     const dialog = await screen.findByRole('dialog', { name: `${label} 2 Tasks?` })
     await user().click(within(dialog).getByRole('button', { name: `${label} 2 Tasks` }))
+    if (confirmationCloses) {
+      try {
+        await vi.waitFor(() =>
+          expect(a.request).toHaveBeenCalledWith(method, 'MS-1', expect.anything()),
+        )
+        expect(screen.queryByRole('alert')).toBeNull()
+        fireEvent.contextMenu(required(document.querySelector('[data-task="NB-2"]')))
+        await screen.findByRole('menu', { name: 'Task actions · NB-2' })
+      } finally {
+        pending.resolve()
+      }
+    }
     const error = await (confirmationCloses ? screen : within(dialog)).findByRole('alert')
     expect(dialog.isConnected).toBe(!confirmationCloses)
     expect(error.textContent).toContain('MS-1: Request refused')
