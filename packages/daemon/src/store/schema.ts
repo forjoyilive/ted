@@ -86,6 +86,7 @@ import {
 } from './schema/merge.ts'
 import { peerMessages, peersEvents, peersMaterializers } from './schema/peers.ts'
 import {
+  phoneChatSends,
   phoneNotifications,
   phoneRelayAck,
   phoneRelayResets,
@@ -303,6 +304,7 @@ const state = State.SQLite.makeState({
     phoneRelayAck,
     phoneRelaySent,
     phoneTaskCreates,
+    phoneChatSends,
   },
   materializers,
 })

@@ -125,6 +125,11 @@ const refuseRun = (caller: Caller) => {
   if (caller.kind !== 'app') throw new RequestError(403, 'Only the human changes planning chats')
 }
 
+const refuseUnlessHuman = (caller: Caller) => {
+  if (caller.kind !== 'app' && caller.kind !== 'phone')
+    throw new RequestError(403, 'Only the human changes planning chats')
+}
+
 function firstLine(text: string, max = 500): string {
   const line =
     text
@@ -788,7 +793,7 @@ export function createPlans(options: PlansOptions): Plans {
       }
     },
     async start(input, caller) {
-      refuseRun(caller)
+      refuseUnlessHuman(caller)
       const factory = factoryByRef(input.factory)
       startable(factory)
       const from = input.from === undefined ? undefined : find(input.from)
@@ -877,7 +882,7 @@ export function createPlans(options: PlansOptions): Plans {
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
     async stop(id, caller) {
-      refuseRun(caller)
+      refuseUnlessHuman(caller)
       const plan = find(id)
       if (plan.state === 'ended')
         throw new RequestError(409, 'this planning chat has already ended')
@@ -886,7 +891,7 @@ export function createPlans(options: PlansOptions): Plans {
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
     resume: (id, caller, message) => {
-      refuseRun(caller)
+      refuseUnlessHuman(caller)
       return resume(find(id), message)
     },
     async archive(id, caller) {

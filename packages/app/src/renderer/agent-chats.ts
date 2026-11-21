@@ -3,6 +3,8 @@ import {
   chatArchivedLabel,
   chatWaitingLabel,
   coordinatorStatusLabels,
+  coordinatorStoppable,
+  planStoppable,
   planWaiting,
 } from '@ted/protocol/agent-chat-view'
 import { useCallback, useState } from 'react'
@@ -49,9 +51,7 @@ export function coordinatorChatState(
   return {
     ref: { agent: 'coordinator', id: chat.id },
     archived,
-    stoppable:
-      !archived &&
-      (chat.status === 'working' || chat.status === 'queued' || chat.status === 'paused'),
+    stoppable: coordinatorStoppable(chat),
     ...(!archived &&
       !chat.chatAgent.removed &&
       chat.status === 'failed' && { restart: 'Retry' as const }),
@@ -66,7 +66,7 @@ export function planChatState(plan: Pick<Plan, 'id' | 'status' | 'archivedAt'>):
   return {
     ref: { agent: 'planner', id: plan.id },
     archived,
-    stoppable: !archived && !planEnded(plan),
+    stoppable: planStoppable(plan),
     ...(!archived && restart !== undefined && { restart }),
     planMore: archived || planEnded(plan),
   }
