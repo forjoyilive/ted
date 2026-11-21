@@ -1,4 +1,8 @@
 import type {
+  PhoneChatDetailLine,
+  PhoneChatFactory,
+  PhoneChatItem,
+  PhoneChatRow,
   PhoneCommentEntry,
   PhoneReplyBody,
   PhoneRequestSummary,
@@ -13,6 +17,13 @@ type Measured =
   | PhoneTaskSection
   | readonly PhoneTaskSection[]
   | PhoneCommentEntry
+  | PhoneChatRow
+  | PhoneChatItem
+  | PhoneChatDetailLine
+  | readonly PhoneChatFactory[]
+  | { factories: PhoneChatFactory[]; rows: PhoneChatRow[]; archivedCount: number; cursor: string }
+  | { items: PhoneChatItem[]; cursor: string }
+  | { lines: PhoneChatDetailLine[]; next: number }
   | string
 
 export interface Fitted {

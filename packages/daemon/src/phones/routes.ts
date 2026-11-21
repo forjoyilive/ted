@@ -2,6 +2,7 @@ import type { Edition, PhoneProblemsBody, PhoneRequest, PhoneRouteName } from '@
 import { phoneProtocolVersion } from '@ted/protocol'
 import type { Caller } from '../tasks/tasks.ts'
 import type { PhoneActions } from './actions.ts'
+import type { PhoneChats } from './chats.ts'
 import type { PhoneImages } from './images.ts'
 import type { PhoneNewTask } from './new-task.ts'
 import type { PhoneOutcome, PhoneRequests } from './requests.ts'
@@ -19,6 +20,7 @@ export interface PhoneRouteContext {
   tasks: PhoneTasks
   actions: PhoneActions
   newTask: PhoneNewTask
+  chats: PhoneChats
   images: PhoneImages
   problems(): PhoneProblemsBody
   setPushToken(phoneId: string, token: string): boolean
@@ -194,6 +196,34 @@ export const phoneRoutes: readonly PhoneRoute[] = [
         priority,
         start,
       })
+    },
+  },
+  {
+    name: 'chats',
+    async handle(_, { factoryId, archived, cursor }, { chats }) {
+      return chats.list(factoryId, archived ?? false, cursor)
+    },
+  },
+  {
+    name: 'chat',
+    async handle(_, { chatKind, chatId }, { chats }) {
+      if (chatKind === undefined || chatId === undefined) return { code: 'bad-request' }
+      return chats.read(chatKind, chatId)
+    },
+  },
+  {
+    name: 'chat-items',
+    async handle(_, { chatKind, chatId, before }, { chats }) {
+      if (chatKind === undefined || chatId === undefined) return { code: 'bad-request' }
+      return chats.items(chatKind, chatId, before)
+    },
+  },
+  {
+    name: 'chat-item',
+    async handle(_, { chatKind, chatId, itemId, offset }, { chats }) {
+      if (chatKind === undefined || chatId === undefined || itemId === undefined)
+        return { code: 'bad-request' }
+      return chats.item(chatKind, chatId, itemId, offset ?? 0)
     },
   },
   {

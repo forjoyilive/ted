@@ -50,6 +50,7 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
+import { serviceChatSource } from './phones/chats.ts'
 import type { ImageShrinker } from './phones/images.ts'
 import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
 import { createPhoneNotifier } from './phones/notifier.ts'
@@ -896,6 +897,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
       })
       await execution.start()
+      const conversations = createConversations({
+        coordinators,
+        steering,
+        store,
+        runs,
+        agents,
+        health,
+        disk,
+      })
       const phonePlans = plans
       const phones = createPhones({
         phones: store.phones,
@@ -933,6 +943,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           create: (input, caller) => tasks.create(input, caller),
           start: (ref) => tasks.start(ref),
         },
+        chats: serviceChatSource({
+          factories: () => store.listFactories(),
+          coordinatorChats: (factoryId) => coordinators.chats(factoryId),
+          coordinator: (chatId) => coordinators.get(chatId),
+          coordinatorConversation: (chatId) => conversations.coordinatorChat(chatId),
+          plans: () => phonePlans.list(),
+          plan: (planId) => phonePlans.detail(planId),
+          runConversation: (runId) => conversations.chat(runId),
+        }),
         images: {
           comment: (id) => store.getComment(id),
           task: (id) => store.getTask(id),
@@ -981,15 +1000,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       const stayAwakeOnPower = options.holdOnPower && stayAwakeForPhones(store, options.holdOnPower)
-      const conversations = createConversations({
-        coordinators,
-        steering,
-        store,
-        runs,
-        agents,
-        health,
-        disk,
-      })
       const taskTokens = followTaskTokens({ store, runs, agents })
       const versionRestarts = await restartOnNewVersions({
         store,
