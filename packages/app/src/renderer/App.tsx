@@ -158,7 +158,7 @@ import { factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
   agents: 'Agents',
-  settings: 'Factory settings',
+  settings: 'Configuration',
 } as const
 
 function sectionsStoppingWork(banners: readonly Banner[]) {

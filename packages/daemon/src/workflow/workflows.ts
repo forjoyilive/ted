@@ -183,7 +183,7 @@ export function createWorkflows(options: {
       severity: 'warning',
       text: 'No checks set up · Validate relies on the agent alone',
       action: {
-        label: 'Open Factory settings',
+        label: 'Open Configuration',
         opens: { kind: 'factory-settings', factoryId: factory.id },
       },
     })
@@ -235,7 +235,7 @@ export function createWorkflows(options: {
       severity: 'warning',
       text: `${error.file} has an error on line ${error.line} · ${using}`,
       action: {
-        label: 'Open Factory settings',
+        label: 'Open Configuration',
         opens: { kind: 'factory-settings', factoryId: factory.id },
       },
     })

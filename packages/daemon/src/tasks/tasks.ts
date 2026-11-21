@@ -3223,7 +3223,7 @@ export function createTasks(options: {
         ...ref,
         severity: 'warning',
         text: `A check’s command wasn’t found: \`${command}\``,
-        action: { label: 'Open Factory settings', opens: { kind: 'factory-settings', factoryId } },
+        action: { label: 'Open Configuration', opens: { kind: 'factory-settings', factoryId } },
       })
     } else if (result.outcome !== 'interrupted') {
       banners.clear(ref)

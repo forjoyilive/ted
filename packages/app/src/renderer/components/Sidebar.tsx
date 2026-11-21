@@ -207,7 +207,7 @@ const factoryViews: { view: FactoryView | 'tasks'; label: string; nested?: true 
   { view: 'list', label: 'List', nested: true },
   { view: 'map', label: 'Map', nested: true },
   { view: 'automations', label: 'Automations' },
-  { view: 'settings', label: 'Settings' },
+  { view: 'settings', label: 'Configuration' },
 ]
 
 const coordinatorMarks = { working: 'Working', queued: 'Queued', paused: 'Paused' }

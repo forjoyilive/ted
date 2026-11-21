@@ -26,7 +26,7 @@ These are also rules for developing Ted only; the code is in [machine-load.ts](.
 
 ## Choose a Factory’s validation
 
-Use the Factory settings’ Checks section for commands Ted must run. Each Check has a name, command, optional repo and timeout (default ten minutes). The corresponding configuration is `stages.validate.checks` in the primary repo’s `.ted/workflow.yaml`. For example, this fragment declares a project’s test command:
+Use Configuration → Checks in the Factory for commands Ted must run. Each Check has a name, command, optional repo and timeout (default ten minutes). The corresponding configuration is `stages.validate.checks` in the primary repo’s `.ted/workflow.yaml`. For example, this fragment declares a project’s test command:
 
 ```yaml
 stages:
@@ -41,7 +41,7 @@ Ted sets `TED_CHECK_CPUS` for every Check command: the number of logical cores t
 
 Choose the command that fits the project: a full suite, a focused suite or a script that selects tests. A Check runs in its selected repo’s Task worktree; omitting `repo` selects the primary repo. Checks for repos absent from the Task or unchanged from the base branch are skipped. Check configuration chooses commands, not a universal test-file budget.
 
-Use the Factory settings’ Workflow section to edit Validate’s Stage file, stored as `.ted/stages/validate.md`. Put project-specific instructions there: which extra tests the Task Lead should run, when to run them, how to try the change and what evidence to report. Instructions for Work belong in its Stage file. Repo rules in `AGENTS.md` still apply; changing a Stage file does not reconfigure a test runner’s own limits.
+Use Configuration → Workflow in the Factory to edit Validate’s Stage file, stored as `.ted/stages/validate.md`. Put project-specific instructions there: which extra tests the Task Lead should run, when to run them, how to try the change and what evidence to report. Instructions for Work belong in its Stage file. Repo rules in `AGENTS.md` still apply; changing a Stage file does not reconfigure a test runner’s own limits.
 
 Ted resolves built-in defaults, then the user’s Library, then the Factory. A more specific Stage file replaces the inherited file in full; Workflow settings merge by key. The Factory layer comes from `.ted/` on the primary repo’s remote default branch and is resolved at Stage entry, so editing a Task’s working copy does not immediately change its active instructions. Validate a proposed layer with `ted workflow check` before committing it.
 

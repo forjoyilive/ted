@@ -42,7 +42,7 @@ function Paged({
 }
 
 function pageList() {
-  return within(screen.getByRole('navigation', { name: 'Factory settings' }))
+  return within(screen.getByRole('navigation', { name: 'Configuration' }))
 }
 
 function pageRow(name: string) {
@@ -76,22 +76,22 @@ test('General shows at once and alone, and a repo page waits for the repo settin
   expect(screen.getByRole('region', { name: 'General' })).toBeTruthy()
   expect(pageRow('General').getAttribute('aria-current')).toBe('page')
   expect(screen.queryByRole('region', { name: 'Intake' })).toBeNull()
-  expect(screen.queryByRole('status', { name: 'Loading Factory settings…' })).toBeNull()
+  expect(screen.queryByRole('status', { name: 'Loading Configuration…' })).toBeNull()
   expect(screen.queryByText('How repo settings are saved')).toBeNull()
   await page('Repos')
   expect(pageRow('Repos').getAttribute('aria-current')).toBe('page')
   expect(pageRow('General').hasAttribute('aria-current')).toBe(false)
   expect(screen.queryByRole('region', { name: 'General' })).toBeNull()
-  expect(screen.getByRole('status', { name: 'Loading Factory settings…' })).toBeTruthy()
+  expect(screen.getByRole('status', { name: 'Loading Configuration…' })).toBeTruthy()
   expect(screen.queryByRole('region', { name: 'Repos' })).toBeNull()
   await act(async () => pending.resolve(settingsView()))
-  expect(screen.queryByRole('status', { name: 'Loading Factory settings…' })).toBeNull()
+  expect(screen.queryByRole('status', { name: 'Loading Configuration…' })).toBeNull()
   expect(screen.getByRole('region', { name: 'Repos' })).toBeTruthy()
   const refresh = deferred<FactorySettingsView>()
   api.handle('factorySettings', () => refresh.promise)
   act(() => api.emit({ type: 'factory-settings-changed', factoryId: 'f1' }))
   expect(screen.getByRole('region', { name: 'Repos' })).toBeTruthy()
-  expect(screen.queryByRole('status', { name: 'Loading Factory settings…' })).toBeNull()
+  expect(screen.queryByRole('status', { name: 'Loading Configuration…' })).toBeNull()
   await act(async () => refresh.resolve(settingsView()))
 })
 
@@ -730,7 +730,7 @@ test('Factory drift counts lead to Keep mine staging the actual parent draft', a
   a.mount()
   const u = user()
   await expandFactory()
-  const settings = await screen.findByRole('button', { name: /^Settings\s*1$/ })
+  const settings = await screen.findByRole('button', { name: /^Configuration\s*1$/ })
   await u.click(settings)
   expect((await screen.findByRole('region', { name: 'General' })).textContent).toBeTruthy()
   expect(pageRow('General').getAttribute('aria-current')).toBe('page')
@@ -1032,7 +1032,7 @@ test('Factory settings search finds both kinds of setting and marks one on this 
 
   fireEvent.change(field, { target: { value: 'teardown' } })
   const option = nav.getAllByRole('option')[0] as HTMLElement
-  expect(option.textContent).toBe('Teardown commandwidgets › Settings › Repos')
+  expect(option.textContent).toBe('Teardown commandwidgets › Configuration › Repos')
   await user().click(option)
   expect(p.dispatch).toHaveBeenLastCalledWith({
     type: 'open',
@@ -1118,7 +1118,7 @@ test('Cleanup turns on, adds an instruction and a command step, reorders them an
   const field = pageList().getByRole<HTMLInputElement>('combobox', { name: 'Search settings' })
   fireEvent.change(field, { target: { value: 'turn on cleanup' } })
   expect((pageList().getAllByRole('option')[0] as HTMLElement).textContent).toBe(
-    'Turn on Cleanupwidgets › Settings › Cleanup',
+    'Turn on Cleanupwidgets › Configuration › Cleanup',
   )
 })
 

@@ -325,7 +325,7 @@ export function createRequestAnswers(
     }
     if (!port.setPullRequestCi) {
       note(
-        `Ted couldn’t save ${setting}: Factory settings aren’t available. This Task still merges without waiting for CI.`,
+        `Ted couldn’t save ${setting}: the Factory’s configuration is unavailable. This Task still merges without waiting for CI.`,
       )
       return
     }
@@ -334,7 +334,7 @@ export function createRequestAnswers(
       const link = `[#${saved.pullRequest.number}](${saved.pullRequest.url})`
       note(
         saved.merged
-          ? `Saved ${setting} in the Factory settings through ${link}, which Ted merged. Ted won’t wait for CI on ${repo.name}’s pull requests from now on; change Pull request CI in Factory settings to undo it.`
+          ? `Saved ${setting} in Configuration through ${link}, which Ted merged. Ted won’t wait for CI on ${repo.name}’s pull requests from now on; change Pull request CI in Configuration to undo it.`
           : `Ted opened ${link} to save ${setting}, but couldn’t merge it${saved.reason ? `: ${saved.reason}` : '.'} Merge it on GitHub to keep the setting. This Task still merges without waiting for CI.`,
       )
     } catch (error) {

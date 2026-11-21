@@ -153,7 +153,7 @@ describe('Linear', () => {
   test('bulk intake needs a saved scope in the connected workspace and stops when the scope changes', () => {
     const factory = { id: 'f', name: 'Notebook' }
     expect(() => linearIntakeHold(settingsStore(), factory, () => false)).toThrow(
-      'Ted imports Linear work in bulk only from Notebook’s Linear intake scope. Choose a Linear Team or Project in Factory settings → Linear intake first.',
+      'Ted imports Linear work in bulk only from Notebook’s Linear intake scope. Choose a Linear Team or Project in Configuration → Linear intake first.',
     )
     const store = settingsStore({ linearIntakeScopes: { f: scope } })
     let gone = false
@@ -359,7 +359,7 @@ describe('Asana', () => {
 
   test('a Factory without an Asana intake project is refused', () => {
     expect(() => asanaIntakeHold(settingsStore(), factory, () => false)).toThrow(
-      'An Automation imports Asana work only from Notebook’s Asana intake project. Choose one in Factory settings first.',
+      'An Automation imports Asana work only from Notebook’s Asana intake project. Choose one in Configuration first.',
     )
   })
 
@@ -436,7 +436,7 @@ describe('bulk GitHub intake', () => {
 
   test('without a label the bulk import is refused, and a changed label stops it', () => {
     expect(() => githubIntakeHold(settingsStore(), factory, () => false)).toThrow(
-      'Choose a label in Notebook’s Factory settings → GitHub intake first.',
+      'Choose a label in Notebook’s Configuration → GitHub intake first.',
     )
     const store = settingsStore({ githubIntakeScopes: { factory: { label: 'ready' } } })
     const hold = githubIntakeHold(store, factory, () => false)

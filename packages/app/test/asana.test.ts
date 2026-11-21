@@ -169,9 +169,9 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
     'true'
   )
     await factoryRow.getByRole('button', { name: 'Views' }).click()
-  await factoryRow.locator('..').getByRole('button', { name: 'Settings', exact: true }).click()
+  await factoryRow.locator('..').getByRole('button', { name: 'Configuration', exact: true }).click()
   await window
-    .getByRole('navigation', { name: 'Factory settings' })
+    .getByRole('navigation', { name: 'Configuration' })
     .getByRole('button', { name: 'Intake', exact: true })
     .click()
   const intake = window

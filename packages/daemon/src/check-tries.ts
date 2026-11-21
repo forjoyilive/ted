@@ -410,7 +410,7 @@ export function createCheckTries(options: {
         severity: 'warning',
         text: `A check’s command wasn’t found: \`${request.run}\``,
         action: {
-          label: 'Open Factory settings',
+          label: 'Open Configuration',
           opens: { kind: 'factory-settings', factoryId: factory.id },
         },
       })

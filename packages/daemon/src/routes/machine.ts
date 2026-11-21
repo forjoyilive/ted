@@ -529,7 +529,7 @@ export const settingParsers: {
     throw new HttpError(400, 'Ted records which account allowed a group itself')
   },
   factoryPermissions() {
-    throw new HttpError(400, 'Change permission mode through Factory settings on this computer')
+    throw new HttpError(400, 'Change permission mode in Configuration on this computer')
   },
   appsOutsideSandbox: parseOutsideSandboxApprovalsRequest,
   billing(value) {
