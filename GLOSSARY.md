@@ -244,6 +244,9 @@ _Avoid_: Sandbox permission, allowance, entitlement
 One conversation with an Agent, from its first message until it is deleted: a Coordinator chat or a planning chat. A Factory can have several at once, each with its own title, status, Run and requests. A chat stays open until the user archives it; an archived chat is read only, listed under Archived, and can be unarchived or deleted.
 _Avoid_: Session, thread, conversation (a Run’s exchange with its Provider)
 
+**All Chats**:
+The global list of Coordinator and planning chats across Factories, opened from the sidebar below All Tasks. Each chat still belongs to one Factory; New chat asks for a Factory before an Agent.
+
 **Sub-agent**:
 A Run the Task Lead starts on its Task for one piece of work, such as exploring or reviewing; it reports back to the Task Lead with its final message and may post only plain comments.
 _Avoid_: Worker, helper, child agent
