@@ -1,5 +1,6 @@
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
+  Attachment,
   AutomationCard,
   CoordinatorConfirmation,
   CoordinatorReceipt,
@@ -8,7 +9,9 @@ import type {
 } from '@ted/protocol'
 import type { ChatAgentEvent } from './chats.ts'
 import { coordinatorChange, receiptsKept } from './coordinator-change.ts'
+import { type PhoneChatRetry, phoneChatCommit } from './phones.ts'
 import type { PlanCheckout } from './plans.ts'
+import { queuedPhoneChatMessage } from './runs.ts'
 import { coordinatorChats, events, type schema } from './schema.ts'
 
 export interface PromptPart {
@@ -43,6 +46,13 @@ export interface StoredCoordinator {
   checkout?: PlanCheckout[] | undefined
 }
 
+interface CoordinatorPhoneMessage {
+  retry: PhoneChatRetry
+  queued: boolean
+  text: string
+  files: readonly Attachment[]
+}
+
 export interface CoordinatorStore {
   list(): StoredCoordinator[]
   get(id: string): StoredCoordinator | undefined
@@ -54,7 +64,8 @@ export interface CoordinatorStore {
     value: StoredCoordinator,
     canceled?: readonly RunMessage[],
     agent?: readonly ChatAgentEvent[],
-  ): void
+    phone?: CoordinatorPhoneMessage,
+  ): RunMessage | undefined
   archive(id: string, at: string): void
   reopen(id: string): void
   rename(id: string, title: string): void
@@ -83,6 +94,7 @@ export function createCoordinatorStore(options: {
   store: Store<typeof schema>
   commit: Store<typeof schema>['commit']
   changed: (factoryId: string, chatId: string) => void
+  runChanged: (runId: string) => void
 }): CoordinatorStore {
   const all = (where?: { factoryId: string } | { id: string }) =>
     options.store
@@ -100,7 +112,7 @@ export function createCoordinatorStore(options: {
     chats: (factoryId) => all({ factoryId }),
     forRun: (id) => list().find((c) => c.runIds.includes(id)),
     endedForRun: (id) => all().find((c) => c.endedAt !== undefined && c.runIds.includes(id)),
-    save(value, canceled = [], agent) {
+    save(value, canceled = [], agent, phone) {
       const { endedAt: _ended, title: _title, ...kept } = value
       const trimmed = { ...kept, receipts: value.receipts.slice(-receiptsKept) }
       const before = find(value.id)
@@ -116,13 +128,26 @@ export function createCoordinatorStore(options: {
               }),
             ]
           : []),
-        ...canceled.map(({ id, runId }) =>
-          events.runMessageDeleted({ id, runId, at: new Date().toISOString() }),
-        ),
-        ...(agent ?? []),
       ]
-      if (writes.length > 0) options.commit(...writes)
+      if (phone) {
+        const queued = queuedPhoneChatMessage(value.runId, phone.text, phone.files)
+        options.commit(
+          phoneChatCommit(
+            { ...phone.retry, chatKind: 'coordinator', chatId: value.id, queued: phone.queued },
+            [...writes, ...(agent ?? []), ...queued.writes],
+          ),
+        )
+        options.runChanged(value.runId)
+        options.changed(value.factoryId, value.id)
+        return queued.message
+      }
+      const canceledWrites = canceled.map(({ id, runId }) =>
+        events.runMessageDeleted({ id, runId, at: new Date().toISOString() }),
+      )
+      const allWrites = [...writes, ...canceledWrites, ...(agent ?? [])]
+      if (allWrites.length > 0) options.commit(...allWrites)
       options.changed(value.factoryId, value.id)
+      return undefined
     },
     archive(id, at) {
       const c = find(id)

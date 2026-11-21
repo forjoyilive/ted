@@ -1,7 +1,4 @@
 import { randomBytes } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
 import {
   type AgentSummary,
   type ChatAgent,
@@ -18,20 +15,17 @@ import {
   parsePhoneChatsBody,
   phoneChatChangeRoutes,
   type RunChat,
-  type RunMessage,
   type StartPlanRequest,
   toBase64Url,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, expectTypeOf, test } from 'vitest'
+import { coordinatorStoppable } from '@ted/protocol/agent-chat-view'
+import { expect, test } from 'vitest'
 import { RequestError } from '../src/errors.ts'
 import { createPhoneChatActions, type PhoneChatChanges } from '../src/phones/chat-actions.ts'
 import { createPhoneChats, type PhoneChatSource } from '../src/phones/chats.ts'
 import type { PhoneOutcome } from '../src/phones/requests.ts'
 import { type PhoneCaller, type PhoneRouteContext, phoneRoutes } from '../src/phones/routes.ts'
-import type { PhonesArea, TedStore } from '../src/store/index.ts'
-import { openStore } from '../src/store/open.ts'
-
-expectTypeOf<TedStore>().toExtend<PhonesArea>()
+import type { PhoneChatRetry, PhoneChatSent } from '../src/store/phones.ts'
 
 const secret = `ghp_${'a1B2c3D4e5'.repeat(3)}`
 const caller: PhoneCaller = { kind: 'phone', phoneId: 'phone-1' }
@@ -83,6 +77,7 @@ interface Posted {
 interface World {
   coordinators: Map<string, Coordinator>
   plans: Map<string, Plan>
+  sent: PhoneChatSent[]
   posted: Posted[]
   stopped: string[]
   started: { factoryId: string; input: { text: string; agentId: string } }[]
@@ -103,6 +98,7 @@ function world(): World {
       ['p-final', plan('p-final', 'finished', { canResume: false })],
       ['p-archived', plan('p-archived', 'finished', { archivedAt: '2026-11-02T00:00:00.000Z' })],
     ]),
+    sent: [],
     posted: [],
     stopped: [],
     started: [],
@@ -119,6 +115,14 @@ function world(): World {
 const missing = (what: string) => new RequestError(404, `no such ${what}`)
 
 function changes(w: World): PhoneChatChanges {
+  const record = (
+    retry: PhoneChatRetry,
+    chatKind: PhoneChatKind,
+    chatId: string,
+    queued = false,
+  ) => {
+    w.sent.push({ ...retry, chatKind, chatId, queued, at: 'now' })
+  }
   const chat = (id: string) => {
     const found = w.coordinators.get(id)
     if (!found) throw missing('Coordinator chat')
@@ -138,11 +142,11 @@ function changes(w: World): PhoneChatChanges {
       if (factoryId !== 'notebook') throw missing('Factory')
       return w.agents
     },
-    coordinator: async (id) => chat(id),
-    async messageCoordinator(id, message) {
+    async messageCoordinator(id, message, retry) {
       const found = chat(id)
       refuse()
       w.posted.push({ to: id, text: message.text })
+      record(retry, 'coordinator', id, coordinatorStoppable(found))
       return found
     },
     async stopCoordinator(id) {
@@ -175,35 +179,31 @@ function changes(w: World): PhoneChatChanges {
     async deleteCoordinator(id) {
       w.coordinators.delete(chat(id).id)
     },
-    async startCoordinator(factoryId, input) {
+    async startCoordinator(factoryId, input, retry) {
       refuse()
       if (input.agentId === 'nobody') throw new RequestError(404, 'This Factory has no Agent')
       w.started.push({ factoryId, input })
       const made = coordinator(`c-new-${w.started.length}`, 'queued')
       w.coordinators.set(made.id, made)
+      record(retry, 'coordinator', made.id)
       return made
     },
     plan: async (id) => planOf(id),
-    async sendToRun(runId, text) {
+    async sendToRun(id, runId, text, retry) {
       refuse()
-      const found = [...w.plans.values()].find((each) => each.runId === runId)
-      if (!found) throw missing('Run')
+      const found = planOf(id)
+      if (found.runId !== runId) throw missing('Run')
       w.posted.push({ to: found.id, text })
-      const queued = found.status === 'working'
-      return {
-        id: `m${w.posted.length}`,
-        runId,
-        text,
-        at: 'now',
-        ...(queued && { queued: true }),
-      } satisfies RunMessage
+      record(retry, 'plan', id, found.status === 'working')
     },
-    async resumePlan(id, phone, message) {
+    async resumePlan(id, phone, message, retry) {
       expect(phone).toEqual(caller)
       const found = planOf(id)
       refuse()
       if (message !== undefined) {
+        if (retry === undefined) throw new Error('A phone message needs a retry record')
         w.posted.push({ to: id, text: message.text })
+        record(retry, 'plan', id)
       } else if (found.canResume === true) {
         found.status = 'working'
         delete found.canResume
@@ -239,31 +239,25 @@ function changes(w: World): PhoneChatChanges {
       w.stopped.push(planOf(id).id)
       return planOf(id)
     },
-    async startPlan(input, phone) {
+    async startPlan(input, phone, retry) {
       refuse()
       w.plansStarted.push({ input, caller: phone })
       const made = plan(`p-new-${w.plansStarted.length}`, 'queued')
       w.plans.set(made.id, made)
+      record(retry, 'plan', made.id)
       return made
     },
   }
 }
 
-let dir: string
-let store: TedStore
-
-beforeEach(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), 'ted-phone-chat-actions-'))
-  store = await openStore({ directory: dir })
-})
-
-afterEach(async () => {
-  await store.close()
-  await rm(dir, { recursive: true, force: true })
-})
-
-function context(w: World, sends = store.phones): PhoneRouteContext {
-  return { chatActions: createPhoneChatActions(changes(w), sends) } as PhoneRouteContext
+function context(w: World): PhoneRouteContext {
+  return {
+    chatActions: createPhoneChatActions(changes(w), {
+      chatSent: (phoneId, createId) =>
+        w.sent.find((sent) => sent.phoneId === phoneId && sent.createId === createId),
+      persisted: async () => {},
+    }),
+  } as PhoneRouteContext
 }
 
 function call(
@@ -351,7 +345,7 @@ test('a refusal comes back as refused with a redacted sentence, and an unknown c
   expect(body(retried)).toEqual({ queued: false })
 })
 
-test('a repeated chat-message createId posts once and returns the first result, even after a restart', async () => {
+test('a repeated chat-message createId posts once and returns the first result', async () => {
   const w = world()
   const ctx = context(w)
   const request = message('coordinator', 'c-busy', 'Only once')
@@ -364,19 +358,14 @@ test('a repeated chat-message createId posts once and returns the first result, 
   })
   expect(w.posted).toEqual([{ to: 'c-busy', text: 'Only once' }])
 
-  await store.close()
-  store = await openStore({ directory: dir })
-  const restarted = context(w)
-  expect(body(await call(restarted, request))).toEqual({ queued: true })
-  expect(w.posted).toEqual([{ to: 'c-busy', text: 'Only once' }])
-  expect(store.phones.chatSent(caller.phoneId, request.createId)).toMatchObject({
+  expect(w.sent[0]).toMatchObject({
     action: 'message',
     chatKind: 'coordinator',
     chatId: 'c-busy',
     queued: true,
   })
   expect(
-    await call(restarted, {
+    await call(ctx, {
       route: 'chat-create',
       factory: 'NB',
       agentId: 'coordinator',
@@ -504,7 +493,7 @@ test('chat-create starts a planning chat for the Planner and a Coordinator chat 
   ).toEqual({ code: 'refused', message: 'This Factory has no Agent' })
 })
 
-test('a repeated chat-create createId starts one chat and returns it, even after a restart', async () => {
+test('a repeated chat-create createId starts one chat and returns it', async () => {
   const w = world()
   const ctx = context(w)
   const request = {
@@ -518,9 +507,6 @@ test('a repeated chat-create createId starts one chat and returns it, even after
   expect(body(first)).toEqual({ chat: { kind: 'coordinator', id: 'c-new-1' } })
   expect(body(second)).toEqual(body(first))
   expect(body(await call(ctx, request))).toEqual(body(first))
-  await store.close()
-  store = await openStore({ directory: dir })
-  expect(body(await call(context(w), request))).toEqual(body(first))
   expect(w.started).toHaveLength(1)
 })
 

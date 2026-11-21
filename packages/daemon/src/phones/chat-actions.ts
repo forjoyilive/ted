@@ -6,7 +6,6 @@ import type {
   PhoneChatChangeRoute,
   PhoneChatKind,
   Plan,
-  RunMessage,
   StartPlanRequest,
 } from '@ted/protocol'
 import {
@@ -15,11 +14,11 @@ import {
   phoneReplyBodyMax,
   RequestValidationError,
 } from '@ted/protocol'
-import { agentDescription, coordinatorStoppable, pickerOrder } from '@ted/protocol/agent-chat-view'
+import { agentDescription, pickerOrder } from '@ted/protocol/agent-chat-view'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { MessageWithFiles } from '../runs/message-files.ts'
-import type { PhoneChatSent } from '../store/phones.ts'
+import type { PhoneChatRetry, PhoneChatSent } from '../store/phones.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { planSend } from './chats.ts'
 import { cutChars, jsonBytes } from './fit.ts'
@@ -30,8 +29,11 @@ type PhoneCaller = Extract<Caller, { kind: 'phone' }>
 export interface PhoneChatChanges {
   factories(): readonly Pick<Factory, 'id' | 'key'>[]
   agents(factoryId: string): Promise<AgentSummary[]>
-  coordinator(chatId: string): Promise<Coordinator>
-  messageCoordinator(chatId: string, message: MessageWithFiles): Promise<Coordinator>
+  messageCoordinator(
+    chatId: string,
+    message: MessageWithFiles,
+    retry: PhoneChatRetry,
+  ): Promise<Coordinator>
   stopCoordinator(chatId: string): Promise<Coordinator>
   retryCoordinator(chatId: string): Promise<Coordinator>
   archiveCoordinator(chatId: string): Promise<Coordinator>
@@ -41,21 +43,26 @@ export interface PhoneChatChanges {
   startCoordinator(
     factoryId: string,
     input: { text: string; agentId: string },
+    retry: PhoneChatRetry,
   ): Promise<Coordinator>
   plan(planId: string): Promise<Plan>
-  sendToRun(runId: string, text: string): Promise<RunMessage>
-  resumePlan(planId: string, caller: PhoneCaller, message?: MessageWithFiles): Promise<Plan>
+  sendToRun(planId: string, runId: string, text: string, retry: PhoneChatRetry): Promise<void>
+  resumePlan(
+    planId: string,
+    caller: PhoneCaller,
+    message?: MessageWithFiles,
+    retry?: PhoneChatRetry,
+  ): Promise<Plan>
   stopPlan(planId: string, caller: PhoneCaller): Promise<Plan>
   archivePlan(planId: string, caller: PhoneCaller): Promise<Plan>
   unarchivePlan(planId: string, caller: PhoneCaller): Promise<Plan>
   renamePlan(planId: string, title: string, caller: PhoneCaller): Promise<Plan>
   deletePlan(planId: string, caller: PhoneCaller): Promise<void>
-  startPlan(input: StartPlanRequest, caller: PhoneCaller): Promise<Plan>
+  startPlan(input: StartPlanRequest, caller: PhoneCaller, retry: PhoneChatRetry): Promise<Plan>
 }
 
 export interface PhoneChatSends {
   chatSent(phoneId: string, createId: string): PhoneChatSent | undefined
-  markChatSent(sent: PhoneChatSent): void
   persisted(): Promise<void>
 }
 
@@ -122,64 +129,64 @@ export function createPhoneChatActions(
   changes: PhoneChatChanges,
   sends: PhoneChatSends,
 ): PhoneChatActions {
-  const running = new Map<string, Promise<PhoneOutcome>>()
+  const running = new Map<
+    string,
+    { action: PhoneChatSent['action']; promise: Promise<PhoneOutcome> }
+  >()
 
   function once(
     caller: PhoneCaller,
     createId: string,
     action: PhoneChatSent['action'],
-    work: () => Promise<Sent | PhoneOutcome>,
+    work: (retry: PhoneChatRetry) => Promise<undefined | PhoneOutcome>,
   ): Promise<PhoneOutcome> {
     const key = JSON.stringify([caller.phoneId, createId])
     const pending = running.get(key)
-    if (pending) return pending
+    if (pending)
+      return pending.action === action ? pending.promise : Promise.resolve({ code: 'bad-request' })
     const reply = action === 'message' ? messageReply : createReply
     const run = async (): Promise<PhoneOutcome> => {
       const earlier = sends.chatSent(caller.phoneId, createId)
-      if (earlier) return earlier.action === action ? reply(earlier) : { code: 'bad-request' }
-      const result = await work()
-      if (!('chatId' in result)) return result
-      sends.markChatSent({
-        phoneId: caller.phoneId,
-        createId,
-        action,
-        ...result,
-        at: new Date().toISOString(),
-      })
+      if (earlier) {
+        if (earlier.action !== action) return { code: 'bad-request' }
+        await sends.persisted()
+        return reply(earlier)
+      }
+      const result = await work({ phoneId: caller.phoneId, createId, action })
+      const sent = sends.chatSent(caller.phoneId, createId)
+      if (!sent) {
+        if (result) return result
+        throw new Error('Phone chat action completed without a retry record')
+      }
       await sends.persisted()
-      return reply(result)
+      return reply(sent)
     }
     const promise = run().finally(() => running.delete(key))
-    running.set(key, promise)
+    running.set(key, { action, promise })
     return promise
   }
 
   const factoryByKey = (key: string) => changes.factories().find((each) => each.key === key)
 
-  function sendToCoordinator(chatId: string, text: string): Promise<Sent | PhoneOutcome> {
+  function sendToCoordinator(chatId: string, text: string, retry: PhoneChatRetry) {
     return guarded(
-      async (): Promise<Sent> => {
-        const before = await changes.coordinator(chatId)
-        await changes.messageCoordinator(chatId, { text, files: [] })
-        return { chatKind: 'coordinator', chatId, queued: coordinatorStoppable(before) }
+      async () => {
+        await changes.messageCoordinator(chatId, { text, files: [] }, retry)
+        return undefined
       },
       always,
       `send a message to Coordinator chat ${chatId}`,
     )
   }
 
-  function sendToPlan(
-    caller: PhoneCaller,
-    planId: string,
-    text: string,
-  ): Promise<Sent | PhoneOutcome> {
+  function sendToPlan(caller: PhoneCaller, planId: string, text: string, retry: PhoneChatRetry) {
     return guarded(
-      async (): Promise<Sent | PhoneOutcome> => {
+      async (): Promise<undefined | PhoneOutcome> => {
         const plan = await changes.plan(planId)
         const state = planSend(plan)
         if (state.send === 'resume') {
-          await changes.resumePlan(planId, caller, { text, files: [] })
-          return { chatKind: 'plan', chatId: planId, queued: false }
+          await changes.resumePlan(planId, caller, { text, files: [] }, retry)
+          return undefined
         }
         if (state.send === 'off' || plan.runId === undefined) {
           return {
@@ -187,8 +194,8 @@ export function createPhoneChatActions(
             ...(state.offReason !== undefined && { message: state.offReason }),
           }
         }
-        const message = await changes.sendToRun(plan.runId, text)
-        return { chatKind: 'plan', chatId: planId, queued: message.queued === true }
+        await changes.sendToRun(plan.id, plan.runId, text, retry)
+        return undefined
       },
       always,
       `send a message to planning chat ${planId}`,
@@ -279,23 +286,22 @@ export function createPhoneChatActions(
   function startChat(
     caller: PhoneCaller,
     input: PhoneChatCreateInput,
-  ): Promise<Sent | PhoneOutcome> {
+    retry: PhoneChatRetry,
+  ): Promise<undefined | PhoneOutcome> {
     const factory = factoryByKey(input.factory)
     if (!factory) return Promise.resolve({ code: 'gone' })
     return guarded(
-      async (): Promise<Sent> => {
+      async () => {
         if (input.agentId === plannerId) {
-          const plan = await changes.startPlan(
-            { factory: factory.key, message: input.text },
-            caller,
-          )
-          return { chatKind: 'plan', chatId: plan.id, queued: false }
+          await changes.startPlan({ factory: factory.key, message: input.text }, caller, retry)
+          return undefined
         }
-        const chat = await changes.startCoordinator(factory.id, {
-          text: input.text,
-          agentId: input.agentId,
-        })
-        return { chatKind: 'coordinator', chatId: chat.id, queued: false }
+        await changes.startCoordinator(
+          factory.id,
+          { text: input.text, agentId: input.agentId },
+          retry,
+        )
+        return undefined
       },
       () => !factoryByKey(input.factory),
       `start a chat in ${input.factory}`,
@@ -304,15 +310,15 @@ export function createPhoneChatActions(
 
   return {
     message: (caller, input) =>
-      once(caller, input.createId, 'message', () =>
+      once(caller, input.createId, 'message', (retry) =>
         input.chatKind === 'coordinator'
-          ? sendToCoordinator(input.chatId, input.text)
-          : sendToPlan(caller, input.chatId, input.text),
+          ? sendToCoordinator(input.chatId, input.text, retry)
+          : sendToPlan(caller, input.chatId, input.text, retry),
       ),
     stop,
     change,
     agents,
     create: (caller, input) =>
-      once(caller, input.createId, 'create', () => startChat(caller, input)),
+      once(caller, input.createId, 'create', (retry) => startChat(caller, input, retry)),
   }
 }

@@ -972,24 +972,31 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         chatChanges: {
           factories: () => store.listFactories(),
           agents: (factoryId) => coordinators.agents(factoryId),
-          coordinator: (chatId) => coordinators.get(chatId),
-          messageCoordinator: (chatId, message) => coordinators.message(chatId, message),
+          messageCoordinator: (chatId, message, retry) =>
+            coordinators.message(chatId, message, retry),
           stopCoordinator: (chatId) => coordinators.stop(chatId),
           retryCoordinator: (chatId) => coordinators.retry(chatId),
           archiveCoordinator: (chatId) => coordinators.archiveChat(chatId),
           unarchiveCoordinator: (chatId) => coordinators.unarchiveChat(chatId),
           renameCoordinator: (chatId, title) => coordinators.renameChat(chatId, title),
           deleteCoordinator: (chatId) => coordinators.deleteChat(chatId),
-          startCoordinator: (factoryId, input) => coordinators.start(factoryId, input),
+          startCoordinator: (factoryId, input, retry) =>
+            coordinators.start(factoryId, input, retry),
           plan: async (planId) => (await phonePlans.detail(planId)).plan,
-          sendToRun: (runId, text) => conversations.send(runId, text, { interrupt: false }),
-          resumePlan: (planId, caller, message) => phonePlans.resume(planId, caller, message),
+          async sendToRun(chatId, runId, text, retry) {
+            await conversations.send(runId, text, {
+              interrupt: false,
+              phoneChat: { chatId, retry },
+            })
+          },
+          resumePlan: (planId, caller, message, retry) =>
+            phonePlans.resume(planId, caller, message, retry),
           stopPlan: (planId, caller) => phonePlans.stop(planId, caller),
           archivePlan: (planId, caller) => phonePlans.archive(planId, caller),
           unarchivePlan: (planId, caller) => phonePlans.unarchive(planId, caller),
           renamePlan: (planId, title, caller) => phonePlans.rename(planId, title, caller),
           deletePlan: (planId, caller) => phonePlans.delete(planId, caller),
-          startPlan: (input, caller) => phonePlans.start(input, caller),
+          startPlan: (input, caller, retry) => phonePlans.start(input, caller, retry),
         },
         images: phoneImages,
         problems: phoneProblemSource,

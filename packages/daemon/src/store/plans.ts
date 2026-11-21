@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
   AgentKind,
+  Attachment,
   CommentAnswer,
   DaemonEvent,
   Effort,
@@ -11,6 +12,8 @@ import type {
   Round,
 } from '@ted/protocol'
 import { chatAgentEvents, type StoredChatAgent } from './chats.ts'
+import { type PhoneChatRetry, phoneChatCommit } from './phones.ts'
+import { queuedPhoneChatMessage } from './runs.ts'
 import { events, planRequests, plans, planTasks, type schema } from './schema.ts'
 
 export type PlanState = 'queued' | 'started' | 'ended'
@@ -79,8 +82,13 @@ export interface PlanStore {
       StoredPlan,
       'factoryId' | 'title' | 'message' | 'agent' | 'model' | 'effort' | 'fromTask' | 'from'
     > & { chatAgent?: StoredChatAgent },
+    phoneRetry?: PhoneChatRetry,
   ): StoredPlan
-  retried(id: string, retry: { fresh: boolean; checkout: PlanCheckout[] }): void
+  retried(
+    id: string,
+    retry: { fresh: boolean; checkout: PlanCheckout[] },
+    phone?: { retry: PhoneChatRetry; runId: string; text: string; files: readonly Attachment[] },
+  ): void
   detachTask(id: string, reason: PlanTaskGone): void
   rename(id: string, title: string): void
   delete(id: string): void
@@ -185,10 +193,10 @@ export function createPlanStore({
   return {
     list: () => store.query(queryDb(plans.orderBy('createdAt', 'asc'))).map(toPlan),
     get,
-    start({ model, effort, fromTask, from, chatAgent, ...input }) {
+    start({ model, effort, fromTask, from, chatAgent, ...input }, phoneRetry) {
       const id = randomUUID()
       const at = now()
-      commit(
+      const writes = [
         events.planStarted({ ...input, id, model: model ?? null, effort: effort ?? null, at }),
         ...(chatAgent ? chatAgentEvents(id, 'plan', input.factoryId, chatAgent) : []),
         ...(from
@@ -214,7 +222,14 @@ export function createPlanStore({
               }),
             ]
           : []),
-      )
+      ]
+      if (phoneRetry) {
+        commit(
+          phoneChatCommit({ ...phoneRetry, chatKind: 'plan', chatId: id, queued: false }, writes),
+        )
+      } else {
+        commit(...writes)
+      }
       updated(id)
       const started = get(id)
       if (!started) throw new Error(`no plan ${id}`)
@@ -234,15 +249,31 @@ export function createPlanStore({
     },
     began: (id, checkout) =>
       planEvent(id, (at) => events.planRunBegan({ id, checkout: JSON.stringify(checkout), at })),
-    retried: (id, { fresh, checkout }) =>
-      planEvent(id, (at) =>
-        events.planRetried({
-          id,
-          fresh,
-          checkout: checkout.length === 0 ? null : JSON.stringify(checkout),
-          at,
-        }),
-      ),
+    retried(id, { fresh, checkout }, phone) {
+      if (!get(id)) return
+      const retried = events.planRetried({
+        id,
+        fresh,
+        checkout: checkout.length === 0 ? null : JSON.stringify(checkout),
+        at: now(),
+      })
+      if (phone) {
+        const messages =
+          phone.text === ''
+            ? []
+            : queuedPhoneChatMessage(phone.runId, phone.text, phone.files).writes
+        commit(
+          phoneChatCommit({ ...phone.retry, chatKind: 'plan', chatId: id, queued: false }, [
+            ...messages,
+            retried,
+          ]),
+        )
+        if (messages.length > 0) emit({ type: 'run-output', runId: phone.runId })
+      } else {
+        commit(retried)
+      }
+      updated(id)
+    },
     resumeQueued: (id, error) =>
       planEvent(id, (at) => events.planRunResumeQueued({ id, error, at })),
     revived: (id) => planEvent(id, (at) => events.planRunRevived({ id, at })),

@@ -25,6 +25,7 @@ import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { planOpening } from '../plans/prompts.ts'
 import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
+import type { RunPhoneChat } from '../store/runs.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
 import { shownMessage, shownText } from './message-files.ts'
@@ -40,7 +41,11 @@ export interface Conversations {
   send(
     runId: string,
     text: string,
-    options?: { interrupt?: boolean; files?: readonly Attachment[] },
+    options?: {
+      interrupt?: boolean
+      files?: readonly Attachment[]
+      phoneChat?: RunPhoneChat | undefined
+    },
   ): Promise<RunMessage>
   stopTurn(runId: string): Promise<RunSummary>
   sendNow(runId: string, messageId: string): Promise<RunMessage>
@@ -577,7 +582,7 @@ export function createConversations(options: {
       const task = requireTask(ref)
       return store.taskRunList(task.id).map((run) => summary(run, task.leadRunId ?? ''))
     },
-    async send(runId, text, { interrupt = false, files = [] } = {}) {
+    async send(runId, text, { interrupt = false, files = [], phoneChat } = {}) {
       if (store.sideChats.forRun(runId))
         throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       if (store.coordinators.forRun(runId) && options.coordinators)
@@ -589,7 +594,7 @@ export function createConversations(options: {
       if (restarting.has(runId)) {
         throw new RequestError(409, 'The Run is restarting. Send your message once it’s back.')
       }
-      return shownMessage(await steering.send(runId, text, { interrupt, files }))
+      return shownMessage(await steering.send(runId, text, { interrupt, files, phoneChat }))
     },
     async stopTurn(runId) {
       if (store.sideChats.forRun(runId))

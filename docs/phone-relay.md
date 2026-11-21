@@ -572,7 +572,7 @@ Chat management mutations, Stop included, are sent only over an open connection 
 
 `createId` is 16 random bytes in base64url, made once per message or new chat the user sends and reused on every resend of it.
 
-**Sending twice.** When a reply is lost, the phone sends the same `chat-message` or `chat-create` again as a new message with the same `createId`. Two sends with the same `createId` at once share one call. After the call succeeds, the daemon records `v1.PhoneChatSent` under the phone and `createId` (the route, chat kind, chat ID and `queued`) and waits for it to reach disk before it answers, so a resend, even after the Mac restarts, gets the first reply and posts nothing, whatever the other fields say. A daemon crash between the message being saved and the record being saved may let a resend post the message again. A refused call records nothing, so the phone may send it again. A `createId` already used by the other route gets `bad-request`. The `createId` belongs to one phone.
+**Sending twice.** When a reply is lost, the phone sends the same `chat-message` or `chat-create` again as a new message with the same `createId`. Two sends with the same `createId` at once share one call. The daemon saves the retry record under the phone and `createId` in the same store commit as the chat change, and waits for it to reach disk before answering. A resend, even after the Mac restarts, gets the original recorded reply without posting again. If the action fails before saving a record, the phone may send it again. A `createId` already used by the other route gets `bad-request`. The `createId` belongs to one phone.
 
 ## Pairing
 
