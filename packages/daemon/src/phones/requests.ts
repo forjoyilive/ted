@@ -29,6 +29,7 @@ import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { cutChars, fitText, jsonBytes, textBytes } from './fit.ts'
+import { phoneTaskActions } from './task-actions.ts'
 
 export interface PhoneAutomationQuestion {
   body: string
@@ -204,6 +205,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       if (!comment) return undefined
       const answerability = taskAnswerability(comment)
       const signoff = comment.gate !== undefined && comment.kind !== 'review'
+      const task = read.task(comment.taskId)
       return {
         summary: {
           ...common,
@@ -213,6 +215,9 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
           ref: waiting.displayId,
           ...(waiting.failed && { failed: true as const }),
           onPhone: answerability.onPhone,
+          ...(task && {
+            task: { id: task.id, priority: task.priority, actions: phoneTaskActions(task) },
+          }),
         },
         answerability,
         body: comment.body,

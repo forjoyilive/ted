@@ -1,5 +1,6 @@
 import type { Json, JsonObject } from './parse.ts'
-import { isInteger, isString, ParseError, reader, type Untyped } from './parse.ts'
+import { isInteger, isOneOf, isString, ParseError, reader, type Untyped } from './parse.ts'
+import { type PhoneTaskAction, phoneTaskActions } from './phone-tasks.ts'
 import type { PlanRequestKind } from './plan.ts'
 import { type Comment, type Priority, priorities } from './task.ts'
 
@@ -31,6 +32,13 @@ export interface PhoneRequestSummary {
   createdAt: string
   failed?: true
   onPhone: boolean
+  task?: PhoneRequestTask
+}
+
+export interface PhoneRequestTask {
+  id: string
+  priority: Priority
+  actions: PhoneTaskAction[]
 }
 
 export interface PhoneRoundQuestion {
@@ -217,9 +225,25 @@ export function parsePhoneAnswer(value: Untyped): PhoneAnswer {
   return { action }
 }
 
+function parseRequestTask(value: Json): PhoneRequestTask {
+  const object = read.object(value, 'task')
+  return {
+    id: read.string(object, 'id'),
+    priority: read.oneOf(object, 'priority', priorities),
+    actions: read.list(object, 'actions').map((action) => {
+      if (isOneOf(action, phoneTaskActions)) return action
+      throw new ParseError(
+        'task.actions',
+        `task.actions must hold only ${phoneTaskActions.join(', ')}`,
+      )
+    }),
+  }
+}
+
 function parseSummaryFields(object: JsonObject): PhoneRequestSummary {
   const ref = read.optional(object, 'ref', read.string)
   const failed = optionalTrue(object, 'failed')
+  const task = object.task === undefined ? undefined : parseRequestTask(object.task)
   return {
     id: read.string(object, 'id'),
     source: read.oneOf(object, 'source', phoneRequestSources),
@@ -231,6 +255,7 @@ function parseSummaryFields(object: JsonObject): PhoneRequestSummary {
     createdAt: read.string(object, 'createdAt'),
     ...(failed !== undefined && { failed }),
     onPhone: read.boolean(object, 'onPhone'),
+    ...(task !== undefined && { task }),
   }
 }
 

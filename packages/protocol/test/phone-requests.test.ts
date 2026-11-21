@@ -27,6 +27,7 @@ const summary: PhoneRequestSummary = {
   createdAt: '2026-11-19T18:22:53.000Z',
   failed: true,
   onPhone: true,
+  task: { id: 't-1', priority: 'high', actions: ['stop', 'priority', 'archive', 'delete'] },
 }
 
 const forms: PhoneForm[] = [
@@ -67,9 +68,9 @@ const detail: PhoneRequestDetail = {
   form: forms[0] ?? { type: 'text' },
 }
 
-test('a summary keeps every field, and ref and failed only when given', () => {
+test('a summary keeps every field, and ref, failed and task only when given', () => {
   expect(parsePhoneRequestSummary(summary)).toEqual(summary)
-  const { ref: _, failed: __, ...plain } = summary
+  const { ref: _, failed: __, task: ___, ...plain } = summary
   expect(parsePhoneRequestSummary({ ...plain, source: 'plan' })).toEqual({
     ...plain,
     source: 'plan',
@@ -89,6 +90,10 @@ test('a summary keeps every field, and ref and failed only when given', () => {
     ['createdAt', 5],
     ['failed', false],
     ['onPhone', 'yes'],
+    ['task', 'TED-700'],
+    ['task', { priority: 'high', actions: [] }],
+    ['task', { id: 't-1', priority: 'soon', actions: [] }],
+    ['task', { id: 't-1', priority: 'high', actions: ['fly'] }],
   ] as const) {
     expect(() => parsePhoneRequestSummary({ ...summary, [field]: value }), field).toThrow()
   }

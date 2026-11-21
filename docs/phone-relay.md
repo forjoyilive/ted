@@ -197,7 +197,8 @@ The open requests from every Factory, in the desktop Inbox’s order, leaving ou
   "headline": "Which repo should hold the parser?",
   "createdAt": "2026-11-19T18:22:53.000Z",
   "failed": true,
-  "onPhone": true
+  "onPhone": true,
+  "task": { "id": "<Task ID>", "priority": "high", "actions": ["stop", "priority", "comment", "archive", "delete"] }
 }
 ```
 
@@ -206,6 +207,7 @@ The open requests from every Factory, in the desktop Inbox’s order, leaving ou
 - `title`: the Task title, plan title, Automation name or chat title. `ref` is the Task’s display ID, only for `task`.
 - `headline`: at most 200 characters. `failed` appears only when the request comes from a failed Run.
 - `onPhone`: whether the phone may answer it. When `false` the phone opens it read-only with “Answer on your Mac”.
+- `task`: only for `task`, and left out when the Task can’t be read. Its `id`, `priority` and `actions`, with `actions` as in a Task row below. The phone uses it for the row’s long-press menu; older phones ignore it.
 
 The daemon keeps the reply under the frame limit. When requests had to be left out, `more` counts them and the phone says how many more are on the Mac.
 
