@@ -214,37 +214,44 @@ describe('Settings → Storage', () => {
     expect(await during).toMatchObject({ measuredAt: fourth, categories: expect.any(Array) })
   })
 
-  test('counts allocated space once per total and does not follow symlinks', async () => {
-    const storageHome = path.join(scratch, 'storage')
-    const paths = tedPaths(storageHome)
-    await mkdir(paths.attachments, { recursive: true })
-    await mkdir(paths.phoneUploads)
-    const file = path.join(paths.attachments, 'one')
-    const hardlink = path.join(paths.phoneUploads, 'two')
-    const symlinkPath = path.join(paths.attachments, 'outside')
-    const outsideFile = path.join(scratch, 'outside')
-    await writeFile(file, Buffer.alloc(8192, 1))
-    await writeFile(outsideFile, Buffer.alloc(32768, 1))
-    await link(file, hardlink)
-    await symlink(outsideFile, symlinkPath)
+  test.each(['physical', 'symlinked'])(
+    'counts allocated space once and skips symlinks inside a %s Ted home',
+    async (kind) => {
+      const storageHome = path.join(scratch, 'storage')
+      const paths = tedPaths(storageHome)
+      await mkdir(paths.attachments, { recursive: true })
+      await mkdir(paths.phoneUploads)
+      const file = path.join(paths.attachments, 'one')
+      const hardlink = path.join(paths.phoneUploads, 'two')
+      const symlinkPath = path.join(paths.attachments, 'outside')
+      const outsideFile = path.join(scratch, 'outside')
+      await writeFile(file, Buffer.alloc(8192, 1))
+      await writeFile(outsideFile, Buffer.alloc(32768, 1))
+      await link(file, hardlink)
+      await symlink(outsideFile, symlinkPath)
 
-    const storage = createStorage({
-      home: storageHome,
-      store: { listTasks: () => [], listFactories: () => [] },
-      disk: { check: async () => undefined },
-      data: { summary: async () => ({ backups: [], activeRuns: 0 }) },
-      volumeName: async () => '',
-    })
-    const summary = await storage.summary()
-    const blocks = async (entry: string) => (await lstat(entry)).blocks
-    const expected = (
-      await Promise.all([paths.attachments, paths.phoneUploads, file, symlinkPath].map(blocks))
-    ).reduce((sum, count) => sum + count, 0)
-    expect(summary.categories.find((category) => category.id === 'attachments')?.bytes).toBe(
-      expected * 512,
-    )
-    expect(summary.usedBytes).toBe((expected + (await blocks(storageHome))) * 512)
-  })
+      const alias = path.join(scratch, 'storage-link')
+      if (kind === 'symlinked') await symlink(storageHome, alias)
+      const configuredHome = kind === 'symlinked' ? alias : storageHome
+      const storage = createStorage({
+        home: configuredHome,
+        store: { listTasks: () => [], listFactories: () => [] },
+        disk: { check: async () => undefined },
+        data: { summary: async () => ({ backups: [], activeRuns: 0 }) },
+        volumeName: async () => '',
+      })
+      const summary = await storage.summary()
+      expect(summary.home.endsWith(path.basename(configuredHome) + path.sep)).toBe(true)
+      const blocks = async (entry: string) => (await lstat(entry)).blocks
+      const expected = (
+        await Promise.all([paths.attachments, paths.phoneUploads, file, symlinkPath].map(blocks))
+      ).reduce((sum, count) => sum + count, 0)
+      expect(summary.categories.find((category) => category.id === 'attachments')?.bytes).toBe(
+        expected * 512,
+      )
+      expect(summary.usedBytes).toBe((expected + (await blocks(storageHome))) * 512)
+    },
+  )
 
   test('returns a clear error when a shared measurement stalls and measures again on retry', async () => {
     const stalled = Promise.withResolvers<string>()

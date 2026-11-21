@@ -90,7 +90,8 @@ export function createStorage(options: {
 
   async function measure(signal: AbortSignal): Promise<StorageSummary> {
     const measuredAt = new Date(now()).toISOString()
-    const [reading, backups, storeFiles, names, removable, volumeName] = await Promise.all([
+    const [home, reading, backups, storeFiles, names, removable, volumeName] = await Promise.all([
+      realpath(paths.home).catch(() => path.resolve(paths.home)),
       disk.check(),
       options.data.summary(),
       storeFileSizes(paths.store),
@@ -102,13 +103,13 @@ export function createStorage(options: {
     volume = volumeName
 
     const totals = new Map<string, UsageTotal>()
-    const home = path.resolve(paths.home)
+    const scanPath = (dir: string) => path.resolve(home, path.relative(paths.home, dir))
     const used = usageTotal()
     totals.set(home, used)
     const categoryLinks = new Set<string>()
     const categories = storageCategories.map(({ id, label }) => {
       const total = usageTotal(categoryLinks)
-      for (const dir of categoryDirs[id]) totals.set(path.resolve(dir), total)
+      for (const dir of categoryDirs[id]) totals.set(scanPath(dir), total)
       return { id, label, total }
     })
     const tasks = new Map(store.listTasks().map((t) => [t.displayId, t]))
@@ -117,17 +118,17 @@ export function createStorage(options: {
       const task = tasks.get(name)
       if (!task) return []
       const total = usageTotal()
-      totals.set(path.resolve(paths.worktrees, name), total)
+      totals.set(scanPath(path.join(paths.worktrees, name)), total)
       return [{ task, total }]
     })
     const cloneTotals = removable.map(({ dir }) => {
       const total = usageTotal()
-      totals.set(path.resolve(dir), total)
+      totals.set(scanPath(dir), total)
       return total
     })
     const backupTotals = backups.backups.map((backup) => {
       const total = usageTotal()
-      totals.set(path.resolve(paths.backups, backup.name), total)
+      totals.set(scanPath(path.join(paths.backups, backup.name)), total)
       return { backup, total }
     })
     await scanUsage(home, totals, signal)
