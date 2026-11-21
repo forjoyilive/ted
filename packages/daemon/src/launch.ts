@@ -20,6 +20,7 @@ import {
   tedPaths,
   type UpdateWork,
 } from '@ted/protocol'
+import type { StorageFolderChange } from '@ted/protocol/storage'
 import { exitWithPidEnv } from './exit-with.ts'
 import { inheritedFdsEnv } from './inherited-fds.ts'
 import { rollLog, tedLogLimits } from './logs.ts'
@@ -303,6 +304,7 @@ export interface DaemonSupervisor {
   readonly client: DaemonClient
   readonly connection: DaemonConnection
   restart(): Promise<void>
+  changeStorageFolder(change: StorageFolderChange): Promise<void>
   handOver(options?: HandOverOptions): Promise<void>
   resume(): Promise<void>
   close(): void
@@ -361,6 +363,7 @@ export async function superviseDaemon(
   const appToken = app ? (givenAppToken ?? randomBytes(32).toString('hex')) : undefined
   let connection: DaemonConnection = { state: 'connected' }
   let crashes: number[] = []
+  let changingStorage = false
   let closed = false
   let client: DaemonClient
   let subscription: Subscription
@@ -384,13 +387,13 @@ export async function superviseDaemon(
     )
   }
 
-  async function reconnect(): Promise<void> {
+  async function reconnect(timeoutMs = restartTimeoutMs): Promise<void> {
     set({ state: 'reconnecting' })
     for (const delay of restartDelaysMs) {
       await sleep(delay)
       if (closed) return
       try {
-        await connect(restartTimeoutMs)
+        await connect(timeoutMs)
         if (closed) {
           subscription.close()
           return
@@ -406,6 +409,11 @@ export async function superviseDaemon(
 
   function onCrash(): void {
     if (closed) return
+    if (changingStorage) {
+      changingStorage = false
+      void reconnect(30 * 60_000)
+      return
+    }
     const now = Date.now()
     crashes = [...crashes.filter((t) => now - t < crashWindowMs), now]
     if (crashes.length >= crashLimit) stop()
@@ -425,6 +433,16 @@ export async function superviseDaemon(
       if (connection.state !== 'stopped') return
       crashes = []
       await reconnect()
+    },
+    async changeStorageFolder(change) {
+      if (changingStorage) throw new Error('Ted is already changing a storage location.')
+      changingStorage = true
+      try {
+        await client.changeStorageFolder(change)
+      } catch (error) {
+        changingStorage = false
+        throw error
+      }
     },
     async handOver({ onWork = () => undefined, maxWaitMs, pollMs } = {}) {
       if (connection.state === 'connected') {

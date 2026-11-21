@@ -236,7 +236,12 @@ import type {
 import type { SideChat } from './side-chat.ts'
 import type { RunSlots } from './slots.ts'
 import type { ProfileResult, SlowMoments } from './slow.ts'
-import type { RemoveClonesResult, StorageSummary } from './storage.ts'
+import type {
+  RemoveClonesResult,
+  StorageFolderChange,
+  StorageFolderLocation,
+  StorageSummary,
+} from './storage.ts'
 import type {
   AgentStageId,
   AnswerRequest,
@@ -2152,6 +2157,14 @@ export class DaemonClient {
 
   getStorage(options: { refresh?: boolean } = {}): Promise<StorageSummary> {
     return this.#request('GET', options.refresh === true ? '/storage?refresh=1' : '/storage')
+  }
+
+  storageFolders(): Promise<StorageFolderLocation[]> {
+    return this.#request('GET', '/storage/folders')
+  }
+
+  changeStorageFolder(change: StorageFolderChange): Promise<void> {
+    return this.#request('POST', '/storage/folders', change)
   }
 
   async storageViewed(): Promise<void> {

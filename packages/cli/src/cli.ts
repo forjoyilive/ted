@@ -1008,16 +1008,20 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     const runId = tedEnv('TED_RUN', env)
     const task = tedEnv('TED_TASK', env)
     const automation = !task && tedEnv('TED_AUTOMATION', env)
-    const validateAction = action === 'screen' || action === 'tap' || action === 'pair'
+    const taskAction = action === 'screen' || action === 'tap' || action === 'pair'
     if (
       options.task !== undefined ||
       !runId ||
-      !(task ? validateAction : automation && action !== 'pair')
+      !(task ? taskAction : automation && action !== 'pair')
     ) {
+      if (action === 'screen')
+        throw new UsageError(
+          'ted app screen works only in a Work or Validate Task Lead Run, or an Automation Run',
+        )
       const who =
         action === 'pair'
           ? 'a Validate Task Lead Run'
-          : validateAction
+          : action === 'tap'
             ? 'a Validate Task Lead Run or an Automation Run'
             : 'an Automation Run'
       throw new UsageError(`ted app ${action} works only in ${who}`)

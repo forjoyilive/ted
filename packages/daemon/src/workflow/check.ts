@@ -1080,6 +1080,28 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
               error(node, '`preview` must be desktop, tablet or mobile')
             else if (kind !== 'web') warn(entry.key, 'only a web App has a `preview` size')
             break
+          case 'preview_only':
+            if (!isBoolean(scalar(node))) error(node, '`preview_only` must be true or false')
+            if (kind !== 'command' && kind !== 'web')
+              error(node, 'only a command or web App can be preview-only')
+            break
+          case 'paired_preview':
+            if (kind !== 'ios-simulator')
+              error(node, 'only an iOS simulator App can use a paired preview')
+            if (!isMap(node)) {
+              error(node, '`paired_preview` must name a desktop App and a relay App')
+              break
+            }
+            for (const field of ['desktop', 'relay']) {
+              const value = scalar(entries(node).find((entry) => entry.name === field)?.value)
+              if (!isString(value) || value.trim() === '')
+                error(node, `\`paired_preview.${field}\` must name an App`)
+            }
+            for (const field of entries(node)) {
+              if (field.name !== 'desktop' && field.name !== 'relay')
+                error(field.key, `unknown paired preview field: ${field.name}`)
+            }
+            break
           case 'sandbox_access':
             checkAccess(node)
             break

@@ -141,6 +141,7 @@ import type {
 import {
   type AsanaStatus,
   agentShortNames,
+  appEnvName,
   appStarting,
   archiveChoice,
   asanaAddChoice,
@@ -274,6 +275,7 @@ import { parsedOutput } from '../runs/parsed-output.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import { type Sandbox, type SandboxGrants, type SandboxScope, sandboxGrants } from '../sandbox.ts'
+import type { StorageLocations } from '../storage-locations.ts'
 import type {
   BlockersCleared,
   CleanupCommandResult,
@@ -511,6 +513,7 @@ import {
 import { placeBetween } from './order.ts'
 import { reposSection } from './other-factories.ts'
 import { overnightGuidance } from './overnight.ts'
+import { createPairedPreviews } from './paired-preview.ts'
 import { createPeers, type Peers } from './peers.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
 import { readPullRequestChanges } from './pull-request-changes.ts'
@@ -948,6 +951,7 @@ function withoutRepeats(files: readonly Attachment[]): Attachment[] {
 }
 
 export function createTasks(options: {
+  storageLocations?: StorageLocations
   testReportingEnv?: (
     task: Task,
     checkRunId: string,
@@ -1035,6 +1039,7 @@ export function createTasks(options: {
   const execution = createTaskExecution(store)
   const seeds = createCacheSeeds({
     home: path.dirname(worktreesDir),
+    ...(options.storageLocations && { locations: options.storageLocations }),
     reposDir,
     logsDir,
     store,
@@ -1050,6 +1055,7 @@ export function createTasks(options: {
     worktreesDir,
     logsDir,
     sandbox: options.sandbox,
+    ...(options.storageLocations && { locations: options.storageLocations }),
     sandboxGrants: async (taskId) => taskSandboxGrants(find(taskId)),
     startCache: (factoryId, cache) => seeds.startCache(factoryId, cache),
     env: () => options.env?.() ?? process.env,
@@ -1251,6 +1257,15 @@ export function createTasks(options: {
     sandboxProblem,
   })
   const apps = options.wrapApps?.(createdApps) ?? createdApps
+  const pairedPreviews = createPairedPreviews({
+    root: path.join(path.dirname(worktreesDir), 'paired-previews'),
+    reposDir,
+    apps,
+    store,
+    banners,
+    sandbox: options.sandbox,
+    env: () => options.env?.() ?? process.env,
+  })
 
   async function sandboxProblem(factoryId: string): Promise<string | undefined> {
     const ref = { problem: 'sandbox-unavailable', factoryId }
@@ -1326,16 +1341,82 @@ export function createTasks(options: {
         sandbox: scope,
         outsideSandbox: store.settings().appsOutsideSandbox[task.factoryId] ?? [],
       }),
-      repos: live.map((repo) => {
-        const entry = repoEntry(entries, repo)
-        return {
-          name: repo.name,
-          worktree: repo.worktree,
-          env: store.recordedSetup(task.id, repo.name)?.env ?? entry?.env ?? {},
-          apps: setupApps ? (setupApps.get(repo.name) ?? []) : (entry?.apps ?? []),
-        }
-      }),
+      repos: [
+        ...live.map((repo) => {
+          const entry = repoEntry(entries, repo)
+          return {
+            name: repo.name,
+            worktree: repo.worktree,
+            env: store.recordedSetup(task.id, repo.name)?.env ?? entry?.env ?? {},
+            apps: (setupApps ? (setupApps.get(repo.name) ?? []) : (entry?.apps ?? [])).filter(
+              (app) => !app.previewOnly,
+            ),
+          }
+        }),
+        ...pairedPreviews.repos(taskId),
+      ],
     }
+  }
+
+  async function startPairedPreview(
+    task: StoredTask,
+    caller: Caller,
+    ref: AppRef,
+    startPhone: () => Promise<TaskApp>,
+  ): Promise<TaskApp> {
+    const appContext = await appTask(task.id)
+    const wanted = appEnvName(ref.name.trim())
+    const repo = appContext.repos.find(
+      (repo) =>
+        (ref.repo === undefined || ref.repo === repo.name) &&
+        repo.apps.some((app) => appEnvName(app.name) === wanted),
+    )
+    const phone = repo?.apps.find((app) => appEnvName(app.name) === wanted)
+    if (!repo || !phone?.pairedPreview) return startPhone()
+    const { runId } = taskLead(task.id, caller, 'starts a paired preview')
+    function assertLive() {
+      const current = find(task.id)
+      if (
+        current.archived ||
+        current.stopped ||
+        !validates(current.stage) ||
+        liveLead(current)?.id !== runId
+      )
+        throw new RequestError(403, 'Only a live Validate Task Lead can start a paired preview')
+      if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
+    }
+    assertLive()
+    const factory = factoryOf(task)
+    const { workflow } = await resolveWorkflow(factory, { fetch: false })
+    const entries = factoryRepos(workflow, factory)
+    const primary = entries.find((entry) => entry.primary)
+    const mobile = entries.find((entry) => entry.name === repo.name)
+    const desktop = primary?.apps?.find((app) => app.name === phone.pairedPreview?.desktop)
+    const relay = mobile?.apps?.find((app) => app.name === phone.pairedPreview?.relay)
+    if (!primary || !desktop?.previewOnly || desktop.electron !== true || desktop.ready !== 'url')
+      throw new RequestError(409, 'Declare a preview-only Electron App in the primary repo')
+    if (
+      !mobile ||
+      !relay?.previewOnly ||
+      relay.kind !== 'web' ||
+      relay.ready !== 'url' ||
+      relay.port !== undefined
+    )
+      throw new RequestError(
+        409,
+        'Declare a preview-only web App with an allocated port in the iPhone App’s repo',
+      )
+    return pairedPreviews.start({
+      taskId: task.id,
+      factory,
+      task: appContext,
+      desktop: { entry: primary, app: desktop },
+      relay: { entry: mobile, app: relay },
+      phone: { repo: repo.name, name: phone.name },
+      runId,
+      assertLive,
+      startPhone,
+    })
   }
 
   const browser = createBrowserBroker()
@@ -6235,16 +6316,22 @@ export function createTasks(options: {
     subAgents.dropFor(task.id)
     browser.cancel(task.id)
     browserApps.delete(task.id)
+    const factory = factoryOf(task)
+    try {
+      await pairedPreviews.stop(task.id)
+    } catch (error) {
+      console.error(`couldn’t stop ${task.displayId}’s paired preview:`, error)
+    }
     await apps.stopTask(task.id).catch((error: unknown) => {
       console.error(`couldn’t stop ${task.displayId}’s Apps:`, error)
     })
+    await pairedPreviews.removeStale(task.id, factory)
     await Promise.all(
       store
         .taskRunList(task.id)
         .filter((r) => r.state !== 'finished')
         .map((r) => runs.stop(r.id)),
     )
-    const factory = factoryOf(task)
     const ref = await execution.local(task.id)
     await lifecycle.endProcesses(ref)
     const live = task.repos.filter((r) => !r.removed)
@@ -14423,12 +14510,18 @@ export function createTasks(options: {
     },
     startApp(ref, caller, { shutDown, reason, declaration, ...app }) {
       const { task, by, runId } = runnableApps(ref, caller)
-      return apps.start(task.id, app, by, {
-        ...(by === 'human' && { confirmed: { ...(declaration !== undefined && { declaration }) } }),
-        ...(runId !== undefined && { runId }),
-        ...(runId === undefined && shutDown !== undefined && { shutDown }),
-        ...(runId !== undefined && reason !== undefined && { reason }),
-      })
+      const start = () =>
+        apps.start(task.id, app, by, {
+          ...(by === 'human' && {
+            confirmed: { ...(declaration !== undefined && { declaration }) },
+          }),
+          ...(runId !== undefined && { runId }),
+          ...(runId === undefined && shutDown !== undefined && { shutDown }),
+          ...(runId !== undefined && reason !== undefined && { reason }),
+        })
+      return caller.kind === 'run' && validates(task.stage)
+        ? startPairedPreview(task, caller, app, start)
+        : start()
     },
     async showApp(ref, app) {
       return apps.show(find(ref).id, app)
@@ -14532,8 +14625,16 @@ export function createTasks(options: {
       const taskId = store.getRun(runId)?.taskId
       if (taskId && !store.automations.firing(runId)) {
         const { task } = taskLead(taskId, caller, 'drives its iOS simulator')
-        if (task.archived || task.stopped || !validates(task.stage) || liveLead(task)?.id !== runId)
-          throw new RequestError(403, 'Only a live Validate Task Lead can drive its iOS simulator')
+        const readsInWork = request.action === 'screen' && handsOff(task.stage)
+        if (task.archived || task.stopped || liveLead(task)?.id !== runId)
+          throw new RequestError(403, 'Only a live Task Lead can use its iOS simulator')
+        if (!readsInWork && !validates(task.stage))
+          throw new RequestError(
+            403,
+            request.action === 'screen'
+              ? 'Only a Work or Validate Task Lead can read its iOS simulator'
+              : 'Only a Validate Task Lead can drive its iOS simulator',
+          )
         if (request.action !== 'screen' && request.action !== 'tap' && request.action !== 'pair')
           throw new RequestError(403, 'Validate Task Leads can use screen, tap and pair')
         if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
@@ -14560,11 +14661,13 @@ export function createTasks(options: {
       if (!capture) throw new RequestError(404, 'No browser capture on this Run')
       return capture
     },
-    stopApp(ref, caller, app) {
+    async stopApp(ref, caller, app) {
       const lead = caller.kind === 'run' ? taskLead(ref, caller, 'stops an App') : undefined
       const task = lead?.task ?? find(ref)
       browser.cancel(task.id, app)
-      return apps.stop(task.id, app, lead && { runId: lead.runId })
+      const stopped = await apps.stop(task.id, app, lead && { runId: lead.runId })
+      await pairedPreviews.stop(task.id, stopped)
+      return stopped
     },
     restartApp(ref, { declaration, ...app }) {
       const { task, by } = runnableApps(ref, { kind: 'app' })

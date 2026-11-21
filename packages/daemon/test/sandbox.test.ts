@@ -25,6 +25,7 @@ import {
   unixSocketPaths,
   withSandboxEnv,
 } from '../src/sandbox.ts'
+import { openStorageLocations } from '../src/storage-locations.ts'
 import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const execFileAsync = promisify(execFile)
@@ -1470,6 +1471,38 @@ createServer((socket) => socket.end('sibling')).listen(Number(process.argv[2]), 
 })
 
 describe('the folders a sandbox opens', () => {
+  test('masks relocated storage and binds only the current Task cache', async () => {
+    const pending = await openStorageLocations(tedHome)
+    await pending.request({ kind: 'backups', parent: outside })
+    const movedBackups = await openStorageLocations(tedHome)
+    await movedBackups.request({ kind: 'sandbox-caches', parent: outside })
+    const storageLocations = await openStorageLocations(tedHome)
+    const sandbox = createSandbox({
+      tedHome,
+      storageLocations,
+      env: () => process.env,
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: async () => '',
+      bindFds: true,
+    })
+    const { argv, env, close } = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    try {
+      const parent = await realpath(outside)
+      const caches = path.join(parent, 'Ted Sandbox Caches')
+      const backups = path.join(parent, 'Ted Backups')
+      const own = path.join(caches, 'tasks', 'NB-1', 'cache')
+      expect(env.XDG_CACHE_HOME).toBe(own)
+      const args = argv.join(' ')
+      expect(args).toContain(`--tmpfs ${backups}`)
+      expect(args).toContain(`--tmpfs ${caches}`)
+      expect(args).toMatch(/--bind-fd \d+ .*Ted Sandbox Caches\/tasks\/NB-1\/cache/)
+      expect(argv.filter((arg) => arg.startsWith(caches))).toEqual([caches, own])
+    } finally {
+      await close()
+    }
+  })
+
   test('a worktree swapped for a link to somewhere else is refused', async () => {
     const sandbox = createSandbox({
       tedHome,

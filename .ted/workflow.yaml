@@ -14,6 +14,14 @@ repos:
         electron: true
         sandbox_access: [network]
         run: MAC_CHROMIUM_TMPDIR="$TMPDIR" TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app $TED_ELECTRON_ARGS
+      - name: Ted Dev Preview
+        kind: command
+        electron: true
+        preview_only: true
+        sandbox_access: [network]
+        run: >-
+          test -n "$TED_HOME" && test -n "$TED_KEYRING_MODULE" && test -n "$TED_RELAY_URL" &&
+          MAC_CHROMIUM_TMPDIR="$TMPDIR" pnpm app $TED_ELECTRON_ARGS
   - name: ted-mobile
     remote: https://github.com/forjoyilive/ted-mobile.git
     merge_method: merge
@@ -25,7 +33,20 @@ repos:
         run: pnpm ios release
         device: iPhone 17
         sandbox_access: [ios-xcode, network]
+      - name: Ted Local Relay
+        kind: web
+        preview_only: true
+        url: http://127.0.0.1:${PORT}/health
+        run: >-
+          test -n "$TED_PREVIEW_DIR" &&
+          mkdir -p "$TED_PREVIEW_DIR/config" "$TED_PREVIEW_DIR/logs" &&
+          XDG_CONFIG_HOME="$TED_PREVIEW_DIR/config"
+          WRANGLER_LOG_PATH="$TED_PREVIEW_DIR/logs"
+          WRANGLER_SEND_METRICS=false
+          pnpm relay --ip 127.0.0.1 --port "$PORT"
+          --persist-to "$TED_PREVIEW_DIR/state"
       - name: Ted Dev iPhone
+        paired_preview: { desktop: Ted Dev Preview, relay: Ted Local Relay }
         kind: ios-simulator
         run: pnpm ios dev
         device: iPhone 17

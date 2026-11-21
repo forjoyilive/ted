@@ -9,17 +9,22 @@ import {
   tedPaths,
   type WorktreeUse,
 } from '@ted/protocol'
+import type { StorageFolderChange, StorageFolderLocation } from '@ted/protocol/storage'
 import { displayPath } from './backups.ts'
 import type { Data } from './data.ts'
 import type { DiskWatch } from './disk.ts'
 import { RequestError } from './errors.ts'
 import { isCloning, removeClone } from './factories.ts'
+import type { StorageLocations } from './storage-locations.ts'
 import { storeFileSizes } from './store/files.ts'
 import type { TedStore } from './store/index.ts'
 
 export interface Storage {
   summary(options?: { refresh?: boolean }): Promise<StorageSummary>
   viewed(): void
+  folders(): Promise<StorageFolderLocation[]>
+  changeFolder(change: StorageFolderChange): Promise<void>
+  restart(): void
   removeUnusedClones(only?: readonly string[]): Promise<RemoveClonesResult>
 }
 
@@ -36,6 +41,9 @@ export function createStorage(options: {
   data: Pick<Data, 'summary'>
   volumeName: () => Promise<string>
   now?: () => number
+  locations?: StorageLocations
+  restart?: () => void
+  changeFolder?: (change: StorageFolderChange) => Promise<void>
 }): Storage {
   const { store, disk } = options
   const now = options.now ?? Date.now
@@ -90,10 +98,24 @@ export function createStorage(options: {
 
   async function measure(signal: AbortSignal): Promise<StorageSummary> {
     const measuredAt = new Date(now()).toISOString()
-    const [home, reading, backups, storeFiles, names, removable, volumeName] = await Promise.all([
+    const backupLocation = options.locations?.status('backups')
+    const [
+      home,
+      reading,
+      backups,
+      backupFolder,
+      cacheFolder,
+      storeFiles,
+      names,
+      removable,
+      volumeName,
+    ] = await Promise.all([
       realpath(paths.home).catch(() => path.resolve(paths.home)),
       disk.check(),
-      options.data.summary(),
+      (async () =>
+        (await backupLocation)?.available === false ? { backups: [] } : options.data.summary())(),
+      backupLocation,
+      options.locations?.status('sandbox-caches'),
       storeFileSizes(paths.store),
       childDirs(paths.worktrees),
       unusedClones(),
@@ -104,12 +126,24 @@ export function createStorage(options: {
 
     const totals = new Map<string, UsageTotal>()
     const scanPath = (dir: string) => path.resolve(home, path.relative(paths.home, dir))
+    const backupsDir = backupFolder?.custom ? backupFolder.path : paths.backups
+    const backupScanDir = backupFolder?.custom ? backupFolder.path : scanPath(paths.backups)
+    const relocated = new Map<StorageCategoryId, StorageFolderLocation>()
+    if (backupFolder?.custom) relocated.set('backups', backupFolder)
+    if (cacheFolder?.custom) relocated.set('sandbox-caches', cacheFolder)
+    const roots = [home]
     const used = usageTotal()
     totals.set(home, used)
     const categoryLinks = new Set<string>()
     const categories = storageCategories.map(({ id, label }) => {
       const total = usageTotal(categoryLinks)
-      for (const dir of categoryDirs[id]) totals.set(scanPath(dir), total)
+      const folder = relocated.get(id)
+      if (!folder) {
+        for (const dir of categoryDirs[id]) totals.set(scanPath(dir), total)
+      } else if (folder.available) {
+        totals.set(folder.path, total)
+        roots.push(folder.path)
+      }
       return { id, label, total }
     })
     const tasks = new Map(store.listTasks().map((t) => [t.displayId, t]))
@@ -128,10 +162,10 @@ export function createStorage(options: {
     })
     const backupTotals = backups.backups.map((backup) => {
       const total = usageTotal()
-      totals.set(scanPath(path.join(paths.backups, backup.name)), total)
+      totals.set(path.join(backupScanDir, backup.name), total)
       return { backup, total }
     })
-    await scanUsage(home, totals, signal)
+    for (const root of roots) await scanUsage(root, totals, signal)
 
     const largestWorktrees: WorktreeUse[] = worktrees.map(({ task, total }) => ({
       taskId: task.id,
@@ -156,7 +190,7 @@ export function createStorage(options: {
       },
       simulators: { count: 0, bytes: 0 },
       backups: backupTotals.map(({ backup, total }) => ({ ...backup, bytes: total.bytes })),
-      backupsDir: `${displayPath(paths.backups)}${path.sep}`,
+      backupsDir: `${displayPath(backupsDir)}${path.sep}`,
       storeFiles: {
         ...storeFiles,
         backupsBytes: categories.find((c) => c.id === 'backups')?.total.bytes ?? 0,
@@ -181,6 +215,15 @@ export function createStorage(options: {
   }
 
   return {
+    restart: options.restart ?? (() => undefined),
+    async folders() {
+      const locations = options.locations
+      if (!locations) return []
+      return Promise.all([locations.status('backups'), locations.status('sandbox-caches')])
+    },
+    async changeFolder(change) {
+      await options.changeFolder?.(change)
+    },
     async summary(request = {}) {
       const stale = now() - viewedAt > storageKeptForMs
       viewedAt = now()

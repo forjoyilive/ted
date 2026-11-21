@@ -12,7 +12,6 @@ import {
   quitPlan,
   showsTray,
   statusMenu,
-  trayLabel,
   trayToolTip,
   trayWarning,
   windowTitle,
@@ -138,8 +137,8 @@ describe('menu-bar menu', () => {
     const state = { activity: noActivity, waiting: 0, banners: [dismissed] }
 
     expect(labels(statusMenu(state, now))).not.toContain('Something')
-    expect(trayWarning(state.banners, now)).toBe(false)
-    expect(trayWarning(state.banners, new Date('2026-11-09T11:00:00.000Z'))).toBe(true)
+    expect(trayWarning('linux', state.banners, now)).toBe(false)
+    expect(trayWarning('linux', state.banners, new Date('2026-11-09T11:00:00.000Z'))).toBe(true)
   })
 
   test('Runs read in the singular and leave out an empty queue', () => {
@@ -155,11 +154,10 @@ describe('menu-bar menu', () => {
 })
 
 describe('menu-bar icon and window title', () => {
-  test('the icon shows the waiting count above zero and a dot only for app-wide banners', () => {
-    expect(trayLabel(3)).toBe('3')
-    expect(trayLabel(0)).toBe('')
-    expect(trayWarning([banner({ factoryId: 'nb' })], now)).toBe(false)
-    expect(trayWarning([banner({})], now)).toBe(true)
+  test('only the Linux icon shows a dot for app-wide banners', () => {
+    expect(trayWarning('darwin', [banner({})], now)).toBe(false)
+    expect(trayWarning('linux', [banner({ factoryId: 'nb' })], now)).toBe(false)
+    expect(trayWarning('linux', [banner({})], now)).toBe(true)
   })
 
   test('the icon follows the setting on macOS and Linux and never shows on Windows', () => {

@@ -1,4 +1,16 @@
-import { link, lstat, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -11,7 +23,9 @@ import {
 import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from 'vitest'
 import { excludeFromTimeMachine } from '../src/disk.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { createStorage } from '../src/storage.ts'
+import { createSandbox } from '../src/sandbox.ts'
+import { createStorage, diskUsage } from '../src/storage.ts'
+import { openStorageLocations } from '../src/storage-locations.ts'
 import type { StoreContext } from '../src/store/context.ts'
 import type { TedStore } from '../src/store/index.ts'
 import {
@@ -20,6 +34,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  tokenFor,
   waitUntil,
 } from './helpers.ts'
 
@@ -312,5 +327,196 @@ describe('Settings → Storage', () => {
     await excludeFromTimeMachine(['/a'], 'linux', record)
     await excludeFromTimeMachine([], 'darwin', record)
     expect(calls).toEqual([['tmutil', ['addexclusion', '/a', '/b']]])
+  })
+})
+
+describe('Changing storage folders', () => {
+  async function restart() {
+    await daemon?.stop()
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    return api(daemon.port, { appKey: daemon.appToken })
+  }
+
+  test('moves existing backups, uses the new drive for restore, and moves back', async () => {
+    let client = await restart()
+    const paths = tedPaths(home)
+    const old = await readdir(paths.backups)
+    const daily = old.find((name) => name.startsWith('daily-'))
+    expect(daily).toBeDefined()
+    if (!daily) throw new Error('Ted did not create a daily backup')
+
+    const unauthenticated = api(daemon?.port ?? 0, await tokenFor(home))
+    expect(
+      (
+        await unauthenticated.call('POST', '/storage/folders', {
+          kind: 'backups',
+          parent: scratch,
+        })
+      ).status,
+    ).toBe(403)
+    expect(
+      (
+        await client.call('POST', '/storage/folders', {
+          kind: 'backups',
+          parent: scratch,
+        })
+      ).status,
+    ).toBe(200)
+
+    client = await restart()
+    const external = path.join(await realpath(scratch), 'Ted Backups')
+    const backups = path.join(external, 'Backups')
+    expect(await readdir(backups)).toContain(daily)
+    await expect(lstat(paths.backups)).rejects.toHaveProperty('code', 'ENOENT')
+    expect((await client.call('GET', '/storage/folders')).body).toContainEqual(
+      expect.objectContaining({ kind: 'backups', path: backups, available: true }),
+    )
+    const backupBytes = await diskUsage(path.join(backups, daily))
+    const backupsBytes = await diskUsage(backups)
+    expect(backupBytes).toBeGreaterThan(0)
+    const refreshed = await client.call('GET', '/storage?refresh=1')
+    expect(refreshed.status).toBe(200)
+    expect(refreshed.body).toMatchObject({
+      backups: expect.arrayContaining([
+        expect.objectContaining({ name: daily, bytes: backupBytes }),
+      ]),
+      categories: expect.arrayContaining([
+        expect.objectContaining({ id: 'backups', bytes: backupsBytes }),
+      ]),
+      storeFiles: { backupsBytes },
+    })
+
+    const unplugged = path.join(scratch, 'disconnected')
+    await rename(external, unplugged)
+    expect((await client.call('GET', '/storage/folders')).body).toContainEqual(
+      expect.objectContaining({ kind: 'backups', available: false }),
+    )
+    expect((await client.call('POST', '/backups/restore', { name: daily })).status).toBe(409)
+    const disconnected = await client.call('GET', '/storage?refresh=1')
+    expect(disconnected.status).toBe(200)
+    expect(disconnected.body).toMatchObject({
+      backups: [],
+      categories: expect.arrayContaining([expect.objectContaining({ id: 'backups', bytes: 0 })]),
+      storeFiles: { backupsBytes: 0 },
+    })
+    await rename(unplugged, external)
+
+    expect((await client.call('POST', '/backups/restore', { name: daily })).status).toBe(200)
+    expect((await readdir(backups)).some((name) => name.startsWith('before-restore-'))).toBe(true)
+    expect(
+      (
+        await client.call('POST', '/storage/folders', {
+          kind: 'backups',
+          parent: null,
+        })
+      ).status,
+    ).toBe(200)
+    await restart()
+    expect(await readdir(paths.backups)).toContain(daily)
+    await expect(lstat(external)).rejects.toHaveProperty('code', 'ENOENT')
+  })
+
+  test('keeps the source when a backup cannot be copied', async () => {
+    let client = await restart()
+    const paths = tedPaths(home)
+    await mkdir(path.join(paths.backups, 'extra'))
+    await symlink(scratch, path.join(paths.backups, 'extra', 'link'))
+    expect(
+      (
+        await client.call('POST', '/storage/folders', {
+          kind: 'backups',
+          parent: scratch,
+        })
+      ).status,
+    ).toBe(200)
+    client = await restart()
+    expect(await readdir(paths.backups)).toContain('extra')
+    expect((await client.call('GET', '/storage/folders')).body).toContainEqual(
+      expect.objectContaining({ kind: 'backups', custom: false, problem: expect.any(String) }),
+    )
+
+    await rm(path.join(paths.backups, 'extra', 'link'))
+    expect(
+      (
+        await client.call('POST', '/storage/folders', {
+          kind: 'backups',
+          parent: scratch,
+        })
+      ).status,
+    ).toBe(200)
+    await restart()
+    await expect(lstat(paths.backups)).rejects.toHaveProperty('code', 'ENOENT')
+  })
+
+  test('rebuilds Task caches at the new path and keeps Run files locally', async () => {
+    let client = await restart()
+    const paths = tedPaths(home)
+    const task = path.join(paths.sandbox, 'NB-1')
+    const cache = path.join(task, 'cache')
+    const files = path.join(task, 'files')
+    await mkdir(cache, { recursive: true })
+    await mkdir(files)
+    await mkdir(paths.seeds)
+    await writeFile(path.join(cache, 'disposable'), 'cache')
+    await writeFile(path.join(files, 'keep'), 'shared with the user')
+    expect(
+      (
+        await client.call('POST', '/storage/folders', {
+          kind: 'sandbox-caches',
+          parent: scratch,
+        })
+      ).status,
+    ).toBe(200)
+
+    client = await restart()
+    await expect(lstat(cache)).rejects.toHaveProperty('code', 'ENOENT')
+    await expect(lstat(paths.seeds)).rejects.toHaveProperty('code', 'ENOENT')
+    expect(await readFile(path.join(files, 'keep'), 'utf8')).toBe('shared with the user')
+    const locations = await openStorageLocations(home, { apply: false })
+    const sandbox = createSandbox({ tedHome: home, storageLocations: locations, env: () => ({}) })
+    const external = path.join(await realpath(scratch), 'Ted Sandbox Caches')
+    const env = await sandbox.buildCaches(cache)
+    expect(env.GRADLE_USER_HOME).toBe(path.join(external, 'tasks', 'NB-1', 'cache', 'gradle'))
+    const gradle = path.join(external, 'tasks', 'NB-1', 'cache', 'gradle')
+    expect((await lstat(gradle)).isDirectory()).toBe(true)
+    const initial = await client.call('GET', '/storage')
+    expect(initial.status).toBe(200)
+    await writeFile(path.join(gradle, 'package'), Buffer.alloc(8192, 1))
+    const bytes = await diskUsage(external)
+    const refreshed = await client.call('GET', '/storage?refresh=1')
+    expect(refreshed.status).toBe(200)
+    expect(refreshed.body).toMatchObject({
+      categories: expect.arrayContaining([
+        expect.objectContaining({ id: 'sandbox-caches', bytes }),
+      ]),
+    })
+
+    const marker = path.join(external, '.ted-storage-owner')
+    await rename(marker, path.join(scratch, 'disconnected'))
+    await expect(sandbox.buildCaches(cache)).rejects.toThrow('Reconnect the drive')
+    expect((await client.call('GET', '/storage/folders')).body).toContainEqual(
+      expect.objectContaining({ kind: 'sandbox-caches', available: false }),
+    )
+    const disconnected = await client.call('GET', '/storage?refresh=1')
+    expect(disconnected.status).toBe(200)
+    expect(disconnected.body).toMatchObject({
+      categories: expect.arrayContaining([
+        expect.objectContaining({ id: 'sandbox-caches', bytes: 0 }),
+      ]),
+    })
+    await expect(lstat(cache)).rejects.toHaveProperty('code', 'ENOENT')
+
+    await daemon?.stop()
+    daemon = undefined
+    await rename(path.join(scratch, 'disconnected'), marker)
+    const storage = createStorage({
+      home,
+      locations,
+      store: { listTasks: () => [], listFactories: () => [] },
+      disk: { check: async () => undefined },
+      data: { summary: async () => ({ backups: [], activeRuns: 0 }) },
+      volumeName: async () => '',
+    })
+    expect((await storage.summary()).usedBytes).toBe(await diskUsage(await realpath(home)))
   })
 })

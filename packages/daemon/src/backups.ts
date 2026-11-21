@@ -46,14 +46,17 @@ const eventlogFiles = /^eventlog@\d+\.db(-journal|-wal|-shm)?$/
 export function createBackups(options: {
   home: string
   version: string
+  directory?: string
+  requireAvailable?: () => Promise<void>
   now?: () => Date
 }): Backups {
   const paths = tedPaths(options.home)
-  const dir = paths.backups
+  const dir = options.directory ?? paths.backups
   const attachmentsDir = path.join(dir, 'attachments')
   const now = options.now ?? (() => new Date())
 
   async function readManifests(): Promise<(Backup & { attachments: string[] })[]> {
+    await options.requireAvailable?.()
     const names = await readdir(dir).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return []
       throw error
@@ -94,7 +97,12 @@ export function createBackups(options: {
     dataFrom: string | undefined,
     fill: (target: string) => Promise<string[] | undefined>,
   ): Promise<Backup> {
-    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await options.requireAvailable?.()
+    await mkdir(dir, { recursive: options.directory === undefined, mode: 0o700 }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST') throw error
+      },
+    )
     const at = now()
     const name = await freeName(kind, at)
     const partial = path.join(dir, `.${name}.partial`)
