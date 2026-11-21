@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -11,6 +11,7 @@ import {
   type Comment,
   type Coordinator,
   type CoordinatorReceipt,
+  type CoordinatorTask,
   type DaemonClient,
   encodePairingLink,
   type Factory,
@@ -840,6 +841,16 @@ async function phoneTestChat(commands: unknown[] = [], agentId?: string) {
   return { chat, run, end }
 }
 
+async function taskVersion(run: ReturnType<typeof api>, taskId: string): Promise<string> {
+  const task = await waitUntil(async () => {
+    const result = await run.call('GET', `/coordinator/tasks/${taskId}`)
+    if (result.status !== 200) return undefined
+    const { context } = result.body as { context: string }
+    return JSON.parse(context.split('\n').slice(1, -1).join('\n')) as CoordinatorTask
+  }, 'the Coordinator can read the Task')
+  return task.version
+}
+
 async function answeredCard(chatId: string, requestId: string) {
   const reply = await phone.send({ type: 'request', route: 'request', requestId, chatId })
   if (!reply.ok) throw new Error(`request failed: ${reply.error.code}`)
@@ -856,16 +867,11 @@ test('a paired phone confirms and cancels Coordinator removal cards with per-Tas
       parent: parent.id,
     })
     const removal = async (kind: 'archive' | 'delete', task: Task, operation: string) => {
-      const route = `/coordinator/tasks/${task.id}`
-      const read = await waitUntil(async () => {
-        const result = await run.call('GET', route)
-        return result.status === 200 ? (result.body as { version: string }) : undefined
-      }, 'the Coordinator can read the Task')
       const result = await run.call('POST', `/coordinator/${kind}`, {
         operation,
-        tasks: [{ id: task.id, version: read.version }],
+        tasks: [{ id: task.id, version: await taskVersion(run, task.id) }],
       })
-      expect(result.status).toBe(200)
+      expect(result.status, JSON.stringify(result.body)).toBe(200)
       return (result.body as { confirmation: { id: string } }).confirmation.id
     }
     const archive = await removal('archive', parent, 'phone-archive')
@@ -930,21 +936,20 @@ test('a paired phone confirms and cancels Coordinator removal cards with per-Tas
 test('a paired phone reviews a Coordinator move and uses the plan that was shown', async () => {
   const otherRoot = path.join(scratch, 'phone-move')
   await mkdir(otherRoot)
+  const origin = await makeOriginRepo(otherRoot)
+  const movedRepo = path.join(otherRoot, 'acme', 'move-target.git')
+  await rename(origin, movedRepo)
   const other = await ok<Factory>('POST', '/dev/factories', {
-    repo: await makeOriginRepo(otherRoot),
+    repo: movedRepo,
     key: 'MOVE',
   })
   const task = await newTask('Move to the other Factory')
   const { chat, run, end } = await phoneTestChat()
   try {
     const move = async (operation: string) => {
-      const read = await waitUntil(async () => {
-        const result = await run.call('GET', `/coordinator/tasks/${task.id}`)
-        return result.status === 200 ? (result.body as { version: string }) : undefined
-      }, 'the Coordinator can read the move Task')
       const result = await run.call('POST', '/coordinator/transfer', {
         operation,
-        task: { id: task.id, version: read.version },
+        task: { id: task.id, version: await taskVersion(run, task.id) },
         factory: 'MOVE',
         reason: 'Phone move trial',
       })
