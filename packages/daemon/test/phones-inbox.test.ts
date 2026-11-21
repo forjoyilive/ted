@@ -230,6 +230,11 @@ test('the phone lists what the desktop Inbox waits on, newest first, without sno
     headline: 'Which repo?',
     createdAt: first.createdAt,
     onPhone: true,
+    task: {
+      id: task.id,
+      priority: task.priority,
+      actions: expect.arrayContaining(['priority', 'comment', 'archive', 'delete']),
+    },
   })
   expect(requests.find((r) => r.id === review.id)).toMatchObject({ kind: 'review', onPhone: true })
   expect(await opened(first.id)).toMatchObject({
