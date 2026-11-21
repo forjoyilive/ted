@@ -21,7 +21,7 @@ export interface Banners {
   clearFactory(factoryId: string): void
   list(): Banner[]
   dismiss(id: string, raisedAt?: string): Banner
-  dismissProblem(id: string, raisedAt: string): Banner
+  dismissProblem(id: string, raisedAt: string): Promise<void>
   act(id: string, input?: BannerActionInput): Promise<void>
   onAction(problem: string, handler: BannerHandler): void
 }
@@ -56,7 +56,11 @@ export function createBanners({
   }
 
   return {
-    dismissProblem,
+    async dismissProblem(id, raisedAt) {
+      const saved = !unsaved.has(id)
+      dismissProblem(id, raisedAt)
+      if (saved) await store.persisted()
+    },
     raise(input) {
       const { subject: _, ...banner } = input
       return store.raiseBanner({ ...banner, id: bannerId(input) })

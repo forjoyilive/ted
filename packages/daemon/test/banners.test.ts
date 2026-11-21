@@ -155,14 +155,19 @@ describe('banners in the store', () => {
     expect(() => banners.dismiss('nothing:app')).toThrow(/no such banner/)
   })
 
-  test('an in-memory problem stays dismissed when refreshed', () => {
+  test('an in-memory problem dismisses without waiting for storage', async () => {
     const emit = vi.fn()
-    const banners = createBanners({ store, emit })
+    const persisted = vi.fn(() => Promise.reject(new Error('storage unavailable')))
+    const banners = createBanners({ store: { ...store, persisted }, emit })
     const input = { problem: 'disk-full', severity: 'stops-work', text: 'Disk full' } as const
     const banner = banners.raiseUnsaved(input)
-    const dismissed = banners.dismissProblem(banner.id, banner.raisedAt)
+    await banners.dismissProblem(banner.id, banner.raisedAt)
 
-    expect(emit).toHaveBeenLastCalledWith({ type: 'banner-updated', banner: dismissed })
+    expect(persisted).not.toHaveBeenCalled()
+    expect(emit).toHaveBeenLastCalledWith({
+      type: 'banner-updated',
+      banner: { ...banner, dismissed: true },
+    })
     expect(banners.raiseUnsaved({ ...input, text: 'Still full' }).dismissed).toBe(true)
     expect(banners.list()).toMatchObject([{ id: banner.id, dismissed: true }])
     banners.clear(input)

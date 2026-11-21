@@ -28,7 +28,7 @@ export interface PhoneRouteContext {
   chatActions: PhoneChatActions
   images: PhoneImages
   problems(): PhoneProblemsBody
-  dismissProblem(id: string, raisedAt: string): void
+  dismissProblem(id: string, raisedAt: string): Promise<void>
   setPushToken(phoneId: string, token: string): boolean
 }
 
@@ -88,7 +88,7 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     async handle(_, { problemId, raisedAt }, { dismissProblem }) {
       if (!problemId || !raisedAt) return { code: 'bad-request' }
       try {
-        dismissProblem(problemId, raisedAt)
+        await dismissProblem(problemId, raisedAt)
         return { body: {} }
       } catch (error) {
         if (error instanceof RequestError) {

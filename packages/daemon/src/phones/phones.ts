@@ -40,7 +40,7 @@ export interface PhonesOptions {
   chatChanges: PhoneChatChanges
   images: PhoneImages
   problems: Pick<PhoneProblemSource, 'banners' | 'factoryName'>
-  dismissProblem(id: string, raisedAt: string): void
+  dismissProblem(id: string, raisedAt: string): Promise<void>
   keyrings: PhoneKeyrings
   version: string
   relayUrl?: string
