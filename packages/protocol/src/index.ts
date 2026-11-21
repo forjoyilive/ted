@@ -854,6 +854,7 @@ export type {
   SendPeerMessage,
 } from './peers.ts'
 export * from './phone-chats.ts'
+export * from './phone-factory-icon.ts'
 export * from './phone-images.ts'
 export * from './phone-problems.ts'
 export * from './phone-requests.ts'

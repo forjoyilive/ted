@@ -226,4 +226,11 @@ export const phoneRoutes: readonly PhoneRoute[] = [
       return chats.item(chatKind, chatId, itemId, offset ?? 0)
     },
   },
+  {
+    name: 'factory-icon',
+    async handle(_, { factoryId }, { newTask }) {
+      if (factoryId === undefined) return { code: 'bad-request' }
+      return newTask.factoryImage(factoryId)
+    },
+  },
 ]

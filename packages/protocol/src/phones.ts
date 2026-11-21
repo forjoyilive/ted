@@ -22,6 +22,7 @@ import {
   phoneChatIdMax,
   phoneChatKinds,
 } from './phone-chats.ts'
+import type { PhoneFactoryIconBody } from './phone-factory-icon.ts'
 import { type PhoneImageBody, phoneImageIdMax } from './phone-images.ts'
 import type { PhoneProblemsBody } from './phone-problems.ts'
 import {
@@ -39,6 +40,7 @@ import {
   type PhoneTaskGroup,
   type PhoneTasksBody,
   phoneCursorMax,
+  phoneFactoryIdMax,
   phoneNewTaskPriority,
   phoneTaskGroups,
   phoneTaskIdMax,
@@ -110,6 +112,7 @@ export const phoneRouteNames = [
   'chat',
   'chat-items',
   'chat-item',
+  'factory-icon',
 ] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
 
@@ -165,12 +168,12 @@ export type PhoneRequest =
       hierarchyRevision?: string
       createId?: string
       factory?: string
+      factoryId?: string
       title?: string
       description?: string
       start?: boolean
       chatKind?: PhoneChatKind
       chatId?: string
-      factoryId?: string
       archived?: boolean
       before?: string
       itemId?: string
@@ -220,6 +223,7 @@ export type PhoneReplyBody =
   | PhoneTaskCommentsBody
   | PhoneImageBody
   | PhoneFactoriesBody
+  | PhoneFactoryIconBody
   | PhoneTaskCreatedBody
   | PhoneChatsBody
   | PhoneChatBody
@@ -622,6 +626,7 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       ...(offset !== undefined && { offset }),
     }
   }
+  if (route === 'factory-icon') return { ...header, type, route, factoryId: factoryId(object) }
   return { ...header, type, route }
 }
 
@@ -671,6 +676,17 @@ function revision(object: JsonObject): string {
     )
   }
   return value
+}
+
+function factoryId(object: JsonObject): string {
+  const id = read.string(object, 'factoryId')
+  if (!id || id.length > phoneFactoryIdMax) {
+    throw new ParseError(
+      'factoryId',
+      `factoryId must be text of 1 to ${phoneFactoryIdMax} characters`,
+    )
+  }
+  return id
 }
 
 function imageId(object: JsonObject): string {

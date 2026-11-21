@@ -21,6 +21,8 @@ const summary: PhoneRequestSummary = {
   source: 'task',
   kind: 'question',
   factory: 'Ted',
+  factoryId: 'f-ted',
+  factoryIcon: { kind: 'symbol', symbol: 'code', color: 'blue' },
   title: 'List and answer Inbox requests on the phone',
   ref: 'TED-700',
   headline: 'Which repo should hold the parser?',
@@ -107,9 +109,9 @@ const detail: PhoneRequestDetail = {
   form: forms[0] ?? { type: 'text' },
 }
 
-test('a summary keeps every field, and ref and failed only when given', () => {
+test('a summary keeps every field, and ref, failed and factoryIcon only when given', () => {
   expect(parsePhoneRequestSummary(summary)).toEqual(summary)
-  const { ref: _, failed: __, ...plain } = summary
+  const { ref: _, failed: __, factoryIcon: ___, ...plain } = summary
   expect(parsePhoneRequestSummary({ ...plain, source: 'plan' })).toEqual({
     ...plain,
     source: 'plan',
@@ -123,6 +125,8 @@ test('a summary keeps every field, and ref and failed only when given', () => {
     ['source', 'other'],
     ['kind', 'note'],
     ['factory', null],
+    ['factoryId', undefined],
+    ['factoryIcon', { kind: 'letter', color: 'beige' }],
     ['title', 2],
     ['ref', 3],
     ['headline', undefined],

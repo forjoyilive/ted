@@ -212,7 +212,7 @@ test('the list has open Tasks and recent Done ones from every Factory, never arc
     id: open.id,
     ref: open.displayId,
     title: 'Sketch the phone list',
-    factory: { id: notebook.id, name: notebook.name },
+    factory: { id: notebook.id, name: notebook.name, icon: { kind: 'letter', color: 'blue' } },
     stage: { id: 'backlog', name: 'Backlog' },
     status: '',
     tone: 'none',
@@ -221,7 +221,10 @@ test('the list has open Tasks and recent Done ones from every Factory, never arc
     updatedAt: expect.any(String),
     actions: ['start', 'priority', 'comment', 'archive', 'delete'],
   })
-  expect(rows.find((row) => row.id === elsewhere.id)?.factory.id).toBe(shop.id)
+  expect(rows.find((row) => row.id === elsewhere.id)?.factory).toMatchObject({
+    id: shop.id,
+    icon: { kind: 'letter', color: 'orange' },
+  })
   expect(rows.find((row) => row.id === done.id)).toMatchObject({ section: 'done', tone: 'done' })
 
   expect(await opened(open.displayId)).toMatchObject({

@@ -8,11 +8,10 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
 import {
   encodePhoneCursor,
-  type PhoneFactoryIcon,
   type PhoneTaskTone,
-  parsePhoneFactoryIcon,
   phoneCursorParts,
   phoneTaskTones,
 } from './phone-tasks.ts'

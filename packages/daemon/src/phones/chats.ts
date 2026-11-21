@@ -53,8 +53,9 @@ import {
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { cutChars, type Fitted, fitText, jsonBytes } from './fit.ts'
+import { phoneFactoryIcons } from './icons.ts'
 import type { PhoneOutcome } from './requests.ts'
-import { type PhoneTaskFactory, phoneIcon } from './tasks.ts'
+import type { PhoneTaskFactory } from './tasks.ts'
 
 export interface PhoneCoordinatorChatRead {
   coordinator: Coordinator
@@ -599,7 +600,7 @@ export function createPhoneChats(source: PhoneChatSource): PhoneChats {
     factoryId: string,
   ): PhoneChatFactory {
     const factory = factories.find((each) => each.id === factoryId)
-    const icon = phoneIcon(factory?.icon)
+    const icon = phoneFactoryIcons(factories).get(factoryId)
     return {
       id: factoryId,
       name: plain(factory?.name ?? '', phoneLabelMax),

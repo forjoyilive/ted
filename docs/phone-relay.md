@@ -135,6 +135,7 @@ Every message inside a box has:
 - `{"type":"request","route":"image","image":"<image ID>","part":0}` from a paired phone’s key (see Images below). `image` is 1 to 200 characters and `part` a whole number from 0; anything else gets `bad-request`. A Mac older than this route answers `unknown-route`.
 - `{"type":"request","route":"factories"}` and `{"type":"request","route":"task-create","createId":"<16 random bytes>","factory":"NB","title":"…","description":"…","priority":"none","start":false}` from a paired phone’s key (see New Task below). A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"chats","factoryId":"<Factory ID>","archived":false,"cursor":"<cursor>"}`, `{"type":"request","route":"chat","chatKind":"coordinator","chatId":"<chat ID>"}`, `{"type":"request","route":"chat-items","chatKind":"coordinator","chatId":"<chat ID>","before":"<cursor>"}` and `{"type":"request","route":"chat-item","chatKind":"plan","chatId":"<chat ID>","itemId":"<item ID>","offset":120}` from a paired phone’s key (see Chats below). `factoryId`, `archived`, `cursor`, `before` and `offset` are optional. `chatKind` is `coordinator` or `plan`; `factoryId`, `chatId` and `itemId` are 1 to 200 characters, `cursor` and `before` 1 to 512, and `offset` a whole number from 0; anything else gets `bad-request`. A Mac older than these routes answers `unknown-route`.
+- `{"type":"request","route":"factory-icon","factoryId":"<Factory ID>"}` from a paired phone’s key (see Factory icons below). `factoryId` is 1 to 200 characters; anything else gets `bad-request`. A Mac older than this route answers `unknown-route`, and the phone draws its own letter.
 
 ### Mac → phone
 
@@ -153,7 +154,8 @@ Every message inside a box has:
 - `task-start`, `task-stop`, `task-resume`, `task-priority` and `task-comment` → `{"task":<task>}`, the Task as the `task` route shows it after the change.
 - `task-archive` and `task-delete` → `{}`.
 - `image` → `{"mediaType":"image/jpeg","parts":3,"part":0,"data":"<base64url bytes>"}`.
-- `factories` → `{"factories":[{"key":"NB","name":"Notebook","icon":<icon>,"defaultPriority":"none"}, …]}`.
+- `factories` → `{"factories":[{"id":"<Factory ID>","key":"NB","name":"Notebook","icon":<icon>,"defaultPriority":"none"}, …]}`.
+- `factory-icon` → `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}`.
 - `task-create` → `{"task":<task>}`, the new Task as the `task` route shows it, with `"startRefused":"<sentence>"` added when Start now was asked for and the start was refused.
 - `chats` → `{"factories":[<chat Factory>, …],"rows":[<chat row>, …],"archivedCount":3,"cursor":"<cursor>"}`.
 - `chat` → `{"chat":<chat row>}`.
@@ -199,6 +201,8 @@ The open requests from every Factory, in the desktop Inbox’s order, leaving ou
   "source": "task",
   "kind": "question",
   "factory": "Ted",
+  "factoryId": "<Factory ID>",
+  "factoryIcon": { "kind": "symbol", "symbol": "code", "color": "blue" },
   "title": "List and answer Inbox requests on the phone",
   "ref": "TED-700",
   "headline": "Which repo should hold the parser?",
@@ -210,6 +214,7 @@ The open requests from every Factory, in the desktop Inbox’s order, leaving ou
 
 - `source`: `task`, `plan` (a planning chat), `automation` or `chat` (a Coordinator chat).
 - `kind`: `question`, `round`, `permission`, `signoff`, `proposal`, `review` or `request` (anything else, such as a Coordinator confirmation).
+- `factoryId` and `factoryIcon`: the request’s Factory and its Factory icon (see Factory icons below). `factoryIcon` is left out when the Factory no longer exists. A Mac older than these fields sends neither, and the phone draws its own letter.
 - `title`: the Task title, plan title, Automation name or chat title. `ref` is the Task’s display ID, only for `task`.
 - `headline`: at most 200 characters. `failed` appears only when the request comes from a failed Run.
 - `onPhone`: whether the phone may answer it. When `false` the phone opens it read-only with “Answer on your Mac”.
@@ -293,7 +298,7 @@ Inside a section, rows follow the Mac’s All Tasks order: priority, then rank, 
 ```
 
 - `title` is cut to 500 characters; Factory, Stage and section names and `status` to 200.
-- `icon` is `{"kind":"letter","color":…}`, `{"kind":"symbol","symbol":…,"color":…}` or `{"kind":"emoji","emoji":…}`. It is left out when the Factory has no icon or an image icon; the phone then draws its own letter.
+- `icon` is the **Factory icon** (see Factory icons below).
 - `status` uses the desktop’s wording (“Waiting on you”, “Queued · 3rd”, “Blocked by TED-12”), and is `""` when the Task has no status (Backlog and Done).
 - `tone` is `working` (working, queued), `waiting` (waiting on you, blocked, paused, waiting for GitHub, snoozed), `failed` (failed, partly merged), `stopped`, `done` or `none` (no status).
 - `section` is the row’s section key in the grouping asked for.
@@ -382,10 +387,25 @@ Two routes let the phone create a Task. The protocol number doesn’t change: a 
 Lists every Factory the Mac’s New Task dialog offers, in the sidebar’s order:
 
 ```json
-{ "factories": [{ "key": "NB", "name": "Notebook", "icon": { "kind": "letter", "color": "blue" }, "defaultPriority": "none" }] }
+{ "factories": [{ "id": "<Factory ID>", "key": "NB", "name": "Notebook", "icon": { "kind": "letter", "color": "blue" }, "defaultPriority": "none" }] }
 ```
 
-`icon` has the same shape as a Task row’s Factory icon and is left out when the Factory has none. `name` goes through `redactSecrets` and is cut to 200 characters. The list stops before the Factory that would take the reply past `phoneReplyBodyMax` (40,000 bytes of JSON). `defaultPriority` is the priority the phone’s form starts at; Factories have no priority setting, so it is always `none`, the Mac dialog’s starting value. Nothing else about a Factory is sent.
+`icon` is the Factory icon (see Factory icons below). `id` is the Factory ID that rows, summaries and `factory-icon` use. `name` goes through `redactSecrets` and is cut to 200 characters. The list stops before the Factory that would take the reply past `phoneReplyBodyMax` (40,000 bytes of JSON). `defaultPriority` is the priority the phone’s form starts at; Factories have no priority setting, so it is always `none`, the Mac dialog’s starting value. Nothing else about a Factory is sent.
+
+### Factory icons
+
+A Factory icon tells the phone to draw what the Mac draws for that Factory, in the same colour:
+
+- `{"kind":"letter","color":…}`: the Factory name’s first character, uppercase. A Factory with no icon of its own gets a letter in the automatic colour the Mac’s sidebar gives it (`factoryColors` in `packages/protocol/src/factory-icon.ts`), worked out from every Factory in sidebar order.
+- `{"kind":"symbol","symbol":…,"color":…}`: one of the Mac’s Lucide symbols, by the name in `factoryIconSymbols`.
+- `{"kind":"emoji","emoji":…}`.
+- `{"kind":"image","version":…}`: the Factory’s own image. The reply carries only `version`, a hash of the image, because one image can be up to 32 KB. The phone asks for the image with `factory-icon`, keeps it, and asks again only when `version` changes; until it has the image it draws its own letter.
+
+`color` is one of `factoryIconColors`. A phone that doesn’t know a `kind` draws its own letter.
+
+### `factory-icon`
+
+Answers `{"dataUrl":"data:image/png;base64,…","version":"<icon version>"}` for a Factory whose icon is an image, with the same `version` the Factory icon shows. An unknown Factory gets `gone`. A Factory without an image icon, or one whose image would take the reply past `phoneReplyBodyMax`, gets `refused`, and the phone keeps drawing its own letter. The Mac shrinks uploaded images to 64 by 64 pixels, so they fit.
 
 ### `task-create`
 
@@ -429,12 +449,12 @@ Chats newest activity first: by `lastAt`, then kind, then ID. With `archived` le
 }
 ```
 
-- `title` is the Mac’s chat title, else “<Agent> chat”, cut to 500 characters. `agent` is the chat’s Agent name, and the Factory name and `status` are cut to 200. `icon` has the same shape as a Task row’s Factory icon and is left out when the Factory has none or an image icon.
+- `title` is the Mac’s chat title, else “<Agent> chat”, cut to 500 characters. `agent` is the chat’s Agent name, and the Factory name and `status` are cut to 200. `icon` is the Factory icon (see Factory icons below).
 - `status` uses the Mac’s Agents screen wording. Coordinator chats: Waiting on you (when `waiting`), Ready, Queued, Working, Paused, Failed. Planning chats: Waiting on you, Working, Idle, Queued (or “Queued · 3rd”), “Paused · <reason>” (“Paused · usage limit” without one), Failed, Finished, Stopped. An archived chat is “Archived”.
 - `tone` is `working` (working, queued), `waiting` (waiting on you, paused), `failed`, `stopped` (stopped, archived), `done` (finished) or `none` (ready, idle).
 - `waiting` is `true` when the chat has an open request for the user, as the Mac’s Waiting chip: an unanswered question, round, proposal, Agent draft, outside command, confirmation or automation card in a Coordinator chat, or a planning chat waiting on the user or with an open request. It is always `false` for an archived chat.
 
-`factories` lists `{"id":"<Factory ID>","name":"Ted","icon":<icon>}` for every Factory that has at least one chat, open or archived, in the sidebar’s order, on every page, so the phone can offer its Factory filter. `factories` never takes more than half of `phoneReplyBodyMax`, so at least one row always fits: when it would, the Mac cuts every name to 100 characters, then 50, then 20, then none, and as a last resort sends only the Factories that fit, with empty names and no icons. `archivedCount` counts the archived chats the same `factoryId` would list, on every page.
+`factories` lists `{"id":"<Factory ID>","name":"Ted","icon":<icon>}` for every Factory that has at least one chat, open or archived, in the sidebar’s order, on every page, so the phone can offer its Factory filter. `factories` never takes more than half of `phoneReplyBodyMax`, so at least one row always fits: when it would, the Mac cuts every name to 100 characters, then 50, then 20, then none, and as a last resort sends only the Factories that fit, with empty names and no icons; the phone then draws its own letter. `archivedCount` counts the archived chats the same `factoryId` would list, on every page.
 
 **Paging.** As `tasks`: a page holds as many rows as fit; `cursor` holds the last row’s place (`lastAt`, kind, ID) and is sent back with the same `factoryId` and `archived` for the next page. A bad cursor, or one made for another route, gets `bad-request`. A chat that moves between pages may be skipped or show twice; the phone replaces a row it already holds.
 
