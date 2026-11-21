@@ -29,7 +29,7 @@ export function toPiFiles(
   copied: ReadonlySet<string>,
 ): string {
   return text.replace(attachmentPattern(home), (found, hash: string, ext: string) =>
-    copied.has(hash) ? path.join(folder, `${hash}${ext}`) : found,
+    copied.has(`${hash}${ext}`) ? path.join(folder, `${hash}${ext}`) : found,
   )
 }
 

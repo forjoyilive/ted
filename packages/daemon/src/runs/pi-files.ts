@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { copyFile, lstat, mkdir, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
@@ -41,9 +42,9 @@ export async function piFilesText(
   const folder = await piFilesFolderMade(home, owner)
   const copied = new Set<string>()
   for (const { hash, name } of found) {
-    if (!owned.has(hash) || copied.has(hash)) continue
+    if (!owned.has(hash) || copied.has(name)) continue
     if (await cloned(path.join(tedPaths(home).attachments, name), path.join(folder, name)))
-      copied.add(hash)
+      copied.add(name)
   }
   return toPiFiles(home, folder, text, copied)
 }
@@ -82,7 +83,7 @@ async function cloned(source: string, copy: string): Promise<boolean> {
   if (present?.isFile() === true) return true
   if (present !== undefined) return false
   if ((await lstat(source).catch(() => undefined))?.isFile() !== true) return false
-  const partial = `${copy}.${process.pid}.partial`
+  const partial = `${copy}.${randomUUID()}.partial`
   try {
     await copyFile(source, partial, constants.COPYFILE_FICLONE)
     await rename(partial, copy)

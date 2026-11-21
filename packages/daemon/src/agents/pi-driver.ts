@@ -3,6 +3,12 @@ import type { DriveAgent } from '../runs/host-files.ts'
 
 export interface PiPlan {
   prompt: string
+  shown?: string
+}
+
+interface PiPrompt {
+  text: string
+  shown?: string
 }
 
 export const piDialogs = ['select', 'confirm', 'input', 'editor'] as const
@@ -11,7 +17,11 @@ const stateRequest = 'ted-state'
 
 function parsePlan(input: string): PiPlan {
   const plan = parseJson(input)
-  return { prompt: isObject(plan) && isString(plan.prompt) ? plan.prompt : '' }
+  if (!isObject(plan)) return { prompt: '' }
+  return {
+    prompt: isString(plan.prompt) ? plan.prompt : '',
+    ...(isString(plan.shown) && { shown: plan.shown }),
+  }
 }
 
 function objectFrom(line: string): JsonObject | undefined {
@@ -30,14 +40,14 @@ export const drive: DriveAgent = ({ input, send, emit, stop, fail }) => {
   let requests = 0
   let starting: string | undefined
   let lastError: string | undefined
-  const queued: string[] = []
+  const queued: PiPrompt[] = []
 
-  function prompt(text: string) {
+  function prompt({ text, shown }: PiPrompt) {
     const steer = busy
     const id = `ted-prompt-${++requests}`
     busy = true
     if (!steer) starting = id
-    output('started', { text, ...(steer && { steer: true }) })
+    output('started', { text: shown ?? text, exact: true, ...(steer && { steer: true }) })
     command({
       id,
       type: 'prompt',
@@ -69,8 +79,12 @@ export const drive: DriveAgent = ({ input, send, emit, stop, fail }) => {
         return
       }
       if (!isString(message.text)) return
-      if (!ready || interrupted) queued.push(message.text)
-      else prompt(message.text)
+      const next = {
+        text: message.text,
+        ...(isString(message.shown) && { shown: message.shown }),
+      }
+      if (!ready || interrupted) queued.push(next)
+      else prompt(next)
     },
     onLine(line) {
       const event = objectFrom(line)
@@ -97,9 +111,14 @@ export const drive: DriveAgent = ({ input, send, emit, stop, fail }) => {
             })
           }
           ready = true
-          if (plan.prompt !== '') queued.unshift(plan.prompt)
-          if (queued.length === 0) output('idle')
-          else prompt(queued.shift() ?? '')
+          if (plan.prompt !== '')
+            queued.unshift({
+              text: plan.prompt,
+              ...(plan.shown !== undefined && { shown: plan.shown }),
+            })
+          const first = queued.shift()
+          if (first === undefined) output('idle')
+          else prompt(first)
           return
         }
         if (event.command === 'prompt' && event.success === false) {

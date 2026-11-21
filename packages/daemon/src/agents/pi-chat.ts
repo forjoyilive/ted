@@ -75,6 +75,11 @@ function resultText(result: Json | undefined): string {
     .join('\n')
 }
 
+// Hosts started before Ted sent Pi the original text echo the delivered one, without `exact`.
+export function echoed(event: JsonObject, shown: (text: string) => string): string {
+  return event.exact === true ? piText(event.text) : shown(piText(event.text))
+}
+
 export function piChatFrom(
   cwd: string,
   shown: (text: string) => string = (text) => text,
@@ -156,7 +161,7 @@ export function piChatFrom(
         chat.put({
           kind: 'user',
           key: `user:${entry.offset}`,
-          text: shown(piText(event.text)),
+          text: echoed(event, shown),
           ...(at !== undefined && { at }),
         })
         return

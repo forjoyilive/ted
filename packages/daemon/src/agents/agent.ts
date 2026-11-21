@@ -138,6 +138,7 @@ export interface Agent {
   binary: string
   launch(run: {
     prompt: string
+    sent?: string
     runDir: string
     env: NodeJS.ProcessEnv
     resume?: string
@@ -147,8 +148,8 @@ export interface Agent {
     tools?: 'none' | 'isolated'
     billing?: Billing | undefined
   }): AgentLaunch
-  message(text: string): string
-  steer(text: string): string
+  message(text: string, sent?: string): string
+  steer(text: string, sent?: string): string
   interrupt(): string[]
   boundaryFrom(line: string): boolean
   stateFrom(line: string): RunState | undefined

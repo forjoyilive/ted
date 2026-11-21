@@ -724,10 +724,13 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
       { name: 'later.txt', mediaType: 'text/plain' },
       new TextEncoder().encode('sent mid-Run'),
     )
-    await raw.call('POST', `/runs/${runId}/messages`, {
-      text: 'STUB_PROBE again',
-      attachments: [later],
-    })
+    const other = await client.uploadAttachment(
+      { name: 'other.txt', mediaType: 'text/plain' },
+      new TextEncoder().encode('not this Run’s'),
+    )
+    const otherFile = path.join(home, 'attachments', `${other.hash}.txt`)
+    const again = `STUB_PROBE again\n- other.txt: ${otherFile}`
+    await raw.call('POST', `/runs/${runId}/messages`, { text: again, attachments: [later] })
     const probes = async () =>
       (await readFile(path.join(runDir, 'pi-sessions', 'stub-pi-probes.jsonl'), 'utf8'))
         .trim()
@@ -741,6 +744,8 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
       file: path.join(files, `${later.hash}.txt`),
       read: { ok: true, output: 'sent mid-Run' },
     })
+    expect(read(second, other.hash).file).toBe(otherFile)
+    if (realSandbox) expect(read(second, other.hash).read.ok).toBe(false)
     const items = await waitUntil(async () => {
       const chat = (await raw.call('GET', `/runs/${runId}/chat`)).body as RunChat
       return chat.run.state === 'idle' &&
@@ -753,7 +758,7 @@ test(`a Pi Task Lead in an Auto Factory starts in the sandbox with the Task’s 
     ).not.toContain(files)
     expect(
       items.filter((item) => item.kind === 'human' && item.text.includes('STUB_PROBE again')),
-    ).toEqual([expect.objectContaining({ text: 'STUB_PROBE again', attachments: [later] })])
+    ).toEqual([expect.objectContaining({ text: again, attachments: [later] })])
     if (realSandbox) {
       expect(probe.outsideWrite.ok).toBe(false)
       expect(probe.sharedTmpWrite.ok).toBe(false)

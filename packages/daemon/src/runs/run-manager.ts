@@ -1173,8 +1173,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
     const lines = new Map<string, string>()
     for (const message of messages) {
-      const text = await forAgent(run.agent, runId, run.taskId, message.text)
-      lines.set(message.id, steer ? agent.steer(text) : agent.message(text))
+      const sent = await forAgent(run.agent, runId, run.taskId, message.text)
+      lines.set(
+        message.id,
+        steer ? agent.steer(message.text, sent) : agent.message(message.text, sent),
+      )
     }
     if (!canDispatch()) return false
     const inputBytes = readInput(files.input)
@@ -1348,7 +1351,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           })
           permissions = runPermissions(store, { taskId })
           const launch = agent.launch({
-            prompt: await forAgent(kind, id, taskId, prompt),
+            prompt,
+            sent: await forAgent(kind, id, taskId, prompt),
             runDir,
             env: runEnv(id, rememberEnv(id, env)),
             ...(resume !== undefined && { resume }),
@@ -1429,7 +1433,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         const permissions = runPermissions(store, run)
         const choice = flags ?? run
         const launch = agents.get(run.agent).launch({
-          prompt: await forAgent(run.agent, runId, run.taskId, prompt),
+          prompt,
+          sent: await forAgent(run.agent, runId, run.taskId, prompt),
           runDir,
           env: runEnv(runId, rememberEnv(runId, env)),
           ...(sessionId !== undefined && { resume: sessionId }),
@@ -1629,7 +1634,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (!run) throw new Error(`no Run ${runId}`)
       const sent = await forAgent(run.agent, runId, run.taskId, text, files)
       await wakeForInput(runId)
-      await appendFile(input, `${agents.get(run.agent).message(sent)}\n`, { mode: 0o600 })
+      await appendFile(input, `${agents.get(run.agent).message(text, sent)}\n`, {
+        mode: 0o600,
+      })
     },
     async steer(runId, texts) {
       const run = store.getRun(runId)
@@ -1641,7 +1648,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       await wakeForInput(runId)
       await appendFile(
         runFiles(path.join(runsDir, runId)).input,
-        sent.map((text) => `${agent.steer(text)}\n`).join(''),
+        texts.map((text, i) => `${agent.steer(text, sent[i])}\n`).join(''),
         { mode: 0o600 },
       )
     },

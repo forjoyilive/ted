@@ -5,6 +5,7 @@ import { type Effort, isModelName } from '@ted/protocol'
 import type { Agent } from './agent.ts'
 import { withoutCredentials } from './agent.ts'
 import {
+  echoed,
   piAssistant,
   piChat,
   piChatFrom,
@@ -46,12 +47,16 @@ export function piSessionFile(sessions: string, sessionId: string): string | und
 
 const modelMissing = /model.*(not found|unknown|unavailable|not available|no such)/i
 
+function shownIfChanged(text: string, sent: string | undefined): { shown?: string } {
+  return sent === undefined || sent === text ? {} : { shown: text }
+}
+
 export function piAgent(binary: string, home?: string): Agent {
   const shown = (text: string) => (home === undefined ? text : fromPiFiles(home, text))
   return {
     kind: 'pi',
     binary,
-    launch({ prompt, runDir, env, resume, model, effort, tools }) {
+    launch({ prompt, sent, runDir, env, resume, model, effort, tools }) {
       if (model !== undefined && !isModelName(model))
         throw new Error(`“${model}” isn’t a model name`)
       if (resume !== undefined && !/^[\w-]+$/.test(resume))
@@ -60,7 +65,7 @@ export function piAgent(binary: string, home?: string): Agent {
       const session = resume === undefined ? undefined : piSessionFile(sessions, resume)
       if (resume !== undefined && session === undefined)
         throw new Error(`Pi’s saved session ${resume} is missing from this Run’s folder`)
-      const plan: PiPlan = { prompt }
+      const plan: PiPlan = { prompt: sent ?? prompt, ...shownIfChanged(prompt, sent) }
       return {
         command: binary,
         args: [
@@ -82,8 +87,9 @@ export function piAgent(binary: string, home?: string): Agent {
       }
     },
     environment: (env) => withoutCredentials(env),
-    message: (text) => JSON.stringify({ text }),
-    steer: (text) => JSON.stringify({ text, steer: true }),
+    message: (text, sent) => JSON.stringify({ text: sent ?? text, ...shownIfChanged(text, sent) }),
+    steer: (text, sent) =>
+      JSON.stringify({ text: sent ?? text, ...shownIfChanged(text, sent), steer: true }),
     interrupt: () => [JSON.stringify({ interrupt: true })],
     boundaryFrom: (line) => piLine(line)?.type === 'tool_execution_end',
     permissionPromptFrom: () => undefined,
@@ -101,7 +107,7 @@ export function piAgent(binary: string, home?: string): Agent {
     },
     acceptedTextFrom(line) {
       const event = piLine(line)
-      return event?.ted_pi === 'started' ? shown(piText(event.text)) : undefined
+      return event?.ted_pi === 'started' ? echoed(event, shown) : undefined
     },
     agentTextFrom(line) {
       const event = piLine(line)

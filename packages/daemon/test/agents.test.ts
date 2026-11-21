@@ -1454,6 +1454,31 @@ describe('Pi', () => {
     return { driver, sent, events, failures, pi, ready, kinds }
   }
 
+  test('the driver hands Pi the text with copied file paths but echoes the original, even a pasted copy path', () => {
+    const homed = piAgent('/nowhere/pi', '/t')
+    const own = `${'a'.repeat(64)}.txt`
+    const pasted = `/t/sandbox/NB-1/files/${'b'.repeat(64)}.txt`
+    const original = `See /t/attachments/${own} and ${pasted}`
+    const sent = `See /t/sandbox/NB-1/files/${own} and ${pasted}`
+    expect(JSON.parse(homed.launch({ ...bypass, prompt: original, sent }).input)).toEqual({
+      prompt: sent,
+      shown: original,
+    })
+    const h = piHarness()
+    h.ready()
+    h.driver.onInput?.(homed.message(original, sent))
+    expect(h.sent.at(-1)).toMatchObject({ type: 'prompt', message: sent })
+    expect(homed.acceptedTextFrom(h.events.at(-1) ?? '')).toBe(original)
+    expect(homed.chat([entry(0, JSON.parse(h.events.at(-1) ?? '{}'))], '/w')).toEqual([
+      expect.objectContaining({ kind: 'user', text: original }),
+    ])
+    const olderHost = JSON.stringify({
+      ted_pi: 'started',
+      text: `See /t/sandbox/NB-1/files/${own}`,
+    })
+    expect(homed.acceptedTextFrom(olderHost)).toBe(`See /t/attachments/${own}`)
+  })
+
   test('the driver records the session, steers while Pi works, and starts a new turn once Pi settles', () => {
     const h = piHarness()
     expect(h.sent).toEqual([{ id: 'ted-state', type: 'get_state' }])
