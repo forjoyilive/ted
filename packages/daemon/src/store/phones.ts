@@ -104,8 +104,13 @@ export type PhoneChatRetry = Pick<PhoneChatSent, 'phoneId' | 'createId' | 'actio
 export function phoneChatCommit(
   sent: Omit<PhoneChatSent, 'at'>,
   writes: readonly PhoneChatWrite[],
+  immediateMessageId?: string,
 ) {
-  return events.phoneChatCommitted({ sent: { ...sent, at: new Date().toISOString() }, writes })
+  return events.phoneChatCommitted({
+    sent: { ...sent, at: new Date().toISOString() },
+    writes,
+    ...(immediateMessageId !== undefined && { immediateMessageId }),
+  })
 }
 
 export interface PhonesArea {

@@ -2,7 +2,7 @@ import { Events, Schema, State } from '@livestore/livestore'
 import { chatsEvents, chatsMaterializers } from './chats.ts'
 import { phoneChatSends, phonesEvents, phonesMaterializers, phoneTaskCreateId } from './phones.ts'
 import { plansEvents, plansMaterializers } from './plans.ts'
-import { runsEvents, runsMaterializers } from './runs.ts'
+import { runMessages, runsEvents, runsMaterializers } from './runs.ts'
 
 const write = <Name extends string, Args>(event: { name: Name; schema: Schema.Codec<Args> }) =>
   Schema.Struct({ name: Schema.Literal(event.name), args: event.schema })
@@ -29,12 +29,13 @@ export const phoneChatEvents = {
     schema: Schema.Struct({
       sent: phonesEvents.phoneChatSent.schema,
       writes: Schema.Array(phoneChatWrite),
+      immediateMessageId: Schema.optional(Schema.String),
     }),
   }),
 }
 
 export const phoneChatMaterializers = State.SQLite.materializers(phoneChatEvents, {
-  'v1.PhoneChatCommitted': ({ sent, writes }, context) => {
+  'v1.PhoneChatCommitted': ({ sent, writes, immediateMessageId }, context) => {
     const id = phoneTaskCreateId(sent.phoneId, sent.createId)
     if (context.query(phoneChatSends.where({ id }).first())) return []
     return [
@@ -99,6 +100,9 @@ export const phoneChatMaterializers = State.SQLite.materializers(phoneChatEvents
         write satisfies never
         throw new Error('Unknown phone chat write')
       }),
+      ...(immediateMessageId === undefined
+        ? []
+        : [runMessages.update({ phoneImmediate: true }).where({ id: immediateMessageId })]),
       ...[
         phonesMaterializers['v1.PhoneChatSent'](sent, {
           ...context,

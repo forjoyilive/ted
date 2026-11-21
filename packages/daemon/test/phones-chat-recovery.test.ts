@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   type Factory,
@@ -9,6 +10,7 @@ import {
 } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { runFiles } from '../src/runs/host-files.ts'
 import type { TedStore } from '../src/store/index.ts'
 import {
   api,
@@ -17,6 +19,7 @@ import {
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
+  stubClaudePath,
 } from './helpers.ts'
 import { memoryKeyrings, type PhoneBody, startRelayStub, TestPhone } from './support/phone-relay.ts'
 
@@ -36,6 +39,9 @@ test('phone chat actions survive a daemon restart before the action returns to t
   let store: TedStore | undefined
   let phone: TestPhone | undefined
   let pauseReplies = false
+  let immediateRetry: { phoneId: string; createId: string; chatId: string } | undefined
+  const immediateText = 'Send to the idle planner once'
+  let providerAccepted = false
   const committed: string[] = []
   const lostReply = new Promise<never>(() => {})
   const opened = () => {
@@ -54,6 +60,7 @@ test('phone chat actions survive a daemon restart before the action returns to t
     const running = await startDaemon({
       home,
       version: '9.9.9',
+      claudeBin: stubClaudePath,
       phones: {
         keyrings: keys.keyrings,
         relayUrl: relay.url,
@@ -65,6 +72,28 @@ test('phone chat actions survive a daemon restart before the action returns to t
           store = value
           return value
         },
+        runs: (runs) => ({
+          ...runs,
+          dispatch: async (...args) => {
+            const [runId, messages] = args
+            const pending = immediateRetry
+            if (
+              !pauseReplies ||
+              !pending ||
+              runId !== pending.chatId ||
+              !messages.some((message) => message.text === immediateText)
+            ) {
+              return runs.dispatch(...args)
+            }
+            expect(opened().phones.chatSent(pending.phoneId, pending.createId)).toMatchObject({
+              chatKind: 'plan',
+              chatId: runId,
+              queued: false,
+            })
+            providerAccepted = await runs.dispatch(...args)
+            return lostReply
+          },
+        }),
         coordinators: (chats) => ({
           ...chats,
           start: async (...args) => afterCommit(await chats.start(...args)),
@@ -95,8 +124,6 @@ test('phone chat actions survive a daemon restart before the action returns to t
     const response = await http.call('POST', '/dev/factories', { repo, key: 'NB' })
     expect(response.status).toBeLessThan(300)
     const factory = response.body as Factory
-    opened().pauseAgent('claude', 'Keep chat Runs queued for the restart trial')
-    opened().pauseAgent('codex', 'Keep chat Runs queued for the restart trial')
 
     const offer = await client.createPhonePairing()
     const paired = new TestPhone(offer.link)
@@ -123,6 +150,22 @@ test('phone chat actions survive a daemon restart before the action returns to t
         text,
         createId: createId(),
       }) as const
+    const live = parsePhoneChatCreatedBody(
+      body(
+        await paired.send(
+          create(
+            'planner',
+            JSON.stringify({
+              steps: [{ everyMessage: [{ endTurn: true }] }, { endTurn: true }],
+            }),
+          ),
+        ),
+      ),
+    ).chat
+    await expect.poll(async () => (await client.getPlan(live.id)).plan.status).toBe('idle')
+    opened().pauseAgent('claude', 'Keep other chat Runs queued for the restart trial')
+    opened().pauseAgent('codex', 'Keep other chat Runs queued for the restart trial')
+
     const coordinator = parsePhoneChatCreatedBody(
       body(await paired.send(create('coordinator', 'Existing chat'))),
     ).chat
@@ -148,6 +191,14 @@ test('phone chat actions survive a daemon restart before the action returns to t
     const newPlanId = await commitWithoutReply(planCreate)
     expect(await commitWithoutReply(resume)).toBe(plan.id)
 
+    const immediate = send('plan', live.id, immediateText)
+    const [storedPhone] = opened().phones.list()
+    if (!storedPhone) throw new Error('Paired phone is missing')
+    immediateRetry = { phoneId: storedPhone.id, createId: immediate.createId, chatId: live.id }
+    await paired.sendRaw(paired.message(immediate).envelope)
+    await expect.poll(() => providerAccepted).toBe(true)
+    await expect.poll(() => opened().getRun(live.id)?.state).toBe('idle')
+
     const readyCount = () =>
       relay.frames.filter((frame) => frame.from === 'relay' && frame.text === '{"t":"ready"}')
         .length
@@ -164,6 +215,19 @@ test('phone chat actions survive a daemon restart before the action returns to t
     })
     expect(body(await paired.send(planCreate))).toEqual({ chat: { kind: 'plan', id: newPlanId } })
     expect(body(await paired.send(resume))).toEqual({ queued: false })
+    expect(body(await paired.send(immediate))).toEqual({ queued: false })
+
+    const input = runFiles(path.join(home, 'runs', live.id)).input
+    await expect
+      .poll(() =>
+        opened()
+          .runMessages(live.id)
+          .filter((message) => message.text === immediateText)
+          .map((message) => message.queued === true),
+      )
+      .toEqual([false])
+    const inputs = (await readFile(input, 'utf8')).split('\n')
+    expect(inputs.filter((line) => line.includes(immediateText))).toHaveLength(1)
 
     const chats = await restarted.coordinatorChats(factory.id)
     expect(chats.map((chat) => chat.id).sort()).toEqual([coordinator.id, newChatId].sort())
@@ -175,7 +239,7 @@ test('phone chat actions survive a daemon restart before the action returns to t
         .map((message) => message.text),
     ).toEqual(['Existing chat', 'Send once'])
     const plans = await restarted.listPlans(factory.id)
-    expect(plans.map((plan) => plan.id).sort()).toEqual([plan.id, newPlanId].sort())
+    expect(plans.map((plan) => plan.id).sort()).toEqual([plan.id, newPlanId, live.id].sort())
     expect(
       opened()
         .runMessages(plan.id)

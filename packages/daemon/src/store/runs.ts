@@ -110,7 +110,6 @@ export interface RunsArea {
     runId: string
     text: string
     lead: boolean
-    phoneChat?: RunPhoneChat | undefined
     files?: readonly Attachment[]
   }): RunMessage
   queueRunMessage(input: {
@@ -126,6 +125,7 @@ export interface RunsArea {
   runSteeringRelease(runId: string): RunSteeringRelease | undefined
   recordTurnInterrupted(runId: string, hold: boolean): RunInterrupt
   runMessages(runId: string): RunMessage[]
+  isImmediatePhoneMessage(id: string): boolean
   runMessageFiles(ids: readonly string[]): Map<string, Attachment[]>
   runInterrupts(runId: string): RunInterrupt[]
   openTab(taskId: string, runId: string): Task
@@ -141,6 +141,7 @@ export interface RunsArea {
 export interface RunPhoneChat {
   retry: PhoneChatRetry
   chatId: string
+  immediate?: true
 }
 
 export function queuedPhoneChatMessage(runId: string, text: string, files: readonly Attachment[]) {
@@ -690,21 +691,13 @@ export function runsArea(ctx: StoreContext): RunsArea {
       }
     },
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
-    recordRunMessage({ runId, text, lead, phoneChat, files = [] }) {
+    recordRunMessage({ runId, text, lead, files = [] }) {
       const taskId = taskIdOfRun(runId) ?? null
       const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
-      const sent = events.runMessageSent({ ...message, taskId, lead: lead && taskId !== null })
-      const attachments = filesAttached(message.id, runId, files)
-      if (phoneChat) {
-        commit(
-          phoneChatCommit(
-            { ...phoneChat.retry, chatKind: 'plan', chatId: phoneChat.chatId, queued: false },
-            [sent, ...attachments],
-          ),
-        )
-      } else {
-        commit(sent, ...attachments)
-      }
+      commit(
+        events.runMessageSent({ ...message, taskId, lead: lead && taskId !== null }),
+        ...filesAttached(message.id, runId, files),
+      )
       emit({ type: 'run-output', runId })
       if (taskId !== null && lead) updatedTask(taskId)
       return { ...message, ...(files.length > 0 && { attachments: [...files] }) }
@@ -714,8 +707,14 @@ export function runsArea(ctx: StoreContext): RunsArea {
         const { message, writes } = queuedPhoneChatMessage(runId, text, files)
         commit(
           phoneChatCommit(
-            { ...phoneChat.retry, chatKind: 'plan', chatId: phoneChat.chatId, queued: true },
+            {
+              ...phoneChat.retry,
+              chatKind: 'plan',
+              chatId: phoneChat.chatId,
+              queued: phoneChat.immediate !== true,
+            },
             writes,
+            phoneChat.immediate ? message.id : undefined,
           ),
         )
         emit({ type: 'run-output', runId })
@@ -777,6 +776,8 @@ export function runsArea(ctx: StoreContext): RunsArea {
       emit({ type: 'run-output', runId })
       return interrupt
     },
+    isImmediatePhoneMessage: (id) =>
+      store.query(queryDb(runMessages.select('phoneImmediate').where({ id })))[0] === true,
     runMessages: (runId) =>
       store
         .query(queryDb(runMessages.where({ runId, deletedAt: null }).orderBy('at', 'asc')))

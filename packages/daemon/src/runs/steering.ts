@@ -235,7 +235,9 @@ export function createSteering(options: {
       syncFlag(run.id)
       return acknowledged
     }
-    if (store.coordinators.forRun(run.id)) {
+    const coordinator = store.coordinators.forRun(run.id)
+    const immediatePhone = sending.some((message) => store.isImmediatePhoneMessage(message.id))
+    if (coordinator || immediatePhone) {
       delivering.add(run.id)
       syncFlag(run.id)
       let failure: unknown
@@ -250,7 +252,7 @@ export function createSteering(options: {
           !(await runs.dispatch(
             run.id,
             dispatch,
-            !admitted,
+            coordinator ? !admitted : current.state === 'working',
             (messageId) =>
               options.canDeliver(run.id, admitted) &&
               (messageId === undefined ||
@@ -274,7 +276,7 @@ export function createSteering(options: {
       } finally {
         delivering.delete(run.id)
         syncFlag(run.id)
-        options.deliveryFinished?.(run.id, failure)
+        if (coordinator) options.deliveryFinished?.(run.id, failure)
       }
     }
     store.deliverRunMessages(
@@ -407,8 +409,19 @@ export function createSteering(options: {
           return message
         }
         await deliver(live, queued(runId), { includeHeld: true })
+        if (phoneChat) {
+          const message = store.queueRunMessage({
+            runId,
+            text,
+            files,
+            phoneChat: { ...phoneChat, immediate: true },
+          })
+          await deliver(live, [message], { includeHeld: true })
+          const { queued: _, ...sent } = message
+          return sent
+        }
         await runs.send(runId, text, files)
-        return store.recordRunMessage({ runId, text, lead: isCurrentLead(live), files, phoneChat })
+        return store.recordRunMessage({ runId, text, lead: isCurrentLead(live), files })
       })
     },
     async stopTurn(runId) {
@@ -441,7 +454,10 @@ export function createSteering(options: {
     },
     remove(runId, messageId) {
       if (!store.getRun(runId)) throw new RequestError(404, 'no such Run')
-      if (store.coordinators.forRun(runId) && runs.inputDispatched(runId, messageId))
+      if (
+        (store.coordinators.forRun(runId) || store.isImmediatePhoneMessage(messageId)) &&
+        runs.inputDispatched(runId, messageId)
+      )
         throw new RequestError(409, 'Delivery has started; this message can no longer be canceled')
       const removed = store.deleteRunMessage(runId, messageId)
       if (!removed) throw new RequestError(409, 'The agent has already read this message')
