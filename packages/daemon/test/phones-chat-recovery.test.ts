@@ -20,6 +20,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  waitUntil,
 } from './helpers.ts'
 import { memoryKeyrings, type PhoneBody, startRelayStub, TestPhone } from './support/phone-relay.ts'
 
@@ -162,7 +163,10 @@ test('phone chat actions survive a daemon restart before the action returns to t
         ),
       ),
     ).chat
-    await expect.poll(async () => (await client.getPlan(live.id)).plan.status).toBe('idle')
+    await waitUntil(
+      () => opened().getRun(live.id)?.state === 'idle',
+      'the first Planning Run to become idle',
+    )
     opened().pauseAgent('claude', 'Keep other chat Runs queued for the restart trial')
     opened().pauseAgent('codex', 'Keep other chat Runs queued for the restart trial')
 

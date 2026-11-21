@@ -1,4 +1,13 @@
-import { fromBase64Url, relayChannel, toBase64Url } from '@ted/protocol'
+import path from 'node:path'
+import {
+  type Edition,
+  edition,
+  fromBase64Url,
+  relayChannel,
+  relayUrl,
+  tedEnv,
+  toBase64Url,
+} from '@ted/protocol'
 import nacl from 'tweetnacl'
 import { type Keyring, loadKeyring } from '../linear/keyring.ts'
 import type { BoxKeys } from './crypto.ts'
@@ -12,13 +21,50 @@ export interface PhoneKeys {
   channel: string
 }
 
-export type PhoneKeyrings = (account: string) => Promise<Keyring>
+type PhoneKeyring = Pick<Keyring, 'get' | 'set'>
 
-export const osPhoneKeyrings: PhoneKeyrings = (account) =>
+export type PhoneKeyrings = (account: string) => Promise<PhoneKeyring>
+
+const osPhoneKeyrings: PhoneKeyrings = (account) =>
   loadKeyring(process.env, process.platform, account)
 
+export function phoneKeyringsForHome(
+  home: string,
+  relay = relayUrl(),
+  env: NodeJS.ProcessEnv = process.env,
+  which: Edition = edition,
+): PhoneKeyrings {
+  const taskHomeSuffix = path.join(path.sep, 'node_modules', '.cache', 'ted-home')
+  if (
+    which !== 'dev' ||
+    tedEnv('TED_ELECTRON_HIDDEN', env, which) !== '1' ||
+    !path.isAbsolute(home) ||
+    !path.normalize(home).endsWith(taskHomeSuffix)
+  ) {
+    return osPhoneKeyrings
+  }
+  const url = URL.parse(relay)
+  if (
+    !url ||
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    (url.hostname !== '127.0.0.1' && url.hostname !== '[::1]')
+  ) {
+    return osPhoneKeyrings
+  }
+
+  const secrets = new Map<string, string>()
+  return async (account) => ({
+    async get() {
+      return secrets.get(account)
+    },
+    async set(secret) {
+      secrets.set(account, secret)
+    },
+  })
+}
+
 async function stored<T>(
-  keyring: Keyring,
+  keyring: PhoneKeyring,
   restore: (secret: Uint8Array) => T | undefined,
   make: () => { pair: T; secret: Uint8Array },
 ): Promise<T> {
