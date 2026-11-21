@@ -18,7 +18,7 @@ type PhoneCaller = Extract<Caller, { kind: 'phone' }>
 
 export interface PhoneTaskChanges {
   task(ref: string): Task | undefined
-  start(ref: string): Promise<Task>
+  start(ref: string): Promise<{ waitingForBlockers: boolean }>
   stop(ref: string): Promise<Task>
   resume(ref: string, comment?: string): Promise<Task>
   setPriority(ref: string, priority: Priority): Task
@@ -73,13 +73,14 @@ export function createPhoneActions(
 
   async function act(
     taskId: string,
-    change: (id: string) => Promise<void>,
+    change: (id: string) => Promise<{ waitingForBlockers: boolean }> | Promise<void>,
     reply: 'task' | 'empty',
   ): Promise<PhoneOutcome> {
     const task = visible(taskId)
     if (!task) return { code: 'gone' }
     try {
-      await change(task.id)
+      const result = await change(task.id)
+      return reply === 'task' ? tasks.read(task.id, result?.waitingForBlockers) : { body: {} }
     } catch (error) {
       if (error instanceof RequestError && error.status === 404 && !changes.task(task.id)) {
         return { code: 'gone' }
@@ -90,7 +91,6 @@ export function createPhoneActions(
       console.error(redactSecrets(`a phone action on ${task.displayId} failed: ${String(error)}`))
       return { code: 'refused' }
     }
-    return reply === 'task' ? tasks.read(task.id) : { body: {} }
   }
 
   return {
@@ -99,9 +99,10 @@ export function createPhoneActions(
         taskId,
         async (id) => {
           try {
-            await changes.start(id)
+            return await changes.start(id)
           } catch (error) {
             if (!(error instanceof AlreadyStartedError)) throw error
+            return { waitingForBlockers: false }
           }
         },
         'task',

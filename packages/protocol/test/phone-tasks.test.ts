@@ -110,6 +110,11 @@ test('parsePhoneTaskBody reads the row fields, the description, cut and the Arch
   }
   const body: PhoneTaskBody = { task }
   expect(parsePhoneTaskBody(roundTrip(body))).toEqual(body)
+  const waiting = { ...body, waitingForBlockers: true }
+  expect(parsePhoneTaskBody(roundTrip(waiting))).toEqual(waiting)
+  expect(() => parsePhoneTaskBody({ ...body, waitingForBlockers: 'yes' })).toThrow(
+    /waitingForBlockers/,
+  )
   expect(() => parsePhoneTaskBody({ task: { ...task, description: undefined } })).toThrow(
     /description/,
   )

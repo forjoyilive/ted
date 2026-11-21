@@ -76,7 +76,7 @@ export function storeTaskSource(
 
 export interface PhoneTasks {
   list(group: PhoneTaskGroup, cursor: string | undefined): Promise<PhoneOutcome>
-  read(taskId: string): Promise<PhoneOutcome>
+  read(taskId: string, waitingForBlockers?: boolean): Promise<PhoneOutcome>
   comments(taskId: string, cursor: string | undefined): Promise<PhoneOutcome>
   revision(taskId: string): string | undefined
 }
@@ -384,7 +384,7 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     return task && !task.archived ? task : undefined
   }
 
-  async function read(taskId: string): Promise<PhoneOutcome> {
+  async function read(taskId: string, waitingForBlockers = false): Promise<PhoneOutcome> {
     const task = visible(taskId)
     if (!task) return { code: 'gone' }
     const factory = source.factories().find((each) => each.id === task.factoryId)
@@ -407,9 +407,11 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
       openPullRequests: openPullRequests(task).length,
       hierarchyRevision: familyRevision(task, descendants),
     }
-    const fitted = fitText(short, Math.max(0, phoneReplyBodyMax - jsonBytes({ task: bare })))
+    const body = { task: bare, ...(waitingForBlockers && { waitingForBlockers }) }
+    const fitted = fitText(short, Math.max(0, phoneReplyBodyMax - jsonBytes(body)))
     return {
       body: {
+        ...body,
         task: { ...bare, description: fitted.text, cut: short !== redacted || fitted.cut },
       },
     }
