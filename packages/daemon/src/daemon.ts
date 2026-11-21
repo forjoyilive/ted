@@ -50,6 +50,7 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
+import { phoneMoveApprovals } from './phones/approvals.ts'
 import { serviceChatSource } from './phones/chats.ts'
 import { createPhoneImages, type ImageShrinker } from './phones/images.ts'
 import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
@@ -920,22 +921,54 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         disk,
       })
       const phonePlans = plans
+      const phoneMoves = phoneMoveApprovals(store, tasks)
       const phones = createPhones({
         phones: store.phones,
-        inbox: storeInbox(store, {
-          task: async (id, answer) => {
-            await tasks.answerFromPhone(id, answer)
+        inbox: storeInbox(
+          store,
+          {
+            task: async (id, answer) => {
+              await tasks.answerFromPhone(id, answer)
+            },
+            chat: async (chatId, id, answer) => {
+              await coordinators.answerRequest(chatId, id, answer)
+            },
+            plan: async (id, answer) => {
+              await phonePlans.answer(id, answer)
+            },
+            automation: async (id, answer) => {
+              await automations.answer(id, answer)
+            },
           },
-          chat: async (chatId, id, answer) => {
-            await coordinators.answerRequest(chatId, id, answer)
+          phoneMoves,
+          async (id, answer) => {
+            if (answer.action === 'stop-command') {
+              await coordinators.stopOutside(answer.chatId, id)
+            } else if (answer.action === 'approve-command') {
+              await coordinators.answerOutsideCommand(
+                answer.chatId,
+                id,
+                {
+                  run: answer.decision !== 'decline',
+                  always: answer.decision === 'always',
+                },
+                answer.revision,
+              )
+            } else {
+              const comment = store.getComment(id)
+              if (
+                comment?.move?.askedBy === 'coordinator' &&
+                comment.move.chatId === answer.chatId
+              ) {
+                if (answer.choices && Object.keys(answer.choices).length > 0)
+                  throw new RequestError(400, 'A move to another Factory takes no choices.')
+                await phoneMoves.answer(comment, answer.decision, answer.revision)
+              } else {
+                await coordinators.answerConfirmation(answer.chatId, id, answer)
+              }
+            }
           },
-          plan: async (id, answer) => {
-            await phonePlans.answer(id, answer)
-          },
-          automation: async (id, answer) => {
-            await automations.answer(id, answer)
-          },
-        }),
+        ),
         tasks: storeTaskSource(
           store,
           async (factoryId) => (await tasks.board(factoryId)).stages,
@@ -968,6 +1001,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           coordinatorChats: (factoryId) => coordinators.chats(factoryId),
           coordinator: (chatId) => coordinators.get(chatId),
           coordinatorConversation: (chatId) => conversations.coordinatorChat(chatId),
+          coordinatorMoves: (chatId) => store.coordinatorMoves(chatId),
+          waitingMoveChats: () =>
+            new Set(
+              [...store.waiting(), ...store.snoozed()].flatMap((waiting) => {
+                if (waiting.source !== 'task') return []
+                const ask = store.getComment(waiting.id)?.move
+                return ask?.askedBy === 'coordinator' && ask.chatId ? [ask.chatId] : []
+              }),
+            ),
+          moveApproval: phoneMoves.read,
           plans: () => phonePlans.list(),
           plan: (planId) => phonePlans.detail(planId),
           runConversation: (runId) => conversations.chat(runId),

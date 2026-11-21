@@ -58,7 +58,7 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     name: 'request',
     async handle(_, request, { requests }) {
       if (request.requestId === undefined) return { code: 'bad-request' }
-      return requests.read(request.requestId)
+      return requests.read(request.requestId, request.chatId)
     },
   },
   {

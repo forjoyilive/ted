@@ -8,6 +8,8 @@ import {
   type Factory,
   type PhoneAnswer,
   type PhoneAnswerability,
+  type PhoneApproval,
+  type PhoneApprovalAnswer,
   type PhoneDesign,
   type PhoneErrorCode,
   type PhoneFactoryIcon,
@@ -36,6 +38,12 @@ import { AnswerSavedError, RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
+import {
+  confirmationApproval,
+  outsideApproval,
+  phoneApprovalFits,
+  type phoneMoveApprovals,
+} from './approvals.ts'
 import { cutChars, fitImagePrefix, fitText, jsonBytes, textBytes } from './fit.ts'
 import { type PhoneIconFactory, phoneFactoryIcons } from './icons.ts'
 import { phoneCaption, phoneImageId, phoneImageList } from './images.ts'
@@ -59,6 +67,13 @@ export interface PhoneInbox {
     planRequest(id: string): PlanRequest | undefined
     automationQuestion(id: string): PhoneAutomationQuestion | undefined
   }
+  move: ReturnType<typeof phoneMoveApprovals>
+  approval(id: string, answer: PhoneApprovalAnswer): Promise<void>
+  confirmation(chatId: string, id: string, title: string): PhoneApproval | undefined
+  answeredApproval(
+    chatId: string,
+    id: string,
+  ): Promise<{ approval: PhoneApproval; summary: PhoneRequestSummary } | undefined>
   answer: {
     task(id: string, answer: AnswerRequest): Promise<void>
     chat(chatId: string, id: string, answer: AnswerRequest): Promise<void>
@@ -74,7 +89,12 @@ interface FactoryShown {
   icon: PhoneFactoryIcon | undefined
 }
 
-export function storeInbox(store: TedStore, answer: PhoneInbox['answer']): PhoneInbox {
+export function storeInbox(
+  store: TedStore,
+  answer: PhoneInbox['answer'],
+  move: PhoneInbox['move'],
+  approval: PhoneInbox['approval'],
+): PhoneInbox {
   const tasksUnder = (rootId: string): number => {
     const seen = new Set<string>([rootId])
     const next = [...store.childrenOf(rootId)]
@@ -89,6 +109,44 @@ export function storeInbox(store: TedStore, answer: PhoneInbox['answer']): Phone
     return count
   }
   return {
+    move,
+    approval,
+    confirmation(chatId, id, title) {
+      const card = store.coordinators.get(chatId)?.confirmations?.find((card) => card.id === id)
+      return card && confirmationApproval(chatId, title, card)
+    },
+    async answeredApproval(chatId, id) {
+      const chat = store.coordinators.find(chatId)
+      const factory = chat && store.getFactory(chat.factoryId)
+      if (!chat || !factory) return undefined
+      const card = chat.confirmations?.find((card) => card.id === id && card.answer !== undefined)
+      const request = store.chats.request(id)
+      const comment = store.getComment(id)
+      const saved = card
+        ? confirmationApproval(chatId, 'Task confirmation', card)
+        : request?.chatId === chatId && request.answer
+          ? outsideApproval(chatId, request)
+          : comment?.move?.chatId === chatId && comment.answer
+            ? await move.read(comment)
+            : undefined
+      const createdAt = card?.askedAt ?? request?.createdAt ?? comment?.createdAt
+      if (!saved || !createdAt) return undefined
+      return {
+        approval: saved,
+        summary: {
+          id,
+          factoryId: factory.id,
+          factory: factory.name,
+          createdAt,
+          source: 'chat',
+          kind: 'request',
+          onPhone: true,
+          approvalChatId: chatId,
+          title: redactSecrets(chat.title ?? 'Coordinator'),
+          headline: saved.title,
+        },
+      }
+    },
     waiting: () => store.waiting(),
     snoozedChats: () =>
       store.snoozed().filter(({ source }) => source === 'coordinator' || source === 'plan'),
@@ -110,6 +168,8 @@ export function storeInbox(store: TedStore, answer: PhoneInbox['answer']): Phone
 }
 
 export type PhoneOutcome = { body: PhoneReplyBody } | { code: PhoneErrorCode; message?: string }
+
+type OrdinaryAnswer = Exclude<PhoneAnswer, PhoneApprovalAnswer>
 
 const unproposed = { skip: [], startUnblocked: false }
 
@@ -369,12 +429,12 @@ interface Found {
   body: string
   attachments: number
   images: PhoneImage[]
-  form(): PhoneForm
+  form(): PhoneForm | Promise<PhoneForm>
 }
 
 export interface PhoneRequests {
   list(): PhoneOutcome
-  read(id: string): PhoneOutcome
+  read(id: string, chatId?: string): Promise<PhoneOutcome>
   answer(id: string, answer: PhoneAnswer): Promise<PhoneOutcome>
 }
 
@@ -415,7 +475,8 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     if (waiting.source === 'task') {
       const comment = read.comment(waiting.id)
       if (!comment) return undefined
-      const answerability = taskAnswerability(comment)
+      const move = comment.move?.askedBy === 'coordinator' && comment.move.chatId !== undefined
+      const answerability = move ? { onPhone: true as const } : taskAnswerability(comment)
       const signoff = comment.gate !== undefined && comment.kind !== 'review'
       const task = read.task(comment.taskId)
       const shown = comment.kind === 'review' ? designFiles(comment.design) : new Set<string>()
@@ -431,6 +492,8 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
           kind: commentRequestKind(comment),
           title: waiting.taskTitle,
           ref: waiting.displayId,
+          ...(move &&
+            comment.move?.chatId !== undefined && { approvalChatId: comment.move.chatId }),
           ...(waiting.failed && { failed: true as const }),
           onPhone: answerability.onPhone,
           ...(task && {
@@ -441,8 +504,9 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
         body: comment.body,
         attachments: media.others,
         images: media.images,
-        form: () =>
-          onMacOr(answerability, () => {
+        form: async () => {
+          if (move) return approvalForm(await inbox.move.read(comment))
+          return onMacOr(answerability, () => {
             if (comment.kind === 'review') {
               return {
                 type: 'design',
@@ -471,7 +535,8 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
               comment.multiple === true,
               answerKind(comment) !== 'choice-only',
             )
-          }),
+          })
+        },
       }
     }
     if (waiting.source === 'plan') {
@@ -517,7 +582,11 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     const kind = request?.kind ?? waiting.requestKind
     const answerability = phoneAnswerability({
       source: 'chat',
-      ...(waiting.automationCard !== undefined ? { kind: 'automation' } : kind && { kind }),
+      ...(waiting.automationCard !== undefined
+        ? { kind: 'automation' }
+        : waiting.confirmationKind !== undefined
+          ? { kind: 'confirmation' }
+          : kind && { kind }),
     })
     return {
       summary: {
@@ -526,6 +595,9 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
         kind: wireKind(kind ?? 'request'),
         title: redactSecrets(waiting.chatTitle),
         agentName: redactSecrets(waiting.agentName),
+        ...((waiting.confirmationKind !== undefined || kind === 'outside-command') && {
+          approvalChatId: waiting.chatId,
+        }),
         onPhone: answerability.onPhone,
         ...(!answerability.onPhone && { macReason: answerability.reason }),
       },
@@ -533,7 +605,14 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       body: redactSecrets(request?.body ?? waiting.headline),
       attachments: 0,
       images: [],
-      form: () => onMacOr(answerability, () => (request ? chatForm(request) : { type: 'text' })),
+      form: () =>
+        onMacOr(answerability, () => {
+          if (waiting.confirmationKind !== undefined)
+            return approvalForm(inbox.confirmation(waiting.chatId, waiting.id, waiting.headline))
+          if (request?.kind === 'outside-command')
+            return approvalForm(outsideApproval(waiting.chatId, request))
+          return request ? chatForm(request) : { type: 'text' }
+        }),
     }
   }
 
@@ -551,8 +630,14 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     return waiting && found && { waiting, found }
   }
 
-  function detail(found: Found): PhoneRequestDetail {
-    const form = found.form()
+  function approvalForm(approval: PhoneApproval | undefined): PhoneForm {
+    return approval && phoneApprovalFits(approval)
+      ? { type: 'approval', approval }
+      : { type: 'mac', reason: 'Open this approval on your Mac to review all of its details.' }
+  }
+
+  async function detail(found: Found): Promise<PhoneRequestDetail> {
+    const form = await found.form()
     const whole: PhoneRequestDetail = {
       ...found.summary,
       body: found.body,
@@ -679,7 +764,7 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     return { ...onMac, body: left.text, cut: left.cut }
   }
 
-  function taskAnswer(comment: Comment, answer: PhoneAnswer): AnswerRequest {
+  function taskAnswer(comment: Comment, answer: OrdinaryAnswer): AnswerRequest {
     switch (answer.action) {
       case 'answer':
         return {
@@ -694,13 +779,13 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     }
   }
 
-  function chatAnswer(request: ChatRequest | PlanRequest, answer: PhoneAnswer): AnswerRequest {
+  function chatAnswer(request: ChatRequest | PlanRequest, answer: OrdinaryAnswer): AnswerRequest {
     return answer.action === 'approve' && request.kind === 'proposal'
       ? { action: 'approve', proposal: unproposed }
       : answer
   }
 
-  function automationAnswer(answer: PhoneAnswer): AnswerAutomationRequest {
+  function automationAnswer(answer: OrdinaryAnswer): AnswerAutomationRequest {
     if (answer.action !== 'answer' || answer.choices !== undefined) {
       throw new RequestError(400, 'Answer this question with one choice or your own words.')
     }
@@ -710,10 +795,12 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     }
   }
 
-  async function send(waiting: WaitingRequest, answer: PhoneAnswer): Promise<void> {
+  async function send(waiting: WaitingRequest, answer: OrdinaryAnswer): Promise<void> {
     if (waiting.source === 'task') {
       const comment = read.comment(waiting.id)
       if (!comment) throw new RequestError(404, 'This request is gone.')
+      if (comment.move?.askedBy === 'coordinator')
+        throw new RequestError(400, 'Use the move confirmation card to answer.')
       return inbox.answer.task(waiting.id, taskAnswer(comment, answer))
     }
     if (waiting.source === 'plan') {
@@ -746,12 +833,43 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
       }
       return { body: { requests, more: all.length - requests.length } }
     },
-    read(id: string): PhoneOutcome {
+    async read(id: string, chatId?: string): Promise<PhoneOutcome> {
       const match = find(id)
-      if (!match) return { code: 'gone' }
-      return { body: { request: detail(match.found) } }
+      if (match) return { body: { request: await detail(match.found) } }
+      const saved = chatId === undefined ? undefined : await inbox.answeredApproval(chatId, id)
+      if (!saved) return { code: 'gone' }
+      return {
+        body: {
+          request: {
+            ...saved.summary,
+            body: '',
+            cut: false,
+            attachments: 0,
+            form: approvalForm(saved.approval),
+          },
+        },
+      }
     },
     async answer(id: string, answer: PhoneAnswer): Promise<PhoneOutcome> {
+      if (
+        answer.action === 'confirm-tasks' ||
+        answer.action === 'approve-command' ||
+        answer.action === 'stop-command'
+      ) {
+        try {
+          await inbox.approval(id, answer)
+          return { body: { answered: true } }
+        } catch (error) {
+          if (
+            error instanceof AnswerSavedError ||
+            error instanceof RequestError ||
+            error instanceof RequestValidationError
+          )
+            return { code: 'refused', message: redactSecrets(error.message) }
+          console.error(redactSecrets(`a phone approval failed: ${String(error)}`))
+          return { code: 'refused' }
+        }
+      }
       const match = find(id)
       if (!match) return { code: 'gone' }
       if (!match.found.answerability.onPhone) return { code: 'answer-on-mac' }

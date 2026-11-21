@@ -853,6 +853,7 @@ export type {
   PeerSummary,
   SendPeerMessage,
 } from './peers.ts'
+export type { PhoneApproval, PhoneApprovalAnswer, PhoneApprovalTask } from './phone-approvals.ts'
 export * from './phone-chats.ts'
 export * from './phone-factory-icon.ts'
 export * from './phone-files.ts'

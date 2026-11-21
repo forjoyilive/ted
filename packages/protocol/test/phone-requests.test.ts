@@ -32,7 +32,69 @@ const summary: PhoneRequestSummary = {
   task: { id: 't-1', priority: 'high', actions: ['stop', 'priority', 'archive', 'delete'] },
 }
 
+test('the phone parses approval answers and the identity of a running command', () => {
+  for (const answer of [
+    {
+      action: 'confirm-tasks',
+      decision: 'confirm',
+      chatId: 'chat-1',
+      revision: 'reviewed',
+      choices: { 'task-1': { children: 'detach', closePullRequests: false } },
+    },
+    { action: 'approve-command', decision: 'always', chatId: 'chat-1', revision: 'reviewed' },
+    { action: 'stop-command', chatId: 'chat-1' },
+  ])
+    expect(parsePhoneAnswer(answer)).toEqual(answer)
+  expect(() =>
+    parsePhoneAnswer({ action: 'approve-command', decision: 'always', chatId: 'chat-1' }),
+  ).toThrow()
+})
+
 const forms: PhoneForm[] = [
+  {
+    type: 'approval',
+    approval: {
+      kind: 'confirmation',
+      operation: 'archive',
+      chatId: 'chat-1',
+      title: 'Archive TED-1?',
+      warnings: ['This stops its Run.'],
+      revision: 'reviewed',
+      decision: 'confirm',
+      refusal: 'This changed.',
+      tasks: [
+        {
+          id: 'task-1',
+          label: 'TED-1 · Archive it',
+          working: true,
+          descendants: ['TED-2'],
+          blocked: ['TED-3'],
+          blockedTogether: ['TED-4'],
+          pullRequests: ['ted #12'],
+          children: 'detach',
+          closePullRequests: true,
+          result: 'Archived.',
+        },
+      ],
+    },
+  },
+  {
+    type: 'approval',
+    approval: {
+      kind: 'outside-command',
+      chatId: 'chat-1',
+      title: 'Run release?',
+      warnings: ['The folder changed.'],
+      command: 'pnpm release 1.0.0',
+      argument: '1.0.0',
+      repo: 'ted',
+      folder: '/example/ted',
+      runLabel: 'Run',
+      canAlways: true,
+      revision: 'reviewed',
+      result: 'Approved',
+    },
+  },
   { type: 'choices', choices: ['Yes', 'No'], multiple: false, text: true },
   { type: 'text' },
   {
@@ -298,6 +360,8 @@ test('one list decides which requests the phone may answer, with a reason for th
     ['chat question', { source: 'chat', kind: 'question' }],
     ['chat round', { source: 'chat', kind: 'round' }],
     ['chat proposal', { source: 'chat', kind: 'proposal' }],
+    ['confirmation', { source: 'chat', kind: 'confirmation' }],
+    ['outside command', { source: 'chat', kind: 'outside-command' }],
     ['plan round', { source: 'plan', kind: 'round' }],
     ['plan proposal', { source: 'plan', kind: 'proposal' }],
     ['Automation question', { source: 'automation' }],
@@ -346,8 +410,7 @@ test('one list decides which requests the phone may answer, with a reason for th
     ],
     ['note', task({ kind: 'note' }), /Mac/],
     ['plan note', { source: 'plan', kind: 'note' }, /Mac/],
-    ['confirmation', { source: 'chat' }, /Answer this on your Mac/],
-    ['outside command', { source: 'chat', kind: 'outside-command' }, /Answer this on your Mac/],
+    ['unknown chat request', { source: 'chat' }, /Answer this on your Mac/],
     ['Agent draft', { source: 'chat', kind: 'agent' }, /Review this on your Mac/],
     ['Automation card', { source: 'chat', kind: 'automation' }, /Review this on your Mac/],
   ]

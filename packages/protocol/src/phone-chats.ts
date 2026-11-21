@@ -8,6 +8,7 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import { type PhoneApproval, parsePhoneApproval } from './phone-approvals.ts'
 import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
 import {
   encodePhoneCursor,
@@ -165,6 +166,7 @@ export type PhoneChatItem =
     })
   | (ItemBase & {
       kind: 'command'
+      stoppable?: true
       name: string
       status: PhoneChatCommandStatus
       exitCode?: number
@@ -174,6 +176,7 @@ export type PhoneChatItem =
   | (ItemBase & { kind: 'action'; text: string; taskRef?: string })
   | (ItemBase & {
       kind: 'request'
+      approval?: PhoneApproval
       requestKind: PhoneChatRequestKind
       title: string
       text: string
@@ -182,7 +185,13 @@ export type PhoneChatItem =
       onPhone?: true
       macReason?: string
     })
-  | (ItemBase & { kind: 'card'; text: string; open: boolean; macReason?: string })
+  | (ItemBase & {
+      kind: 'card'
+      text: string
+      open: boolean
+      macReason?: string
+      approval?: PhoneApproval
+    })
 
 export interface PhoneChatItemsBody {
   items: PhoneChatItem[]
@@ -422,6 +431,7 @@ export function parsePhoneChatItem(value: Untyped): PhoneChatItem {
         ...base,
         kind,
         name: read.string(object, 'name'),
+        ...(onlyTrue(object, 'stoppable') && { stoppable: true as const }),
         status: read.oneOf(object, 'status', phoneChatCommandStatuses),
         ...(exitCode !== undefined && { exitCode }),
         lines: count(object, 'lines'),
@@ -449,6 +459,7 @@ export function parsePhoneChatItem(value: Untyped): PhoneChatItem {
         open: read.boolean(object, 'open'),
         ...(read.optional(object, 'onPhone', read.boolean) === true && { onPhone: true as const }),
         ...(macReason !== undefined && { macReason }),
+        ...(object.approval !== undefined && { approval: parsePhoneApproval(object.approval) }),
       }
     }
     case 'card': {
@@ -459,6 +470,7 @@ export function parsePhoneChatItem(value: Untyped): PhoneChatItem {
         text: read.string(object, 'text'),
         open: read.boolean(object, 'open'),
         ...(macReason !== undefined && { macReason }),
+        ...(object.approval !== undefined && { approval: parsePhoneApproval(object.approval) }),
       }
     }
   }

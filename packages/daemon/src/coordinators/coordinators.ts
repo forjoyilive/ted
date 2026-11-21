@@ -86,7 +86,7 @@ import {
 } from '../chats/agents.ts'
 import { checkOut, discard } from '../chats/checkout.ts'
 import { type ChatCommands, findCommand } from '../chats/commands.ts'
-import { createOutsideCommands } from '../chats/outside-commands.ts'
+import { createOutsideCommands, outsideApprovalRevision } from '../chats/outside-commands.ts'
 import {
   chatAgentCommands,
   chatAskCommands,
@@ -269,8 +269,9 @@ export interface Coordinators {
     chatId: string,
     requestId: string,
     answer: OutsideCommandAnswer,
+    revision?: string,
   ): Promise<Coordinator>
-  stopOutside(chatId: string): Promise<Coordinator>
+  stopOutside(chatId: string, commandId?: string): Promise<Coordinator>
   allowances(factoryId: string): OutsideCommandAllowance[]
   removeAllowance(factoryId: string, id: string): Promise<OutsideCommandAllowance[]>
   answerRequest(chatId: string, requestId: string, answer: AnswerRequest): Promise<Coordinator>
@@ -2621,7 +2622,7 @@ export function createCoordinators(options: {
         }
       })
     },
-    async answerOutsideCommand(chatId, requestId, answer) {
+    async answerOutsideCommand(chatId, requestId, answer, revision) {
       return oneRequest(chatId, async () => {
         const c = requireChat(chatId)
         notChanging(chatId)
@@ -2632,9 +2633,27 @@ export function createCoordinators(options: {
         const ask = asked.outsideCommand
         if (asked.kind !== 'outside-command' || !ask)
           throw new RequestError(400, 'This request isn’t an outside command')
+        if (revision !== undefined && outsideApprovalRevision(ask) !== revision)
+          throw new RequestError(
+            409,
+            'The command approval changed. Review the card and try again.',
+          )
+        if (revision !== undefined && answer.always && ask.allowedButHeld)
+          throw new RequestError(
+            409,
+            'This command is already allowed. Review the folder before running it.',
+          )
         const agent = agentOf(c)
         if (chatAgentView(agent, await agentsNow(requireFactory(c.factoryId))).removed)
           throw new RequestError(409, removedRefusal(agent))
+        const stillAnswerable = () => {
+          requireChat(chatId)
+          notChanging(chatId)
+          const current = store.chats.request(requestId)
+          if (!current) throw new RequestError(404, 'no such request in this chat')
+          answerable(current)
+        }
+        stillAnswerable()
         const at = new Date().toISOString()
         const shown = [ask.command, ask.argument].filter((x) => x !== undefined).join(' ')
         if (!answer.run) {
@@ -2653,6 +2672,7 @@ export function createCoordinators(options: {
             409,
             `\`${ask.name}\` changed since this card was shown (${shown}); don’t run it, and ask the chat to request it again`,
           )
+        stillAnswerable()
         const now = localFolderAction(plan.local, plan.folder).kind
         const shownAction = ask.localFolder
           ? localFolderCardAction(ask.localFolder, ask.folder).kind
@@ -2690,6 +2710,7 @@ export function createCoordinators(options: {
             )
           }
         }
+        stillAnswerable()
         outside.start(chat, plan, { always: false })
         if (answer.always)
           store.chats.allow(
@@ -2705,9 +2726,9 @@ export function createCoordinators(options: {
         return publicChat(requireChat(chatId))
       })
     },
-    async stopOutside(chatId) {
+    async stopOutside(chatId, commandId) {
       requireAnyChat(chatId)
-      outside.stop(chatId)
+      outside.stop(chatId, commandId)
       return publicChat(requireAnyChat(chatId))
     },
     allowances(factoryId) {

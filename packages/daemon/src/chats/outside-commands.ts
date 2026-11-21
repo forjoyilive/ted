@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, open, realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
 import type { OutsideCommandAsk } from '@ted/protocol'
@@ -68,8 +68,12 @@ export interface OutsideCommands {
   allowed(chat: OutsideChat, plan: OutsidePlan): boolean
   busy(factoryId: string): boolean
   start(chat: OutsideChat, plan: OutsidePlan, how: { always: boolean }): void
-  stop(chatId: string): void
+  stop(chatId: string, commandId?: string): void
   close(): Promise<void>
+}
+
+export function outsideApprovalRevision(ask: OutsideCommandAsk): string {
+  return createHash('sha256').update(JSON.stringify(ask)).digest('hex')
 }
 
 export function findOutsideCommand(agent: StoredChatAgent, name: string): AgentCommand {
@@ -418,7 +422,14 @@ export function createOutsideCommands(options: {
         jobs.delete(job.id)
       })
     },
-    stop(chatId) {
+    stop(chatId, commandId) {
+      if (commandId !== undefined) {
+        const job = jobs.get(commandId)
+        if (!job || job.chat.chatId !== chatId || job.abort.signal.aborted)
+          throw new RequestError(409, 'This outside command is no longer running.')
+        job.abort.abort()
+        return
+      }
       for (const job of jobs.values()) if (job.chat.chatId === chatId) job.abort.abort()
     },
     async close() {
