@@ -13,6 +13,15 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import {
+  type PhoneChatBody,
+  type PhoneChatItemBody,
+  type PhoneChatItemsBody,
+  type PhoneChatKind,
+  type PhoneChatsBody,
+  phoneChatIdMax,
+  phoneChatKinds,
+} from './phone-chats.ts'
 import type { PhoneFactoryIconBody } from './phone-factory-icon.ts'
 import { type PhoneImageBody, phoneImageIdMax } from './phone-images.ts'
 import type { PhoneProblemsBody } from './phone-problems.ts'
@@ -99,6 +108,10 @@ export const phoneRouteNames = [
   'task-delete',
   'factories',
   'task-create',
+  'chats',
+  'chat',
+  'chat-items',
+  'chat-item',
   'factory-icon',
 ] as const
 export type PhoneRouteName = (typeof phoneRouteNames)[number]
@@ -159,6 +172,12 @@ export type PhoneRequest =
       title?: string
       description?: string
       start?: boolean
+      chatKind?: PhoneChatKind
+      chatId?: string
+      archived?: boolean
+      before?: string
+      itemId?: string
+      offset?: number
       image?: string
       part?: number
     })
@@ -206,6 +225,10 @@ export type PhoneReplyBody =
   | PhoneFactoriesBody
   | PhoneFactoryIconBody
   | PhoneTaskCreatedBody
+  | PhoneChatsBody
+  | PhoneChatBody
+  | PhoneChatItemsBody
+  | PhoneChatItemBody
 
 export type MacReplyMessage = PhoneMessageHeader & { type: 'reply' } & (
     | { ok: true; body: PhoneReplyBody }
@@ -569,8 +592,62 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       start: read.boolean(object, 'start'),
     }
   }
+  if (route === 'chats') {
+    const factoryId = read.optional(object, 'factoryId', (o, f) => chatText(o, f))
+    const archived = read.optional(object, 'archived', read.boolean)
+    const cursor = optionalCursor(object)
+    return {
+      ...header,
+      type,
+      route,
+      ...(factoryId !== undefined && { factoryId }),
+      archived: archived ?? false,
+      ...(cursor !== undefined && { cursor }),
+    }
+  }
+  if (route === 'chat') {
+    return { ...header, type, route, ...chatRef(object) }
+  }
+  if (route === 'chat-items') {
+    const before = optionalCursor(object, 'before')
+    return { ...header, type, route, ...chatRef(object), ...(before !== undefined && { before }) }
+  }
+  if (route === 'chat-item') {
+    const offset = read.optional(object, 'offset', read.integer)
+    if (offset !== undefined && offset < 0) {
+      throw new ParseError('offset', 'offset must be a whole number from 0')
+    }
+    return {
+      ...header,
+      type,
+      route,
+      ...chatRef(object),
+      itemId: chatText(object, 'itemId'),
+      ...(offset !== undefined && { offset }),
+    }
+  }
   if (route === 'factory-icon') return { ...header, type, route, factoryId: factoryId(object) }
   return { ...header, type, route }
+}
+
+function chatText(object: JsonObject, field: string): string {
+  const value = read.string(object, field)
+  if (!value || value.length > phoneChatIdMax) {
+    throw new ParseError(field, `${field} must be text of 1 to ${phoneChatIdMax} characters`)
+  }
+  return value
+}
+
+interface PhoneChatRef {
+  chatKind: PhoneChatKind
+  chatId: string
+}
+
+function chatRef(object: JsonObject): PhoneChatRef {
+  return {
+    chatKind: read.oneOf(object, 'chatKind', phoneChatKinds),
+    chatId: chatText(object, 'chatId'),
+  }
 }
 
 function factoryKey(object: JsonObject): string {
@@ -634,10 +711,10 @@ function taskId(object: JsonObject): string {
   return id
 }
 
-function optionalCursor(object: JsonObject): string | undefined {
-  const cursor = read.optional(object, 'cursor', read.string)
+function optionalCursor(object: JsonObject, field = 'cursor'): string | undefined {
+  const cursor = read.optional(object, field, read.string)
   if (cursor !== undefined && (!cursor || cursor.length > phoneCursorMax)) {
-    throw new ParseError('cursor', `cursor must be text of 1 to ${phoneCursorMax} characters`)
+    throw new ParseError(field, `${field} must be text of 1 to ${phoneCursorMax} characters`)
   }
   return cursor
 }
