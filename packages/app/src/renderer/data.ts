@@ -52,6 +52,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 import type { UpdateStatus } from '../updates.ts'
+import { agentChatRows } from './agent-chats.ts'
 import { nextReturn } from './banners.ts'
 import { type EventChange, eventValue, type ValueUpdate } from './event-value.ts'
 import { emptyLayout } from './factory-layout.ts'
@@ -777,6 +778,35 @@ export function useCoordinatorChats(factoryId: string) {
       event.type === 'run-updated' ||
       event.type === 'agent-health-changed',
     factoryId,
+    busyEvents,
+  )
+}
+
+export function useAllChats(factories: readonly Factory[]) {
+  const factoryIds = factories.map((factory) => factory.id).sort()
+  return useReloadingState(
+    async () => {
+      if (factoryIds.length === 0) return { rows: [], error: undefined }
+      const [plans, ...coordinatorChats] = await Promise.allSettled([
+        ted.listPlans(),
+        ...factoryIds.map((id) => ted.coordinatorChats(id)),
+      ] as const)
+      const failed = [plans, ...coordinatorChats].find((result) => result.status === 'rejected')
+      return {
+        rows: agentChatRows(
+          coordinatorChats.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
+          plans.status === 'fulfilled'
+            ? plans.value.filter((plan) => factoryIds.includes(plan.factoryId))
+            : [],
+        ),
+        error: failed?.status === 'rejected' ? readableError(failed.reason) : undefined,
+      }
+    },
+    (event) =>
+      event.type === 'coordinator-changed' ||
+      event.type === 'agent-health-changed' ||
+      planEvent(event, undefined),
+    JSON.stringify(factoryIds),
     busyEvents,
   )
 }

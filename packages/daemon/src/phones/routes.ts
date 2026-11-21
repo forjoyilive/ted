@@ -88,10 +88,24 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     },
   },
   {
+    name: 'snoozed-requests',
+    async handle(_, __, { requests }) {
+      return requests.listSnoozed()
+    },
+  },
+  {
+    name: 'request-snooze',
+    async handle(_, request, { requests }) {
+      if (request.requestId === undefined || request.snooze === undefined)
+        return { code: 'bad-request' }
+      return requests.snooze(request.requestId, request.snooze)
+    },
+  },
+  {
     name: 'request',
     async handle(_, request, { requests }) {
       if (request.requestId === undefined) return { code: 'bad-request' }
-      return requests.read(request.requestId, request.chatId)
+      return requests.read(request.requestId, request.chatId, request.includeSnoozed)
     },
   },
   {

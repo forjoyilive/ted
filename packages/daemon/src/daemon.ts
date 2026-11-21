@@ -12,6 +12,7 @@ import {
   tedEnv,
   tedPaths,
 } from '@ted/protocol'
+import { effectiveTimeZone, requestSnoozePresets } from '@ted/protocol/time'
 import { createAgentAvailability } from './agent-availability.ts'
 import { createAgents } from './agents/index.ts'
 import type { Apps } from './apps/apps.ts'
@@ -967,6 +968,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
                 await coordinators.answerConfirmation(answer.chatId, id, answer)
               }
             }
+          },
+          async (id, choice) => {
+            const now = options.snoozes?.now?.() ?? new Date(options.clock?.now() ?? Date.now())
+            const until =
+              choice === 'clear'
+                ? null
+                : requestSnoozePresets(now, effectiveTimeZone(store.settings())).find(
+                    (preset) => preset.id === choice,
+                  )?.until
+            if (until === undefined) throw new RequestError(400, 'Choose a snooze time.')
+            tasks.snoozeRequest(id, until)
+            await store.persisted()
+            return until
           },
         ),
         tasks: storeTaskSource(

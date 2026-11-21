@@ -359,12 +359,12 @@ export function FactorySettings({
   const inRepo = repoSections.has(section)
 
   return (
-    <section className={views.pane} aria-label={`${factory.name} settings`}>
+    <section className={views.pane} aria-label={`${factory.name} configuration`}>
       <header className={views.header}>
         <h1 className={views.title}>
           {factory.name}
           <span className={styles.crumbSlash}>/</span>
-          <span className={styles.crumb}>Settings</span>
+          <span className={styles.crumb}>Configuration</span>
         </h1>
         <span className={views.headerSpacer} />
         {setupError !== undefined && (
@@ -385,7 +385,7 @@ export function FactorySettings({
       </header>
       {banners}
       <div className={styles.page}>
-        <nav className={styles.nav} aria-label="Factory settings">
+        <nav className={styles.nav} aria-label="Configuration">
           <SettingsSearch factory={factory} dispatch={dispatch}>
             {factorySections.map(([id, label]) => (
               <button
@@ -425,7 +425,7 @@ export function FactorySettings({
               />
             )}
             <fieldset className={styles.settingsFields} disabled={merging}>
-              <legend className={styles.visuallyHidden}>Factory settings</legend>
+              <legend className={styles.visuallyHidden}>Configuration</legend>
               {inRepo && view && (
                 <div className={`${styles.repoGuide} ${styles.wideSection}`}>
                   <strong>How repo settings are saved</strong>
@@ -441,7 +441,7 @@ export function FactorySettings({
               {section === 'intake' && <IntakeSection key={factory.id} factoryId={factory.id} />}
               {inRepo && !view && !loadError && (
                 <div className={styles.wideSection}>
-                  <Skeleton shape="settings" label="Loading Factory settings…" />
+                  <Skeleton shape="settings" label="Loading Configuration…" />
                 </div>
               )}
               {inRepo && loadError !== undefined && (

@@ -12,6 +12,7 @@ import { type PhoneImage, parsePhoneImage } from './phone-images.ts'
 import { type PhoneTaskAction, phoneTaskActions } from './phone-tasks.ts'
 import type { PlanRequestKind } from './plan.ts'
 import { type Comment, type Priority, priorities } from './task.ts'
+import type { snoozePresetIds } from './time.ts'
 
 export const phoneRequestSources = ['task', 'plan', 'automation', 'chat'] as const
 export type PhoneRequestSource = (typeof phoneRequestSources)[number]
@@ -30,6 +31,12 @@ export type PhoneRequestKind = (typeof phoneRequestKinds)[number]
 export const phoneHeadlineMax = 200
 export const phoneReplyBodyMax = 40_000
 
+export type PhoneSnooze = (typeof snoozePresetIds)[number] | 'clear'
+
+export interface PhoneSnoozeBody {
+  snoozedUntil: string | null
+}
+
 export interface PhoneRequestSummary {
   id: string
   source: PhoneRequestSource
@@ -41,6 +48,7 @@ export interface PhoneRequestSummary {
   ref?: string
   headline: string
   createdAt: string
+  snoozedUntil?: string
   failed?: true
   onPhone: boolean
   agentName?: string
@@ -159,6 +167,7 @@ export type PhoneAnswer =
   | { action: 'request-changes'; text: string }
 
 export interface PhoneRequestsBody {
+  canSnooze?: true
   requests: PhoneRequestSummary[]
   more: number
 }
@@ -346,6 +355,7 @@ function optionalTextFields(
 function parseSummaryFields(object: JsonObject): PhoneRequestSummary {
   const ref = read.optional(object, 'ref', read.string)
   const failed = optionalTrue(object, 'failed')
+  const snoozedUntil = read.optional(object, 'snoozedUntil', read.string)
   const task = object.task === undefined ? undefined : parseRequestTask(object.task)
   const factoryIcon =
     object.factoryIcon === undefined ? undefined : parsePhoneFactoryIcon(object.factoryIcon)
@@ -361,6 +371,7 @@ function parseSummaryFields(object: JsonObject): PhoneRequestSummary {
     headline: read.string(object, 'headline'),
     createdAt: read.string(object, 'createdAt'),
     ...(failed !== undefined && { failed }),
+    ...(snoozedUntil !== undefined && { snoozedUntil }),
     onPhone: read.boolean(object, 'onPhone'),
     ...optionalTextFields(object),
     ...(task !== undefined && { task }),
@@ -591,6 +602,7 @@ export function parsePhoneRequestDetail(value: Untyped): PhoneRequestDetail {
 export function parsePhoneRequestsBody(value: Untyped): PhoneRequestsBody {
   const object = read.object(value, 'body')
   return {
+    ...(optionalTrue(object, 'canSnooze') && { canSnooze: true as const }),
     requests: read.list(object, 'requests').map(parsePhoneRequestSummary),
     more: read.integer(object, 'more'),
   }

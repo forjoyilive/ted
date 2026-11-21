@@ -44,7 +44,7 @@ export const scopeName = (scope: AsanaIntakeScope) =>
   scope.section ? `${scope.project.name} › ${scope.section.name}` : scope.project.name
 
 const staleNote = (why: string) =>
-  `The Asana intake choice for this Factory is out of date: ${why}. Choose the project again in Factory settings.`
+  `The Asana intake choice for this Factory is out of date: ${why}. Choose the project again in Configuration.`
 
 export async function checkAsanaScope(
   read: AsanaRead,

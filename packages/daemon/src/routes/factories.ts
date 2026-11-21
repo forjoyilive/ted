@@ -97,7 +97,7 @@ export const factoryRoutes: Route[] = [
       if (!factory) throw new HttpError(404, 'no such Factory')
       const { mode } = body
       if (mode === 'bypass' && body.confirmBypass !== true) {
-        throw new HttpError(409, 'Confirm Bypass on this computer in Factory settings')
+        throw new HttpError(409, 'Confirm Bypass on this computer in Configuration')
       }
       const release = await acquireFactoryPermissions(store, id)
       try {

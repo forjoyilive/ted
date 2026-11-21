@@ -20,6 +20,7 @@ import {
   type PhoneRequestKind,
   type PhoneRequestSummary,
   type PhoneSetup,
+  type PhoneSnooze,
   type PlanRequest,
   type Proposal,
   phoneAnswerability,
@@ -28,6 +29,7 @@ import {
   RequestValidationError,
   type Round,
   type SetupProposal,
+  type SnoozedRequest,
   type Task,
   type TaskBrief,
   validateFailureChoices,
@@ -56,7 +58,8 @@ export interface PhoneAutomationQuestion {
 
 export interface PhoneInbox {
   waiting(): WaitingRequest[]
-  snoozedChats(): WaitingRequest[]
+  snoozed(): SnoozedRequest[]
+  snooze(id: string, choice: PhoneSnooze): Promise<string | null>
   read: {
     factories(): PhoneInboxFactory[]
     comment(id: string): Comment | undefined
@@ -94,6 +97,7 @@ export function storeInbox(
   answer: PhoneInbox['answer'],
   move: PhoneInbox['move'],
   approval: PhoneInbox['approval'],
+  snooze: PhoneInbox['snooze'],
 ): PhoneInbox {
   const tasksUnder = (rootId: string): number => {
     const seen = new Set<string>([rootId])
@@ -148,8 +152,8 @@ export function storeInbox(
       }
     },
     waiting: () => store.waiting(),
-    snoozedChats: () =>
-      store.snoozed().filter(({ source }) => source === 'coordinator' || source === 'plan'),
+    snoozed: () => store.snoozed(),
+    snooze,
     read: {
       factories: () => store.listFactories(),
       comment: (id) => store.getComment(id),
@@ -434,7 +438,9 @@ interface Found {
 
 export interface PhoneRequests {
   list(): PhoneOutcome
-  read(id: string, chatId?: string): Promise<PhoneOutcome>
+  listSnoozed(): PhoneOutcome
+  snooze(id: string, choice: PhoneSnooze): Promise<PhoneOutcome>
+  read(id: string, chatId?: string, includeSnoozed?: boolean): Promise<PhoneOutcome>
   answer(id: string, answer: PhoneAnswer): Promise<PhoneOutcome>
 }
 
@@ -622,12 +628,27 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     )
   }
 
-  function find(id: string): { waiting: WaitingRequest; found: Found } | undefined {
-    const waiting =
-      inbox.waiting().find((request) => request.id === id) ??
-      inbox.snoozedChats().find((request) => request.id === id)
+  function find(
+    id: string,
+    includeSnoozed = false,
+  ): { waiting: WaitingRequest; found: Found } | undefined {
+    const active = inbox.waiting().find((request) => request.id === id)
+    const snoozed = active ? undefined : inbox.snoozed().find((request) => request.id === id)
+    const snoozedChat = snoozed?.source === 'plan' || snoozed?.source === 'coordinator'
+    const waiting = active ?? (includeSnoozed || snoozedChat ? snoozed : undefined)
     const found = waiting && describe(waiting, factoryLookup())
-    return waiting && found && { waiting, found }
+    if (!waiting || !found) return undefined
+    if (snoozed) {
+      found.summary.snoozedUntil = snoozed.snoozedUntil
+      if (!snoozedChat && found.summary.onPhone) {
+        found.summary.onPhone = false
+        found.form = () => ({
+          type: 'mac',
+          reason: 'Unsnooze this request to answer it on your phone.',
+        })
+      }
+    }
+    return { waiting, found }
   }
 
   function approvalForm(approval: PhoneApproval | undefined): PhoneForm {
@@ -816,25 +837,51 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     return inbox.answer.chat(waiting.chatId, waiting.id, chatAnswer(request, answer))
   }
 
+  function list(
+    waiting: (WaitingRequest & { snoozedUntil?: string })[],
+    canSnooze?: true,
+  ): PhoneOutcome {
+    const factoryOf = factoryLookup()
+    const all = waiting.flatMap((request) => {
+      const found = describe(request, factoryOf)
+      if (!found) return []
+      if (request.snoozedUntil !== undefined) found.summary.snoozedUntil = request.snoozedUntil
+      return [found.summary]
+    })
+    const requests: PhoneRequestSummary[] = []
+    const capability = canSnooze ? { canSnooze } : {}
+    let size = jsonBytes({ ...capability, requests: [], more: all.length })
+    for (const summary of all) {
+      const next = jsonBytes(summary) + (requests.length > 0 ? 1 : 0)
+      if (size + next > phoneReplyBodyMax) break
+      requests.push(summary)
+      size += next
+    }
+    return { body: { ...capability, requests, more: all.length - requests.length } }
+  }
+
   return {
-    list(): PhoneOutcome {
-      const factoryOf = factoryLookup()
-      const all = newestFirst().flatMap((waiting) => {
-        const found = describe(waiting, factoryOf)
-        return found ? [found.summary] : []
-      })
-      const requests: PhoneRequestSummary[] = []
-      let size = jsonBytes({ requests: [], more: all.length })
-      for (const summary of all) {
-        const next = jsonBytes(summary) + (requests.length > 0 ? 1 : 0)
-        if (size + next > phoneReplyBodyMax) break
-        requests.push(summary)
-        size += next
+    list: () => list(newestFirst(), true),
+    listSnoozed: () =>
+      list(
+        inbox
+          .snoozed()
+          .sort((a, b) => a.snoozedUntil.localeCompare(b.snoozedUntil) || a.id.localeCompare(b.id)),
+      ),
+    async snooze(id, choice) {
+      try {
+        return { body: { snoozedUntil: await inbox.snooze(id, choice) } }
+      } catch (error) {
+        if (error instanceof RequestError)
+          return error.status === 404
+            ? { code: 'gone' }
+            : { code: 'refused', message: redactSecrets(error.message) }
+        console.error(redactSecrets(`a phone snooze failed: ${String(error)}`))
+        return { code: 'refused' }
       }
-      return { body: { requests, more: all.length - requests.length } }
     },
-    async read(id: string, chatId?: string): Promise<PhoneOutcome> {
-      const match = find(id)
+    async read(id: string, chatId?: string, includeSnoozed?: boolean): Promise<PhoneOutcome> {
+      const match = find(id, includeSnoozed)
       if (match) return { body: { request: await detail(match.found) } }
       const saved = chatId === undefined ? undefined : await inbox.answeredApproval(chatId, id)
       if (!saved) return { code: 'gone' }
