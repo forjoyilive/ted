@@ -16,7 +16,7 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { encodePairingLink, tedPaths } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { DaemonWrappers } from '../src/daemon.ts'
 import { RequestError } from '../src/errors.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -57,6 +57,7 @@ afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
   delete process.env.TED_STUB_XCRUN
+  vi.unstubAllEnvs()
   await killAppHosts(home)
   await killRunHosts(home, { waitForStart: true })
   await cleanup()
@@ -263,7 +264,7 @@ describe('iOS simulator Apps', () => {
     const client = await start()
     await addFactory(
       client,
-      'test -d $TED_DERIVED_DATA && echo udid $TED_TASK $TED_SIMULATOR_UDID $TED_DERIVED_DATA; exec sleep 600',
+      'test -d $TED_DERIVED_DATA && echo udid $TED_TASK $TED_SIMULATOR_UDID $TED_DERIVED_DATA && echo TED_APP_READY; exec sleep 600',
     )
     const task = await taskWithWorktree(client)
 
@@ -288,6 +289,7 @@ describe('iOS simulator Apps', () => {
     )
     const taskCache = path.join(await realpath(home), 'sandbox', 'NB-1')
     expect(line).toBe(`udid NB-1 ${clone?.udid} ${taskCache}/cache/xcode/DerivedData`)
+    await waitForApp(client, task, (a) => !!a.builtAt, 'the first iPhone App build to finish')
 
     const slots = await client.ok<SimulatorSlots>('GET', '/simulators')
     expect(slots).toMatchObject({ supported: true, limit: 2 })
@@ -315,6 +317,7 @@ describe('iOS simulator Apps', () => {
       name: 'iPhone',
     })
     expect(again.simulator?.booted).toBe(true)
+    await waitForApp(client, task, (a) => !!a.builtAt, 'the restarted iPhone App build to finish')
     expect((await stubDevices()).filter((d) => d.name === 'Ted Dev NB-1 iPhone')).toHaveLength(1)
 
     await client.ok('POST', `/tasks/${task.id}/archive`)
@@ -334,7 +337,7 @@ describe('iOS simulator Apps', () => {
         )),
       'the Task’s sandbox folder to be removed',
     )
-  })
+  }, 90_000)
 
   test('one simulator App builds at a time: the next waits until the first prints TED_APP_READY, stays listed as waiting across a restart while new work is held, and still waits for that build after the restart', async () => {
     let free = 500e9
@@ -901,6 +904,8 @@ describe('iOS simulator Apps', () => {
   })
 
   test('only the current Validate Lead can pair and drive its own running iOS App', async () => {
+    vi.stubEnv('IDB_COMPANION_PATH', process.env.TED_IDB_BIN)
+    await writeStub({ xcodeVersion: '27.2' })
     const client = await start()
     if (!daemon) throw new Error('daemon not started')
     const { port } = daemon
@@ -939,11 +944,32 @@ describe('iOS simulator Apps', () => {
     await client.ok('POST', `/tasks/${task.id}/apps/start`, app)
     await waitForApp(client, task, (a) => !!a.builtAt, 'the ready simulator App')
     const clone = (await stubDevices()).find((device) => device.name === 'Ted Dev NB-1 iPhone')
-    expect(clone?.state).toBe('Booted')
+    if (!clone) throw new Error('missing Task simulator')
+    expect(clone.state).toBe('Booted')
     const before = await actions(screen)
     expect(before.status).toBe(200)
     expect(before.body.text).toContain('Open details')
-    expect((await actions({ action: 'tap', app, point: { x: 201, y: 325 } })).status).toBe(200)
+    const tap: DeviceRequest = { action: 'tap', app, point: { x: 201, y: 325 } }
+    const incompatible = await actions(tap)
+    expect(incompatible.status).toBe(409)
+    expect(incompatible.body.error).toContain(
+      'Xcode 27 or later needs an updated Meta idb companion',
+    )
+    expect((await actions(screen)).body.text).toContain('Open details')
+
+    const state = JSON.parse(await readFile(stubState, 'utf8')) as {
+      legacyCompanions?: string[]
+    }
+    expect(state.legacyCompanions).toContain(clone.udid)
+    const updatedState = `${stubState}.tmp`
+    await writeFile(updatedState, JSON.stringify({ ...state, idbSupportsXcode27: true }))
+    await rename(updatedState, stubState)
+    expect((await actions(screen)).body.text).toContain('Open details')
+    const inspected = JSON.parse(await readFile(stubState, 'utf8')) as {
+      ui: Record<string, { screenCompanion?: string }>
+    }
+    expect(inspected.ui[clone.udid]?.screenCompanion).toBe('private')
+    expect((await actions(tap)).status).toBe(200)
     expect((await actions(screen)).body.text).toContain('Price: 10 widgets for $5')
 
     const key = Buffer.alloc(32).toString('base64url')
@@ -1250,7 +1276,10 @@ describe('iOS simulator Apps', () => {
       )
     await results(3, 'the Audit to open Details and read its screen')
     await results(10, 'the Audit to file the Task with its screenshot')
-    const before = await results(16, 'the Audit to return from Details and finish resizing iPhone')
+    await results(11, 'the Audit to return from Details')
+    await results(13, 'the Audit to resize iPhone to iPhone SE')
+    await results(15, 'the Audit to recover from the failed iPhone 6 resize')
+    const before = await results(16, 'the Audit to reset iPhone to iPhone 17')
     const refused = await client.call('POST', `/runs/${runId}/apps/device`, {
       action: 'screen',
       app: { name: 'iPhone' },
@@ -1309,7 +1338,7 @@ describe('iOS simulator Apps', () => {
     await writeFile(released, '')
     const after = await results(17, 'the Audit to report that idb is missing')
     expect(after[16]?.code).not.toBe(0)
-    expect(after[16]?.stderr).toContain('brew install facebook/fb/idb-companion')
+    expect(after[16]?.stderr).toContain('https://github.com/meta/idb#quick-start')
 
     const finished = await waitUntil(
       async () =>
