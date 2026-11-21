@@ -2,6 +2,7 @@ import {
   type Banner,
   bannerOrder,
   type DaemonEvent,
+  isShowing,
   type PhoneProblem,
   type PhoneProblemsBody,
   phoneProblemFactoryMax,
@@ -32,7 +33,10 @@ export function phoneProblems(
   source: Pick<PhoneProblemSource, 'banners' | 'factoryName'>,
 ): PhoneProblemsBody {
   const problems: PhoneProblem[] = []
-  for (const banner of stopsWork(source).sort(bannerOrder).slice(0, phoneProblemsMax)) {
+  for (const banner of stopsWork(source)
+    .filter((banner) => isShowing(banner))
+    .sort(bannerOrder)
+    .slice(0, phoneProblemsMax)) {
     const factory =
       banner.factoryId === undefined ? undefined : source.factoryName(banner.factoryId)
     const problem: PhoneProblem = {
@@ -42,6 +46,7 @@ export function phoneProblems(
       }),
       text: cutChars(redactSecrets(banner.text), phoneProblemTextMax),
       raisedAt: banner.raisedAt,
+      dismissible: true,
     }
     if (jsonBytes({ problems: [...problems, problem] }) > phoneReplyBodyMax) break
     problems.push(problem)

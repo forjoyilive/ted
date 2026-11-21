@@ -57,6 +57,7 @@ let scratch: string
 let relay: RelayStub
 let daemon: RunningDaemon
 let store: TedStore
+let beforePersist: (() => Promise<void>) | undefined
 let client: DaemonClient
 let http: ReturnType<typeof api>
 let factory: Factory
@@ -102,7 +103,13 @@ beforeAll(async () => {
     wrap: {
       store: (opened) => {
         store = opened
-        return opened
+        return {
+          ...opened,
+          async persisted() {
+            await beforePersist?.()
+            await opened.persisted()
+          },
+        }
       },
     },
   })
@@ -1041,16 +1048,70 @@ test('the phone lists current stops-work problems, redacted, and never warnings'
     id: disk.id,
     text: 'Disk full · new work held',
     raisedAt: disk.raisedAt,
+    dismissible: true,
   })
   const clone = listedProblems.find((problem) => problem.id === stops.id)
   expect(clone?.factory).toBe(factory.name)
   expect(clone?.text).toContain('https://[redacted]@example.com')
   expect(clone?.text).not.toContain('hunter2')
 
+  const dismissed = await phone.send({
+    type: 'request',
+    route: 'problem-dismiss',
+    problemId: disk.id,
+    raisedAt: disk.raisedAt,
+  })
+  expect(dismissed.ok).toBe(true)
+  expect((await problems()).map((problem) => problem.id)).toEqual([stops.id])
+  expect(store.getBanner(disk.id)?.dismissed).toBe(true)
+
   store.clearBanner(stops.id)
   store.clearBanner(disk.id)
   store.clearBanner('phone-test-warning:app')
   expect(await problems()).toEqual([])
+})
+
+test('phone dismissal and its retry wait for the saved dismissal', async () => {
+  const banner = store.raiseBanner({
+    id: 'dismiss-test:app',
+    problem: 'dismiss-test',
+    severity: 'stops-work',
+    text: 'Work stopped',
+  })
+  const save = Promise.withResolvers<void>()
+  let persisting = 0
+  let replies = 0
+  beforePersist = () => {
+    persisting++
+    return save.promise
+  }
+  const dismiss = () =>
+    phone
+      .send({
+        type: 'request',
+        route: 'problem-dismiss',
+        problemId: banner.id,
+        raisedAt: banner.raisedAt,
+      })
+      .then((reply) => {
+        replies++
+        return reply
+      })
+  const first = dismiss()
+  const retry = dismiss()
+  try {
+    await expect.poll(() => persisting + replies).toBeGreaterThanOrEqual(2)
+    expect(persisting).toBe(2)
+    expect(replies).toBe(0)
+    expect(store.getBanner(banner.id)?.dismissed).toBe(true)
+  } finally {
+    beforePersist = undefined
+    save.resolve()
+    await Promise.allSettled([first, retry])
+    store.clearBanner(banner.id)
+  }
+  expect((await first).ok).toBe(true)
+  expect((await retry).ok).toBe(true)
 })
 
 test('the phone problems reply fits the reply size limit and keeps the first problems', () => {

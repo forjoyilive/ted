@@ -26,6 +26,7 @@ export const banners = State.SQLite.table({
     text: State.SQLite.text(),
     action: State.SQLite.text({ nullable: true }),
     raisedAt: State.SQLite.text(),
+    dismissed: State.SQLite.integer({ nullable: true }),
     dismissedUntil: State.SQLite.text({ nullable: true }),
   },
 })
@@ -75,6 +76,10 @@ export const machineEvents = {
     name: 'v1.BannerDismissed',
     schema: Schema.Struct({ id: Schema.String, until: Schema.String, at: Schema.String }),
   }),
+  problemDismissed: Events.synced({
+    name: 'v1.ProblemDismissed',
+    schema: Schema.Struct({ id: Schema.String, raisedAt: Schema.String }),
+  }),
   bannerCleared: Events.synced({
     name: 'v1.BannerCleared',
     schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
@@ -95,11 +100,15 @@ export const machineMaterializers = State.SQLite.materializers(machineEvents, {
         .onConflict('name', 'replace'),
     ),
   'v1.BannerRaised': ({ at, ...banner }) => [
-    banners.insert({ ...banner, raisedAt: at, dismissedUntil: null }).onConflict('id', 'ignore'),
+    banners
+      .insert({ ...banner, raisedAt: at, dismissed: null, dismissedUntil: null })
+      .onConflict('id', 'ignore'),
     banners
       .update({ severity: banner.severity, text: banner.text, action: banner.action })
       .where({ id: banner.id }),
   ],
   'v1.BannerDismissed': ({ id, until }) => banners.update({ dismissedUntil: until }).where({ id }),
+  'v1.ProblemDismissed': ({ id, raisedAt }) =>
+    banners.update({ dismissed: 1 }).where({ id, raisedAt }),
   'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
 })

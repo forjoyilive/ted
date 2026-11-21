@@ -1633,8 +1633,12 @@ export class DaemonClient {
     return this.#request('GET', '/banners')
   }
 
-  dismissBanner(id: string): Promise<Banner> {
-    return this.#request('POST', `/banners/${encodeURIComponent(id)}/dismiss`)
+  dismissBanner(id: string, raisedAt?: string): Promise<Banner> {
+    return this.#request(
+      'POST',
+      `/banners/${encodeURIComponent(id)}/dismiss`,
+      raisedAt === undefined ? undefined : { raisedAt },
+    )
   }
 
   actOnBanner(id: string, input?: BannerActionInput): Promise<void> {
