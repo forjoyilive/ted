@@ -36,6 +36,10 @@ _Avoid_: Proxy, tunnel, phone server
 A largely automated process that carries software development tasks from creation to merge for one product, which may span several repos.
 _Avoid_: Project (when meaning the whole pipeline), pipeline
 
+**Configuration**:
+The page for one Factory’s settings, opened from its sidebar or menu. App-wide settings stay in Settings.
+_Avoid_: Factory settings (as the page name)
+
 **Factory group**:
 A named heading in the sidebar that holds some of the user’s Factories, such as one per client or Personal and Work; a Factory is in at most one group, and groups are kept on this Mac only. The Inbox and All Tasks can filter and group by it.
 _Avoid_: Folder, workspace, tag
