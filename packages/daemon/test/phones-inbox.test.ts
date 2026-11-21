@@ -76,7 +76,11 @@ beforeAll(async () => {
   ;({ home, cleanup } = await makeTempHome())
   scratch = await mkdtemp(path.join(tmpdir(), 'ted-phones-inbox-'))
   const origin = await makeOriginRepo(scratch)
-  await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\n' })
+  await commitToOrigin(scratch, {
+    '.ted/workflow.yaml': 'version: 1\n',
+    '.ted/agents.yaml': 'release:\n  name: Release Agent\n  powers: [propose_tasks]\n',
+    '.ted/agents/release.md': 'Plan the release checklist.\n',
+  })
   relay = await startRelayStub()
   daemon = await startDaemon({
     home,
@@ -810,7 +814,7 @@ test('a Run’s permission request is approved from the phone as from the deskto
   expect(answerOf(pocket.id)).toMatchObject({ kind: 'approved' })
 }, 90_000)
 
-test('the phone answers Coordinator questions, rounds and proposals through the chat', async () => {
+test('the phone answers Coordinator questions and rounds and a Factory Agent proposal', async () => {
   const roundFile = path.join(scratch, 'chat-round.json')
   const proposalFile = path.join(scratch, 'chat-proposal.json')
   await writeFile(
@@ -858,6 +862,7 @@ test('the phone answers Coordinator questions, rounds and proposals through the 
     const chat = await ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
       text: steps({ run: command }, { endTurn: true }),
       agent: 'claude',
+      ...(kind === 'proposal' && { agentId: 'release' }),
     })
     const route = `/coordinator-chats/${chat.id}`
     await ok('PATCH', route, { title: `Phone ${kind}` })
@@ -867,7 +872,11 @@ test('the phone answers Coordinator questions, rounds and proposals through the 
       `phone Inbox shows chat ${kind}`,
       30_000,
     )
-    expect(summary).toMatchObject({ kind, agentName: 'Coordinator', onPhone: true })
+    expect(summary).toMatchObject({
+      kind,
+      agentName: kind === 'proposal' ? 'Release Agent' : 'Coordinator',
+      onPhone: true,
+    })
     expect(await opened(summary.id)).toMatchObject({
       form: { type: kind === 'question' ? 'choices' : kind },
     })
