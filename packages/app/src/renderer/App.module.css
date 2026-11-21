@@ -35,14 +35,3 @@
   flex: 1;
   min-height: 0;
 }
-
-.online,
-.offline {
-  display: contents;
-}
-
-.offline > * {
-  opacity: 0.45;
-  pointer-events: none;
-  user-select: none;
-}
