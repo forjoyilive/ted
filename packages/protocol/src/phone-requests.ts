@@ -108,6 +108,7 @@ export interface PhoneDesign {
   summary?: string
   worthYourEye?: string[]
   screenshots?: PhoneImage[]
+  moreScreenshots?: number
   figma?: PhoneFigmaLink
   prototype?: PhoneDesignFile
   video?: PhoneDesignFile
@@ -129,6 +130,7 @@ export interface PhoneRequestDetail extends PhoneRequestSummary {
   cut: boolean
   attachments: number
   images?: PhoneImage[]
+  moreImages?: number
   form: PhoneForm
 }
 
@@ -506,6 +508,7 @@ function parsePhoneDesign(value: Json | undefined): PhoneDesign {
   const screenshots = optionalList(object, 'screenshots', (entry) =>
     parsePhoneImage(entry, 'screenshots'),
   )
+  const moreScreenshots = read.optional(object, 'moreScreenshots', read.integer)
   const figma = object.figma === undefined ? undefined : parseFigma(object.figma)
   const prototype =
     object.prototype === undefined ? undefined : parseDesignFile(object.prototype, 'prototype')
@@ -515,6 +518,7 @@ function parsePhoneDesign(value: Json | undefined): PhoneDesign {
     ...(summary !== undefined && { summary }),
     ...(worthYourEye !== undefined && { worthYourEye }),
     ...(screenshots !== undefined && { screenshots }),
+    ...(moreScreenshots !== undefined && { moreScreenshots }),
     ...(figma !== undefined && { figma }),
     ...(prototype !== undefined && { prototype }),
     ...(video !== undefined && { video }),
@@ -524,6 +528,7 @@ function parsePhoneDesign(value: Json | undefined): PhoneDesign {
 
 export function parsePhoneRequestDetail(value: Untyped): PhoneRequestDetail {
   const object = read.object(value, 'request')
+  const moreImages = read.optional(object, 'moreImages', read.integer)
   const images = optionalList(object, 'images', (entry) => parsePhoneImage(entry, 'images'))
   return {
     ...parseSummaryFields(object),
@@ -531,6 +536,7 @@ export function parsePhoneRequestDetail(value: Untyped): PhoneRequestDetail {
     cut: read.boolean(object, 'cut'),
     attachments: read.integer(object, 'attachments'),
     ...(images !== undefined && { images }),
+    ...(moreImages !== undefined && { moreImages }),
     form: parsePhoneForm(object.form),
   }
 }

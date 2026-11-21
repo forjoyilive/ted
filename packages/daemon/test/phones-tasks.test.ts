@@ -332,6 +332,41 @@ test('a long description and a thread of long multibyte comments stay under the 
   ).toBe('bad-request')
 })
 
+test('a comment with many images keeps its text and the next page', async () => {
+  const task = await make('A Task with many images')
+  const attachments = Array.from({ length: 300 }, (_, n) => ({
+    hash: n.toString(16).padStart(64, '0'),
+    name: `${n}-${'漢"😀'.repeat(60)}.png`,
+    size: 10,
+    mediaType: 'image/png',
+  }))
+  const body = 'The image captions take up more space than this comment.'
+  const comments = Array.from({ length: 2 }, () =>
+    store.postComment({ taskId: task.id, author: { kind: 'ted' }, body, attachments }),
+  ).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+  const pages = await thread(task.id)
+  expect(pages.map((page) => page.map((entry) => entry.id))).toEqual(
+    comments.map((comment) => [comment.id]),
+  )
+  const [shown] = pages.flat()
+  const images = shown?.imageList ?? []
+  expect(images.length).toBeGreaterThan(0)
+  expect(images.length).toBeLessThan(attachments.length)
+  expect(shown).toMatchObject({
+    text: body,
+    cut: false,
+    images: attachments.length,
+    moreImages: attachments.length - images.length,
+    attachments: 0,
+  })
+  expect(images).toEqual(
+    attachments.slice(0, images.length).map(({ hash, name }) => ({
+      image: phoneImageId(shown?.id ?? '', hash),
+      caption: name,
+    })),
+  )
+})
+
 test('secrets come out redacted, and requests show open with an ID or answered without one', async () => {
   const secret = 'ghp_abcdefghijklmnopqrstuvwxyz0123'
   const task = await make('Rotate the token', notebook, {
