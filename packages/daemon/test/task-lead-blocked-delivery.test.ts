@@ -60,6 +60,7 @@ describe('Stage effort', () => {
       const firstText = 'Held first note.'
       const selectedText = 'Held selected note.'
       const newerText = 'Explicit new message.'
+      const stageText = 'Ted moved this Task to Work'
       await client.ok('POST', `/runs/${run.id}/messages`, { text: firstText })
       const selected = await client.ok<{ id: string }>('POST', `/runs/${run.id}/messages`, {
         text: selectedText,
@@ -67,7 +68,7 @@ describe('Stage effort', () => {
       await client.ok('POST', `/runs/${run.id}/interrupt`)
       await waitUntil(async () => {
         const input = await readFile(path.join(ctx.home, 'runs', run.id, 'input.jsonl'), 'utf8')
-        return input.includes('Ted moved this Task to Work')
+        return input.includes(stageText)
       }, 'Stage instructions appended before acceptance')
       expect((await client.getRun(run.id)).run.state).toBe('idle')
       expect(await userMessages(client, run.id)).not.toContain(firstText)
@@ -92,16 +93,17 @@ describe('Stage effort', () => {
         async () => (await userMessages(client, run.id)).includes(last),
         'explicit release after Stage acceptance',
       )
-      const messages = (await userMessages(client, run.id)).filter((text) =>
-        [firstText, selectedText, newerText].includes(text),
-      )
-      expect(messages).toEqual(
-        release === 'new-message'
+      const messages = (await userMessages(client, run.id))
+        .map((text) => (text.includes(stageText) ? stageText : text))
+        .filter((text) => [stageText, firstText, selectedText, newerText].includes(text))
+      expect(messages).toEqual([
+        stageText,
+        ...(release === 'new-message'
           ? [firstText, selectedText, newerText]
           : release === 'send-now'
             ? [selectedText]
-            : [selectedText, firstText, newerText],
-      )
+            : [selectedText, firstText, newerText]),
+      ])
       expect((await leadRun(client, task)).id).toBe(run.id)
       expect((await leadRun(client, task)).effort).toBe('high')
     },

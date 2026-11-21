@@ -172,7 +172,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   const applying = new Set<string>()
   const restartAsked = new Set<string>()
   const interruptedForRestart = new Set<string>()
-  let closed = false
+  const stopping = new AbortController()
   let silenceTimer: Timer | undefined
   const find = (id: string): StoredTask => {
     const task = store.getTask(id)
@@ -214,6 +214,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   }
 
   async function applyLead(taskId: string, { restart = false } = {}): Promise<void> {
+    if (stopping.signal.aborted) return
     if (restart) restartAsked.add(taskId)
     if (applying.has(taskId)) return
     const previous = store.getTask(taskId)
@@ -266,16 +267,23 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       if (!live || !choice) return
       if (current.pendingLeadMessages.length > 0 && !restartAsked.has(taskId)) {
         const accepted = await runs
-          .dispatch(live.id, current.pendingLeadMessages, false, () => {
-            const now = find(taskId)
-            return (
-              options.mayContinue?.(taskId) !== false &&
-              now.leadRunId === live.id &&
-              !now.stopped &&
-              !now.archived &&
-              store.getRun(live.id)?.state !== 'finished'
-            )
-          })
+          .dispatch(
+            live.id,
+            current.pendingLeadMessages,
+            false,
+            () => {
+              const now = find(taskId)
+              return (
+                !stopping.signal.aborted &&
+                options.mayContinue?.(taskId) !== false &&
+                now.leadRunId === live.id &&
+                !now.stopped &&
+                !now.archived &&
+                store.getRun(live.id)?.state !== 'finished'
+              )
+            },
+            { revocable: false, signal: stopping.signal },
+          )
           .catch((error: unknown) => {
             const remaining = find(taskId).pendingLeadMessages
             if (
@@ -296,8 +304,13 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       }
     } finally {
       applying.delete(taskId)
-      if (store.getTask(taskId)?.pendingLeadMessages.some((message) => message.waitForSlot)) wake()
+      if (
+        !stopping.signal.aborted &&
+        store.getTask(taskId)?.pendingLeadMessages.some((message) => message.waitForSlot)
+      )
+        wake()
     }
+    if (stopping.signal.aborted) return
     const after = find(taskId)
     const live = liveLead(after)
     const choice = effectiveLead(after)
@@ -693,7 +706,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
 
   function reviveWhenMemoryFrees(taskId: string): void {
     background('resume a Task Lead after memory frees up', async () => {
-      if (!(await options.memoryFreed()) || closed) return
+      if (!(await options.memoryFreed()) || stopping.signal.aborted) return
       awaitingRevive.add(taskId)
       wake()
     })
@@ -769,7 +782,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   }
 
   function checkSilence(): void {
-    if (closed) return
+    if (stopping.signal.aborted) return
     const paused = store.agentPauses()
     const now = clock.now()
     const live = store.liveRuns()
@@ -956,7 +969,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     restoreHealth,
     recoverStartup,
     close(): void {
-      closed = true
+      stopping.abort()
       silenceTimer?.cancel()
     },
   }
