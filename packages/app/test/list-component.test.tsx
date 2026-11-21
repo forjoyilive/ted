@@ -329,6 +329,41 @@ test('Show empty groups is saved per List and includes groups emptied by search'
   expect(toggle().getAttribute('aria-checked')).toBe('true')
 })
 
+test('one confirmation archives a large selection of Done Tasks without flooding the bridge', async () => {
+  const a = appState()
+  a.state.tasks = Array.from({ length: 323 }, (_, index) => {
+    const id = `NB-${index + 1}`
+    return task({ id, displayId: id, stage: 'done' })
+  })
+  const archived: unknown[] = []
+  let inFlight = 0
+  let peak = 0
+  a.handle('archiveTask', async (id) => {
+    inFlight += 1
+    peak = Math.max(peak, inFlight)
+    await Promise.resolve()
+    inFlight -= 1
+    archived.push(id)
+  })
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  const main = within(screen.getByRole('main'))
+  await u.click(main.getByRole('button', { name: /^Done/ }))
+  const rows = [...document.querySelectorAll('tbody tr[data-task]')]
+  fireEvent.click(required(rows[0]), { metaKey: true })
+  fireEvent.click(required(rows.at(-1)), { shiftKey: true })
+
+  const bar = within(screen.getByRole('toolbar', { name: 'Selected Tasks' }))
+  await u.click(bar.getByRole('button', { name: 'Archive…' }))
+  await u.click(bar.getByRole('button', { name: 'Archive 323 Tasks' }))
+  await vi.waitFor(() =>
+    expect(screen.queryByRole('toolbar', { name: 'Selected Tasks' })).toBeNull(),
+  )
+  expect(archived).toEqual(a.state.tasks.map(({ id }) => id))
+  expect(peak).toBeLessThanOrEqual(8)
+})
+
 test('List groups remember closed and open choices through Inbox and remounting', async () => {
   const a = await list()
   await a.emitTask(task({ id: 'NB-3', displayId: 'NB-3', title: 'Finished work', stage: 'done' }))
