@@ -824,7 +824,13 @@ test('the phone answers Coordinator questions, rounds and proposals through the 
     proposalFile,
     JSON.stringify({
       title: 'Release checklist',
-      tasks: [{ title: 'Write the release checklist', scope: 'List the release steps', files: [] }],
+      tasks: [
+        {
+          title: 'Write the release checklist',
+          scope: 'List the release steps',
+          files: ['release-checklist.md'],
+        },
+      ],
     }),
   )
   const scenarios: {
