@@ -131,6 +131,7 @@ describe('New Task dialog', () => {
     const viewport = window.viewportSize()
     for (const width of [1000, 420]) {
       await window.setViewportSize({ width, height: 900 })
+      await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
       const frame = await open.boundingBox()
       if (!frame) throw new Error('New Task dialog has no bounds')
       for (const name of ['Provider', 'Model', 'Effort']) {
