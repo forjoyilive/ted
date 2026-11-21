@@ -16,7 +16,13 @@ import { buildRenderer } from '../test/build-renderer.ts'
 import { closeApp } from '../test/close-app.ts'
 import { loadedWindow } from '../test/first-window.ts'
 import { prepareElectron } from '../test/support/electron-installation.ts'
+import { sandboxRefusal } from './sandbox-refusal.ts'
 
+const refusal = sandboxRefusal()
+if (refusal) {
+  console.error(refusal)
+  process.exit(1)
+}
 const executablePath = await prepareElectron()
 const home = demoHome()
 const output = path.resolve(process.argv[2] || path.join(home, 'screenshots'))

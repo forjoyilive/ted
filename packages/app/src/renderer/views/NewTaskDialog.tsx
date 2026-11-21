@@ -1183,6 +1183,8 @@ export function LeadFields({
         </Select>
         <ModelSelect
           aria-label="Model"
+          className={styles.leadModel}
+          fullWidth
           id={`${id}-model`}
           agent={lead.agent}
           extra={[factoryLead?.agent === lead.agent ? factoryLead.model : undefined]}

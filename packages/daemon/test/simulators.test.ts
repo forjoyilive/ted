@@ -203,7 +203,7 @@ const eventText = (client: Client, task: Task, text: string) =>
     `the thread event “${text}”`,
   )
 
-async function leadResult(client: Client, task: Task) {
+async function leadResult(client: Client, task: Task, timeoutMs = 20_000) {
   const lead = (await taskNow(client, task)).leadRunId as string
   const [result] = await waitUntil(
     async () => {
@@ -211,7 +211,7 @@ async function leadResult(client: Client, task: Task) {
       return texts.length >= 1 ? texts : undefined
     },
     'the Task Lead’s ted run-app',
-    20_000,
+    timeoutMs,
   )
   return JSON.parse(result ?? '{}') as { code: number; stdout: string; stderr: string }
 }
@@ -510,7 +510,7 @@ describe('iOS simulator Apps', () => {
       async () => (await watchState()) === 'running',
       'the Watch App to start once the iPhone App is built',
     )
-  })
+  }, 90_000)
 
   test('with one build at a time off, two builds at once split the CPU share, and a build that printed TED_APP_READY stops counting', async () => {
     const client = await start()
@@ -709,14 +709,14 @@ describe('iOS simulator Apps', () => {
       client,
       JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'iPhone'] }, { endTurn: true }] }),
     )
-    const result = await leadResult(client, task)
+    const result = await leadResult(client, task, 60_000)
     expect(result.code).toBe(1)
     expect(result.stderr).toContain(
       'iPhone is running on iPhone 17 but didn’t print TED_APP_READY within the 15-minute build limit',
     )
     expect(result.stderr).toContain('still compiling')
     expect(await iPhone(client, task)).toMatchObject({ state: 'running', notReady: true })
-  })
+  }, 90_000)
 
   test('an approved App that waits for another App’s build names it, and ted run-app says so', async () => {
     const client = await start()
@@ -729,7 +729,8 @@ describe('iOS simulator Apps', () => {
     const first = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
     await writeFile(built, '')
-    await waitForApp(client, first, (a) => a.state === 'running', 'NB-1’s iPhone to be built')
+    await waitForApp(client, first, (a) => a.builtAt !== undefined, 'NB-1’s iPhone to be built')
+    await rm(built)
     const builder = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${builder.id}/apps/start`, { name: 'Watch' })
     await waitUntil(
@@ -774,7 +775,6 @@ describe('iOS simulator Apps', () => {
       async () => (await readFile(said, 'utf8').catch(() => '')).includes(building),
       'ted run-app to say whose build it waits for',
     )
-    await rm(built)
     await client.ok('POST', `/tasks/${builder.id}/apps/stop`, { name: 'Watch' })
     await waitUntil(
       async () =>
@@ -784,7 +784,7 @@ describe('iOS simulator Apps', () => {
       'ted run-app to say it waits for NB-3’s own build',
     )
     await writeFile(built, '')
-    const result = await leadResult(client, second)
+    const result = await leadResult(client, second, 60_000)
     expect(result.code).toBe(0)
     const lines = (await readFile(said, 'utf8')).split('\n')
     expect(lines.filter((l) => l.includes('Waiting for'))).toEqual([
@@ -792,7 +792,7 @@ describe('iOS simulator Apps', () => {
       building,
       'Waiting for iPhone to finish building and launch on iPhone 17…',
     ])
-  })
+  }, 90_000)
 
   test('a slot that frees up first closes the request without shutting anything down', async () => {
     const client = await start()

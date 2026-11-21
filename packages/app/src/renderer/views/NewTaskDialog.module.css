@@ -359,8 +359,11 @@
 }
 
 .moreSummary {
+  overflow: hidden;
   color: var(--text-caption);
   font-size: var(--text-12-5);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .moreBody {
@@ -372,7 +375,22 @@
 
 .leadRow {
   display: flex;
+  width: 100%;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.leadRow > * {
+  max-width: 100%;
+}
+
+.leadRow > .leadModel {
+  flex: 1 1 12ch;
+}
+
+.leadRow select {
+  max-width: 100%;
+  text-overflow: ellipsis;
 }
 
 .footer {

@@ -86,7 +86,7 @@ import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
 import { useStages } from '../stages.tsx'
 import { activeSubAgentCount } from '../sub-agents.ts'
-import { priorityLabels } from '../task-fields.ts'
+import { agentLabels, priorityLabels } from '../task-fields.ts'
 import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import styles from './TaskList.module.css'
@@ -102,6 +102,7 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   factory: '120px',
   stage: '80px',
   status: '300px',
+  provider: '110px',
   'blocked-by': '90px',
   'created-by': '110px',
   tokens: '64px',
@@ -468,6 +469,19 @@ export function FilterMenu({
 }
 
 function DisplayMenu({ view, onChange }: { view: ListView; onChange: (view: ListView) => void }) {
+  const columns = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const list = columns.current
+    if (!list) return
+    const fitColumns = () => {
+      const space = window.innerHeight - list.getBoundingClientRect().top - 16
+      list.style.maxHeight = `${Math.max(31, space)}px`
+    }
+    fitColumns()
+    window.addEventListener('resize', fitColumns)
+    return () => window.removeEventListener('resize', fitColumns)
+  }, [])
+
   return (
     <>
       <div className={styles.menuHeading}>
@@ -508,15 +522,17 @@ function DisplayMenu({ view, onChange }: { view: ListView; onChange: (view: List
       />
       <div className={styles.menuDivider} />
       <div className={styles.menuHeading}>Columns</div>
-      {listColumns.map((column) => (
-        <CheckItem
-          key={column}
-          label={columnLabels[column]}
-          checked={column === 'title' || view.columns.includes(column)}
-          disabled={column === 'title'}
-          onChange={() => onChange({ ...view, columns: toggled(view.columns, column) })}
-        />
-      ))}
+      <div className={styles.menuColumns} ref={columns}>
+        {listColumns.map((column) => (
+          <CheckItem
+            key={column}
+            label={columnLabels[column]}
+            checked={column === 'title' || view.columns.includes(column)}
+            disabled={column === 'title'}
+            onChange={() => onChange({ ...view, columns: toggled(view.columns, column) })}
+          />
+        ))}
+      </div>
     </>
   )
 }
@@ -825,6 +841,8 @@ export function TaskList({
         return <FactoryName factories={factories} factoryId={task.factoryId} />
       case 'stage':
         return stages.name(task.stage, task.factoryId)
+      case 'provider':
+        return task.lead ? agentLabels[task.lead.agent] : 'Default'
       case 'status': {
         if (task.archived)
           return (

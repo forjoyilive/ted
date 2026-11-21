@@ -76,6 +76,7 @@ export const columnLabels: Record<ListColumn, string> = {
   'blocked-by': 'Blocked by',
   created: 'Created',
   'created-by': 'Created by',
+  provider: 'Provider',
   tokens: 'Tokens',
   started: 'Started',
 }
@@ -89,6 +90,7 @@ const columnOrder: readonly ListColumn[] = [
   'factory',
   'stage',
   'status',
+  'provider',
   'blocked-by',
   'created-by',
   'tokens',
