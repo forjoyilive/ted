@@ -109,7 +109,7 @@ async function stubCalls(): Promise<string[][]> {
 }
 
 async function start(
-  simulators: { supported?: boolean; idleMs?: number } = {},
+  simulators: { supported?: boolean; idleMs?: number; pollMs?: number } = {},
   disk?: { freeBytes: () => Promise<number>; checkEveryMs: number },
   wrap?: DaemonWrappers,
   appOptions: { buildTurnMs?: number } = {},
@@ -223,14 +223,21 @@ const runAppTitle = JSON.stringify({
   ],
 })
 
-async function simulatorRequest(client: Client, task: Task): Promise<Comment> {
+async function waitForBootedSlots(client: Client, count: number): Promise<void> {
+  await waitUntil(
+    async () => (await client.ok<SimulatorSlots>('GET', '/simulators')).booted.length === count,
+    `${count} booted simulator slots`,
+  )
+}
+
+async function simulatorRequest(client: Client, task: Task, timeoutMs = 20_000): Promise<Comment> {
   return waitUntil(
     async () =>
       (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
         (c) => c.simulator !== undefined && c.answer === undefined,
       ),
     'the simulator request',
-    20_000,
+    timeoutMs,
   )
 }
 
@@ -724,7 +731,7 @@ describe('iOS simulator Apps', () => {
   }, 90_000)
 
   test('an approved App that waits for another App’s build names it, and ted run-app says so', async () => {
-    const client = await start()
+    const client = await start({ pollMs: 3_000 })
     const built = path.join(scratch, 'built')
     await addFactory(
       client,
@@ -740,17 +747,26 @@ describe('iOS simulator Apps', () => {
     await client.ok('POST', `/tasks/${builder.id}/apps/start`, { name: 'Watch' })
     await waitUntil(
       async () =>
-        (await apps(client, builder)).find((a) => a.name === 'Watch' && a.simulator?.booted),
+        (await apps(client, builder)).find(
+          (a) => a.name === 'Watch' && a.simulator?.booted && a.building,
+        ),
       'NB-2’s Watch to boot and take the build turn',
     )
     const said = path.join(scratch, 'run-app.err')
+    const requestSlot = path.join(scratch, 'request-slot')
     const second = await taskWithWorktree(
       client,
       JSON.stringify({
-        steps: [{ run: ['sh', '-c', `ted run-app iPhone 2> '${said}'`] }, { endTurn: true }],
+        steps: [
+          { waitFor: requestSlot },
+          { run: ['sh', '-c', `ted run-app iPhone 2> '${said}'`] },
+          { endTurn: true },
+        ],
       }),
     )
-    const request = await simulatorRequest(client, second)
+    await waitForBootedSlots(client, 2)
+    await writeFile(requestSlot, '')
+    const request = await simulatorRequest(client, second, 45_000)
     const nb1 = request.simulator?.booted.find((b) => b.displayId === 'NB-1')
     await waitForApp(
       client,
@@ -800,13 +816,22 @@ describe('iOS simulator Apps', () => {
   }, 90_000)
 
   test('a slot that frees up first closes the request without shutting anything down', async () => {
-    const client = await start()
+    const client = await start({ pollMs: 3_000 })
     await addFactory(client)
     await client.ok('PATCH', '/settings', { maxRunningDevices: 1 })
     const first = await taskWithWorktree(client)
     await client.ok('POST', `/tasks/${first.id}/apps/start`, { name: 'iPhone' })
-    const second = await taskWithWorktree(client, runAppTitle)
-    const request = await simulatorRequest(client, second)
+    const requestSlot = path.join(scratch, 'request-slot')
+    const second = await taskWithWorktree(
+      client,
+      JSON.stringify({
+        steps: [{ waitFor: requestSlot }, { run: ['ted', 'run-app', 'iPhone'] }, { endTurn: true }],
+      }),
+    )
+    await waitForBootedSlots(client, 1)
+    await writeFile(requestSlot, '')
+    const request = await simulatorRequest(client, second, 45_000)
+    await waitForApp(client, second, (a) => a.asking === true, 'the App to wait for the slot')
 
     await client.ok('POST', `/tasks/${first.id}/apps/stop`, { name: 'iPhone' })
 
@@ -818,7 +843,7 @@ describe('iOS simulator Apps', () => {
       slotFreed: true,
     })
     expect((await iPhone(client, first))?.simulator?.shutDown?.for).toBeUndefined()
-  })
+  }, 90_000)
 
   test('an idle simulator is shut down', async () => {
     const client = await start({ idleMs: 500 })
