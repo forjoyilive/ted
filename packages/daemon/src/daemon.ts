@@ -50,6 +50,7 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
+import type { ImageShrinker } from './phones/images.ts'
 import { osPhoneKeyrings, type PhoneKeyrings } from './phones/keys.ts'
 import { createPhoneNotifier } from './phones/notifier.ts'
 import { createPhones } from './phones/phones.ts'
@@ -170,6 +171,7 @@ export interface DaemonPhonesOptions {
   relayListAckMs?: number
   push?: PushService
   presence?: { now?: () => number; staleMs?: number }
+  shrinkImage?: ImageShrinker
 }
 
 export interface DaemonWrappers {
@@ -934,6 +936,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         uploads: {
           dir: paths.phoneUploads,
           save: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+        },
+        images: {
+          comment: (id) => store.getComment(id),
+          task: (id) => store.getTask(id),
+          file: (attachment) => attachments.file(attachment),
+          cacheDir: paths.phoneImages,
+          ...(options.phones?.shrinkImage && { shrink: options.phones.shrinkImage }),
         },
         problems: phoneProblemSource,
         keyrings: options.phones?.keyrings ?? osPhoneKeyrings,

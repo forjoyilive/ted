@@ -1,5 +1,6 @@
 import type { Json, JsonObject } from './parse.ts'
 import { isInteger, isString, ParseError, reader, type Untyped } from './parse.ts'
+import { type PhoneImage, parsePhoneImage } from './phone-images.ts'
 import type { PlanRequestKind } from './plan.ts'
 import { type Comment, type Priority, priorities } from './task.ts'
 
@@ -48,12 +49,67 @@ export interface PhoneProposalRow {
   blockedBy: number[]
 }
 
+export interface PhoneDesignFile {
+  name: string
+  caption?: string
+}
+
+export interface PhoneSetupCheck {
+  name: string
+  command: string
+  repo?: string
+  passed: boolean
+  seconds: number
+  reason?: string
+}
+
+export interface PhoneSetupApp {
+  name: string
+  kind: string
+  run?: string
+  repo?: string
+  passed: boolean
+  reason?: string
+}
+
+export interface PhoneSetupWorktree {
+  repo?: string
+  step: 'setup' | 'teardown'
+  access: string[]
+}
+
+export interface PhoneSetup {
+  workflow?: { stage: string; setting?: string }[]
+  checks?: PhoneSetupCheck[]
+  apps?: PhoneSetupApp[]
+  agents?: { name: string; about: string }[]
+  worktree?: PhoneSetupWorktree[]
+  files?: { path: string; about: string }[]
+  defaults?: string
+}
+
+export interface PhoneFigmaLink {
+  url: string
+  label?: string
+}
+
+export interface PhoneDesign {
+  summary?: string
+  worthYourEye?: string[]
+  screenshots?: PhoneImage[]
+  figma?: PhoneFigmaLink
+  prototype?: PhoneDesignFile
+  video?: PhoneDesignFile
+  setup?: PhoneSetup
+}
+
 export type PhoneForm =
   | { type: 'choices'; choices: string[]; multiple: boolean; text: boolean }
   | { type: 'text' }
   | { type: 'round'; questions: PhoneRoundQuestion[] }
   | { type: 'permission'; command: string; cut: boolean }
   | { type: 'signoff'; stage: string; brief: string; cut: boolean }
+  | { type: 'design'; stage: string; brief: string; cut: boolean; design: PhoneDesign }
   | { type: 'proposal'; title: string; summary: string; rows: PhoneProposalRow[] }
   | { type: 'mac'; reason: string }
 
@@ -61,6 +117,7 @@ export interface PhoneRequestDetail extends PhoneRequestSummary {
   body: string
   cut: boolean
   attachments: number
+  images?: PhoneImage[]
   form: PhoneForm
 }
 
@@ -127,8 +184,6 @@ export function phoneAnswerability(subject: PhoneAnswerSubject): PhoneAnswerabil
   }
   const { request } = subject
   const purpose = request.purpose?.kind
-  if (request.kind === 'review')
-    return onMac('A design review has screenshots and files to look at. Review it on your Mac.')
   if (request.kind === 'note') return onMac('Answer this on your Mac.')
   if (request.simulator || purpose === 'simulator')
     return onMac('Choosing a simulator to shut down needs your Mac.')
@@ -270,6 +325,7 @@ export function parsePhoneForm(value: Untyped): PhoneForm {
     'round',
     'permission',
     'signoff',
+    'design',
     'proposal',
     'mac',
   ])
@@ -296,6 +352,14 @@ export function parsePhoneForm(value: Untyped): PhoneForm {
         brief: read.string(object, 'brief'),
         cut: read.boolean(object, 'cut'),
       }
+    case 'design':
+      return {
+        type,
+        stage: read.string(object, 'stage'),
+        brief: read.string(object, 'brief'),
+        cut: read.boolean(object, 'cut'),
+        design: parsePhoneDesign(object.design),
+      }
     case 'proposal': {
       const rows = read.list(object, 'rows')
       return {
@@ -310,13 +374,131 @@ export function parsePhoneForm(value: Untyped): PhoneForm {
   }
 }
 
+function text(object: JsonObject, field: string): string | undefined {
+  return read.optional(object, field, read.string)
+}
+
+function optionalList<T>(
+  object: JsonObject,
+  field: string,
+  each: (value: Json, index: number) => T,
+): T[] | undefined {
+  return read.optional(object, field, (o, f) => read.list(o, f).map(each))
+}
+
+function parseDesignFile(value: Json | undefined, field: string): PhoneDesignFile {
+  const object = read.object(value, field)
+  const caption = text(object, 'caption')
+  return { name: read.string(object, 'name'), ...(caption !== undefined && { caption }) }
+}
+
+function parseSetupCheck(value: Json): PhoneSetupCheck {
+  const check = read.object(value, 'checks')
+  const repo = text(check, 'repo')
+  const reason = text(check, 'reason')
+  return {
+    name: read.string(check, 'name'),
+    command: read.string(check, 'command'),
+    ...(repo !== undefined && { repo }),
+    passed: read.boolean(check, 'passed'),
+    seconds: read.integer(check, 'seconds'),
+    ...(reason !== undefined && { reason }),
+  }
+}
+
+function parseSetupApp(value: Json): PhoneSetupApp {
+  const app = read.object(value, 'apps')
+  const run = text(app, 'run')
+  const repo = text(app, 'repo')
+  const reason = text(app, 'reason')
+  return {
+    name: read.string(app, 'name'),
+    kind: read.string(app, 'kind'),
+    ...(run !== undefined && { run }),
+    ...(repo !== undefined && { repo }),
+    passed: read.boolean(app, 'passed'),
+    ...(reason !== undefined && { reason }),
+  }
+}
+
+function parseSetupWorktree(value: Json): PhoneSetupWorktree {
+  const line = read.object(value, 'worktree')
+  const repo = text(line, 'repo')
+  return {
+    ...(repo !== undefined && { repo }),
+    step: read.oneOf(line, 'step', ['setup', 'teardown'] as const),
+    access: strings(line, 'access'),
+  }
+}
+
+function parseSetup(value: Json | undefined): PhoneSetup {
+  const object = read.object(value, 'setup')
+  const workflow = optionalList(object, 'workflow', (entry) => {
+    const line = read.object(entry, 'workflow')
+    const setting = text(line, 'setting')
+    return { stage: read.string(line, 'stage'), ...(setting !== undefined && { setting }) }
+  })
+  const checks = optionalList(object, 'checks', parseSetupCheck)
+  const apps = optionalList(object, 'apps', parseSetupApp)
+  const agents = optionalList(object, 'agents', (entry) => {
+    const agent = read.object(entry, 'agents')
+    return { name: read.string(agent, 'name'), about: read.string(agent, 'about') }
+  })
+  const worktree = optionalList(object, 'worktree', parseSetupWorktree)
+  const files = optionalList(object, 'files', (entry) => {
+    const file = read.object(entry, 'files')
+    return { path: read.string(file, 'path'), about: read.string(file, 'about') }
+  })
+  const defaults = text(object, 'defaults')
+  return {
+    ...(workflow !== undefined && { workflow }),
+    ...(checks !== undefined && { checks }),
+    ...(apps !== undefined && { apps }),
+    ...(agents !== undefined && { agents }),
+    ...(worktree !== undefined && { worktree }),
+    ...(files !== undefined && { files }),
+    ...(defaults !== undefined && { defaults }),
+  }
+}
+
+function parseFigma(value: Json | undefined): PhoneFigmaLink {
+  const link = read.object(value, 'figma')
+  const label = text(link, 'label')
+  return { url: read.string(link, 'url'), ...(label !== undefined && { label }) }
+}
+
+function parsePhoneDesign(value: Json | undefined): PhoneDesign {
+  const object = read.object(value, 'design')
+  const summary = text(object, 'summary')
+  const worthYourEye = read.optional(object, 'worthYourEye', strings)
+  const screenshots = optionalList(object, 'screenshots', (entry) =>
+    parsePhoneImage(entry, 'screenshots'),
+  )
+  const figma = object.figma === undefined ? undefined : parseFigma(object.figma)
+  const prototype =
+    object.prototype === undefined ? undefined : parseDesignFile(object.prototype, 'prototype')
+  const video = object.video === undefined ? undefined : parseDesignFile(object.video, 'video')
+  const setup = object.setup === undefined ? undefined : parseSetup(object.setup)
+  return {
+    ...(summary !== undefined && { summary }),
+    ...(worthYourEye !== undefined && { worthYourEye }),
+    ...(screenshots !== undefined && { screenshots }),
+    ...(figma !== undefined && { figma }),
+    ...(prototype !== undefined && { prototype }),
+    ...(video !== undefined && { video }),
+    ...(setup !== undefined && { setup }),
+  }
+}
+
 export function parsePhoneRequestDetail(value: Untyped): PhoneRequestDetail {
   const object = read.object(value, 'request')
+  const images = optionalList(object, 'images', (entry) => parsePhoneImage(entry, 'images'))
   return {
     ...parseSummaryFields(object),
     body: read.string(object, 'body'),
     cut: read.boolean(object, 'cut'),
     attachments: read.integer(object, 'attachments'),
+    ...(images !== undefined && { images }),
     form: parsePhoneForm(object.form),
   }
 }
