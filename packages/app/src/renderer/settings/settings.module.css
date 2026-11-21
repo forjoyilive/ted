@@ -100,12 +100,20 @@
   font-size: var(--text-11-5);
 }
 
+.content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface-pane);
+}
+
 .main {
   container-type: inline-size;
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  background: var(--surface-pane);
 }
 
 .page {

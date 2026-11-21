@@ -51,6 +51,7 @@ import { FactoryColorsProvider } from './components/FactoryIcon.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { GuideCard } from './components/GuideCard.tsx'
 import { NotificationOfferBanner } from './components/NotificationOffer.tsx'
+import { Offline } from './components/Offline.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
@@ -240,14 +241,6 @@ const cardDialogs: Partial<Record<string, TaskDialogKind>> = {
 
 function report(error: unknown) {
   console.error(error)
-}
-
-function Offline({ when, children }: { when: boolean; children: ReactNode }) {
-  return (
-    <fieldset disabled={when} className={when ? styles.offline : styles.online}>
-      {children}
-    </fieldset>
-  )
 }
 
 export type AppStart = { factoryId: string } | { settings: 'integrations' }
@@ -1399,28 +1392,27 @@ export function App({ start }: { start?: AppStart | undefined }) {
   if (navigation.settings) {
     return frame(
       <div className={styles.main}>
-        {problems}
-        <Offline when={offline}>
-          <div ref={panes} className={styles.panes}>
-            {find}
-            <SettingsShell
-              error={settingsResource.error}
-              retry={settingsResource.retry}
-              section={navigation.settings.section}
-              settings={settings}
-              factories={factories}
-              searchFactory={searchFactory}
-              inboxCount={inboxCount}
-              stopsWork={{
-                ...sectionsStoppingWork(banners),
-                ...(notificationsOff && { notifications: true }),
-              }}
-              counts={{ library: drift?.library ?? 0 }}
-              guide={guide}
-              dispatch={dispatch}
-            />
-          </div>
-        </Offline>
+        <div ref={panes} className={styles.panes}>
+          <Offline when={offline}>{find}</Offline>
+          <SettingsShell
+            error={settingsResource.error}
+            retry={settingsResource.retry}
+            section={navigation.settings.section}
+            settings={settings}
+            factories={factories}
+            searchFactory={searchFactory}
+            inboxCount={inboxCount}
+            stopsWork={{
+              ...sectionsStoppingWork(banners),
+              ...(notificationsOff && { notifications: true }),
+            }}
+            counts={{ library: drift?.library ?? 0 }}
+            guide={guide}
+            problems={problems}
+            offline={offline}
+            dispatch={dispatch}
+          />
+        </div>
         {palette}
         {dialogs}
         {overlays}
