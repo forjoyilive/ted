@@ -16,7 +16,7 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { encodePairingLink, tedPaths } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { DaemonWrappers } from '../src/daemon.ts'
 import { RequestError } from '../src/errors.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -57,6 +57,7 @@ afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
   delete process.env.TED_STUB_XCRUN
+  vi.unstubAllEnvs()
   await killAppHosts(home)
   await killRunHosts(home)
   await cleanup()
@@ -886,6 +887,8 @@ describe('iOS simulator Apps', () => {
   })
 
   test('only the current Validate Lead can pair and drive its own running iOS App', async () => {
+    vi.stubEnv('IDB_COMPANION_PATH', process.env.TED_IDB_BIN)
+    await writeStub({ xcodeVersion: '27.2' })
     const client = await start()
     if (!daemon) throw new Error('daemon not started')
     const { port } = daemon
@@ -928,7 +931,17 @@ describe('iOS simulator Apps', () => {
     const before = await actions(screen)
     expect(before.status).toBe(200)
     expect(before.body.text).toContain('Open details')
-    expect((await actions({ action: 'tap', app, point: { x: 201, y: 325 } })).status).toBe(200)
+    const tap: DeviceRequest = { action: 'tap', app, point: { x: 201, y: 325 } }
+    const incompatible = await actions(tap)
+    expect(incompatible.status).toBe(409)
+    expect(incompatible.body.error).toContain(
+      'Xcode 27 or later needs an updated Meta idb companion',
+    )
+    expect((await actions(screen)).body.text).toContain('Open details')
+
+    const state = JSON.parse(await readFile(stubState, 'utf8')) as { idbSupportsXcode27?: boolean }
+    await writeFile(stubState, JSON.stringify({ ...state, idbSupportsXcode27: true }))
+    expect((await actions(tap)).status).toBe(200)
     expect((await actions(screen)).body.text).toContain('Price: 10 widgets for $5')
 
     const key = Buffer.alloc(32).toString('base64url')
@@ -1290,7 +1303,7 @@ describe('iOS simulator Apps', () => {
     await writeFile(released, '')
     const after = await results(17)
     expect(after[16]?.code).not.toBe(0)
-    expect(after[16]?.stderr).toContain('brew install facebook/fb/idb-companion')
+    expect(after[16]?.stderr).toContain('https://github.com/meta/idb#quick-start')
 
     const finished = await waitUntil(
       async () =>

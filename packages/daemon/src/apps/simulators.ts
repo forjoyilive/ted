@@ -37,7 +37,7 @@ export interface SimctlResult {
 
 export interface SimulatorTools {
   simctl(args: string[]): Promise<SimctlResult>
-  idb(args: string[]): Promise<SimctlResult>
+  idb(args: string[], input?: boolean): Promise<SimctlResult>
   open(args: string[]): Promise<SimctlResult>
   record(udid: string, file: string): ChildProcess
 }
@@ -51,12 +51,12 @@ export function createSimulatorTools(options: {
   const xcrun = options.xcrun ?? 'xcrun'
   const idb = options.idb ?? 'idb'
   const opener = options.open ?? '/usr/bin/open'
-  const run = (command: string, args: string[]) =>
+  const run = (command: string, args: string[], env = options.env()) =>
     new Promise<SimctlResult>((resolve) => {
       execFile(
         command,
         args,
-        { env: options.env(), timeout: 300_000, maxBuffer: 32 * 1024 * 1024 },
+        { env, timeout: 300_000, maxBuffer: 32 * 1024 * 1024 },
         (error, stdout, stderr) => {
           const code =
             error === null ? 0 : typeof error.code === 'number' ? error.code : error.code ? 127 : 1
@@ -66,7 +66,29 @@ export function createSimulatorTools(options: {
     })
   return {
     simctl: (args) => run(xcrun, ['simctl', ...args]),
-    idb: (args) => run(idb, args),
+    async idb(args, input) {
+      const env = options.env()
+      if (!input) return run(idb, args, env)
+
+      const version = await run(xcrun, ['xcodebuild', '-version'], env)
+      const major = version.stdout.match(/^Xcode (\d+)/m)?.[1]
+      if (version.code !== 0 || major === undefined)
+        throw new RequestError(
+          409,
+          'Ted couldn’t check the active Xcode version for iPhone simulator input. Run xcrun xcodebuild -version to check the selected Xcode.',
+        )
+      if (Number(major) < 27) return run(idb, args, env)
+
+      const companion = env.IDB_COMPANION_PATH || 'idb_companion'
+      const help = await run(companion, ['--help'], env)
+      // idb_companion --version reports only a build date. This flag was added after Xcode 27 HID support.
+      if (help.code !== 0 || !help.stdout.includes('--log-hid-details'))
+        throw new RequestError(
+          409,
+          'Xcode 27 or later needs an updated Meta idb companion for iPhone simulator input. Install or upgrade Meta’s idb, then restart this simulator App. See https://github.com/meta/idb#quick-start.',
+        )
+      return run(idb, ['--companion-path', companion, ...args], env)
+    },
     open: (args) => run(opener, args),
     record(udid, file) {
       return spawn(xcrun, ['simctl', 'io', udid, 'recordVideo', '--codec=h264', '--force', file], {
@@ -141,7 +163,7 @@ const simulatorViewers = [
 export const simulatorToolsProblem = 'simulator-tools'
 
 export const idbMissing =
-  'Ted drives iOS simulators through Meta’s idb, which isn’t installed on this Mac. Install it with brew install facebook/fb/idb-companion and pip3 install fb-idb, then try again.'
+  'Ted drives iOS simulators through Meta’s idb, which isn’t available on this Mac. See https://github.com/meta/idb#quick-start for installation instructions.'
 
 export function createSimulators(options: {
   dir: string
@@ -433,7 +455,10 @@ export function createSimulators(options: {
       const udid = record.udid
       const idb = async (args: string[], what: string) => {
         const [group = '', verb = '', ...rest] = args
-        const result = await tools.idb([group, verb, '--udid', udid, ...rest])
+        const result = await tools.idb(
+          [group, verb, '--udid', udid, ...rest],
+          verb !== 'describe-all',
+        )
         if (result.code === 127 || /ENOENT/.test(result.stderr))
           throw new RequestError(409, idbMissing)
         if (result.code !== 0)

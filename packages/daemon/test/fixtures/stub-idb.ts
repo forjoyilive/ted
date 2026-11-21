@@ -64,11 +64,21 @@ function locked<T>(work: () => T): T {
 
 interface State {
   idb?: boolean
+  idbSupportsXcode27?: boolean
   devices?: Record<string, { udid: string; state: string }[]>
   ui?: Record<string, StubIdbScreen>
 }
 
 if (!file) fail('stub-idb: no state file')
+if (args[0] === '--help') {
+  const state = JSON.parse(readFileSync(file, 'utf8')) as State
+  if (state.idbSupportsXcode27) console.log('    --log-hid-details VALUE')
+  process.exit(0)
+}
+if (args[0] === '--companion-path') {
+  if (args[1] !== process.argv[1]) fail('stub-idb: unexpected companion path')
+  args.splice(0, 2)
+}
 const [group, verb, flag, udid = '', ...rest] = args
 if (group !== 'ui' || flag !== '--udid') fail(`stub-idb: unexpected arguments ${args.join(' ')}`)
 
