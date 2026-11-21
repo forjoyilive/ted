@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest'
 import type { Json } from '../src/parse.ts'
+import { phoneFilePartBytes, phoneFilePartsMax, phoneFilesMax } from '../src/phone-files.ts'
 import {
   encodeCommentsCursor,
   encodeTasksCursor,
@@ -378,4 +379,72 @@ test('parsePhoneRequest reads every field of task-create and refuses bad ones', 
 
   const factories = { ...header, route: 'factories' }
   expect(parsePhoneRequest(factories)).toEqual(factories)
+
+  const ids = Array.from({ length: phoneFilesMax + 1 }, (_, i) =>
+    toBase64Url(new Uint8Array(16).fill(i + 1)),
+  )
+  const withFiles = { ...create, files: ids.slice(0, 2) }
+  expect(parsePhoneRequest(withFiles)).toEqual(withFiles)
+  expect(() => parsePhoneRequest({ ...create, files: [] })).toThrow(/files/)
+  expect(() => parsePhoneRequest({ ...create, files: ids })).toThrow(/files/)
+  expect(() => parsePhoneRequest({ ...create, files: [ids[0], ids[0]] })).toThrow(/files/)
+  expect(() => parsePhoneRequest({ ...create, files: ['short'] })).toThrow(/files/)
+  expect(() => parsePhoneRequest({ ...create, files: 'x' })).toThrow(/files/)
+})
+
+test('parsePhoneRequest reads task-comment with files, which may leave out the text', () => {
+  const header = { protocol: 3, id: toBase64Url(new Uint8Array(16)), at: 1, type: 'request' }
+  const files = [toBase64Url(new Uint8Array(16).fill(4))]
+  const comment = { ...header, route: 'task-comment', taskId: 'TED-788', text: 'See this', files }
+  expect(parsePhoneRequest(comment)).toEqual(comment)
+  expect(parsePhoneRequest({ ...comment, text: '' })).toEqual({ ...comment, text: '' })
+  const { text: _, ...bare } = comment
+  expect(parsePhoneRequest(bare)).toEqual({ ...bare, text: '' })
+  expect(() => parsePhoneRequest({ ...comment, files: [] })).toThrow(/files/)
+  expect(() => parsePhoneRequest({ ...comment, files: undefined, text: '' })).toThrow(/text/)
+})
+
+test('parsePhoneRequest reads every field of file-part and file-done and refuses bad ones', () => {
+  const header = { protocol: 3, id: toBase64Url(new Uint8Array(16)), at: 1, type: 'request' }
+  const uploadId = toBase64Url(new Uint8Array(16).fill(9))
+  const part = {
+    ...header,
+    route: 'file-part',
+    uploadId,
+    index: 0,
+    data: Buffer.alloc(phoneFilePartBytes, 1).toString('base64'),
+  }
+  expect(parsePhoneRequest(part)).toEqual(part)
+  expect(parsePhoneRequest({ ...part, index: phoneFilePartsMax - 1 })).toMatchObject({
+    index: phoneFilePartsMax - 1,
+  })
+  expect(() => parsePhoneRequest({ ...part, index: phoneFilePartsMax })).toThrow(/index/)
+  expect(() => parsePhoneRequest({ ...part, index: -1 })).toThrow(/index/)
+  expect(() => parsePhoneRequest({ ...part, index: 1.5 })).toThrow(/index/)
+  expect(() => parsePhoneRequest({ ...part, uploadId: 'short' })).toThrow(/uploadId/)
+  expect(() =>
+    parsePhoneRequest({
+      ...part,
+      data: Buffer.alloc(phoneFilePartBytes + 1).toString('base64'),
+    }),
+  ).toThrow(/data/)
+  expect(() => parsePhoneRequest({ ...part, data: 'not base64!' })).toThrow(/data/)
+  expect(() => parsePhoneRequest({ ...part, data: undefined })).toThrow(/data/)
+
+  const done = {
+    ...header,
+    route: 'file-done',
+    uploadId,
+    name: 'IMG_2031.jpg',
+    mediaType: 'image/jpeg',
+    size: 123_456,
+    sha256: 'a'.repeat(64),
+  }
+  expect(parsePhoneRequest(done)).toEqual(done)
+  expect(() => parsePhoneRequest({ ...done, uploadId: undefined })).toThrow(/uploadId/)
+  expect(() => parsePhoneRequest({ ...done, name: ' ' })).toThrow(/name/)
+  expect(() => parsePhoneRequest({ ...done, mediaType: '' })).toThrow(/mediaType/)
+  expect(() => parsePhoneRequest({ ...done, size: -1 })).toThrow(/size/)
+  expect(() => parsePhoneRequest({ ...done, sha256: 'A'.repeat(64) })).toThrow(/sha256/)
+  expect(() => parsePhoneRequest({ ...done, sha256: 'a'.repeat(63) })).toThrow(/sha256/)
 })

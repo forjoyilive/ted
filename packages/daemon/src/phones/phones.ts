@@ -1,4 +1,5 @@
 import {
+  type Attachment,
   type Edition,
   edition as ourEdition,
   type PairedPhones,
@@ -20,6 +21,7 @@ import { type PhoneProblemSource, phoneProblems } from './problems.ts'
 import { createRelayClient, type RelayClient } from './relay-client.ts'
 import { createPhoneRequests, type PhoneInbox } from './requests.ts'
 import { createPhoneTasks, type PhoneTaskSource } from './tasks.ts'
+import { createPhoneUploads } from './uploads.ts'
 
 export interface PhonesOptions {
   phones: PhoneStore
@@ -27,6 +29,10 @@ export interface PhonesOptions {
   tasks: PhoneTaskSource
   taskChanges: PhoneTaskChanges
   taskCreation: PhoneTaskCreation
+  uploads: {
+    dir: string
+    save(source: string, name: string, mediaType: string): Promise<Attachment>
+  }
   problems: Pick<PhoneProblemSource, 'banners' | 'factoryName'>
   keyrings: PhoneKeyrings
   version: string
@@ -53,6 +59,7 @@ export interface Phones {
 
 export const pairingAnswerMs = 120_000
 export const relayAnswerMs = 5_000
+export const uploadSweepMs = 5 * 60_000
 
 interface Ticket {
   pairing: string
@@ -69,14 +76,16 @@ export function createPhones(options: PhonesOptions): Phones {
   const reached = new Map<string, string>()
   const requests = createPhoneRequests(options.inbox)
   const tasks = createPhoneTasks(options.tasks, now)
-  const actions = createPhoneActions(options.taskChanges, tasks)
-  const newTask = createPhoneNewTask(options.taskCreation, options.phones, tasks)
+  const uploads = createPhoneUploads({ ...options.uploads, now })
+  const actions = createPhoneActions(options.taskChanges, tasks, uploads)
+  const newTask = createPhoneNewTask(options.taskCreation, options.phones, tasks, uploads)
   const tickets = new Map<string, Ticket>()
   const ending = new Map<string, number>()
   let keysLoaded: Promise<PhoneKeys> | undefined
   let connection: { relay: RelayClient; bridge: PhoneBridge; channel: string } | undefined
   let rotation: Promise<PhoneKeys> | undefined
   let watcher: NodeJS.Timeout | undefined
+  let uploadSweeper: NodeJS.Timeout | undefined
   let holdUntil = 0
   let closed = false
   let macName: Promise<string> | undefined
@@ -208,6 +217,7 @@ export function createPhones(options: PhonesOptions): Phones {
         tasks,
         actions,
         newTask,
+        uploads,
         problems: () => phoneProblems(options.problems),
         setPushToken: (phoneId, token) => options.phones.setPushToken(phoneId, token),
       },
@@ -296,6 +306,17 @@ export function createPhones(options: PhonesOptions): Phones {
 
   return {
     async start() {
+      await uploads.clear().catch((error: Error) => {
+        console.error(redactSecrets(`Ted couldn’t clear files left from phones: ${String(error)}`))
+      })
+      uploadSweeper = setInterval(() => {
+        uploads.sweep().catch((error: Error) => {
+          console.error(
+            redactSecrets(`Ted couldn’t remove old files from phones: ${String(error)}`),
+          )
+        })
+      }, uploadSweepMs)
+      uploadSweeper.unref()
       if (options.phones.latestReset()) {
         freshKeys().catch(() =>
           console.error(
@@ -382,6 +403,7 @@ export function createPhones(options: PhonesOptions): Phones {
     close() {
       closed = true
       if (watcher) clearTimeout(watcher)
+      if (uploadSweeper) clearInterval(uploadSweeper)
       for (const ticket of tickets.values()) if (ticket.endTimer) clearTimeout(ticket.endTimer)
       tickets.clear()
       pairings.cancel()

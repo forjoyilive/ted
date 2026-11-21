@@ -121,7 +121,7 @@ function cleanName(name: string): string {
     .slice(0, 255)
 }
 
-function cleanMediaType(value: string | string[] | undefined): string {
+export function cleanMediaType(value: string | string[] | undefined): string {
   const type = (Array.isArray(value) ? value[0] : value)?.split(';')[0]?.trim().toLowerCase()
   return type && mediaTypePattern.test(type) ? type : 'application/octet-stream'
 }
