@@ -67,7 +67,28 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     await allTasks().click()
     expect(await backlog().getAttribute('aria-expanded')).toBe('false')
     await backlog().click()
-    await window.getByRole('row', { name: /Remember collapsed groups/ }).waitFor()
+    const taskRow = window.getByRole('row', { name: /Remember collapsed groups/ })
+    await taskRow.waitFor()
+    const titleHead = window.getByRole('columnheader', { name: 'Title', exact: true })
+    const stageHead = window.getByRole('columnheader', { name: 'Stage', exact: true })
+    for (const [width, height] of [
+      [1280, 800],
+      [1050, 650],
+      [900, 560],
+    ] as const) {
+      await window.setViewportSize({ width, height })
+      await expect.poll(() => window.evaluate(() => globalThis.innerWidth)).toBe(width)
+      expect((await titleHead.boundingBox())?.width).toBeGreaterThanOrEqual(260)
+      const stage = await stageHead.boundingBox()
+      expect(stage && stage.x >= 0 && stage.x + stage.width <= width).toBe(true)
+      expect(await taskRow.getByRole('cell', { name: 'Backlog', exact: true }).count()).toBe(1)
+    }
+    const startedHead = window.getByRole('columnheader', { name: 'Started', exact: true })
+    await startedHead.scrollIntoViewIfNeeded()
+    const rightmost = await startedHead.boundingBox()
+    expect(rightmost && rightmost.x >= 0 && rightmost.x + rightmost.width <= 900).toBe(true)
+    await titleHead.evaluate((cell) => cell.closest('table')?.parentElement?.scrollTo(0, 0))
+    if (size) await window.setViewportSize(size)
     const groupSelection = window.getByRole('checkbox', { name: 'Select all Backlog Tasks' })
     await allTasks().focus()
     await window.mouse.move(0, 0)

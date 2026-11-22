@@ -155,8 +155,14 @@ export function viewKey(view: ListView): string {
   return JSON.stringify(sorted(view))
 }
 
-export function shownColumns(view: ListView): ListColumn[] {
-  return columnOrder.filter((c) => c === 'title' || view.columns.includes(c))
+export function shownColumns(view: ListView, scope = ''): ListColumn[] {
+  const columns = columnOrder.filter((c) => c === 'title' || view.columns.includes(c))
+  const stage = columns.indexOf('stage')
+  if (isAllTasks(scope) && stage !== -1) {
+    columns.splice(stage, 1)
+    columns.splice(columns.indexOf('title') + 1, 0, 'stage')
+  }
+  return columns
 }
 
 export function isQueueMode(view: ListView): boolean {
