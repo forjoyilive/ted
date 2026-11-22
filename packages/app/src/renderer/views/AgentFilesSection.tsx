@@ -20,6 +20,7 @@ import {
   agentProblem,
   agentRecipes,
   agentRecipeText,
+  fromPromptText,
   newAgentDraft,
   overrideDraft,
   resolvedChoice,
@@ -41,6 +42,7 @@ import grow from '../components/TextGrow.module.css'
 import type { SettingId } from '../settings-search.ts'
 import { agentLabels } from '../task-fields.ts'
 import styles from './AgentFilesSection.module.css'
+import { AgentPromptDialog } from './AgentPromptDialog.tsx'
 import base from './FactorySettings.module.css'
 import sections from './FactorySettingsSections.module.css'
 import { Edited, FromChip } from './FactorySettingsSections.tsx'
@@ -61,6 +63,7 @@ export function AgentFilesSection({
   loaded,
   kept,
   newSetting,
+  fromPrompt,
   onDraft,
   onKeep,
 }: {
@@ -72,11 +75,18 @@ export function AgentFilesSection({
   loaded: readonly AgentDraft[]
   kept: readonly string[]
   newSetting: SettingId
+  fromPrompt?: {
+    factoryId: string
+    canDraft: boolean
+    unsaved: boolean
+    start: (description: string) => Promise<void>
+  }
   onDraft: (change: (agents: AgentDraft[]) => AgentDraft[]) => void
   onKeep: (id: string) => void
 }) {
   const [open, setOpen] = useState<AgentDraft>()
   const [recipeMenu, setRecipeMenu] = useState<MenuPosition>()
+  const [prompting, setPrompting] = useState(false)
   const lines: Line[] = [
     ...rows.flatMap((row): Line[] => {
       const own = draft.find((a) => a.id === row.id && !a.added)
@@ -149,21 +159,44 @@ export function AgentFilesSection({
         {recipeMenu && (
           <ContextMenu at={recipeMenu} label="Recipes" onClose={() => setRecipeMenu(undefined)}>
             <MenuItems
-              items={agentRecipes.map((recipe) => ({
-                label: agentRecipeText[recipe].name,
-                hint: agentRecipeText[recipe].help,
-                action: () => {
-                  const own = newAgentDraft([...ids, ...draft.map((a) => a.id)], recipe)
-                  onDraft((agents) => [...agents, own])
-                  setOpen(own)
-                },
-              }))}
+              items={[
+                ...agentRecipes.map((recipe) => ({
+                  label: agentRecipeText[recipe].name,
+                  hint: agentRecipeText[recipe].help,
+                  action: () => {
+                    const own = newAgentDraft([...ids, ...draft.map((a) => a.id)], recipe)
+                    onDraft((agents) => [...agents, own])
+                    setOpen(own)
+                  },
+                })),
+                ...(fromPrompt
+                  ? [
+                      {
+                        label: fromPromptText.name,
+                        hint: fromPrompt.canDraft
+                          ? fromPromptText.help
+                          : fromPromptText.unavailable,
+                        divider: true,
+                        disabled: !fromPrompt.canDraft,
+                        action: () => setPrompting(true),
+                      },
+                    ]
+                  : []),
+              ]}
               choose={(item) => {
                 setRecipeMenu(undefined)
                 return item.action?.()
               }}
             />
           </ContextMenu>
+        )}
+        {fromPrompt && prompting && (
+          <AgentPromptDialog
+            factoryId={fromPrompt.factoryId}
+            unsaved={fromPrompt.unsaved}
+            onDraft={fromPrompt.start}
+            onClose={() => setPrompting(false)}
+          />
         )}
       </div>
     </div>

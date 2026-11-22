@@ -142,6 +142,20 @@ export const agentRecipeText: Readonly<Record<AgentRecipe, { name: string; help:
   },
 }
 
+export const fromPromptText = {
+  name: 'Create from a prompt…',
+  help: 'Describe the Agent and the Coordinator drafts it for you to review.',
+  unavailable: 'This Factory’s Coordinator doesn’t have Manage Agents, so it can’t draft one.',
+} as const
+
+export function agentPromptMessage(description: string): string {
+  return `Draft a new Agent for this Factory.\n\n${description.trim()}`
+}
+
+export function coordinatorDraftsAgents(rows: readonly AgentFileRow[]): boolean {
+  return rows.find((row) => row.id === 'coordinator')?.powers.includes('manage_agents') ?? false
+}
+
 export const releaseRecipeInstructions = `# What this Agent is for
 
 You release this repo: you build a new version on the user’s Mac, show them what is in it, and publish it only when they say so.

@@ -1,5 +1,6 @@
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
+  AgentDraftPlace,
   Attachment,
   AutomationCard,
   CoordinatorConfirmation,
@@ -44,6 +45,7 @@ export interface StoredCoordinator {
     | undefined
   prompts?: Record<string, PromptPart[]>
   checkout?: PlanCheckout[] | undefined
+  agentDraftPlace?: AgentDraftPlace
 }
 
 interface CoordinatorPhoneMessage {

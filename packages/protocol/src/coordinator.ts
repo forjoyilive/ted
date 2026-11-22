@@ -1,6 +1,6 @@
 import type { AutomationCard } from './automation-card.ts'
 import type { RunMessage } from './chat.ts'
-import type { ChatAgent, ChatRequest } from './chat-agent.ts'
+import type { AgentDraftPlace, ChatAgent, ChatRequest } from './chat-agent.ts'
 import type {
   AttachmentRef,
   ClarifyDepth,
@@ -156,6 +156,7 @@ export interface CoordinatorMessage {
   agent?: TaskLead['agent']
   model?: string
   effort?: TaskLead['effort']
+  agentDraftPlace?: AgentDraftPlace
 }
 
 export interface CoordinatorRequest {

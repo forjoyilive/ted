@@ -43,7 +43,15 @@
   background: var(--surface-selected);
 }
 .item:disabled { color: var(--text-faint); }
-.hint { margin-left: auto; color: var(--text-tertiary); white-space: nowrap; }
+.itemLabel { flex-shrink: 0; white-space: nowrap; }
+.hint {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .danger { color: var(--status-destructive-text); }
 .separator {
   height: 1px;

@@ -10,7 +10,7 @@ import type {
 } from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { expect, test, vi } from 'vitest'
+import { expect, onTestFinished, test, vi } from 'vitest'
 import { OvernightContext } from '../src/renderer/overnight.tsx'
 import { LibraryPage } from '../src/renderer/settings/LibraryPage.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
@@ -767,6 +767,76 @@ test('an overridden Coordinator keeps its icon and Ted’s description; the New 
   expect(await screen.findByRole('button', { name: 'New Agent…' })).toBeTruthy()
 })
 
+const coordinatorRow = (powers: import('@ted/protocol/agent-files').AgentPower[]) => ({
+  id: 'coordinator',
+  name: 'Coordinator',
+  powers,
+  from: 'ted' as const,
+  builtIn: true,
+})
+
+test('Create from a prompt opens a dialog, and Draft starts a Coordinator chat that saves drafts to this Factory and opens it', async () => {
+  const { a, shown, open } = withCoordinator()
+  shown.chats = []
+  a.handle('factorySettings', () => ({
+    ...settingsView(),
+    agentFiles: [coordinatorRow(['ask', 'manage_tasks', 'manage_agents'])],
+  }))
+  a.handle('homeFolder', () => '/test')
+  a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))
+  const start = vi.fn(() => {
+    shown.chats = [summary()]
+    return coordinator()
+  })
+  a.handle('startCoordinatorChat', start)
+  a.mount()
+  const picker = await open('New chat')
+  await user().click(await within(picker).findByRole('button', { name: /New Agent/ }))
+  await user().click(await screen.findByRole('button', { name: 'New Agent…' }))
+  const item = await screen.findByRole('menuitem', { name: /Create from a prompt…/ })
+  expect(item.textContent).toContain('the Coordinator drafts it for you to review')
+  await user().click(item)
+  const dialog = await screen.findByRole('dialog', { name: 'Create an Agent from a prompt' })
+  const draft = within(dialog).getByRole('button', { name: 'Draft' })
+  expect((draft as HTMLButtonElement).disabled).toBe(true)
+  await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(start).not.toHaveBeenCalled()
+
+  await user().click(screen.getByRole('button', { name: 'New Agent…' }))
+  await user().click(await screen.findByRole('menuitem', { name: /Create from a prompt…/ }))
+  const again = await screen.findByRole('dialog', { name: 'Create an Agent from a prompt' })
+  await user().type(
+    within(again).getByRole('textbox', { name: 'What the Agent is for' }),
+    '  Checks dependencies weekly.  ',
+  )
+  await user().click(within(again).getByRole('button', { name: 'Draft' }))
+  expect(start).toHaveBeenCalledWith('f1', {
+    text: 'Draft a new Agent for this Factory.\n\nChecks dependencies weekly.',
+    agentId: 'coordinator',
+    agentDraftPlace: 'factory',
+  })
+  expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
+})
+
+test('Create from a prompt can’t be chosen when this Factory’s Coordinator lacks Manage Agents', async () => {
+  const { a, shown, open } = withCoordinator()
+  shown.chats = []
+  a.handle('factorySettings', () => ({
+    ...settingsView(),
+    agentFiles: [coordinatorRow(['ask', 'manage_tasks'])],
+  }))
+  a.handle('homeFolder', () => '/test')
+  a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))
+  a.mount()
+  const picker = await open('New chat')
+  await user().click(await within(picker).findByRole('button', { name: /New Agent/ }))
+  await user().click(await screen.findByRole('button', { name: 'New Agent…' }))
+  const item = await screen.findByRole('menuitem', { name: /Create from a prompt…/ })
+  expect((item as HTMLButtonElement).disabled).toBe(true)
+  expect(item.textContent).toContain('doesn’t have Manage Agents')
+})
+
 test('a start that answers after New chat was clicked leaves the new start page open', async () => {
   const { a, shown, open, changed } = withCoordinator()
   shown.chats = []
@@ -1063,6 +1133,96 @@ test('an Automation card shows the draft, offers Start the Tasks it creates for 
     'Not done: “Morning intake” changed after this card was shown. Nothing changed.',
   )
   expect(within(refused).queryByRole('button', { name: 'Save' })).toBeNull()
+})
+
+test('an Agent draft card starts on the chat’s save place, previews the instructions with Show all and Edit, and sends the edited draft on Create', async () => {
+  const { a, shown, open } = withCoordinator()
+  const draft: ChatRequest = {
+    id: 'ad1',
+    chatId: 'k1',
+    runId: 'r2',
+    kind: 'agent',
+    title: 'New Agent: Dependency updater',
+    body: 'Checks for outdated packages each week.',
+    agentDraft: {
+      id: 'dependency-updater',
+      name: 'Dependency updater',
+      instructions: '# What this Agent is for\n\nYou keep dependencies current.\n',
+      powers: ['ask', 'read_code'],
+      place: 'factory',
+    },
+    createdAt,
+  }
+  shown.coordinator = coordinator({ requests: [draft] })
+  const answer = vi.fn(() => shown.coordinator)
+  a.handle('answerAgentDraft', answer)
+  const tall = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(400)
+  const clipped = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(190)
+  onTestFinished(() => {
+    tall.mockRestore()
+    clipped.mockRestore()
+  })
+  a.mount()
+  const pane = await open()
+  const card = await within(pane).findByRole('region', { name: 'Agent draft from Coordinator' })
+  expect(card.textContent).toContain('DU')
+  expect(card.textContent).toContain('agents/dependency-updater.md')
+  expect(card.textContent).toContain('Checks for outdated packages each week.')
+  expect(
+    (within(card).getByRole('radio', { name: /This Factory/ }) as HTMLInputElement).checked,
+  ).toBe(true)
+  const preview = within(card).getByRole('document', { name: 'Instructions' })
+  expect(preview.textContent).toContain('You keep dependencies current.')
+  await user().click(within(card).getByRole('button', { name: 'Show all' }))
+  expect(within(card).queryByRole('button', { name: 'Show all' })).toBeNull()
+  await user().click(within(card).getByRole('button', { name: 'Edit' }))
+  const box = within(card).getByRole('textbox', { name: 'Instructions' })
+  await user().type(box, 'Ask first.')
+  await user().click(within(card).getByRole('button', { name: 'Preview' }))
+  expect(within(card).getByRole('document', { name: 'Instructions' }).textContent).toContain(
+    'Ask first.',
+  )
+  await user().click(within(card).getByRole('checkbox', { name: /Read the code/ }))
+  const name = within(card).getByRole('textbox', { name: 'Name' })
+  await user().clear(name)
+  await user().type(name, 'Package scout')
+  expect(card.textContent).toContain('PS')
+  await user().click(within(card).getByRole('button', { name: 'Create' }))
+  expect(answer).toHaveBeenCalledWith('k1', 'ad1', {
+    action: 'create',
+    where: 'factory',
+    name: 'Package scout',
+    instructions: '# What this Agent is for\n\nYou keep dependencies current.\nAsk first.',
+    powers: ['ask'],
+  })
+})
+
+test('an Agent draft card from a chat with no save place starts on the Library, and short instructions show whole with no Show all', async () => {
+  const { a, shown, open } = withCoordinator()
+  shown.coordinator = coordinator({
+    requests: [
+      {
+        id: 'ad2',
+        chatId: 'k1',
+        runId: 'r2',
+        kind: 'agent',
+        body: '',
+        agentDraft: { id: 'notes', name: 'Notes', instructions: '# Notes\n', powers: [] },
+        createdAt,
+      },
+    ],
+  })
+  a.mount()
+  const pane = await open()
+  const card = await within(pane).findByRole('region', { name: 'Agent draft from Coordinator' })
+  expect((within(card).getByRole('radio', { name: /Library/ }) as HTMLInputElement).checked).toBe(
+    true,
+  )
+  expect(card.textContent).toContain('No powers: it only talks with you.')
+  expect(within(card).getByRole('document', { name: 'Instructions' }).textContent).toContain(
+    'Notes',
+  )
+  expect(within(card).queryByRole('button', { name: 'Show all' })).toBeNull()
 })
 
 test('an outside command card shows the exact command and folder, and only Run with the tick allows it always; the chat line stops it and the details pane removes an allowance', async () => {
