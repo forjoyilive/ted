@@ -658,8 +658,11 @@ Run these outside the sandbox, at most 3 files per command: pnpm vitest run <fil
   })
 })
 
-test('Electron can’t start in Codex’s sandbox, or in Ted’s on macOS', () => {
+test('Electron tests stay out of macOS Ted Runs even without a sandbox marker', () => {
   expect(electronSandbox({}, 'darwin')).toBeUndefined()
+  expect(electronSandbox({ TED_TASK: 'task-1' }, 'darwin')).toBeUndefined()
+  expect(electronSandbox({ TED_RUN: 'run-1' }, 'darwin')).toBe('a Ted Run on macOS')
+  expect(electronSandbox({ TED_RUN: 'run-1' }, 'linux')).toBeUndefined()
   expect(electronSandbox({ TED_SANDBOX: '1' }, 'darwin')).toBe('Ted’s sandbox')
   expect(electronSandbox({ TED_SANDBOX: '1' }, 'linux')).toBeUndefined()
   expect(electronSandbox({ CODEX_SANDBOX: 'seatbelt' }, 'linux')).toBe('Codex’s sandbox')

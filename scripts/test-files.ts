@@ -44,5 +44,7 @@ export function electronSandbox(
   platform: NodeJS.Platform = process.platform,
 ): string | undefined {
   if (env.CODEX_SANDBOX !== undefined) return 'Codex’s sandbox'
-  return env.TED_SANDBOX === '1' && platform === 'darwin' ? 'Ted’s sandbox' : undefined
+  if (platform !== 'darwin') return undefined
+  if (env.TED_SANDBOX === '1') return 'Ted’s sandbox'
+  return env.TED_RUN ? 'a Ted Run on macOS' : undefined
 }
