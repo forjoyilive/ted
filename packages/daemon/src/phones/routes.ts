@@ -194,6 +194,16 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     },
   },
   {
+    name: 'context-file',
+    async handle(_, { requestId, attachment, part }, { requests, images }) {
+      if (requestId === undefined || attachment === undefined || part === undefined) {
+        return { code: 'bad-request' }
+      }
+      const file = requests.contextFile(requestId, attachment)
+      return file === undefined ? { code: 'gone' } : images.readAttachment(file, part)
+    },
+  },
+  {
     name: 'design-prototype',
     async handle(_, request, { images }) {
       if (request.prototype === undefined || request.part === undefined) {

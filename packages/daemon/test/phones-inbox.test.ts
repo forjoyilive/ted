@@ -806,6 +806,68 @@ test('a request’s image attachments load through the image route in parts, and
   expect(failure(await image(id, 0))).toBe('gone')
 })
 
+test('Task questions and rounds carry their Run’s preceding notes and can read those files', async () => {
+  const task = await newTask('Context notes')
+  const author = { kind: 'run' as const, runId: 'context-run' }
+  const post = (input: Omit<NewComment, 'taskId' | 'author'>) =>
+    store.postComment({ taskId: task.id, author, ...input })
+  const pdfBytes = randomBytes(phoneImagePartBytes + 3)
+  const pdf = await attach('review.pdf', pdfBytes, 'application/pdf')
+  const html = await attach('report.html', Buffer.from('<p>Report</p>'), 'text/html')
+  const photo = await attach('preview.png', Buffer.from('preview'))
+
+  const oldNote = post({ kind: 'note', body: 'Previous context', attachments: [pdf] })
+  const old = post({ kind: 'question', body: 'Earlier question', choices: ['Yes'] })
+  ask(task.id, { kind: 'note', body: 'Unrelated note' })
+  const note = post({ kind: 'note', body: 'Review context', attachments: [photo, pdf] })
+  const question = post({ kind: 'question', body: 'Ready?', choices: ['Yes', 'No'] })
+  const roundNote = post({ kind: 'note', body: 'Round context', attachments: [html] })
+  const round = post({
+    kind: 'round',
+    body: 'Round',
+    round: { number: 1, questions: [{ question: 'Ready?', recommended: 'Yes' }] },
+  })
+
+  expect(await opened(question.id)).toMatchObject({
+    context: [
+      {
+        id: note.id,
+        body: 'Review context',
+        cut: false,
+        images: [{ caption: 'preview.png' }],
+        files: [{ name: 'review.pdf' }],
+      },
+    ],
+    form: { type: 'choices' },
+  })
+  expect((await opened(question.id)).context).toHaveLength(1)
+  expect(await opened(round.id)).toMatchObject({
+    context: [{ id: roundNote.id, body: 'Round context', files: [{ name: 'report.html' }] }],
+    form: { type: 'round' },
+  })
+
+  const readFilePart = (requestId: string, attachment: string, part: number) =>
+    phone.send({ type: 'request', route: 'context-file', requestId, attachment, part })
+  const reference = phoneImageId(note.id, pdf.hash) ?? ''
+  const parts = []
+  for (const part of [0, 1]) {
+    const reply = await readFilePart(question.id, reference, part)
+    if (!reply.ok) throw new Error(`File read failed: ${reply.error.code}`)
+    const body = parsePhoneImageBody(reply.body)
+    expect(body).toMatchObject({ mediaType: 'application/pdf', parts: 2, part })
+    parts.push(Buffer.from(body.data, 'base64url'))
+  }
+  expect(Buffer.concat(parts)).toEqual(pdfBytes)
+  expect(failure(await readFilePart(question.id, reference, 2))).toBe('bad-request')
+  expect(
+    failure(await readFilePart(question.id, phoneImageId(oldNote.id, pdf.hash) ?? '', 0)),
+  ).toBe('gone')
+  expect(failure(await readFilePart(old.id, reference, 0))).toBe('gone')
+  expect(failure(await readFilePart(round.id, reference, 0))).toBe('gone')
+  store.archiveTask(task.id)
+  expect(failure(await readFilePart(question.id, reference, 0))).toBe('gone')
+})
+
 test('a request answered on the Mac is gone for the phone, and a refused answer says why', async () => {
   const task = await newTask('Answered twice')
   const question = ask(task.id, {

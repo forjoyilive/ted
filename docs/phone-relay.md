@@ -137,6 +137,7 @@ Every message inside a box has:
 - `{"type":"request","route":"tasks","group":"status","cursor":"<cursor>"}`, `{"type":"request","route":"task","taskId":"TED-786"}` and `{"type":"request","route":"task-comments","taskId":"TED-786","cursor":"<cursor>"}` from a paired phone’s key (see Tasks below). `group` is optional and `status` when left out; `cursor` is optional. `taskId` is 1 to 200 characters and `cursor` 1 to 512; anything else gets `bad-request`. A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"task-start","taskId":"TED-788"}`, `task-stop`, `task-resume` (optional `text`), `task-priority` (`priority`), `task-comment` (`text`, optional `files`), `task-archive` (`hierarchyRevision`, `closePullRequests`, optional `children`) and `task-delete` (`hierarchyRevision`, optional `children`) from a paired phone’s key (see Task actions below). A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"image","image":"<image ID>","part":0}` from a paired phone’s key (see Images below). `image` is 1 to 200 characters and `part` a whole number from 0; anything else gets `bad-request`. A Mac older than this route answers `unknown-route`.
+- `{"type":"request","route":"context-file","requestId":"<request ID>","attachment":"<attachment reference>","part":0}` from a paired phone’s key (see Context files below).
 - `{"type":"request","route":"design-prototype","prototype":"<download reference>","part":0}` from a paired phone’s key (see Design prototypes below). A Mac older than this route answers `unknown-route`.
 - `{"type":"request","route":"factories"}` and `{"type":"request","route":"task-create","createId":"<16 random bytes>","factory":"NB","title":"…","description":"…","priority":"none","start":false}` from a paired phone’s key (see New Task below), with optional `"files":["<uploadId>", …]`. A Mac older than these routes answers `unknown-route`.
 - `{"type":"request","route":"file-part","uploadId":"<16 random bytes>","index":0,"data":"<base64>"}` and `{"type":"request","route":"file-done","uploadId":"<16 random bytes>","name":"IMG_2031.jpg","mediaType":"image/jpeg","size":123456,"sha256":"<64 lowercase hex>"}` from a paired phone’s key (see Files below). A Mac older than these routes answers `unknown-route`.
@@ -269,6 +270,7 @@ One request with what the phone needs to answer it. Send `includeSnoozed: true` 
 - `images`: the request’s image attachments, in order, each with its file name as `caption` (cut to 200 characters). The phone loads each one through the `image` route. Left out when there are none; an older Mac never sends it.
 - `moreImages` counts the request images omitted to fit the reply. The phone shows “N more images on your Mac”. When a design review falls back to a `mac` form, this count also includes its screenshots.
 - `attachments` counts the other attached files, excluding omitted images and the design review’s screenshots, prototype and video. The phone shows these files as “Open on your Mac”.
+- `context`: optional earlier notes for a Task question or Clarify round, oldest first. These are visible notes posted by the request’s Run since its previous request. Each note has `id`, Markdown `body`, `cut`, `images` in the same format as request images, and `files` with an opaque `attachment` reference and display `name`. `moreContext` counts omitted notes. The answer form has priority when the detail is fitted to the relay frame. An older Mac omits these fields.
 - `form` is one of:
   - `{"type":"choices","choices":[…],"multiple":false,"text":true}`: pick one choice (or several with `multiple`), and when `text` is `true`, optionally add text.
   - `{"type":"text"}`: free text only.
@@ -385,6 +387,11 @@ Every entry in the Task’s thread, newest first: notes from the user, the Task 
 - `request.kind` uses the same values as the Inbox `kind`. `stage` is left out when the request has none. `open` is `true` until the request is answered, withdrawn or superseded. `requestId` is the ID the `request` route takes, sent only while the request waits in the Inbox (open and not snoozed).
 
 A page holds as many entries as fit; `cursor` (the last entry’s time and ID, opaque like the list cursor) gets older entries and is left out when none are left. A bad cursor gets `bad-request`; an unknown or archived Task gets `gone`.
+
+## Context files
+
+Read a file on one of a Task request’s context notes. Send `requestId`, `attachment` from the request detail, and a zero-based `part`. The Mac rechecks that the request is open, the note is in its context and the file is still attached. A missing request, note or attachment returns `gone`. Files over 10 MiB return `refused`. A reply contains `mediaType`, `parts`, `part` and base64url `data`. Each part contains at most 28,000 bytes before encoding. Images continue through the `image` route.
+
 
 ## Images
 
