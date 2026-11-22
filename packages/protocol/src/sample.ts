@@ -2,7 +2,11 @@ import { type Edition, edition, identity } from './edition.ts'
 
 // No Node modules here: env.ts imports this file, and the renderer bundles env.ts through other
 // protocol modules. Ted ships for macOS and Linux, so paths join with “/”.
-const withoutTrailingSlash = (folder: string) => folder.replace(/(.)\/+$/, '$1')
+function withoutTrailingSlash(folder: string): string {
+  let end = folder.length
+  while (end > 1 && folder[end - 1] === '/') end -= 1
+  return folder.slice(0, end)
+}
 
 export function sampleHome(which: Edition = edition, env: NodeJS.ProcessEnv = process.env): string {
   return `${withoutTrailingSlash(env.HOME ?? '')}/${identity(which).sampleFolder}`
