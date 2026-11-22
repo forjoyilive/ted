@@ -41,6 +41,21 @@
   font-size: var(--text-11);
 }
 
+@media (max-height: 640px) {
+  .trigger {
+    min-height: var(--button-height);
+    padding-block: 5px;
+  }
+
+  .triggerHead {
+    margin-bottom: 0;
+  }
+
+  .mini {
+    display: none;
+  }
+}
+
 .popover {
   position: fixed;
   z-index: 20;

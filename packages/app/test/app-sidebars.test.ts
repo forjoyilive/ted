@@ -116,17 +116,35 @@ test('sidebars resize, persist, fit the window and share navigation width with S
   const views = sidebar.getByRole('button', { name: 'Views', exact: true, expanded: false })
   for (let left = await views.count(); left > 0; left--) await views.first().click()
   expect(await views.count()).toBe(0)
+  const factoryList = sidebar.getByRole('article').first().locator('xpath=../..')
+  const firstFactory = factoryList.locator(':scope > div').first()
+  await firstFactory.getByRole('button', { name: 'Task views', expanded: false }).click()
   await ctx.app?.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0]?.setSize(1280, 560),
+    BrowserWindow.getAllWindows()[0]?.setContentSize(900, 560),
   )
-  await expect.poll(() => window.evaluate(() => globalThis.innerHeight)).toBeLessThan(600)
+  await expect
+    .poll(() => window.evaluate(() => [globalThis.innerWidth, globalThis.innerHeight]))
+    .toEqual([900, 560])
+  const board = firstFactory.getByRole('button', { name: 'Board', exact: true })
+  await board.click()
+  await expect.poll(() => board.getAttribute('aria-current')).toBe('page')
+  const treeBox = await factoryList.boundingBox()
+  if (!treeBox) throw new Error('Missing Factory list')
+  const viewRows = await firstFactory
+    .getByRole('button', { name: /^(Agents|Tasks|Board|List|Map|Automations|Configuration)$/ })
+    .all()
+  const viewBoxes = await Promise.all(viewRows.map((row) => row.boundingBox()))
+  expect(
+    viewBoxes.filter(
+      (row) => row && row.y >= treeBox.y && row.y + row.height <= treeBox.y + treeBox.height,
+    ).length,
+  ).toBeGreaterThanOrEqual(4)
   const top = (name: string) =>
     sidebar
       .getByRole('button', { name, exact: true })
       .first()
       .evaluate((b) => b.getBoundingClientRect().top)
   const dashboardTop = await top('Dashboard')
-  const factoryList = sidebar.getByRole('article').first().locator('xpath=../..')
   const scroll = () =>
     factoryList.evaluate((list) => ({
       overflows: list.scrollHeight > list.clientHeight,

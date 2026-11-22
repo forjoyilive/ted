@@ -68,8 +68,9 @@ test('usage opens from the sidebar, receives Run reports, fits short windows and
     await window.screenshot({ path: path.join(capture, 'implemented-light.png') })
   }
   await ctx.app?.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0]?.setSize(800, 480),
+    BrowserWindow.getAllWindows()[0]?.setContentSize(900, 560),
   )
+  await tracker.getByText('8%', { exact: true }).waitFor({ state: 'hidden' })
   await expect
     .poll(async () => {
       const box = await panel.boundingBox()
@@ -80,6 +81,10 @@ test('usage opens from the sidebar, receives Run reports, fits short windows and
   await window.emulateMedia({ colorScheme: 'dark' })
   await expect.poll(() => background(window)).toBe(darkApp)
   if (capture) await window.screenshot({ path: path.join(capture, 'implemented-dark-short.png') })
+  await ctx.app?.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]?.setContentSize(900, 800),
+  )
+  await tracker.getByText('8%', { exact: true }).waitFor()
   await panel.getByRole('button', { name: 'Provider settings', exact: true }).click()
   await window.getByRole('main', { name: 'Providers', exact: true }).waitFor()
   await panel.waitFor({ state: 'detached' })
