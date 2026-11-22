@@ -11,7 +11,7 @@
   flex-direction: column;
   gap: 16px;
   min-height: 0;
-  padding: 18px 22px;
+  padding: var(--task-history-padding-block, 18px) 22px;
   overflow-y: auto;
 }
 

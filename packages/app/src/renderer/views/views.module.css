@@ -693,6 +693,21 @@
   min-height: min(50vh, 320px);
 }
 
+.taskContent:has(> .threadBody:not([hidden]) .threadComposer:not(:has(> [data-request]))) {
+  min-height: 180px;
+
+  @media (max-height: 600px) {
+    min-height: 150px;
+    --task-history-padding-block: 6px;
+  }
+}
+
+@media (max-height: 600px) {
+  .threadComposer:not(:has(> [data-request])) {
+    padding-block: 6px 8px;
+  }
+}
+
 .statusRow {
   flex-wrap: wrap;
   row-gap: 2px;
