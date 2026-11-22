@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { SearchPalette } from '../src/renderer/components/SearchPalette.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 import { createdAt, factory, plannerAgent, task } from './support/fixtures.ts'
 
 function open(found: Partial<SearchResults> = {}, current: boolean | Task = false) {
@@ -22,6 +22,7 @@ function open(found: Partial<SearchResults> = {}, current: boolean | Task = fals
   const api = bridge({
     search: (query) => ({
       query,
+      conversations: [],
       tasks: [],
       comments: [],
       plans: [],
@@ -53,11 +54,18 @@ const hit = {
   field: 'id' as const,
 }
 
-test('search preserves result order, selects the first Task and Enter opens it', async () => {
-  const a = open({
-    tasks: [hit, { ...hit, taskId: 'NB-1', displayId: 'NB-1', title: 'Mentions NB-2' }],
-  })
-  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'nb-2' } })
+test('a Task number selects its first result before conversation search finishes', async () => {
+  const a = open()
+  const conversations = deferred<SearchResults>()
+  a.handle('search', (query, _factoryId, scope) =>
+    scope === 'records'
+      ? {
+          query,
+          tasks: [hit, { ...hit, taskId: 'NB-1', displayId: 'NB-1', title: 'Mentions NB-2' }],
+        }
+      : conversations.promise,
+  )
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: '2' } })
   const group = await screen.findByRole('group', { name: 'Tasks' })
   const options = within(group).getAllByRole('option')
   expect(options[0]?.textContent).toContain('Sync notes')
@@ -141,6 +149,7 @@ test('the open Task’s palette Delete command opens its dialog and Cancel keeps
   a.state.tasks = [task(), task({ id: 'NB-2', displayId: 'NB-2', title: 'Other Task' })]
   a.handle('search', (query) => ({
     query,
+    conversations: [],
     tasks: [],
     comments: [],
     plans: [],
@@ -170,6 +179,7 @@ test('App’s no-results action opens New Task with the search query in Descript
   const a = appState()
   a.handle('search', (query) => ({
     query,
+    conversations: [],
     tasks: [],
     comments: [],
     plans: [],
@@ -215,6 +225,7 @@ test('App opens the planning chat selected in search with that plan’s content'
   })
   a.handle('search', (query) => ({
     query,
+    conversations: [],
     tasks: [],
     comments: [],
     plans: [{ planId: 'p1', factoryId: 'f1', title: plan.title, ended: false }],

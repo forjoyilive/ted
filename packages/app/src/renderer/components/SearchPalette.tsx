@@ -194,6 +194,7 @@ export function SearchPalette({
   const [query, setQuery] = useState('')
   const [conversation, setConversation] = useState<ConversationHit>()
   const [results, setResults] = useState<SearchResults>()
+  const [conversationResults, setConversationResults] = useState<SearchResults>()
   const [selected, setSelected] = useState(0)
   const [choosing, setChoosing] = useState<Command | undefined>(chosen)
   const [error, setError] = useState<string>()
@@ -209,14 +210,15 @@ export function SearchPalette({
     if (choosing || query.trim() === '') return
     let current = true
     const timer = setTimeout(() => {
-      ted.search(query, factoryId).then(
-        (found) => {
-          if (current) setResults(found)
-        },
-        (failure: unknown) => {
-          if (current) setError(readableError(failure))
-        },
-      )
+      const onError = (failure: unknown) => {
+        if (current) setError(readableError(failure))
+      }
+      ted.search(query, factoryId, 'records').then((found) => {
+        if (current) setResults(found)
+      }, onError)
+      ted.search(query, factoryId, 'conversations').then((found) => {
+        if (current) setConversationResults(found)
+      }, onError)
     }, debounceMs)
     return () => {
       current = false
@@ -299,15 +301,19 @@ export function SearchPalette({
       })
     }
     const found = terms.length > 0 && results?.query === query ? results : undefined
-    for (const hit of found?.tasks ?? []) {
-      items.push({
+    const taskHits = found?.tasks ?? []
+    const taskItems = taskHits.map(
+      (hit): Item => ({
         key: `task:${hit.taskId}`,
         group: 'Tasks',
         label: `${hit.displayId} ${hit.title}`,
         content: taskContent(hit, context.factories, stages),
         run: () => onOpenTask(hit.taskId, hit.factoryId),
-      })
-    }
+      }),
+    )
+    const number = query.trim()
+    const exactNumber = /^\d+$/.test(number) && taskHits[0]?.displayId.endsWith(`-${number}`)
+    items.splice(exactNumber ? 0 : items.length, 0, ...taskItems)
     for (const hit of found?.comments ?? []) {
       items.push({
         key: `comment:${hit.commentId}`,
@@ -349,7 +355,9 @@ export function SearchPalette({
         run: () => onOpenFactory(hit.factoryId),
       })
     }
-    for (const hit of found?.conversations ?? []) {
+    const conversations =
+      conversationResults?.query === query ? conversationResults.conversations : undefined
+    for (const hit of conversations ?? []) {
       items.push({
         key: `conversation:${hit.runId}:${hit.itemId}`,
         group: 'Conversations',
@@ -374,7 +382,7 @@ export function SearchPalette({
     }
   }
 
-  const searched = results !== undefined && results.query === query
+  const searched = results?.query === query && conversationResults?.query === query
   const nothing = !choosing && terms.length > 0 && searched && items.length === 0
   if (nothing) {
     const text = query.trim()
@@ -486,6 +494,8 @@ export function SearchPalette({
               spellCheck={false}
               onChange={(event) => {
                 setQuery(event.target.value)
+                setResults(undefined)
+                setConversationResults(undefined)
                 setSelected(0)
                 setError(undefined)
               }}

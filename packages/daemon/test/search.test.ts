@@ -552,6 +552,11 @@ describe('GET /search', () => {
     const results = await client.search('NB-1 accents', factory.id)
     expect(results.tasks.map((t) => t.taskId)).toEqual([task.id])
     expect((await client.search('nb-1')).tasks[0]).toMatchObject({ taskId: task.id, field: 'id' })
+    expect(await client.search('1', factory.id, 'records')).toMatchObject({
+      tasks: [{ taskId: task.id, field: 'id' }],
+      conversations: [],
+    })
+    expect((await client.search('1', factory.id, 'conversations')).tasks).toEqual([])
     const token = (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1')
     const response = await rawRequest(daemon.port, {
       method: 'GET',
