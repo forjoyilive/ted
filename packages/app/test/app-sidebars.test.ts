@@ -119,15 +119,19 @@ test('sidebars resize, persist, fit the window and share navigation width with S
   const factoryList = sidebar.getByRole('article').first().locator('xpath=../..')
   const firstFactory = factoryList.locator(':scope > div').first()
   await firstFactory.getByRole('button', { name: 'Task views', expanded: false }).click()
-  await ctx.app?.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0]?.setContentSize(900, 560),
-  )
+  const contentSize = await ctx.app?.evaluate(({ BrowserWindow }) => {
+    const native = BrowserWindow.getAllWindows()[0]
+    native?.setSize(900, 560)
+    return native?.getContentSize()
+  })
+  if (!contentSize) throw new Error('Missing native window')
   await expect
     .poll(() => window.evaluate(() => [globalThis.innerWidth, globalThis.innerHeight]))
-    .toEqual([900, 560])
+    .toEqual(contentSize)
   const board = firstFactory.getByRole('button', { name: 'Board', exact: true })
   await board.click()
   await expect.poll(() => board.getAttribute('aria-current')).toBe('page')
+  await factoryList.evaluate((list) => list.scrollTo({ top: 0, behavior: 'instant' }))
   const treeBox = await factoryList.boundingBox()
   if (!treeBox) throw new Error('Missing Factory list')
   const viewRows = await firstFactory

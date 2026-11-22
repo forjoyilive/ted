@@ -423,6 +423,29 @@
   margin: 0;
 }
 
+@media (max-height: 640px) {
+  .sidebar {
+    padding-block: 8px;
+  }
+
+  .sidebar > .row {
+    min-height: var(--button-height);
+    padding-block: 3px;
+  }
+
+  .top {
+    margin-bottom: 4px;
+  }
+
+  .sectionHeading {
+    padding-block: 8px 4px;
+  }
+
+  .footer {
+    margin-top: 4px;
+  }
+}
+
 .runs {
   color: var(--text-tertiary);
 }

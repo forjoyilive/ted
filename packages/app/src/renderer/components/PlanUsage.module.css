@@ -44,6 +44,7 @@
 @media (max-height: 640px) {
   .trigger {
     min-height: var(--button-height);
+    margin-top: 4px;
     padding-block: 5px;
   }
 
