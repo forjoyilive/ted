@@ -693,7 +693,7 @@
   min-height: min(50vh, 320px);
 }
 
-.taskContent:has(> .threadBody:not([hidden]) .threadComposer:not(:has(> [data-request]))) {
+.taskContent:has(> .threadBody:not([hidden]) [data-comment-box]) {
   min-height: 180px;
 
   @media (max-height: 600px) {
