@@ -352,8 +352,8 @@ export function SearchPalette({
       })
     }
     const conversations =
-      conversationResults?.query === query ? conversationResults.conversations : []
-    for (const hit of conversations) {
+      conversationResults?.query === query ? conversationResults.conversations : undefined
+    for (const hit of conversations ?? []) {
       items.push({
         key: `conversation:${hit.runId}:${hit.itemId}`,
         group: 'Conversations',

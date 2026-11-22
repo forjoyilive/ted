@@ -22,6 +22,7 @@ function open(found: Partial<SearchResults> = {}, current: boolean | Task = fals
   const api = bridge({
     search: (query) => ({
       query,
+      conversations: [],
       tasks: [],
       comments: [],
       plans: [],
@@ -148,6 +149,7 @@ test('the open Task’s palette Delete command opens its dialog and Cancel keeps
   a.state.tasks = [task(), task({ id: 'NB-2', displayId: 'NB-2', title: 'Other Task' })]
   a.handle('search', (query) => ({
     query,
+    conversations: [],
     tasks: [],
     comments: [],
     plans: [],
@@ -177,6 +179,7 @@ test('App’s no-results action opens New Task with the search query in Descript
   const a = appState()
   a.handle('search', (query) => ({
     query,
+    conversations: [],
     tasks: [],
     comments: [],
     plans: [],
@@ -222,6 +225,7 @@ test('App opens the planning chat selected in search with that plan’s content'
   })
   a.handle('search', (query) => ({
     query,
+    conversations: [],
     tasks: [],
     comments: [],
     plans: [{ planId: 'p1', factoryId: 'f1', title: plan.title, ended: false }],
