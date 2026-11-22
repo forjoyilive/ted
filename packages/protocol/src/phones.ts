@@ -122,6 +122,8 @@ export const phoneRouteNames = [
   'tasks',
   'task',
   'task-comments',
+  'task-conversation',
+  'task-conversation-item',
   'image',
   'task-start',
   'task-stop',
@@ -584,7 +586,7 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
     }
   }
   if (route === 'task') return { ...header, type, route, taskId: taskId(object) }
-  if (route === 'task-comments') {
+  if (route === 'task-comments' || route === 'task-conversation') {
     const cursor = optionalCursor(object)
     return {
       ...header,
@@ -592,6 +594,19 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       route,
       taskId: taskId(object),
       ...(cursor !== undefined && { cursor }),
+    }
+  }
+  if (route === 'task-conversation-item') {
+    const offset = read.optional(object, 'offset', read.integer)
+    if (offset !== undefined && offset < 0)
+      throw new ParseError('offset', 'offset must be nonnegative')
+    return {
+      ...header,
+      type,
+      route,
+      taskId: taskId(object),
+      itemId: chatText(object, 'itemId'),
+      ...(offset !== undefined && { offset }),
     }
   }
   if (route === 'image') {
