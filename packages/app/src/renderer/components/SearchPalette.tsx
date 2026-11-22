@@ -301,15 +301,19 @@ export function SearchPalette({
       })
     }
     const found = terms.length > 0 && results?.query === query ? results : undefined
-    for (const hit of found?.tasks ?? []) {
-      items.push({
+    const taskHits = found?.tasks ?? []
+    const taskItems = taskHits.map(
+      (hit): Item => ({
         key: `task:${hit.taskId}`,
         group: 'Tasks',
         label: `${hit.displayId} ${hit.title}`,
         content: taskContent(hit, context.factories, stages),
         run: () => onOpenTask(hit.taskId, hit.factoryId),
-      })
-    }
+      }),
+    )
+    const number = query.trim()
+    const exactNumber = /^\d+$/.test(number) && taskHits[0]?.displayId.endsWith(`-${number}`)
+    items.splice(exactNumber ? 0 : items.length, 0, ...taskItems)
     for (const hit of found?.comments ?? []) {
       items.push({
         key: `comment:${hit.commentId}`,
