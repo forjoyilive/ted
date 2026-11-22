@@ -163,21 +163,38 @@ describe('Android emulator Apps', () => {
       client,
       JSON.stringify({
         steps: [
-          { run: ['ted', 'run-app', 'android'] },
-          { run: ['ted', 'app', 'screen', 'android'] },
-          { run: ['ted', 'app', 'screenshot', 'android'] },
-          { run: ['ted', 'app', 'tap', 'android', '1'] },
+          {
+            everyMessage: [
+              { everyMessage: [{ endTurn: true }] },
+              { run: ['ted', 'run-app', 'android'] },
+              { run: ['ted', 'app', 'screen', 'android'] },
+              { run: ['ted', 'app', 'screenshot', 'android'] },
+              { run: ['ted', 'app', 'tap', 'android', '1'] },
+              { endTurn: true },
+            ],
+          },
+          { run: ['ted', 'outcome', 'advance'] },
           { endTurn: true },
         ],
       }),
     )
 
-    const results = await leadResults(client, task, 4)
-    expect(results.map((r) => r.code)).toEqual([0, 0, 0, 1])
-    expect(results[0]?.stdout).toContain('android is running on Pixel_8_API_35')
-    expect(results[1]?.stdout).toContain('"Open details"')
-    expect(results[2]?.stdout).toBe('Saved android screenshot.png to the Task\n')
-    expect(results[3]?.stderr).toContain('Only a Validate Task Lead can use ted app tap')
+    const [advance, startApp, workScreen, screenshot, workTap] = await leadResults(client, task, 5)
+    expect(advance).toMatchObject({ code: 0 })
+    expect((await taskNow(client, task)).stage).toBe('work')
+    expect(startApp).toMatchObject({
+      code: 0,
+      stdout: expect.stringContaining('android is running on Pixel_8_API_35'),
+    })
+    expect(workScreen).toMatchObject({ code: 0, stdout: expect.stringContaining('"Open details"') })
+    expect(screenshot).toMatchObject({
+      code: 0,
+      stdout: 'Saved android screenshot.png to the Task\n',
+    })
+    expect(workTap).toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('Only a Validate Task Lead can use ted app tap'),
+    })
 
     expect((await stub()).avds?.[avd]).toEqual({ image, hardware: 'pixel_8' })
     const [serial, running] = Object.entries((await stub()).running ?? {})[0] ?? []
