@@ -96,7 +96,19 @@ describe('defaults', () => {
     expect(defaultView('all')).toMatchObject({ sort: 'manual', group: 'stage' })
     expect(defaultView('all').nested).toBeUndefined()
     expect(viewFor({ nb: { ...defaultView('nb'), nested: false } }, 'nb').nested).toBe(false)
-    expect(shownColumns(defaultView('all'))).toContain('factory')
+    expect(shownColumns(defaultView('all'), 'all').slice(2, 7)).toEqual([
+      'title',
+      'stage',
+      'children',
+      'parent',
+      'factory',
+    ])
+  })
+
+  test('All Tasks respects saved column choices when prioritizing Stage', () => {
+    const saved = { ...defaultView('all'), columns: ['provider', 'parent', 'id'] as const }
+    const view = viewFor({ all: { ...saved, columns: [...saved.columns] } }, 'all')
+    expect(shownColumns(view, 'all')).toEqual(['id', 'title', 'parent', 'provider'])
   })
 
   test('All Tasks defaults to Stage grouping unless a saved view exists', () => {

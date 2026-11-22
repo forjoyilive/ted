@@ -134,15 +134,18 @@ export function listGrid(
   columns: readonly (ListColumn | 'queue')[],
   tasks: readonly Pick<Task, 'displayId'>[],
   factoryNames: readonly string[] = [],
+  allTasks = false,
 ): string {
-  const width = (c: ListColumn | 'queue') =>
-    c === 'id'
+  const width = (c: ListColumn | 'queue') => {
+    if (c === 'title' && allTasks) return 'minmax(260px, 1fr)'
+    return c === 'id'
       ? idColumnWidth(tasks)
       : c === 'parent'
         ? `max(${columnWidths.parent}, ${idColumnWidth(tasks)})`
         : c === 'factory'
           ? factoryColumnWidth(factoryNames)
           : columnWidths[c]
+  }
   const edges = (widths: string[]) => ['4px', '24px', ...widths, '4px'].join(' ')
   if (!columns.includes('title'))
     return edges(
@@ -651,7 +654,7 @@ export function TaskList({
     stages,
   )
   const queueMode = isQueueMode(view)
-  const columns = shownColumns(view)
+  const columns = shownColumns(view, scope)
   const archivedOnly = view.filters.archived === 'only'
   const nested = view.nested === true
   const canReorder = view.sort === 'manual' && !archivedOnly
@@ -679,6 +682,7 @@ export function TaskList({
     [...(queueMode ? (['queue'] as const) : []), ...columns],
     tasks,
     factories.filter((f) => listedFactories.has(f.id)).map((f) => f.name),
+    allTasks,
   )
   const chips = filterChips(view.filters, factories, layout, stages)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
