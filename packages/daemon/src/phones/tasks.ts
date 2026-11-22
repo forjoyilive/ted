@@ -28,6 +28,7 @@ import {
   phoneStatusSectionLabels,
   phoneStatusSections,
   phoneTaskTitleMax,
+  type RunChat,
   type StageEntry,
   type Task,
 } from '@ted/protocol'
@@ -38,6 +39,7 @@ import { openPullRequests } from '@ted/protocol/task-actions'
 import { statusLabel } from '@ted/protocol/task-status'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
+import { chatItemDetail, chatItemEntry, fitted as fitChatItem } from './chats.ts'
 import { cutChars, fitImagePrefix, fitText, jsonBytes } from './fit.ts'
 import { phoneFactoryIcons } from './icons.ts'
 import { isImage, phoneImageList } from './images.ts'
@@ -55,12 +57,14 @@ export interface PhoneTaskSource {
   waitingIds(): ReadonlySet<string>
   stages(factoryId: string): Promise<readonly BoardStage[]>
   descendants(taskId: string): string[]
+  leadChats(taskId: string): Promise<RunChat[]>
 }
 
 export function storeTaskSource(
   store: TedStore,
   stages: PhoneTaskSource['stages'],
   descendants: PhoneTaskSource['descendants'],
+  leadChats: PhoneTaskSource['leadChats'],
 ): PhoneTaskSource {
   return {
     tasks: () => store.listTasks(),
@@ -71,6 +75,7 @@ export function storeTaskSource(
     waitingIds: () => new Set(store.waiting().map((request) => request.id)),
     stages,
     descendants,
+    leadChats,
   }
 }
 
@@ -78,6 +83,8 @@ export interface PhoneTasks {
   list(group: PhoneTaskGroup, cursor: string | undefined): Promise<PhoneOutcome>
   read(taskId: string, waitingForBlockers?: boolean): Promise<PhoneOutcome>
   comments(taskId: string, cursor: string | undefined): Promise<PhoneOutcome>
+  conversation(taskId: string, cursor: string | undefined): Promise<PhoneOutcome>
+  conversationItem(taskId: string, itemId: string, offset: number): Promise<PhoneOutcome>
   revision(taskId: string): string | undefined
 }
 
@@ -457,7 +464,57 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     }
   }
 
-  async function comments(taskId: string, cursor: string | undefined): Promise<PhoneOutcome> {
+  async function leadEntries(taskId: string, comments: readonly Comment[]) {
+    const chats = await source.leadChats(taskId)
+    const commentIds = new Set(comments.map((comment) => comment.id))
+    return chats.flatMap(({ run, items }) =>
+      items.flatMap((item) => {
+        if (item.kind === 'permission' && commentIds.has(item.request.id)) return []
+        const projected = chatItemEntry(item, run.name, run.state !== 'finished')
+        if (!projected) return []
+        const id = `run:${createHash('sha256')
+          .update(JSON.stringify([run.id, item.id]))
+          .digest('base64url')}`
+        return [
+          {
+            detail: projected,
+            row: {
+              id,
+              createdAt: item.at ?? run.startedAt,
+              author: '',
+              kind: 'note' as const,
+              text: '',
+              cut: false,
+              images: 0,
+              attachments: 0,
+              formattedBlocks: 0,
+              chatItem: projected.item,
+            },
+          },
+        ]
+      }),
+    )
+  }
+
+  async function conversationItem(
+    taskId: string,
+    itemId: string,
+    offset: number,
+  ): Promise<PhoneOutcome> {
+    const task = visible(taskId)
+    if (!task) return { code: 'gone' }
+    const comments = source.comments(task.id)
+    const found = (await leadEntries(task.id, comments)).find(
+      ({ row }) => row.id === itemId,
+    )?.detail
+    return found ? chatItemDetail(found, offset) : { code: 'gone' }
+  }
+
+  async function comments(
+    taskId: string,
+    cursor: string | undefined,
+    includeConversation = false,
+  ): Promise<PhoneOutcome> {
     const after = cursor === undefined ? undefined : parseCommentsCursor(cursor)
     if (cursor !== undefined && after === undefined) return { code: 'bad-request' }
     const task = visible(taskId)
@@ -466,15 +523,20 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     const lists = await stageLists(factory ? [factory] : [])
     const stages = lists.get(task.factoryId) ?? defaultStageList
     const waiting = source.waitingIds()
-    const ordered = source
-      .comments(task.id)
-      .filter((comment) => !comment.held && (!after || newerFirst(comment, after) > 0))
+    const comments = source.comments(task.id)
+    const conversation = includeConversation ? await leadEntries(task.id, comments) : []
+    const ordered = [
+      ...comments.filter((comment) => !comment.held),
+      ...conversation.map(({ row }) => row),
+    ]
+      .filter((row) => !after || newerFirst(row, after) > 0)
       .toSorted(newerFirst)
     const entries: PhoneCommentEntry[] = []
     const emptyPageSize = jsonBytes({ entries: [] })
     let size = emptyPageSize
     for (const comment of ordered) {
-      const whole = entry(comment, stages, waiting)
+      const whole: PhoneCommentEntry =
+        'chatItem' in comment ? comment : entry(comment, stages, waiting)
       const comma = entries.length > 0 ? 1 : 0
       const cursorBytes =
         entries.length + 1 < ordered.length
@@ -484,6 +546,15 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
       let shown = whole
       if (jsonBytes(whole) > room) {
         if (entries.length > 0) break
+        if (whole.chatItem) {
+          const { chatItem, ...row } = whole
+          shown = {
+            ...row,
+            chatItem: fitChatItem(chatItem, room - jsonBytes({ ...row, chatItem: null }) + 4),
+          }
+          entries.push(shown)
+          break
+        }
         const { imageList = [], ...withoutImages } = whole
         const bare = {
           ...withoutImages,
@@ -540,5 +611,12 @@ export function createPhoneTasks(source: PhoneTaskSource, now: () => number): Ph
     return task ? familyRevision(task, source.descendants(task.id)) : undefined
   }
 
-  return { list, read, comments, revision }
+  return {
+    list,
+    read,
+    comments,
+    conversation: (taskId, cursor) => comments(taskId, cursor, true),
+    conversationItem,
+    revision,
+  }
 }

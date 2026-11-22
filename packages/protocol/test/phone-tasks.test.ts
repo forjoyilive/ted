@@ -255,6 +255,12 @@ test('parsePhoneRequest reads taskId, group and cursor on the Task routes', () =
   const { cursor: _, ...first } = thread
   expect(parsePhoneRequest(first)).toEqual(first)
   expect(() => parsePhoneRequest({ ...thread, cursor: 4 })).toThrow(/cursor/)
+  const conversation = { ...thread, route: 'task-conversation' }
+  expect(parsePhoneRequest(conversation)).toEqual(conversation)
+  const item = { ...first, route: 'task-conversation-item', itemId: 'item-1', offset: 2 }
+  expect(parsePhoneRequest(item)).toEqual(item)
+  expect(() => parsePhoneRequest({ ...item, offset: -1 })).toThrow(/offset/)
+  expect(() => parsePhoneRequest({ ...item, itemId: '' })).toThrow(/itemId/)
 })
 
 test('parsePhoneRequest reads every field of the Task action routes and refuses bad ones', () => {

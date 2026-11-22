@@ -12,6 +12,7 @@ import {
   reader,
   type Untyped,
 } from './parse.ts'
+import { type PhoneChatItem, parsePhoneChatItem } from './phone-chats.ts'
 import { type PhoneFactoryIcon, parsePhoneFactoryIcon } from './phone-factory-icon.ts'
 import { type PhoneImage, parsePhoneImage } from './phone-images.ts'
 import { type PhoneRequestKind, phoneRequestKinds } from './phone-requests.ts'
@@ -152,6 +153,7 @@ export interface PhoneCommentEntry {
   moreImages?: number
   attachments: number
   formattedBlocks: number
+  chatItem?: PhoneChatItem
   request?: PhoneCommentRequest
 }
 
@@ -371,6 +373,7 @@ export function parsePhoneCommentEntry(value: Untyped): PhoneCommentEntry {
     attachments: count(object, 'attachments'),
     formattedBlocks: count(object, 'formattedBlocks'),
     ...(request !== undefined && { request }),
+    ...(object.chatItem !== undefined && { chatItem: parsePhoneChatItem(object.chatItem) }),
   }
 }
 
