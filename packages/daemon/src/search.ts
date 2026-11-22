@@ -107,23 +107,25 @@ function taskField(
   return undefined
 }
 
+export function emptySearchResults(query: string): SearchResults {
+  return {
+    query,
+    conversations: [],
+    tasks: [],
+    comments: [],
+    factories: [],
+    plans: [],
+    automations: [],
+  }
+}
+
 export function search(
   store: TedStore,
   { query, factoryId }: SearchRequest,
   everyTask?: readonly Task[],
 ): SearchResults {
   const terms = searchTerms(query)
-  if (terms.length === 0) {
-    return {
-      query,
-      conversations: [],
-      tasks: [],
-      comments: [],
-      factories: [],
-      plans: [],
-      automations: [],
-    }
-  }
+  if (terms.length === 0) return emptySearchResults(query)
   const compact = compactId(query)
   const tasks = everyTask ?? store.listTasks()
   const here = (id: string) => (id === factoryId ? 0 : 1)

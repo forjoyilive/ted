@@ -959,9 +959,14 @@ export class DaemonClient {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/descriptions`)
   }
 
-  search(query: string, factoryId?: string): Promise<SearchResults> {
+  search(
+    query: string,
+    factoryId?: string,
+    scope?: 'records' | 'conversations',
+  ): Promise<SearchResults> {
     const params = new URLSearchParams({ q: query })
     if (factoryId !== undefined) params.set('factory', factoryId)
+    if (scope !== undefined) params.set('scope', scope)
     return this.#request('GET', `/search?${params}`)
   }
 
