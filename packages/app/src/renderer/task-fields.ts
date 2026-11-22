@@ -1,11 +1,5 @@
-import {
-  type AgentKind,
-  type ClarifyDepth,
-  defaultModelChoices,
-  type Priority,
-  type Task,
-  type TaskLead,
-} from '@ted/protocol'
+import type { AgentKind, ClarifyDepth, Priority, Task, TaskLead } from '@ted/protocol'
+import { defaultModelChoices } from '@ted/protocol/task'
 
 export const modelChoices = defaultModelChoices
 
