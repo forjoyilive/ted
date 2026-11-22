@@ -81,6 +81,7 @@ export interface PhoneProposalRow {
 export interface PhoneDesignFile {
   name: string
   caption?: string
+  download?: string
 }
 
 export interface PhoneSetupCheck {
@@ -481,7 +482,12 @@ function optionalList<T>(
 function parseDesignFile(value: Json | undefined, field: string): PhoneDesignFile {
   const object = read.object(value, field)
   const caption = text(object, 'caption')
-  return { name: read.string(object, 'name'), ...(caption !== undefined && { caption }) }
+  const download = text(object, 'download')
+  return {
+    name: read.string(object, 'name'),
+    ...(caption !== undefined && { caption }),
+    ...(download !== undefined && { download }),
+  }
 }
 
 function parseSetupCheck(value: Json): PhoneSetupCheck {

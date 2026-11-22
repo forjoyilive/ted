@@ -125,6 +125,7 @@ export const phoneRouteNames = [
   'task-conversation',
   'task-conversation-item',
   'image',
+  'design-prototype',
   'task-start',
   'task-stop',
   'task-resume',
@@ -229,6 +230,7 @@ export type PhoneRequest =
       itemId?: string
       offset?: number
       image?: string
+      prototype?: string
       part?: number
     })
 
@@ -608,6 +610,13 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       itemId: chatText(object, 'itemId'),
       ...(offset !== undefined && { offset }),
     }
+  }
+  if (route === 'design-prototype') {
+    const prototype = read.string(object, 'prototype')
+    if (!prototype || prototype.length > phoneImageIdMax) {
+      throw new ParseError('prototype', 'prototype reference is invalid')
+    }
+    return { ...header, type, route, prototype, part: imagePart(object) }
   }
   if (route === 'image') {
     return { ...header, type, route, image: imageId(object), part: imagePart(object) }
