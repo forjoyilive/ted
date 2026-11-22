@@ -4,7 +4,7 @@ A software factory builder for solo developers, on your Mac.
 
 You write a task. Agents design, write, test and review the change in your repository. A pull request arrives that has already passed your checks, and you decide whether it merges.
 
-[Download for macOS](https://github.com/forjoyilive/ted/releases/latest) • [Website](https://tedandbill.com) • [What it does](https://tedandbill.com/what-it-does/)
+[Download for macOS](https://github.com/forjoyilive/ted/releases/latest) • [Website](https://tedandbill.com) • [What it does](https://tedandbill.com/what-it-does/) • [Discussions](https://github.com/forjoyilive/ted/discussions)
 
 ![Ted’s Board with tasks queued, working and waiting on you.](docs/images/board.png)
 
@@ -63,6 +63,10 @@ In the app, choose **Help → Report a problem**. Write what happened and, if yo
 
 You can also [open an issue](https://github.com/forjoyilive/ted/issues/new) directly.
 
+## Questions and ideas
+
+Ask how to do something in [Q&A](https://github.com/forjoyilive/ted/discussions/categories/q-a), suggest a feature in [Ideas](https://github.com/forjoyilive/ted/discussions/categories/ideas), and share the factories you’ve built in [Show and tell](https://github.com/forjoyilive/ted/discussions/categories/show-and-tell). Release notes and news go to [Announcements](https://github.com/forjoyilive/ted/discussions/categories/announcements).
+
 ## Building from source
 
 You need Node 24 and pnpm 10.
@@ -110,7 +114,7 @@ More to read:
 
 ## Contributing
 
-Bug reports and feature requests are welcome as [issues](https://github.com/forjoyilive/ted/issues). Ted doesn’t accept pull requests for now; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports are welcome as [issues](https://github.com/forjoyilive/ted/issues), and questions and feature ideas in [Discussions](https://github.com/forjoyilive/ted/discussions). Ted doesn’t accept pull requests for now; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

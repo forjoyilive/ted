@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Ask a question
+    url: https://github.com/forjoyilive/ted/discussions/categories/q-a
+    about: How to set up or use Ted. Issues are for bugs.
+  - name: Suggest an idea
+    url: https://github.com/forjoyilive/ted/discussions/categories/ideas
+    about: Features and changes you’d like to see in Ted.
