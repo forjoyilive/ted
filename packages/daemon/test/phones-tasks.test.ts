@@ -166,17 +166,21 @@ async function opened(taskId: string) {
   return parsePhoneTaskBody(reply.body).task
 }
 
-async function thread(taskId: string): Promise<PhoneCommentEntry[][]> {
+async function thread(
+  taskId: string,
+  route: 'task-comments' | 'task-conversation' = 'task-comments',
+): Promise<PhoneCommentEntry[][]> {
   const all: PhoneCommentEntry[][] = []
   let cursor: string | undefined
   do {
     const reply = await sent({
       type: 'request',
-      route: 'task-comments',
+      route,
       taskId,
       ...(cursor !== undefined && { cursor }),
     })
-    if (!reply.ok) throw new Error(`task-comments failed: ${reply.error.code}`)
+    if (!reply.ok) throw new Error(`${route} failed: ${reply.error.code}`)
+    expect(bytes(reply)).toBeLessThanOrEqual(phoneReplyBodyMax)
     const body = parsePhoneTaskCommentsBody(reply.body)
     all.push(body.entries)
     cursor = body.cursor
@@ -332,6 +336,59 @@ test('a long description and a thread of long multibyte comments stay under the 
   ).toBe('bad-request')
 })
 
+test('the Task conversation includes earlier lead Runs and scopes item reads to the Task', async () => {
+  const task = await make('Read the Task Lead conversation')
+  const other = await make('A different Task')
+  const start = (id: string, prompt: string, parentRunId?: string) =>
+    store.startRun({
+      id,
+      taskId: task.id,
+      agent: 'claude',
+      cwd: scratch,
+      prompt,
+      ...(parentRunId && { parentRunId }),
+    })
+  const earlier = start('phone-earlier-lead', 'Earlier lead context')
+  start('phone-current-lead', 'Current lead context https://user:secret-password@example.test')
+  start('phone-conversation-reviewer', 'Reviewer context', earlier.id)
+  for (let index = 0; index < 15; index++) {
+    store.postComment({
+      taskId: task.id,
+      author: { kind: 'ted' },
+      body: `Note ${index}: ${'📱'.repeat(3_000)}`,
+    })
+  }
+  const pages = await thread(task.id, 'task-conversation')
+  expect(pages.length).toBeGreaterThan(1)
+  const entries = pages.flat()
+  expect(new Set(entries.map((entry) => entry.id)).size).toBe(entries.length)
+  expect(entries.map((entry) => entry.chatItem)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: 'ted', text: 'Earlier lead context' }),
+      expect.objectContaining({
+        kind: 'ted',
+        text: expect.stringContaining('Current lead context'),
+      }),
+    ]),
+  )
+  expect(JSON.stringify(entries)).not.toMatch(/Reviewer context|secret-password/)
+  const current = entries.find(
+    (entry) =>
+      entry.chatItem?.kind === 'ted' && entry.chatItem.text.startsWith('Current lead context'),
+  )
+  if (!current) throw new Error('Missing lead message')
+  const request = {
+    type: 'request' as const,
+    route: 'task-conversation-item' as const,
+    itemId: current.id,
+  }
+  const item = await sent({ ...request, taskId: task.id })
+  expect(item.ok).toBe(true)
+  expect(JSON.stringify(item)).toContain('Current lead context')
+  expect(JSON.stringify(item)).not.toContain('secret-password')
+  expect(failure(await sent({ ...request, taskId: other.id }))).toBe('gone')
+})
+
 test('a comment with many images keeps its text and the next page', async () => {
   const task = await make('A Task with many images')
   const attachments = Array.from({ length: 300 }, (_, n) => ({
@@ -440,6 +497,8 @@ test('a bad cursor is bad-request and a key that isn’t paired gets not-paired'
     { type: 'request', route: 'tasks', group: 'status' },
     { type: 'request', route: 'task', taskId: 'NB-1' },
     { type: 'request', route: 'task-comments', taskId: 'NB-1' },
+    { type: 'request', route: 'task-conversation', taskId: 'NB-1' },
+    { type: 'request', route: 'task-conversation-item', taskId: 'NB-1', itemId: 'item-1' },
   ]
   for (const body of bodies) {
     expect(failure(await stranger.send(body, phoneProtocolVersion, phone)), body.type).toBe(

@@ -173,6 +173,20 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     },
   },
   {
+    name: 'task-conversation',
+    async handle(_, { taskId, cursor }, { tasks }) {
+      if (taskId === undefined) return { code: 'bad-request' }
+      return tasks.conversation(taskId, cursor)
+    },
+  },
+  {
+    name: 'task-conversation-item',
+    async handle(_, { taskId, itemId, offset }, { tasks }) {
+      if (taskId === undefined || itemId === undefined) return { code: 'bad-request' }
+      return tasks.conversationItem(taskId, itemId, offset ?? 0)
+    },
+  },
+  {
     name: 'image',
     async handle(_, request, { images }) {
       if (request.image === undefined || request.part === undefined) return { code: 'bad-request' }

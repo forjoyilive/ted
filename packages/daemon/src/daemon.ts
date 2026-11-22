@@ -1063,6 +1063,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           store,
           async (factoryId) => (await tasks.board(factoryId)).stages,
           (taskId) => tasks.hierarchyPreview(taskId).descendants.map((child) => child.id),
+          (taskId) =>
+            Promise.all(
+              conversations
+                .taskRuns(taskId)
+                .filter((run) => run.role === 'lead')
+                .map((run) => conversations.chat(run.id)),
+            ),
         ),
         taskChanges: {
           task: (ref) => store.getTask(ref),
