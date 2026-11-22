@@ -293,6 +293,7 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
   const started = await ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
     agent: 'claude',
     text: JSON.stringify({ steps: [{ waitFor: firstTurnEnds }, { endTurn: true }] }),
+    agentDraftPlace: 'factory',
   })
   expect(started.chatAgent.powers).toEqual([
     'ask',
@@ -340,6 +341,15 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
   })
   expect(posted.body.agentDraft.instructions).not.toContain(token)
   expect(posted.body.agentDraft.current).toBeUndefined()
+  expect(posted.body.agentDraft.place).toBe('factory')
+  expect(
+    (
+      await app.call('POST', `/coordinator-chats/${started.id}/messages`, {
+        text: 'Save it here',
+        agentDraftPlace: 'library',
+      })
+    ).status,
+  ).toBe(400)
   const waiting = await ok<WaitingRequest[]>('GET', '/inbox/waiting')
   expect(waiting.find((w) => w.id === posted.body.id)).toMatchObject({
     source: 'coordinator',

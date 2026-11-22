@@ -52,8 +52,12 @@ export function AgentDraftCard({
   const [instructions, setInstructions] = useState(draft?.instructions ?? '')
   const [powers, setPowers] = useState<readonly AgentPower[]>(draft?.powers ?? [])
   const factoryOnly = draft?.current?.source === 'factory'
-  const [where, setWhere] = useState<AgentDraftPlace>(factoryOnly ? 'factory' : 'library')
+  const [where, setWhere] = useState<AgentDraftPlace>(
+    factoryOnly ? 'factory' : (draft?.place ?? 'library'),
+  )
   const [showFull, setShowFull] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   if (!draft) return null
@@ -65,6 +69,7 @@ export function AgentDraftCard({
     name.trim().length <= maxAgentName &&
     instructions.trim() !== '' &&
     instructions.length <= maxAgentDraftInstructions
+  const action = current ? 'Save change' : 'Create'
 
   async function send(answer: AgentDraftAnswer) {
     setSending(true)
@@ -80,83 +85,83 @@ export function AgentDraftCard({
 
   return (
     <section
-      className={chat.request}
+      className={`${chat.request} ${styles.card}`}
       aria-label={`Agent draft from ${agentName}`}
       data-request={request.id}
       data-agent-draft={draft.id}
     >
-      <div className={chat.cardHead}>
+      <div className={`${chat.cardHead} ${styles.head}`}>
+        <span className={styles.dot} aria-hidden />
         <span className={chat.pendingKind}>Agent draft</span>
         <span>{`· ${dotted(`from ${agentName}`, ago(request.createdAt, now))}`}</span>
       </div>
-      <p className={chat.cardTitle}>{request.title}</p>
-      {request.body !== '' && <Markdown className={chat.summary} text={request.body} />}
-      <p className={styles.note}>
-        {current
-          ? `This changes ${current.name}. Nothing is saved until you click Save change.`
-          : 'Nothing is saved until you click Create. You can edit the name and instructions and untick powers first.'}
-      </p>
-      <div className={styles.row}>
-        <label className={styles.field}>
-          <span className={styles.label}>Name</span>
+      <div className={styles.identity}>
+        <span className={styles.monogram} aria-hidden>
+          {initials(name)}
+        </span>
+        <div className={styles.naming}>
           <input
             type="text"
-            className={styles.input}
+            className={styles.name}
+            aria-label="Name"
             value={name}
             maxLength={maxAgentName}
             disabled={sending}
             onChange={(event) => setName(event.target.value)}
           />
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>ID</span>
-          <input type="text" className={styles.input} value={draft.id} readOnly />
-          <span className={styles.hint}>{`Names its files: agents/${draft.id}.md`}</span>
-        </label>
+          <span className={styles.file}>{`agents/${draft.id}.md`}</span>
+          {current && <span className={styles.changes}>{`Changes ${current.name}`}</span>}
+        </div>
       </div>
-      <fieldset className={styles.group}>
+      {request.body !== '' && <Markdown className={styles.summary} text={request.body} />}
+      <fieldset className={styles.section}>
         <legend className={styles.label}>Powers</legend>
-        {shown.length === 0 && <p className={styles.hint}>No powers: it only talks with you.</p>}
-        {shown.map((power) => {
-          const drafted = draft.powers.includes(power)
-          const added = current !== undefined && drafted && !current.powers.includes(power)
-          return (
-            <label
-              key={power}
-              className={drafted ? styles.power : `${styles.power} ${styles.removed}`}
-              data-power={power}
-            >
-              <input
-                type="checkbox"
-                checked={drafted && powers.includes(power)}
-                disabled={!drafted || sending}
-                onChange={(event) =>
-                  setPowers(
-                    event.target.checked
-                      ? draft.powers.filter((p) => p === power || powers.includes(p))
-                      : powers.filter((p) => p !== power),
-                  )
-                }
-              />
-              <span>
-                <span className={styles.powerName}>
-                  {agentPowerNames[power]}
-                  {added && <span className={styles.added}>New</span>}
-                </span>
-                <span className={styles.hint}>
-                  {drafted ? agentPowerHelp[power] : 'The draft removes this power.'}
-                </span>
-              </span>
-            </label>
-          )
-        })}
+        {shown.length === 0 ? (
+          <p className={styles.hint}>No powers: it only talks with you.</p>
+        ) : (
+          <div className={styles.tiles}>
+            {shown.map((power) => {
+              const drafted = draft.powers.includes(power)
+              const added = current !== undefined && drafted && !current.powers.includes(power)
+              return (
+                <label
+                  key={power}
+                  className={drafted ? styles.tile : `${styles.tile} ${styles.removed}`}
+                  data-power={power}
+                >
+                  <input
+                    type="checkbox"
+                    checked={drafted && powers.includes(power)}
+                    disabled={!drafted || sending}
+                    onChange={(event) =>
+                      setPowers(
+                        event.target.checked
+                          ? draft.powers.filter((p) => p === power || powers.includes(p))
+                          : powers.filter((p) => p !== power),
+                      )
+                    }
+                  />
+                  <span>
+                    <span className={styles.tileName}>
+                      {agentPowerNames[power]}
+                      {added && <span className={styles.added}>New</span>}
+                    </span>
+                    <span className={styles.hint}>
+                      {drafted ? agentPowerHelp[power] : 'The draft removes this power.'}
+                    </span>
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        )}
         <p className={styles.hint}>
           Untick a power to leave it out. To add one the draft doesn’t have, change the Agent in
           settings after saving it.
         </p>
       </fieldset>
-      {diff && !showFull && (
-        <div className={styles.group}>
+      {diff && !showFull ? (
+        <div className={styles.section}>
           <span className={styles.label}>What changes in the instructions</span>
           {diff.lines.length === 0 ? (
             <p className={styles.hint}>The instructions stay the same.</p>
@@ -171,30 +176,63 @@ export function AgentDraftCard({
               ))}
             </div>
           )}
-          <Button size="small" variant="quiet" onClick={() => setShowFull(true)}>
+          <Button
+            size="small"
+            variant="quiet"
+            onClick={() => {
+              setShowFull(true)
+              setEditing(true)
+            }}
+          >
             Edit the full instructions
           </Button>
         </div>
+      ) : (
+        <div className={styles.section}>
+          <div className={styles.labelRow}>
+            <span className={styles.label} id={`${request.id}-instructions`}>
+              Instructions
+            </span>
+            <Button size="small" variant="quiet" onClick={() => setEditing(!editing)}>
+              {editing ? 'Preview' : 'Edit'}
+            </Button>
+          </div>
+          {editing ? (
+            <>
+              <textarea
+                className={`${styles.instructions} ${grow.text}`}
+                aria-labelledby={`${request.id}-instructions`}
+                value={instructions}
+                disabled={sending}
+                onChange={(event) => setInstructions(event.target.value)}
+              />
+              <span className={styles.hint}>
+                {`Up to ${maxAgentDraftInstructions.toLocaleString('en-US')} characters. Ted adds the commands its powers allow.`}
+              </span>
+            </>
+          ) : (
+            <>
+              <div
+                className={expanded ? styles.preview : `${styles.preview} ${styles.clipped}`}
+                aria-labelledby={`${request.id}-instructions`}
+                role="document"
+              >
+                <Markdown text={instructions} />
+              </div>
+              {!expanded && (
+                <Button size="small" variant="quiet" onClick={() => setExpanded(true)}>
+                  Show all
+                </Button>
+              )}
+            </>
+          )}
+        </div>
       )}
-      {(!diff || showFull) && (
-        <label className={styles.group}>
-          <span className={styles.label}>Instructions</span>
-          <textarea
-            className={`${styles.instructions} ${grow.text}`}
-            value={instructions}
-            disabled={sending}
-            onChange={(event) => setInstructions(event.target.value)}
-          />
-          <span className={styles.hint}>
-            {`Up to ${maxAgentDraftInstructions.toLocaleString('en-US')} characters. Ted adds the commands its powers allow.`}
-          </span>
-        </label>
-      )}
-      <fieldset className={styles.group}>
+      <fieldset className={styles.section}>
         <legend className={styles.label}>Save to</legend>
-        <div className={styles.places}>
+        <div className={styles.tiles}>
           {places.map((place) => (
-            <label key={place.value} className={styles.place}>
+            <label key={place.value} className={`${styles.tile} ${styles.place}`}>
               <input
                 type="radio"
                 name={`${request.id}-where`}
@@ -204,7 +242,7 @@ export function AgentDraftCard({
                 onChange={() => setWhere(place.value)}
               />
               <span>
-                {place.label}
+                <span className={styles.tileName}>{place.label}</span>
                 <span className={styles.hint}>{place.help}</span>
               </span>
             </label>
@@ -222,8 +260,10 @@ export function AgentDraftCard({
         </p>
       )}
       <div className={styles.footer}>
-        <span className={styles.hint}>Only you can save it. Autopilot and the Agent can’t.</span>
-        <Button disabled={sending} onClick={() => send({ action: 'dismiss' })}>
+        <span
+          className={styles.hint}
+        >{`Only you can save it. Nothing is saved until you click ${action}.`}</span>
+        <Button variant="quiet" disabled={sending} onClick={() => send({ action: 'dismiss' })}>
           Dismiss
         </Button>
         <Button
@@ -240,9 +280,19 @@ export function AgentDraftCard({
             })
           }
         >
-          {current ? 'Save change' : 'Create'}
+          {action}
         </Button>
       </div>
     </section>
   )
+}
+
+function initials(name: string): string {
+  const letters = name
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word !== '')
+    .map((word) => word[0] ?? '')
+    .join('')
+  return (letters.slice(0, 2) || '?').toUpperCase()
 }

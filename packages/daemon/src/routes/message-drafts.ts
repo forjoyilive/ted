@@ -76,6 +76,7 @@ export function messageDraftOwner(store: TedStore, box: MessageBox): Owner {
     }
     case 'coordinator-new':
     case 'new-plan':
+    case 'agent-prompt':
       if (!store.getFactory(box.id)) throw new HttpError(404, 'no such Factory')
       return { box, factoryId: box.id }
   }

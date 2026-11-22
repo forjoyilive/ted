@@ -1,4 +1,4 @@
-import { parseChatAgentId } from './chat-agent.ts'
+import { agentDraftPlaces, parseChatAgentId } from './chat-agent.ts'
 import type {
   ConfirmationChoices,
   CoordinatorAction,
@@ -12,7 +12,7 @@ import type {
   CoordinatorTransfer,
   RenameCoordinatorChatRequest,
 } from './coordinator.ts'
-import { isString, reader, type Untyped } from './parse.ts'
+import { isOneOf, isString, reader, type Untyped } from './parse.ts'
 import { isStageId } from './stage.ts'
 import {
   type RoundAnswerInput,
@@ -324,11 +324,15 @@ export function parseCoordinatorMessage(value: unknown): CoordinatorMessage {
   if (typeof body.text !== 'string') throw new HttpError(400, 'text is required')
   const agentId = parseChatAgentId(body.agentId)
   const attachments = parseAttachmentRefs(body.attachments)
+  const { agentDraftPlace } = body
+  if (agentDraftPlace !== undefined && !isOneOf(agentDraftPlace, agentDraftPlaces))
+    throw new HttpError(400, 'agentDraftPlace is library or factory')
   return {
     text: body.text,
     ...agentChoice(body),
     ...(agentId !== undefined && { agentId }),
     ...(attachments.length > 0 && { attachments }),
+    ...(agentDraftPlace !== undefined && { agentDraftPlace }),
   }
 }
 

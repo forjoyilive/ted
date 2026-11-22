@@ -80,6 +80,7 @@ export interface AgentDraftCurrent extends AgentDraftFields {
 export interface AgentDraft extends AgentDraftFields {
   id: string
   current?: AgentDraftCurrent
+  place?: AgentDraftPlace
 }
 
 export const agentDraftPlaces = ['library', 'factory'] as const
