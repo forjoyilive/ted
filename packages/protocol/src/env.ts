@@ -1,4 +1,5 @@
 import { type Edition, edition } from './edition.ts'
+import { isSampleHome, sampleInputs } from './sample.ts'
 
 export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_APP_CPUS:
@@ -99,15 +100,29 @@ export function tedEnv(
   env: NodeJS.ProcessEnv = process.env,
   which: Edition = edition,
 ): string | undefined {
-  return which === 'dev' || retained(name) ? env[name] : undefined
+  if (which === 'dev' || retained(name)) return env[name]
+  return releaseSampleInputs(env, which)?.get(name)
 }
 
 export function filterTedEnv(env: NodeJS.ProcessEnv, which: Edition = edition): NodeJS.ProcessEnv {
-  return Object.fromEntries(
+  const kept = Object.fromEntries(
     Object.entries(env).filter(
       ([name]) => which === 'dev' || !name.toUpperCase().startsWith('TED_') || retained(name),
     ),
   )
+  const sample = releaseSampleInputs(env, which)
+  return sample ? { ...kept, ...Object.fromEntries(sample) } : kept
+}
+
+// In the release, the sample home alone turns on the sample inputs, with values computed from
+// the home: an environment variable never supplies or changes one.
+function releaseSampleInputs(
+  env: NodeJS.ProcessEnv,
+  which: Edition,
+): Map<string, string> | undefined {
+  const home = env.TED_HOME
+  if (which === 'dev' || !home || !isSampleHome(home, which)) return undefined
+  return new Map(Object.entries(sampleInputs(home)))
 }
 
 export function outsideTedEnv(name: string, env: NodeJS.ProcessEnv): string | undefined {

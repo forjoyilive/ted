@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, readlink, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { fileURLToPath } from 'node:url'
 import { DaemonClient, readDaemonInfo, tedEnv, tedPaths, tedVersion } from '@ted/protocol'
 import { isInteger, isObject, type Json, type JsonObject, parseJson } from '@ted/protocol/parse'
 import { clearQuit, markQuit, stopTedProcesses, withDaemon } from '../launch.ts'
@@ -17,8 +18,10 @@ import {
 import { seedScenarios, verifyDemo } from './scenarios.ts'
 
 export { askDemo, demoAskKinds, isDemoAskKind } from './ask.ts'
-export { checkDemoHome, demoEnvironment, demoHome } from './home.ts'
+export { checkDemoHome, type DemoManifest, demoEnvironment, demoHome } from './home.ts'
 export { verifyDemo } from './scenarios.ts'
+
+export const sampleSeedScript = () => fileURLToPath(new URL('./seed-sample.ts', import.meta.url))
 
 export async function until<T>(
   read: () => Promise<T | undefined | false>,

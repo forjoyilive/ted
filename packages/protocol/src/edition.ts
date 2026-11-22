@@ -6,6 +6,7 @@ export interface Identity {
   edition: Edition
   name: string
   homeFolder: string
+  sampleFolder: string
   keyringService: string
 }
 
@@ -14,12 +15,14 @@ const identities: Record<Edition, Identity> = {
     edition: 'release',
     name: 'Ted',
     homeFolder: '.ted',
+    sampleFolder: '.ted-sample',
     keyringService: 'TED',
   },
   dev: {
     edition: 'dev',
     name: 'Ted Dev',
     homeFolder: '.ted-dev',
+    sampleFolder: '.ted-dev-demo',
     keyringService: 'TED Dev',
   },
 }

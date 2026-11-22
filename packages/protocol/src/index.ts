@@ -949,6 +949,13 @@ export {
   parseStartDevRunRequest,
   parseStartSubAgentRequest,
 } from './run-parsers.ts'
+export {
+  isSampleHome,
+  type SampleInput,
+  sampleFixtures,
+  sampleHome,
+  sampleInputs,
+} from './sample.ts'
 export * from './sandbox-access.ts'
 export type {
   NamedSocket,

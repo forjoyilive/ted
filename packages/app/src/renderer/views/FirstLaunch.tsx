@@ -442,6 +442,55 @@ function GitRow({
   return <Row name={name} tone="ok" chip="Ready" detail={join(version, identity)} meta={git.path} />
 }
 
+type SampleState =
+  | { step: 'idle' }
+  | { step: 'preparing' }
+  | { step: 'opened' }
+  | { step: 'problem'; problem: string }
+
+export function SampleDataOffer() {
+  const [state, setState] = useState<SampleState>({ step: 'idle' })
+  async function open() {
+    setState({ step: 'preparing' })
+    try {
+      await ted.openSampleData()
+      setState({ step: 'opened' })
+    } catch (error) {
+      setState({ step: 'problem', problem: message(error) })
+    }
+  }
+  return (
+    <section className={styles.sample} aria-label="Sample data">
+      <div className={styles.sampleText}>
+        <span className={styles.name}>Look around first</span>
+        <p className={styles.detail}>
+          See the Board and Inbox with made-up projects. Providers and GitHub there are stand-ins,
+          so nothing connects to your accounts.
+        </p>
+        {state.step === 'preparing' && (
+          <p className={styles.note} role="status">
+            Preparing the sample projects. This takes about a minute the first time…
+          </p>
+        )}
+        {state.step === 'opened' && (
+          <p className={styles.note} role="status">
+            The sample data opened in another window. Come back here to set up Ted for your own
+            projects.
+          </p>
+        )}
+        {state.step === 'problem' && (
+          <p className={styles.note} role="alert">
+            {state.problem}
+          </p>
+        )}
+      </div>
+      <Button onClick={open} disabled={state.step === 'preparing'}>
+        Try with sample data
+      </Button>
+    </section>
+  )
+}
+
 export function FirstLaunch({
   settings,
   startAtLogin,
@@ -575,6 +624,7 @@ export function FirstLaunch({
           actions={rowActions}
         />
       </div>
+      <SampleDataOffer />
       <label className={styles.login}>
         <input
           type="checkbox"

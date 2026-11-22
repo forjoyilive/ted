@@ -10,7 +10,7 @@ import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { Onboarding } from '../src/renderer/views/Onboarding.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 import { createdAt, factory } from './support/fixtures.ts'
 
 const health = (fields: Partial<AgentHealth> = {}): AgentHealth => ({
@@ -328,3 +328,30 @@ test.each(['not-installed', 'too-old'] as const)(
     expect(git.getByText(/Opened instructions in your browser/)).toBeTruthy()
   },
 )
+
+test('Try with sample data opens it in another window, and says what went wrong when it can’t', async () => {
+  const a = await open([
+    health({ state: 'not-installed' }),
+    health({ agent: 'codex', state: 'not-installed' }),
+  ])
+  const sample = screen.getByRole('region', { name: 'Sample data' })
+  const opening = deferred<void>()
+  a.handle('openSampleData', () => opening.promise)
+  await user().click(within(sample).getByRole('button', { name: 'Try with sample data' }))
+  expect(a.request).toHaveBeenCalledWith('openSampleData')
+  expect(within(sample).getByText(/about a minute/)).toBeTruthy()
+  expect(
+    (within(sample).getByRole('button', { name: 'Try with sample data' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true)
+  await act(async () => opening.resolve())
+  expect(within(sample).getByText(/another window/)).toBeTruthy()
+
+  a.handle('openSampleData', async () => {
+    throw new Error('Couldn’t prepare the sample data: git not found')
+  })
+  await user().click(within(sample).getByRole('button', { name: 'Try with sample data' }))
+  expect((await within(sample).findByRole('alert')).textContent).toBe(
+    'Couldn’t prepare the sample data: git not found',
+  )
+})

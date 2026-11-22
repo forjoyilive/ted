@@ -70,7 +70,7 @@ test('ted dev ask posts new demo requests and the Task Lead carries on after eac
   await markDemo(home, { version: demoVersion, complete: true })
   await expect(askDemo(home, 'question')).rejects.toThrow('Open the demo first')
 
-  const claudeBin = path.join(home, 'bin', 'stub-claude.mjs')
+  const claudeBin = path.join(home, 'bin', 'stub-claude')
   daemon = await startDaemon({ home, version: tedVersion, checkAgentsOnStart: true, claudeBin })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('The demo daemon did not publish its connection.')

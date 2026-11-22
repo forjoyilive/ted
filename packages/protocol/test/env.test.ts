@@ -8,6 +8,7 @@ import {
   tedEnv,
   tedEnvironment,
 } from '../src/env.ts'
+import { sampleHome, sampleInputs } from '../src/sample.ts'
 
 test('release accepts only reviewed Ted inputs; Dev keeps every test hook', () => {
   for (const [name, reason] of Object.entries(tedEnvironment)) {
@@ -17,6 +18,25 @@ test('release accepts only reviewed Ted inputs; Dev keeps every test hook', () =
     expect(filterTedEnv(env, 'release'), name).toEqual(reason === false ? {} : env)
     if (reason !== false) expect(reason.length).toBeGreaterThan(20)
   }
+})
+
+test('the release turns on the sample inputs only in its sample home, with values from the home', () => {
+  const home = sampleHome('release')
+  const supplied = { TED_HOME: home, TED_CLAUDE_BIN: '/real/claude', TED_FUTURE_TEST_HOOK: 'x' }
+  expect(tedEnv('TED_CLAUDE_BIN', supplied, 'release')).toBe(path.join(home, 'bin', 'stub-claude'))
+  expect(tedEnv('TED_DEMO', supplied, 'release')).toBe('1')
+  expect(tedEnv('TED_FUTURE_TEST_HOOK', supplied, 'release')).toBeUndefined()
+  expect(filterTedEnv(supplied, 'release')).toEqual({ TED_HOME: home, ...sampleInputs(home) })
+  expect(tedEnv('TED_DEMO', { TED_HOME: `${home}/` }, 'release')).toBe('1')
+
+  for (const other of [path.join(home, 'nested'), sampleHome('dev'), '/home/ted']) {
+    const env = { TED_HOME: other, TED_DEMO: '1', TED_CLAUDE_BIN: '/real/claude' }
+    expect(tedEnv('TED_DEMO', env, 'release'), other).toBeUndefined()
+    expect(tedEnv('TED_CLAUDE_BIN', env, 'release'), other).toBeUndefined()
+    expect(filterTedEnv(env, 'release'), other).toEqual({ TED_HOME: other })
+  }
+  expect(tedEnv('TED_DEMO', { TED_DEMO: '1' }, 'release')).toBeUndefined()
+  expect(tedEnv('TED_CLAUDE_BIN', supplied, 'dev')).toBe('/real/claude')
 })
 
 test('remote execution is on only in Dev with TED_REMOTE_EXECUTION=on', () => {

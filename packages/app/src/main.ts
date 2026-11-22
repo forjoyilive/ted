@@ -39,6 +39,7 @@ import {
   parseProblemReportRequest,
   parseRendererCrash,
   remoteExecutionOn,
+  sampleHome,
   sentryDsn,
   tedEnv,
   tedHome,
@@ -271,6 +272,13 @@ const requests = {
     )
   },
   quit: async () => app.quit(),
+  sampleData: async () => sampleData,
+  openSampleData: () => {
+    opening ??= launchSampleData().finally(() => {
+      opening = undefined
+    })
+    return opening
+  },
   copyReport: async (client) => {
     clipboard.writeText((await client.getReport()).text)
   },
@@ -355,6 +363,8 @@ const requests = {
   | 'downloadTed'
   | 'thirdPartyLicenses'
   | 'quit'
+  | 'sampleData'
+  | 'openSampleData'
   | 'copyReport'
   | 'memoryUse'
   | 'resourceUsage'
@@ -408,6 +418,22 @@ async function choosePicture(): Promise<string | undefined> {
 }
 
 const remoteExecution = remoteExecutionOn()
+const sampleData = tedEnv('TED_DEMO') === '1'
+let opening: Promise<void> | undefined
+
+async function launchSampleData(): Promise<void> {
+  if (sampleData) throw new Error('This is the sample data already.')
+  const [{ checkDemoHome, demoEnvironment, sampleSeedScript }, { openSampleData }] =
+    await Promise.all([import('@ted/daemon/demo'), import('./sample-data.ts')])
+  await openSampleData({
+    home: sampleHome(),
+    executable: process.execPath,
+    appArgs: app.isPackaged ? [] : [app.getAppPath()],
+    seedScript: sampleSeedScript(),
+    checkHome: checkDemoHome,
+    environment: (home) => demoEnvironment(home),
+  })
+}
 const workerOnly = remoteExecution && process.argv.includes('--worker')
 const platform = process.platform as Platform
 const hiddenWindow = tedEnv('TED_HIDDEN_WINDOW') === '1' || tedEnv('TED_ELECTRON_HIDDEN') === '1'
@@ -469,7 +495,7 @@ process.on('unhandledRejection', (reason) => {
 
 const testAppToken = app.isPackaged ? undefined : tedEnv('TED_APP_TOKEN')
 delete process.env.TED_APP_TOKEN
-const skipFirstLaunch = !app.isPackaged && tedEnv('TED_SKIP_FIRST_LAUNCH') === '1'
+const skipFirstLaunch = (!app.isPackaged || sampleData) && tedEnv('TED_SKIP_FIRST_LAUNCH') === '1'
 delete process.env.TED_SKIP_FIRST_LAUNCH
 const testUpdateFeed = app.isPackaged ? undefined : tedEnv('TED_UPDATE_FEED')
 const testUpdateLog = tedEnv('TED_UPDATE_LOG')
@@ -881,7 +907,7 @@ async function updateSource(asksPassword: boolean): Promise<MakeSource | undefin
       exit: () => app.exit(0),
     })
   }
-  if (!app.isPackaged || edition !== 'release') return undefined
+  if (!app.isPackaged || edition !== 'release' || sampleData) return undefined
   session
     .fromPartition('electron-updater', { cache: false })
     .webRequest.onBeforeRequest((details, callback) => {
@@ -972,7 +998,7 @@ async function quitCompletely(): Promise<void> {
     return
   }
   window?.hide()
-  if (edition === 'dev' && tedEnv('TED_DEMO') === '1') {
+  if (sampleData) {
     await markQuit(tedHome()).catch(console.error)
     await supervisor?.handOver({ maxWaitMs: 0 }).catch((error: unknown) => console.error(error))
   } else {
@@ -1212,10 +1238,14 @@ async function start(): Promise<void> {
   startedInBackground = background
   traceStartup(background ? 'background-mode' : 'window-mode')
   if (background) hideDock()
-  if (tedEnv('TED_DEMO') === '1' && edition === 'dev') {
+  if (sampleData) {
     const { checkDemoHome } = await import('@ted/daemon/demo')
     if (!(await checkDemoHome(tedHome()))?.complete)
-      throw new Error('Prepare the demo home with pnpm app --demo first.')
+      throw new Error(
+        edition === 'dev'
+          ? 'Prepare the demo home with pnpm app --demo first.'
+          : 'The sample data isn’t ready. Open it again from Set up Ted.',
+      )
   }
   traceStartup('daemon-connect-start')
   await clearQuit(tedHome())

@@ -12,6 +12,12 @@ The first seed prepares the data through real Ted workflows and can take a minut
 
 The demo uses local bare Git repos and the test stubs for agents, GitHub, the keyring and simulators. It needs no provider credentials or external services. Working examples wait for an explicit action; Automations are disabled after their sample history is collected. Quitting the demo preserves its detached stub Runs so reopening keeps the examples in place; `pnpm ted dev stop` ends them.
 
+## Sample data in the release
+
+The installed Ted offers the same data as **Try with sample data** on Set up Ted. The main process (`launchSampleData` in `packages/app/src/main.ts`, `openSampleData` in `packages/app/src/sample-data.ts`) seeds `~/.ted-sample` in a process of its own when it isn’t ready (`packages/daemon/src/dev/seed-sample.ts`, run on the Ted executable with `ELECTRON_RUN_AS_NODE=1`, with `--reset` for an incomplete seed), then opens a second Ted on that home. The person’s own Ted and its home are never touched, and the sample window shows a notice with **Set up Ted for real**, which quits it.
+
+The sample home alone turns the sample on: in the release, `tedEnv` and `filterTedEnv` give the inputs in `sampleInputs` (`packages/protocol/src/sample.ts`) only when `TED_HOME` is exactly `identity().sampleFolder` in the home folder, with values computed from that home, never from the environment (see `docs/environment.md`). The stand-ins are the test stubs; packaging ships only the ones named in `sampleFixtures` in `packages/app/scripts/stage.ts`, and `packages/app/test/stage.test.ts` fails when the sample uses or imports one that isn’t listed. Each stand-in, and `node` for the sample projects’ Checks and Apps, runs through a shell launcher in the home’s `bin` folder on the runtime that prepared it (`prepareDemoBinaries`), because the release has no `node` of its own. The sample instance checks for no updates and never touches login items or notifications.
+
 ## New Inbox requests on demand
 
 The seeded requests all exist before the app opens. To get a fresh one while the demo is open, run:

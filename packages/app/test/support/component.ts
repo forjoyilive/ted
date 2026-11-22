@@ -41,6 +41,7 @@ export function bridge(given: Record<string, Handler>) {
     }),
     appProcesses: () => [],
     factoryAgents: () => [coordinatorAgent, plannerAgent],
+    sampleData: () => false,
     ...given,
   }
   const listeners = new Set<(event: TedEvent) => void>()

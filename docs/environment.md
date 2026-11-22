@@ -40,6 +40,8 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_ELECTRON_BIN` | The Electron executable a daemon running on plain Node starts as an Automation Run’s headless browser. Under Electron the daemon uses its own executable. |
 | `TED_DEMO`, `TED_DEMO_STARTED`, `TED_STUB_GH`, `TED_STUB_XCRUN`, `TED_STUB_ANDROID` | Prepare the isolated Dev demo and select its local fixture state; ignored in release. |
 
+In the release, the sample data’s home turns on the inputs listed in `sampleInputs` (`packages/protocol/src/sample.ts`): when `TED_HOME` is exactly the sample folder in the home folder (`~/.ted-sample`), `tedEnv` returns their values and `filterTedEnv` adds them, computed from that home and pointing only at the shipped stand-ins and files inside the home. A value in the environment never supplies or changes one, and any other home gets none, so none of these inputs becomes a release input. That home holds only made-up data and stand-ins, never credentials.
+
 Ted sets `TED_CHECK_CPUS` on every Check command (on a Scheduled Check’s only while the `limitScheduledCheckCpus` machine setting is on) and never reads it: a value in the daemon’s own environment is dropped like every other inherited `TED_*` name. This repo’s `pnpm check` reads it in `scripts/machine-load.ts` to choose its Vitest worker counts.
 
 Ted sets `TED_APP_CPUS` on every iOS simulator and Android emulator App’s `run` command in the same way: the **CPU a Check may use** share of the logical cores, divided by the simulator and emulator App builds running at that moment, never less than 1. Ted never reads it; a Factory’s App script passes it to `xcodebuild -jobs` or Gradle `--max-workers`.

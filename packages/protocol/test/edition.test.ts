@@ -9,17 +9,19 @@ describe('Ted Dev and the release', () => {
     expect(identity()).toEqual(identity('dev'))
   })
 
-  test('each edition has its own name, home, and keyring service', () => {
+  test('each edition has its own name, home, sample home and keyring service', () => {
     expect(identity('release')).toEqual({
       edition: 'release',
       name: 'Ted',
       homeFolder: '.ted',
+      sampleFolder: '.ted-sample',
       keyringService: 'TED',
     })
     expect(identity('dev')).toEqual({
       edition: 'dev',
       name: 'Ted Dev',
       homeFolder: '.ted-dev',
+      sampleFolder: '.ted-dev-demo',
       keyringService: 'TED Dev',
     })
   })
