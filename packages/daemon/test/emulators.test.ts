@@ -7,13 +7,16 @@ import type {
   AutomationTemplate,
   Banner,
   Comment,
+  DeviceRequest,
   Factory,
   SimulatorSlots,
   Task,
   TaskApp,
 } from '@ted/protocol'
+import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import type { StubAndroidState } from './fixtures/stub-android.ts'
 import {
   api,
@@ -109,8 +112,8 @@ const workflow = [
   '        run: "echo serial $ANDROID_SERIAL $TED_EMULATOR_SERIAL $GRADLE_USER_HOME; echo TED_APP_READY; exec sleep 600"',
 ].join('\n')
 
-async function addFactory(client: Client) {
-  await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow })
+async function addFactory(client: Client, config = workflow) {
+  await commitToOrigin(scratch, { '.ted/workflow.yaml': config })
   await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
 }
 
@@ -150,24 +153,48 @@ async function leadResults(client: Client, task: Task, count: number) {
 describe('Android emulator Apps', () => {
   test('ted run-app boots a headless emulator made for the Task, ted app screenshot saves its screen, Show reopens it with a window, and archiving deletes it', async () => {
     const client = await start()
-    await addFactory(client)
+    if (!daemon) throw new Error('daemon not started')
+    const { port } = daemon
+    await addFactory(
+      client,
+      workflow.replace('order: [intake, work, merge]', 'order: [intake, work, validate, merge]'),
+    )
     const task = await taskWithWorktree(
       client,
       JSON.stringify({
         steps: [
-          { run: ['ted', 'run-app', 'android'] },
-          { run: ['ted', 'app', 'screenshot', 'android'] },
-          { run: ['ted', 'app', 'tap', 'android', '1'] },
+          {
+            everyMessage: [
+              { everyMessage: [{ endTurn: true }] },
+              { run: ['ted', 'run-app', 'android'] },
+              { run: ['ted', 'app', 'screen', 'android'] },
+              { run: ['ted', 'app', 'screenshot', 'android'] },
+              { run: ['ted', 'app', 'tap', 'android', '1'] },
+              { endTurn: true },
+            ],
+          },
+          { run: ['ted', 'outcome', 'advance'] },
           { endTurn: true },
         ],
       }),
     )
 
-    const results = await leadResults(client, task, 3)
-    expect(results.map((r) => r.code)).toEqual([0, 0, 2])
-    expect(results[2]?.stderr).toContain('ted app tap works only in an Automation Run')
-    expect(results[0]?.stdout).toContain('android is running on Pixel_8_API_35')
-    expect(results[1]?.stdout).toBe('Saved android screenshot.png to the Task\n')
+    const [advance, startApp, workScreen, screenshot, workTap] = await leadResults(client, task, 5)
+    expect(advance).toMatchObject({ code: 0 })
+    expect((await taskNow(client, task)).stage).toBe('work')
+    expect(startApp).toMatchObject({
+      code: 0,
+      stdout: expect.stringContaining('android is running on Pixel_8_API_35'),
+    })
+    expect(workScreen).toMatchObject({ code: 0, stdout: expect.stringContaining('"Open details"') })
+    expect(screenshot).toMatchObject({
+      code: 0,
+      stdout: 'Saved android screenshot.png to the Task\n',
+    })
+    expect(workTap).toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('Only a Validate Task Lead can use ted app tap'),
+    })
 
     expect((await stub()).avds?.[avd]).toEqual({ image, hardware: 'pixel_8' })
     const [serial, running] = Object.entries((await stub()).running ?? {})[0] ?? []
@@ -216,12 +243,37 @@ describe('Android emulator Apps', () => {
       'the App to restart on the reopened emulator',
     )
 
+    const current = await taskNow(client, task)
+    const runId = current.leadRunId
+    const repo = current.repos[0]
+    if (!runId || !repo) throw new Error('missing Task Lead or worktree')
+    const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+    const lead = api(port, tokens.issue(runId))
+    const app = { name: 'android' }
+    const control = (body: DeviceRequest) => lead.call('POST', `/runs/${runId}/apps/device`, body)
+
+    await waitUntil(async () => (await client.getRun(runId)).run.state === 'idle', 'the idle Lead')
+    await writeFile(path.join(repo.worktree, 'feature.txt'), 'implemented\n')
+    expect(
+      (await lead.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })).status,
+    ).toBe(200)
+    await waitUntil(async () => (await taskNow(client, task)).stage === 'validate', 'Validate')
+    await waitUntil(async () => (await android(client, task))?.builtAt, 'the ready emulator App')
+
+    const screen = await control({ action: 'screen', app })
+    expect(screen.status).toBe(200)
+    expect(screen.body.text).toContain('"Open details"')
+    const tap = await control({ action: 'tap', app, point: { x: 540, y: 680 } })
+    expect(tap.status).toBe(200)
+    expect(tap.body.text).toContain('Tapped 540,680')
+    expect((await control({ action: 'screen', app })).body.text).toContain('Price: 10 widgets')
+
     await client.ok('POST', `/tasks/${task.id}/archive`)
     await waitUntil(async () => (await stub()).avds?.[avd] === undefined, 'the AVD to be deleted')
     expect(Object.keys((await stub()).running ?? {})).toEqual([])
     expect((await stub()).avds?.Pixel_8_API_35).toBeDefined()
     expect((await client.ok<SimulatorSlots>('GET', '/emulators')).booted).toEqual([])
-  })
+  }, 60_000)
 
   test('with every emulator slot taken, a Run asks the human and approving shuts the chosen emulator down', async () => {
     const client = await start()

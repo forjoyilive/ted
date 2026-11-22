@@ -954,7 +954,9 @@ describe('iOS simulator Apps', () => {
     const workScreen = await actions(screen)
     expect(workScreen.status).toBe(200)
     expect(workScreen.body.text).toContain('Open details')
-    expect((await actions(tap)).status).toBe(403)
+    const workTap = await actions(tap)
+    expect(workTap.status).toBe(403)
+    expect(workTap.body.error).toContain('Only a Validate Task Lead can use ted app tap')
     expect((await actions(pair)).status).toBe(403)
 
     const other = await taskWithWorktree(client)
