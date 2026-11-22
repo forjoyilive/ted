@@ -180,6 +180,16 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     },
   },
   {
+    name: 'context-file',
+    async handle(_, { requestId, attachment, part }, { requests, images }) {
+      if (requestId === undefined || attachment === undefined || part === undefined) {
+        return { code: 'bad-request' }
+      }
+      const file = requests.contextFile(requestId, attachment)
+      return file === undefined ? { code: 'gone' } : images.readAttachment(file, part)
+    },
+  },
+  {
     name: 'task-start',
     async handle(_, request, { actions }) {
       if (request.taskId === undefined) return { code: 'bad-request' }

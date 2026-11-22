@@ -123,6 +123,7 @@ export const phoneRouteNames = [
   'task',
   'task-comments',
   'image',
+  'context-file',
   'task-start',
   'task-stop',
   'task-resume',
@@ -227,6 +228,7 @@ export type PhoneRequest =
       itemId?: string
       offset?: number
       image?: string
+      attachment?: string
       part?: number
     })
 
@@ -594,6 +596,16 @@ export function parsePhoneRequest(value: Untyped): PhoneRequest {
       ...(cursor !== undefined && { cursor }),
     }
   }
+  if (route === 'context-file') {
+    return {
+      ...header,
+      type,
+      route,
+      requestId: requestId(object),
+      attachment: imageId(object, 'attachment'),
+      part: imagePart(object),
+    }
+  }
   if (route === 'image') {
     return { ...header, type, route, image: imageId(object), part: imagePart(object) }
   }
@@ -929,10 +941,10 @@ function factoryId(object: JsonObject): string {
   return id
 }
 
-function imageId(object: JsonObject): string {
-  const id = read.string(object, 'image')
+function imageId(object: JsonObject, field = 'image'): string {
+  const id = read.string(object, field)
   if (!id || id.length > phoneImageIdMax) {
-    throw new ParseError('image', `image must be text of 1 to ${phoneImageIdMax} characters`)
+    throw new ParseError(field, `${field} must be text of 1 to ${phoneImageIdMax} characters`)
   }
   return id
 }

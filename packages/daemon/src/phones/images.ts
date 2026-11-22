@@ -35,6 +35,7 @@ export interface PhoneImageOptions extends PhoneImageSource {
 
 export interface PhoneImages {
   read(image: string, part: number): Promise<PhoneOutcome>
+  readAttachment(file: Attachment, part: number): Promise<PhoneOutcome>
 }
 
 interface PhoneImageCache extends PhoneImages {
@@ -52,7 +53,7 @@ export function phoneImageId(commentId: string, hash: string): string | undefine
   return id.length <= phoneImageIdMax ? id : undefined
 }
 
-function parseImageId(image: string): { commentId: string; hash: string } | undefined {
+export function parseImageId(image: string): { commentId: string; hash: string } | undefined {
   const bytes = fromBase64Url(image)
   if (!bytes) return undefined
   const text = Buffer.from(bytes).toString('utf8')
@@ -226,6 +227,31 @@ export function createPhoneImages(options: PhoneImageOptions): PhoneImageCache {
         pruning = undefined
       })
       return pruning
+    },
+    async readAttachment(file, part) {
+      if (file.size > 10 * 1024 * 1024) {
+        return { code: 'refused', message: 'This file is too large to open on your phone.' }
+      }
+      const handle = await open(
+        options.file(file),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      ).catch(() => undefined)
+      if (!handle) return { code: 'gone' }
+      try {
+        const info = await handle.stat()
+        if (!info.isFile() || info.nlink !== 1 || info.size !== file.size) return { code: 'gone' }
+        const parts = Math.max(1, Math.ceil(info.size / phoneImagePartBytes))
+        if (part >= parts) return { code: 'bad-request' }
+        const start = part * phoneImagePartBytes
+        const bytes = Buffer.alloc(Math.min(phoneImagePartBytes, info.size - start))
+        const { bytesRead } = await handle.read(bytes, 0, bytes.length, start)
+        if (bytesRead !== bytes.length) return { code: 'gone' }
+        return {
+          body: { mediaType: file.mediaType, parts, part, data: bytes.toString('base64url') },
+        }
+      } finally {
+        await handle.close()
+      }
     },
     async read(image, part) {
       const found = resolve(image)

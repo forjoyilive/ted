@@ -144,11 +144,26 @@ export type PhoneForm =
   | { type: 'proposal'; title: string; summary: string; rows: PhoneProposalRow[] }
   | { type: 'mac'; reason: string }
 
+export interface PhoneContextFile {
+  attachment: string
+  name: string
+}
+
+export interface PhoneContextNote {
+  id: string
+  body: string
+  cut: boolean
+  images: PhoneImage[]
+  files: PhoneContextFile[]
+}
+
 export interface PhoneRequestDetail extends PhoneRequestSummary {
   body: string
   cut: boolean
   attachments: number
   images?: PhoneImage[]
+  context?: PhoneContextNote[]
+  moreContext?: number
   moreImages?: number
   form: PhoneForm
 }
@@ -586,6 +601,20 @@ function parsePhoneDesign(value: Json | undefined): PhoneDesign {
 
 export function parsePhoneRequestDetail(value: Untyped): PhoneRequestDetail {
   const object = read.object(value, 'request')
+  const moreContext = read.optional(object, 'moreContext', read.integer)
+  const context = optionalList(object, 'context', (entry) => {
+    const note = read.object(entry, 'context')
+    return {
+      id: read.string(note, 'id'),
+      body: read.string(note, 'body'),
+      cut: read.boolean(note, 'cut'),
+      images: read.list(note, 'images').map((image) => parsePhoneImage(image)),
+      files: read.list(note, 'files').map((entry) => {
+        const file = read.object(entry, 'files')
+        return { attachment: read.string(file, 'attachment'), name: read.string(file, 'name') }
+      }),
+    }
+  })
   const moreImages = read.optional(object, 'moreImages', read.integer)
   const images = optionalList(object, 'images', (entry) => parsePhoneImage(entry, 'images'))
   return {
@@ -595,6 +624,8 @@ export function parsePhoneRequestDetail(value: Untyped): PhoneRequestDetail {
     attachments: read.integer(object, 'attachments'),
     ...(images !== undefined && { images }),
     ...(moreImages !== undefined && { moreImages }),
+    ...(context !== undefined && { context }),
+    ...(moreContext !== undefined && { moreContext }),
     form: parsePhoneForm(object.form),
   }
 }

@@ -1,6 +1,7 @@
 import {
   type AnswerAutomationRequest,
   type AnswerRequest,
+  type Attachment,
   archiveChoice,
   type ChatRequest,
   type Comment,
@@ -10,6 +11,7 @@ import {
   type PhoneAnswerability,
   type PhoneApproval,
   type PhoneApprovalAnswer,
+  type PhoneContextNote,
   type PhoneDesign,
   type PhoneErrorCode,
   type PhoneFactoryIcon,
@@ -48,7 +50,7 @@ import {
 } from './approvals.ts'
 import { cutChars, fitImagePrefix, fitText, jsonBytes, textBytes } from './fit.ts'
 import { type PhoneIconFactory, phoneFactoryIcons } from './icons.ts'
-import { phoneCaption, phoneImageId, phoneImageList } from './images.ts'
+import { isImage, parseImageId, phoneCaption, phoneImageId, phoneImageList } from './images.ts'
 import { phoneTaskActions } from './task-actions.ts'
 
 export interface PhoneAutomationQuestion {
@@ -63,6 +65,7 @@ export interface PhoneInbox {
   read: {
     factories(): PhoneInboxFactory[]
     comment(id: string): Comment | undefined
+    comments(taskId: string): Comment[]
     task(id: string): Task | undefined
     tasksUnder(taskId: string): number
     brief(taskId: string): TaskBrief | undefined
@@ -157,6 +160,7 @@ export function storeInbox(
     read: {
       factories: () => store.listFactories(),
       comment: (id) => store.getComment(id),
+      comments: (id) => store.listComments(id),
       task: (id) => store.getTask(id),
       tasksUnder,
       brief: (taskId) => store.latestBrief(taskId),
@@ -441,6 +445,7 @@ export interface PhoneRequests {
   listSnoozed(): PhoneOutcome
   snooze(id: string, choice: PhoneSnooze): Promise<PhoneOutcome>
   read(id: string, chatId?: string, includeSnoozed?: boolean): Promise<PhoneOutcome>
+  contextFile(id: string, attachment: string): Attachment | undefined
   answer(id: string, answer: PhoneAnswer): Promise<PhoneOutcome>
 }
 
@@ -655,6 +660,55 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     return approval && phoneApprovalFits(approval)
       ? { type: 'approval', approval }
       : { type: 'mac', reason: 'Open this approval on your Mac to review all of its details.' }
+  }
+
+  function contextNotes(request: Comment | undefined): Comment[] {
+    if (
+      !request ||
+      request.held ||
+      request.author.kind !== 'run' ||
+      (request.kind !== 'question' && request.kind !== 'round') ||
+      request.gate
+    )
+      return []
+    const task = read.task(request.taskId)
+    if (!task || task.archived) return []
+    const runId = request.author.runId
+    const notes: Comment[] = []
+    for (const comment of read.comments(task.id)) {
+      if (comment.id === request.id) return notes
+      if (comment.held || comment.author.kind !== 'run' || comment.author.runId !== runId) continue
+      if (comment.kind === 'note') notes.push(comment)
+      else notes.length = 0
+    }
+    return []
+  }
+
+  function withContext(detail: PhoneRequestDetail, notes: Comment[]): PhoneRequestDetail {
+    if (notes.length === 0) return detail
+    const context = notes.slice(-20).map((note): PhoneContextNote => {
+      const body = fitText(redactSecrets(note.body), 4000)
+      const attachments = note.attachments ?? []
+      return {
+        id: note.id,
+        body: body.text,
+        cut: body.cut,
+        images: phoneImageList(note.id, attachments).images,
+        files: attachments.flatMap((file) => {
+          const attachment = isImage(file) ? undefined : phoneImageId(note.id, file.hash)
+          return attachment ? [{ attachment, name: phoneCaption(file.name) }] : []
+        }),
+      }
+    })
+    const withCount = (count: number) => ({
+      request: {
+        ...detail,
+        ...(count > 0 && { context: context.slice(-count) }),
+        ...(notes.length > count && { moreContext: notes.length - count }),
+      },
+    })
+    if (jsonBytes(withCount(0)) > phoneReplyBodyMax) return detail
+    return fitImagePrefix(context.length, phoneReplyBodyMax, withCount).request
   }
 
   async function detail(found: Found): Promise<PhoneRequestDetail> {
@@ -882,7 +936,11 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
     },
     async read(id: string, chatId?: string, includeSnoozed?: boolean): Promise<PhoneOutcome> {
       const match = find(id, includeSnoozed)
-      if (match) return { body: { request: await detail(match.found) } }
+      if (match) {
+        const request = await detail(match.found)
+        const notes = match.waiting.source === 'task' ? contextNotes(read.comment(id)) : []
+        return { body: { request: withContext(request, notes) } }
+      }
       const saved = chatId === undefined ? undefined : await inbox.answeredApproval(chatId, id)
       if (!saved) return { code: 'gone' }
       return {
@@ -896,6 +954,12 @@ export function createPhoneRequests(inbox: PhoneInbox): PhoneRequests {
           },
         },
       }
+    },
+    contextFile(id, attachment) {
+      const ref = parseImageId(attachment)
+      if (!ref || find(id, true)?.waiting.source !== 'task') return undefined
+      const note = contextNotes(read.comment(id)).find((note) => note.id === ref.commentId)
+      return note?.attachments?.find((file) => file.hash === ref.hash && !isImage(file))
     },
     async answer(id: string, answer: PhoneAnswer): Promise<PhoneOutcome> {
       if (
