@@ -16,6 +16,7 @@ import {
   type Task,
   tedPaths,
 } from '@ted/protocol'
+import { maxAttachmentBytes } from '../attachments.ts'
 import { redactSecrets } from '../redact.ts'
 import { cutChars } from './fit.ts'
 import type { PhoneOutcome } from './requests.ts'
@@ -35,6 +36,7 @@ export interface PhoneImageOptions extends PhoneImageSource {
 
 export interface PhoneImages {
   read(image: string, part: number): Promise<PhoneOutcome>
+  readPrototype(prototype: string, part: number): Promise<PhoneOutcome>
 }
 
 interface PhoneImageCache extends PhoneImages {
@@ -167,12 +169,20 @@ export function createPhoneImages(options: PhoneImageOptions): PhoneImageCache {
     }
   }
 
-  function resolve(image: string): Pick<Attachment, 'hash' | 'name'> | undefined {
+  function resolve(
+    image: string,
+    prototype = false,
+  ): Pick<Attachment, 'hash' | 'name'> | undefined {
     const ref = parseImageId(image)
     const comment = ref && options.comment(ref.commentId)
     if (!ref || !comment || comment.held) return undefined
     const task = options.task(comment.taskId)
     if (!task || task.archived) return undefined
+    if (prototype) {
+      const file = comment.design?.prototype
+      if (file?.hash === ref.hash && /\.html?$/i.test(file.name)) return file
+      return undefined
+    }
     return (
       comment.attachments?.find((file) => file.hash === ref.hash && isImage(file)) ??
       comment.design?.screenshots?.find((file) => file.hash === ref.hash)
@@ -226,6 +236,31 @@ export function createPhoneImages(options: PhoneImageOptions): PhoneImageCache {
         pruning = undefined
       })
       return pruning
+    },
+    async readPrototype(reference, part) {
+      const file = resolve(reference, true)
+      if (!file) return { code: 'gone' }
+      const handle = await open(
+        options.file(file),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      ).catch(() => undefined)
+      if (!handle) return { code: 'gone' }
+      try {
+        const info = await handle.stat()
+        if (!info.isFile() || info.nlink !== 1) return { code: 'gone' }
+        if (!info.size || info.size > maxAttachmentBytes) {
+          return { code: 'refused', message: 'Open this prototype on your Mac.' }
+        }
+        const parts = Math.ceil(info.size / phoneImagePartBytes)
+        if (part >= parts) return { code: 'bad-request' }
+        const start = part * phoneImagePartBytes
+        const buffer = Buffer.alloc(Math.min(phoneImagePartBytes, info.size - start))
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, start)
+        if (bytesRead !== buffer.length || !resolve(reference, true)) return { code: 'gone' }
+        return { body: { mediaType: 'text/html', part, parts, data: buffer.toString('base64url') } }
+      } finally {
+        await handle.close()
+      }
     },
     async read(image, part) {
       const found = resolve(image)
