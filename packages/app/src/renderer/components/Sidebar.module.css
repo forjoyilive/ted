@@ -15,6 +15,7 @@
 
 .top {
   display: flex;
+  flex-direction: column;
   gap: 6px;
   margin-bottom: 8px;
 }
@@ -31,7 +32,6 @@
 }
 
 .search {
-  flex: 1;
   min-width: 0;
   gap: 7px;
   padding: 0 10px;
@@ -43,7 +43,8 @@
   flex-shrink: 0;
 }
 
-.searchLabel {
+.searchLabel,
+.newTaskLabel {
   flex: 1;
   text-align: left;
 }

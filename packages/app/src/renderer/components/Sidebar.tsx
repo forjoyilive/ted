@@ -34,6 +34,7 @@ import type { FactoryView, Navigation, NavigationAction, Screen } from '../navig
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import { BusyCard } from './BusyCard.tsx'
+import { Button } from './Button.tsx'
 import { FactoryIcon } from './FactoryIcon.tsx'
 import { FactoryMenu, PopoverMenu } from './FactoryMenu.tsx'
 import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
@@ -728,6 +729,12 @@ export function Sidebar({
             <span className={styles.searchLabel}>Search</span>
             <span className={styles.shortcut}>⌘K</span>
           </ActionButton>
+          {factories.length > 0 && (
+            <Button shortcut="⌘N" onClick={() => onNewTask()}>
+              <PlusIcon />
+              <span className={styles.newTaskLabel}>New Task…</span>
+            </Button>
+          )}
         </div>
 
         <ActionButton

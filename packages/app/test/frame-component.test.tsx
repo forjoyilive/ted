@@ -359,12 +359,11 @@ test('Settings shortcut and Back restore the previous screen', async () => {
   expect(screen.getByRole('heading', { name: 'All Tasks' })).toBeTruthy()
 })
 
-test('view headers open New Task without a duplicate sidebar button', async () => {
+test('view headers still open New Task in their Factory', async () => {
   const a = appState()
   a.mount()
   const u = user()
   await expandFactory()
-  expect(within(nav()).queryByRole('button', { name: 'New Task…' })).toBeNull()
   await u.click(within(nav()).getByRole('button', { name: 'Tasks' }))
   for (const view of ['Board', 'List']) {
     await u.click(within(nav()).getByRole('button', { name: view }))
@@ -428,9 +427,23 @@ test('question mark opens the shortcut sheet and dialog cancel closes it', async
   expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeTruthy()
 })
 
-test('New Task shortcuts select the current Factory and keep letters in inputs as text', async () => {
+test('the sidebar opens New Task and shortcuts select the current Factory and preserve typing', async () => {
   const a = appState()
   a.mount()
+  const sidebar = await screen.findByRole('navigation', { name: 'Sidebar' })
+  const newTask = await within(sidebar).findByRole('button', { name: 'New Task…' })
+  await user().click(newTask)
+  const fromInbox = screen.getByRole('dialog', { name: 'New Task' })
+  expect(within(fromInbox).getByRole('combobox', { name: 'Factory' }).dataset.value).toBe('f1')
+  await user().click(within(fromInbox).getByRole('button', { name: 'Close' }))
+  await user().click(within(sidebar).getByRole('button', { name: 'All Tasks' }))
+  await user().click(newTask)
+  await user().click(
+    within(screen.getByRole('dialog', { name: 'New Task' })).getByRole('button', { name: 'Close' }),
+  )
+  expect(
+    within(sidebar).getByRole('button', { name: 'All Tasks' }).getAttribute('aria-current'),
+  ).toBe('page')
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
   fireEvent.keyDown(window, { key: 'n', metaKey: true })
   let dialog = screen.getByRole('dialog', { name: 'New Task' })
