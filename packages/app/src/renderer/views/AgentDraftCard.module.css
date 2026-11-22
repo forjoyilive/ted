@@ -1,4 +1,4 @@
-.card {
+.card[data-agent-draft] {
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -6,7 +6,7 @@
   box-shadow: 0 6px 20px var(--shadow-popover);
 }
 
-.card > .head {
+.card[data-agent-draft] > .head {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -14,6 +14,7 @@
   padding: 9px 18px;
   border-bottom: 1px solid var(--border-subtle);
   border-radius: 0;
+  background: none;
 }
 
 .dot {
@@ -214,7 +215,7 @@
   overflow: hidden;
 }
 
-.clipped::after {
+.faded::after {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -269,7 +270,7 @@
   color: var(--text-caption);
 }
 
-.card > [role="alert"] {
+.card[data-agent-draft] > [role="alert"] {
   margin: 0 18px 12px;
 }
 

@@ -7,7 +7,7 @@ import {
   maxAgentName,
 } from '@ted/protocol/agent-files'
 import { fileChange } from '@ted/protocol/diff'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import grow from '../components/TextGrow.module.css'
@@ -58,6 +58,12 @@ export function AgentDraftCard({
   const [showFull, setShowFull] = useState(false)
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  const preview = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const box = preview.current
+    setOverflows(box !== null && box.scrollHeight > box.clientHeight)
+  })
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   if (!draft) return null
@@ -213,13 +219,20 @@ export function AgentDraftCard({
           ) : (
             <>
               <div
-                className={expanded ? styles.preview : `${styles.preview} ${styles.clipped}`}
+                ref={preview}
+                className={[
+                  styles.preview,
+                  !expanded && styles.clipped,
+                  !expanded && overflows && styles.faded,
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 aria-labelledby={`${request.id}-instructions`}
                 role="document"
               >
                 <Markdown text={instructions} />
               </div>
-              {!expanded && (
+              {!expanded && overflows && (
                 <Button size="small" variant="quiet" onClick={() => setExpanded(true)}>
                   Show all
                 </Button>

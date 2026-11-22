@@ -10,7 +10,7 @@ import type {
 } from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { expect, test, vi } from 'vitest'
+import { expect, onTestFinished, test, vi } from 'vitest'
 import { OvernightContext } from '../src/renderer/overnight.tsx'
 import { LibraryPage } from '../src/renderer/settings/LibraryPage.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
@@ -1156,6 +1156,12 @@ test('an Agent draft card starts on the chat’s save place, previews the instru
   shown.coordinator = coordinator({ requests: [draft] })
   const answer = vi.fn(() => shown.coordinator)
   a.handle('answerAgentDraft', answer)
+  const tall = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(400)
+  const clipped = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(190)
+  onTestFinished(() => {
+    tall.mockRestore()
+    clipped.mockRestore()
+  })
   a.mount()
   const pane = await open()
   const card = await within(pane).findByRole('region', { name: 'Agent draft from Coordinator' })
@@ -1191,7 +1197,7 @@ test('an Agent draft card starts on the chat’s save place, previews the instru
   })
 })
 
-test('an Agent draft card from a chat with no save place starts on the Library', async () => {
+test('an Agent draft card from a chat with no save place starts on the Library, and short instructions show whole with no Show all', async () => {
   const { a, shown, open } = withCoordinator()
   shown.coordinator = coordinator({
     requests: [
@@ -1213,6 +1219,10 @@ test('an Agent draft card from a chat with no save place starts on the Library',
     true,
   )
   expect(card.textContent).toContain('No powers: it only talks with you.')
+  expect(within(card).getByRole('document', { name: 'Instructions' }).textContent).toContain(
+    'Notes',
+  )
+  expect(within(card).queryByRole('button', { name: 'Show all' })).toBeNull()
 })
 
 test('an outside command card shows the exact command and folder, and only Run with the tick allows it always; the chat line stops it and the details pane removes an allowance', async () => {

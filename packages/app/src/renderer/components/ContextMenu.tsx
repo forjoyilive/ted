@@ -314,8 +314,12 @@ function menuItem(
         </>
       ) : (
         <>
-          {item.label}
-          {item.hint !== undefined && <span className={styles.hint}>{item.hint}</span>}
+          <span className={styles.itemLabel}>{item.label}</span>
+          {item.hint !== undefined && (
+            <span className={styles.hint} title={item.hint}>
+              {item.hint}
+            </span>
+          )}
         </>
       )}
     </ActionButton>
