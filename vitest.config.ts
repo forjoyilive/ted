@@ -121,7 +121,11 @@ const inSandbox = sandboxName !== undefined
 if (sandboxName === 'Ted’s sandbox') {
   console.warn('TED_SANDBOX_SKIPPED: the Electron app tests')
 }
-if (sandboxName) {
+if (sandboxName === 'a Ted Run on macOS') {
+  console.warn(
+    'Skipping the Electron app tests in this Ted Run. Use the Ted Dev App for a preview, or run the tests from a desktop terminal outside the Run.',
+  )
+} else if (sandboxName) {
   console.warn(
     `Skipping the Electron app tests: ${sandboxName} stops Electron registering with the window server, so every launch aborts. Run them outside the sandbox.`,
   )
