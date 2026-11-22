@@ -324,7 +324,7 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
         </p>
       ) : (
         <div className={styles.section} data-setting="factory.intake.asana.scope">
-          <div className={styles.autoStartRow}>
+          <div className={styles.asanaImportRow}>
             <span className={styles.label}>Import Asana work into this Factory</span>
             <Toggle
               label="Import Asana work into this Factory"

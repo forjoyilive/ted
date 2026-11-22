@@ -319,6 +319,12 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+.asanaImportRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .groupLabel {
   display: flex;
   align-items: center;
