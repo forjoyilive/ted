@@ -14624,21 +14624,21 @@ export function createTasks(options: {
         throw new RequestError(403, 'A Run can reach only its own Apps')
       const taskId = store.getRun(runId)?.taskId
       if (taskId && !store.automations.firing(runId)) {
-        const { task } = taskLead(taskId, caller, 'drives its iOS simulator')
+        const { task } = taskLead(taskId, caller, 'controls its device Apps')
         const readsInWork = request.action === 'screen' && handsOff(task.stage)
         if (task.archived || task.stopped || liveLead(task)?.id !== runId)
-          throw new RequestError(403, 'Only a live Task Lead can use its iOS simulator')
+          throw new RequestError(403, 'Only a live Task Lead can control its device Apps')
         if (!readsInWork && !validates(task.stage))
           throw new RequestError(
             403,
             request.action === 'screen'
-              ? 'Only a Work or Validate Task Lead can read its iOS simulator'
-              : 'Only a Validate Task Lead can drive its iOS simulator',
+              ? 'Only a Work or Validate Task Lead can use ted app screen'
+              : `Only a Validate Task Lead can use ted app ${request.action}`,
           )
         if (request.action !== 'screen' && request.action !== 'tap' && request.action !== 'pair')
           throw new RequestError(403, 'Validate Task Leads can use screen, tap and pair')
         if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
-        return { text: await apps.control(task.id, request, 'ios') }
+        return { text: await apps.control(task.id, request, 'task-lead') }
       }
       await ownedRun(runId, caller)
       if (request.action === 'pair')
