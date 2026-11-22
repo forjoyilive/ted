@@ -32,6 +32,71 @@ describe('Ted app', () => {
     expect(await commandOf(await daemonPid())).toContain(electronPath)
   })
 
+  test('the Backlog comment box and Send fit at minimum window size with Problems and Details open', async () => {
+    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
+    await addFactory(origin, 'NB')
+    const title =
+      'Keep the last edited note close at hand after switching between long notebook names'
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      '--description',
+      'Remember the last edited note in each notebook.',
+      title,
+    )
+    const window = await launchApp()
+    await openAllTasks(window)
+    await ctx.app?.evaluate(({ BrowserWindow }) => {
+      const main = BrowserWindow.getAllWindows()[0]
+      main?.setContentSize(900, 560)
+      for (const problem of ['First problem', 'Second problem', 'Third problem']) {
+        main?.webContents.send('ted:event', {
+          type: 'banner-raised',
+          banner: {
+            id: problem,
+            problem,
+            severity: 'stops-work',
+            text: problem,
+            action: { label: 'Open Settings' },
+            raisedAt: new Date().toISOString(),
+          },
+        })
+      }
+    })
+    await expect.poll(() => window.evaluate(() => [innerWidth, innerHeight])).toEqual([900, 560])
+    await window
+      .getByRole('region', { name: 'Problems', exact: true })
+      .getByRole('button', { name: /Show all/, expanded: false })
+      .waitFor()
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByText('You created this Task').waitFor()
+    await window.getByRole('complementary', { name: 'Task details' }).waitFor()
+    const box = thread.getByRole('textbox', { name: 'Comment', exact: true })
+    const send = thread.getByRole('button', { name: 'Send', exact: true })
+    for (const control of [thread.getByRole('heading', { name: title }), box, send]) {
+      await expect
+        .poll(() =>
+          control.evaluate((element) => {
+            const { left, top, bottom, width } = element.getBoundingClientRect()
+            const x = left + width / 2
+            return [top + 2, bottom - 2].every((y) =>
+              element.contains(document.elementFromPoint(x, y)),
+            )
+          }),
+        )
+        .toBe(true)
+    }
+    if (process.env.TED_TASK_COMMENT_SCREENSHOT) {
+      await window.screenshot({ path: process.env.TED_TASK_COMMENT_SCREENSHOT })
+    }
+    await box.fill('The composer is ready.')
+    await send.click()
+    await thread.getByText('The composer is ready.', { exact: true }).waitFor()
+  })
+
   test('the thread shows event lines; ↵ sends a Comment, ⇧↵ adds a line and ⌘↵ sends too', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     await commitToOrigin(path.join(ctx.home, 'origin'), {
