@@ -414,6 +414,12 @@ A comment, or Resume text, from the phone is the user’s, but never sends the T
 
 The phone creates a Task using the basic or advanced route below. The protocol number doesn’t change: a Mac without a route answers `unknown-route`. Nothing on the Mac turns them off; pairing the phone is the gate.
 
+### `task-conversation` and `task-conversation-item`
+
+Send `task-conversation` with `taskId` and an optional `cursor`. It returns the same page shape as `task-comments`, with Task Thread entries and Task Lead Run items in one timeline, newest first. Run rows carry a `chatItem` in the same format as `chat-items`. They have their own stable row IDs. The Mac includes current and earlier Task Lead Runs and leaves out sub-agent Runs, internal instructions and held comments. The phone displays this conversation in the Task detail reached from Tasks and Inbox.
+
+Send `task-conversation-item` with `taskId`, the row’s `id` as `itemId`, and an optional zero-based `offset`. It returns the same `lines` and optional `next` as `chat-item`. A missing row, missing Task or archived Task gets `gone`. Both routes redact text and fit their replies to the existing size limit. Older Macs answer `unknown-route`.
+
 ### `factories`
 
 Lists every Factory the Mac’s New Task dialog offers, in the sidebar’s order:
@@ -630,7 +636,7 @@ The daemon sends `pairing-end` right after it answers a `pair-status` with `appr
 
 ## Paired phones
 
-The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `snoozed-requests`, `request-snooze`, `request`, `answer`, `push-token`, `problems`, `problem-dismiss`, `tasks`, `task`, `task-comments`, `image`, `task-start`, `task-stop`, `task-resume`, `task-priority`, `task-comment`, `task-archive`, `task-delete`, `factories`, `task-create`, `chats`, `chat`, `chat-items`, `chat-item`, `chat-message`, `chat-stop`, `chat-retry`, `chat-archive`, `chat-unarchive`, `chat-rename`, `chat-delete`, `chat-agents`, `chat-create` `factory-icon`, `file-part` and `file-done`. Removing a phone on the Mac records `v1.PhoneRemoved` and sends the new list; the relay then refuses that phone. A message that still reaches the daemon from a removed key gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there. Phones paired before protocol 3 have no relay key, so they aren’t on the relay’s list and must pair again.
+The daemon answers a paired phone only on routes marked for phones: `status`, `requests`, `snoozed-requests`, `request-snooze`, `request`, `answer`, `push-token`, `problems`, `problem-dismiss`, `tasks`, `task`, `task-comments`, `task-conversation`, `task-conversation-item`, `image`, `task-start`, `task-stop`, `task-resume`, `task-priority`, `task-comment`, `task-archive`, `task-delete`, `factories`, `task-create`, `chats`, `chat`, `chat-items`, `chat-item`, `chat-message`, `chat-stop`, `chat-retry`, `chat-archive`, `chat-unarchive`, `chat-rename`, `chat-delete`, `chat-agents`, `chat-create` `factory-icon`, `file-part` and `file-done`. Removing a phone on the Mac records `v1.PhoneRemoved` and sends the new list; the relay then refuses that phone. A message that still reaches the daemon from a removed key gets `not-paired`. Unpairing on the phone clears only the phone; the Mac lists it until the user removes it there. Phones paired before protocol 3 have no relay key, so they aren’t on the relay’s list and must pair again.
 
 The daemon keeps its relay socket open while a pairing link is live, for two minutes after it ends (so a waiting phone hears it was refused or expired), and from the first phone ever paired on, even after every phone is removed (so the relay’s list stays current). It reconnects with backoff (1, 2, 5, 10, 30 seconds).
 

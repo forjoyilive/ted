@@ -286,7 +286,7 @@ function textEntry(item: PhoneChatItem, ...parts: PhoneChatDetailLine[][]): Entr
   return { item, lines: () => parts.flat() }
 }
 
-function chatItemEntry(item: ChatItem, agent: string, live: boolean): Entry | undefined {
+export function chatItemEntry(item: ChatItem, agent: string, live: boolean): Entry | undefined {
   const at = item.at
   const base = { id: item.id, ...(at !== undefined && { at }) }
   switch (item.kind) {
@@ -705,7 +705,7 @@ function factoryOrder(a: PhoneTaskFactory, b: PhoneTaskFactory): number {
   return a.position - b.position || a.createdAt.localeCompare(b.createdAt)
 }
 
-function fitted(item: PhoneChatItem, room: number): PhoneChatItem {
+export function fitted(item: PhoneChatItem, room: number): PhoneChatItem {
   if ('approval' in item && item.approval !== undefined && jsonBytes(item) > room) {
     const { approval: _approval, ...fallback } = item
     return fitted(fallback, room)
@@ -894,18 +894,22 @@ export function createPhoneChats(source: PhoneChatSource): PhoneChats {
     if (!all) return { code: 'gone' }
     const entry = all.find((each) => each.item.id === itemId)
     if (!entry) return { code: 'gone' }
-    const lines = entry.lines()
-    const shown: PhoneChatDetailLine[] = []
-    let size = jsonBytes({ lines: [], next: Number.MAX_SAFE_INTEGER })
-    for (const line of lines.slice(offset)) {
-      const next = jsonBytes(line) + (shown.length > 0 ? 1 : 0)
-      if (size + next > phoneReplyBodyMax) break
-      shown.push(line)
-      size += next
-    }
-    const end = offset + shown.length
-    return { body: { lines: shown, ...(end < lines.length && { next: end }) } }
+    return chatItemDetail(entry, offset)
   }
 
   return { list, read, items, item }
+}
+
+export function chatItemDetail(entry: Entry, offset: number): PhoneOutcome {
+  const lines = entry.lines()
+  const shown: PhoneChatDetailLine[] = []
+  let size = jsonBytes({ lines: [], next: Number.MAX_SAFE_INTEGER })
+  for (const line of lines.slice(offset)) {
+    const next = jsonBytes(line) + (shown.length > 0 ? 1 : 0)
+    if (size + next > phoneReplyBodyMax) break
+    shown.push(line)
+    size += next
+  }
+  const end = offset + shown.length
+  return { body: { lines: shown, ...(end < lines.length && { next: end }) } }
 }
