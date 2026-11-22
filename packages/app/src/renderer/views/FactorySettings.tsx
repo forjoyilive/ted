@@ -29,6 +29,7 @@ import {
   useState,
 } from 'react'
 import { moveRow, protectedFolderNote, type RepoRow, shortPath } from '../add-factory.ts'
+import { agentPromptMessage, coordinatorDraftsAgents } from '../agent-files.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { FactoryIconPicker } from '../components/FactoryIconPicker.tsx'
@@ -503,6 +504,27 @@ export function FactorySettings({
                         loaded={base.draft.agentFiles}
                         kept={draft.keepAgentFiles}
                         newSetting="factory.agent-files.new"
+                        fromPrompt={{
+                          factoryId: factory.id,
+                          canDraft: coordinatorDraftsAgents(view.agentFiles),
+                          unsaved: count > 0,
+                          start: async (description) => {
+                            const chat = await ted.startCoordinatorChat(factory.id, {
+                              text: agentPromptMessage(description),
+                              agentId: 'coordinator',
+                              agentDraftPlace: 'factory',
+                            })
+                            dispatch({
+                              type: 'open',
+                              screen: {
+                                kind: 'factory',
+                                factoryId: factory.id,
+                                view: 'agents',
+                                chatId: chat.id,
+                              },
+                            })
+                          },
+                        }}
                         onDraft={(change) =>
                           onDraft((d) => ({ ...d, agentFiles: change(d.agentFiles) }))
                         }

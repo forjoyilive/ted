@@ -158,6 +158,11 @@ test('message headers and phone requests', () => {
   const request = { ...header, type: 'request', route: 'status' }
   expect(parsePhoneRequest(request)).toEqual(request)
   expect(() => parsePhoneRequest({ ...request, route: 1 })).toThrow()
+  const prototype = { ...request, route: 'design-prototype', prototype: 'ref', part: 0 }
+  expect(parsePhoneRequest(prototype)).toEqual(prototype)
+  expect(() => parsePhoneRequest({ ...prototype, prototype: '' })).toThrow()
+  expect(() => parsePhoneRequest({ ...prototype, part: -1 })).toThrow()
+
   const read = { ...header, type: 'request', route: 'request', requestId: 'c-1' }
   expect(parsePhoneRequest(read)).toEqual(read)
   const readSnoozed = { ...read, includeSnoozed: true }

@@ -76,6 +76,7 @@ roundTrip(P.parseCoordinatorMessage, {
   agent: 'codex',
   model: 'gpt-5.5',
   effort: 'high',
+  agentDraftPlace: 'factory',
 })
 roundTrip(P.parseRunChatCommandRequest, { name: 'web-test' })
 rejects(P.parseRunChatCommandRequest, { name: 'rm -rf /' }, 'command names')
@@ -141,6 +142,9 @@ test('parsePostChatRequest takes exactly one request and checks the Agent id rul
     'supersedes',
   )
   expect(() => P.parseCoordinatorMessage({ text: 'Hi', agentId: 'Not An Id' })).toThrow('agentId')
+  expect(() => P.parseCoordinatorMessage({ text: 'Hi', agentDraftPlace: 'phone' })).toThrow(
+    'agentDraftPlace is library or factory',
+  )
 })
 const version = 'a'.repeat(64)
 const completeAction: Required<P.CoordinatorAction> = {

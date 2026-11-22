@@ -204,6 +204,15 @@ export const phoneRoutes: readonly PhoneRoute[] = [
     },
   },
   {
+    name: 'design-prototype',
+    async handle(_, request, { images }) {
+      if (request.prototype === undefined || request.part === undefined) {
+        return { code: 'bad-request' }
+      }
+      return images.readPrototype(request.prototype, request.part)
+    },
+  },
+  {
     name: 'task-start',
     async handle(_, request, { actions }) {
       if (request.taskId === undefined) return { code: 'bad-request' }

@@ -504,7 +504,8 @@ async function sameOutcome(
 
 test('a design review opens on the phone with its design, setup and images, and is answered as on the Mac', async () => {
   const shot = await attach('step-1.png', randomBytes(2_000))
-  const prototype = await attach('onboarding.html', Buffer.from('<html></html>'), 'text/html')
+  const html = Buffer.from(`<html>${' '.repeat(phoneImagePartBytes)}</html>`)
+  const prototype = await attach('onboarding.html', html, 'text/html')
   const extra = await attach('extra.png', randomBytes(1_000))
   const notes = await attach('notes.txt', Buffer.from('notes'), 'text/plain')
   const task = await newTask('Onboarding design')
@@ -560,7 +561,7 @@ test('a design review opens on the phone with its design, setup and images, and 
         worthYourEye: ['The skip link'],
         screenshots: [{ image: phoneImageId(review.id, shot.hash), caption: 'Step 1 · Welcome' }],
         figma: { url: 'https://www.figma.com/design/abc', label: 'Onboarding v2' },
-        prototype: { name: 'onboarding.html' },
+        prototype: { name: 'onboarding.html', download: phoneImageId(review.id, prototype.hash) },
       },
     },
   })
@@ -574,6 +575,25 @@ test('a design review opens on the phone with its design, setup and images, and 
   const screenshot = shown.form.type === 'design' ? shown.form.design.screenshots?.[0] : undefined
   const reply = await image(screenshot?.image ?? '', 0)
   expect(reply.ok && parsePhoneImageBody(reply.body)).toMatchObject({ parts: 1, part: 0 })
+
+  const download = shown.form.type === 'design' ? (shown.form.design.prototype?.download ?? '') : ''
+  const readPrototype = (reference: string, part: number) =>
+    phone.send({ type: 'request', route: 'design-prototype', prototype: reference, part })
+  const downloaded = []
+  for (const part of [0, 1]) {
+    const reply = await readPrototype(download, part)
+    if (!reply.ok) throw new Error(`prototype failed: ${reply.error.code}`)
+    expect(Buffer.byteLength(JSON.stringify(reply.body))).toBeLessThanOrEqual(phoneReplyBodyMax)
+    const body = parsePhoneImageBody(reply.body)
+    expect(body).toMatchObject({ mediaType: 'text/html', part, parts: 2 })
+    downloaded.push(Buffer.from(body.data, 'base64url'))
+  }
+  expect(Buffer.concat(downloaded)).toEqual(html)
+  expect(failure(await readPrototype(download, 2))).toBe('bad-request')
+  expect(failure(await readPrototype(screenshot?.image ?? '', 0))).toBe('gone')
+  expect(failure(await image(download, 0))).toBe('gone')
+  store.archiveTask(task.id)
+  expect(failure(await readPrototype(download, 0))).toBe('gone')
 
   const design = { summary: 'Plain.', worthYourEye: ['Colours'] }
   await sameOutcome(

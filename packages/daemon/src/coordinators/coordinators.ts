@@ -1714,6 +1714,7 @@ export function createCoordinators(options: {
         startedAt: new Date().toISOString(),
         receipts: [],
         taskIds: [],
+        ...(input.agentDraftPlace && { agentDraftPlace: input.agentDraftPlace }),
       }
       const agent = store.chats.agentRecorded(created.id, 'coordinator', factoryId, chosen)
       if (phoneRetry) {
@@ -2833,7 +2834,11 @@ export function createCoordinators(options: {
           agent,
           kind === 'proposal' ? 'propose_tasks' : kind === 'agent' ? 'manage_agents' : 'ask',
         )
-        const draft = input.agent && planDraft(input.agent, await agentFilesOf(c))
+        const planned = input.agent && planDraft(input.agent, await agentFilesOf(c))
+        const draft = planned && {
+          ...planned,
+          ...(c.agentDraftPlace && { place: c.agentDraftPlace }),
+        }
         const decided = planPost(store.chats.requests(c.id), {
           kind,
           ...(input.supersedes !== undefined && { supersedes: input.supersedes }),

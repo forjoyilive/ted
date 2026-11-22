@@ -339,6 +339,11 @@ function phoneDesign(commentId: string, design: DesignReview): PhoneDesign {
     ]
   })
   const worthYourEye = (design.worthYourEye ?? []).map(clean)
+  const prototype = design.prototype
+  const download =
+    prototype && /\.html?$/i.test(prototype.name)
+      ? phoneImageId(commentId, prototype.hash)
+      : undefined
   return {
     ...(design.summary !== undefined &&
       design.summary !== '' && { summary: clean(design.summary) }),
@@ -350,7 +355,9 @@ function phoneDesign(commentId: string, design: DesignReview): PhoneDesign {
         ...(design.figma.label !== undefined && { label: clean(design.figma.label) }),
       },
     }),
-    ...(design.prototype && { prototype: file(design.prototype) }),
+    ...(prototype && {
+      prototype: { ...file(prototype), ...(download !== undefined && { download }) },
+    }),
     ...(design.video && { video: file(design.video) }),
     ...(design.setup && { setup: phoneSetup(design.setup) }),
   }

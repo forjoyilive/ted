@@ -122,7 +122,7 @@ const forms: PhoneForm[] = [
       worthYourEye: ['The skip link', 'Dark mode'],
       screenshots: [{ image: 'aW1n', caption: 'Step 1 · Welcome' }, { image: 'aW1o' }],
       figma: { url: 'https://www.figma.com/design/x', label: 'Onboarding v2' },
-      prototype: { name: 'onboarding.html', caption: 'Click through' },
+      prototype: { name: 'onboarding.html', caption: 'Click through', download: 'ref' },
       video: { name: 'flow.mov' },
       setup: {
         workflow: [{ stage: 'Clarify', setting: 'few questions' }, { stage: 'Work' }],

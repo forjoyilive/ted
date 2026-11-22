@@ -12,6 +12,7 @@ export const messageBoxKinds = [
   'coordinator-new',
   'coordinator-request',
   'new-plan',
+  'agent-prompt',
 ] as const
 
 export type MessageBoxKind = (typeof messageBoxKinds)[number]

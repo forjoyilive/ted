@@ -97,6 +97,8 @@ export const coordinatorRoutes: Route[] = [
     method: 'POST',
     path: /^\/coordinator-chats\/([^/]+)\/messages$/,
     async handle({ params: [id = ''], body }, { coordinators, attachments }) {
+      if (body.agentDraftPlace !== undefined)
+        throw new RequestError(400, 'Set agentDraftPlace when the chat starts')
       const message = await messageWithFiles(body.text, body.attachments, attachments)
       return [201, await coordinators.message(id, message)]
     },
