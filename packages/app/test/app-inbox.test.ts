@@ -139,7 +139,7 @@ describe('Inbox and Gates', () => {
     await signoff.waitFor()
     await signoff.click()
     await thread.getByRole('region', { name: 'Sign-off', exact: true }).waitFor()
-    await answer.getByRole('button', { name: 'Approve and merge' }).waitFor()
+    await answer.getByRole('button', { name: 'Approve and close' }).waitFor()
   })
 
   test('Talk it through opens the Task Lead’s chat with the round in the conversation; Done talking closes the round with the summary', async () => {
