@@ -6,11 +6,17 @@ You write a task. Agents design, write, test and review the change in your repos
 
 [Download for macOS](https://github.com/forjoyilive/ted/releases/latest) • [Website](https://tedandbill.com) • [What it does](https://tedandbill.com/what-it-does/) • [Discussions](https://github.com/forjoyilive/ted/discussions)
 
-![Ted’s Board with tasks queued, working and waiting on you.](docs/images/board.png)
+## See it in under a minute
+
+https://github.com/user-attachments/assets/1ac87436-f453-4a6f-9338-8af9178334ae
+
+Ted asks a question, proposes a design, builds the change, runs the checks, waits for your sign-off and merges the pull request. Recorded in Ted’s demo mode, with sample tasks.
 
 ## What Ted does
 
 Ted builds a factory for each of your projects. A factory takes every task through the same stages.
+
+![Ted’s Board with tasks queued, working and waiting on you.](docs/images/board.png)
 
 Every stage, check and sign-off can be changed per project. Turn sign-offs off and a task runs straight through.
 
