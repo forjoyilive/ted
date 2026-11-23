@@ -1,5 +1,6 @@
 import { memo, type ReactNode, useEffect, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 import { webLink } from '../../web-link.ts'
 import { type Reference, references } from '../references.ts'
@@ -187,15 +188,17 @@ const linkedPlugins = [rehypeReferences]
 export const Markdown = memo(function Markdown({
   text,
   className,
+  preserveLineBreaks = false,
 }: {
   text: string
   className?: string | undefined
+  preserveLineBreaks?: boolean
 }) {
   const linked = useReferenceLinks()
   return (
     <div className={[styles.markdown, className].filter(Boolean).join(' ')}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={preserveLineBreaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
         {...(linked && { rehypePlugins: linkedPlugins })}
         components={components}
         urlTransform={(url) => webLink(url) ?? ''}

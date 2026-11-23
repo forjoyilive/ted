@@ -121,6 +121,10 @@ describe('Ted app', () => {
     expect(await box.inputValue()).toBe('Keep the old export format.\nSame for CSV.')
     await box.press('Enter')
     await thread.getByText('Goes to the next Task Lead Run').waitFor()
+    const postedComment = thread
+      .getByRole('paragraph')
+      .filter({ hasText: /^Keep the old export format\.\s+Same for CSV\.$/ })
+    await postedComment.locator('br').waitFor()
     await expect.poll(() => box.inputValue()).toBe('')
     expect((await (await daemonClient()).listComments('NB-1')).map((c) => c.body)).toEqual([
       'Keep the old export format.\nSame for CSV.',
@@ -541,8 +545,21 @@ describe('Ted app', () => {
 
     const box = chat.getByRole('textbox', { name: 'Message the Task Lead' })
     await box.fill('Keep pinned notes in the order they were pinned.')
+    await box.press('Shift+Enter')
+    await box.pressSequentially('Same for archived notes.')
+    await box.press('Shift+Enter')
+    await box.press('Shift+Enter')
+    await box.pressSequentially('Thanks.')
     await box.press('Enter')
     await chat.getByText(/to the Task Lead/).waitFor()
+    const postedMessage = chat.getByRole('paragraph').filter({
+      hasText: /^Keep pinned notes in the order they were pinned\.\s+Same for archived notes\.$/,
+    })
+    await postedMessage.locator('br').waitFor()
+    await chat
+      .getByRole('paragraph')
+      .filter({ hasText: /^Thanks\.$/ })
+      .waitFor()
     await chat.getByText('Noted.').waitFor()
     expect(await client.listComments('NB-1')).toEqual([])
 
@@ -550,7 +567,7 @@ describe('Ted app', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
     await thread.getByText('You steered the Task Lead in its conversation').waitFor()
     await thread.getByRole('button', { name: 'View message' }).click()
-    await chat.getByText('Keep pinned notes in the order they were pinned.').waitFor()
+    await postedMessage.locator('br').waitFor()
     reached('message-delivered')
 
     const oldDaemon = await daemonPid()
@@ -564,9 +581,12 @@ describe('Ted app', () => {
     reached('second-launch-loaded')
     await openAllTasks(window)
     await taskRow(window, 'NB-1').click()
-    await window
-      .getByRole('region', { name: 'Run chat' })
-      .getByText('Pinned notes now sort first.')
+    const reopenedChat = window.getByRole('region', { name: 'Run chat' })
+    await reopenedChat.getByText('Pinned notes now sort first.').waitFor()
+    await reopenedChat
+      .getByRole('paragraph')
+      .filter({ hasText: 'Keep pinned notes in the order they were pinned.' })
+      .locator('br')
       .waitFor()
     expect(await window.getByRole('tab', { name: 'Task Lead', exact: true }).count()).toBe(0)
     expect(await window.getByRole('tab', { name: 'Thread', exact: true }).count()).toBe(0)

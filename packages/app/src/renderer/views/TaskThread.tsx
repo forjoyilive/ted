@@ -204,7 +204,13 @@ function NoteRow({
           <span className={styles.taskMeta}>{ago(comment.createdAt, now)}</span>
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
-        {comment.body !== '' && <Markdown className={styles.commentBody} text={comment.body} />}
+        {comment.body !== '' && (
+          <Markdown
+            className={styles.commentBody}
+            text={comment.body}
+            preserveLineBreaks={comment.author.kind === 'human'}
+          />
+        )}
         {comment.attachments && <CommentFiles files={comment.attachments} />}
         {comment.lineComments && (
           <SentLineComments
