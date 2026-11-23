@@ -64,7 +64,7 @@ stages:
     checks:
       - { name: Typecheck, run: pnpm typecheck }
       - { name: Lint, run: pnpm lint }
-      - { name: Affected Tests, run: pnpm check --affected, timeout: 80m }
+      - { name: Affected Tests, run: pnpm check --affected, timeout: 80m, sandbox_access: [network] }
       - { name: Mobile Typecheck, run: pnpm typecheck, repo: ted-mobile }
       - { name: Mobile Lint, run: pnpm lint, repo: ted-mobile }
       - { name: Mobile Tests, run: pnpm test, repo: ted-mobile, timeout: 15m }
