@@ -81,6 +81,12 @@ test('the disclosure line follows the setting and comes after the texts every Ru
   for (const [kind, prompt] of Object.entries(off)) expect(prompt, kind).not.toContain('via Ted:')
   const on = await everyPrompt(promptGuidance({ aiDisclosure: true }))
   expect(on.taskLead).toContain(await preambleText())
+  expect(on.taskLead).toContain(
+    'start the comment body or the description of the task, issue or pull request',
+  )
+  expect(on.taskLead).toContain(
+    'Keep task, issue and pull request titles free of model attribution.',
+  )
   expect(on.subAgent).toContain(await subAgentPreamble())
   expect(on.tedSubAgent).toContain(await subAgentPreamble())
   expect(promptGuidance({ aiDisclosure: true }).at(-1)).toContain('via Ted:')
