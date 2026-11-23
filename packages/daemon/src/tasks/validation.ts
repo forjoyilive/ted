@@ -93,6 +93,7 @@ interface ValidationOptions {
   notify(task: StoredTask): Promise<void>
   instructions(task: StoredTask, resolution: WorkflowResolution, message?: string): Promise<string>
   returnToWork(taskId: string, findings: string, checkRunId: string): Promise<void>
+  heldFor(taskId: string, checkRunId: string): boolean
   diagnosing(task: Task): boolean
   leaveWork(
     task: StoredTask,
@@ -750,9 +751,7 @@ export function createValidation(options: ValidationOptions) {
           value.source.checkRunId === run.id &&
           (value.assessments.length > 0 || value.resolutions.length > 0),
       )
-    const held =
-      store.sendBackAsks(task.id).some((ask) => ask.checkRunId === run.id) ||
-      store.loopChecks(task.id).some((check) => check.checkRunId === run.id)
+    const held = options.heldFor(task.id, run.id)
     return diagnosed || held || options.diagnosing(task) ? undefined : run
   }
 

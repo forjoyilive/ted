@@ -2751,9 +2751,6 @@
     "anti-slop/no-known-value-widening": {
       "count": 6
     },
-    "anti-slop/no-runtime-typeof": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 31
     },
@@ -2761,7 +2758,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 20
+      "count": 19
     }
   },
   "packages/daemon/src/tasks/thread.ts": {

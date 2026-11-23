@@ -50,6 +50,7 @@ import { leadPending, mergeAnywayChoice, noCiAgainRepo, sendToLeadChoice } from 
 import { checkPreparationWorkflow } from './preparation.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
 import { roundAnswerMessage, roundAnswers } from './rounds.ts'
+import { diagnoseChoice, keepGoingChoice, stopTaskChoice } from './send-back-hold.ts'
 import {
   grillAnywayMessage,
   planInChatMessage,
@@ -1322,11 +1323,8 @@ function oneLine(text: string, max = 200): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
 
-export const keepGoingChoice = 'Keep going'
-export const stopTaskChoice = 'Stop the Task'
 export const tryAgainChoice = 'Try again'
 export const backToDesignChoice = 'Back to Design'
-export const diagnoseChoice = 'Diagnose in Validate'
 
 function legacyLoopChoices(workflow: ResolvedWorkflow): string[] {
   const next = workflow.next(stageWith('validates'))
