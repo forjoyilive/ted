@@ -26,6 +26,7 @@ interface StubState {
     number?: number
     numbers?: Record<string, number>
     createFails?: string
+    closeFails?: string
     numbered?: boolean
   }
   heads?: Record<string, string>
@@ -492,6 +493,10 @@ if (args[0] === '--version') {
     : (state.pr?.numbers?.[repo] ?? state.pr?.number ?? 7)
   if (args[1] === 'create' && state.pr?.createFails) {
     process.stderr.write(`${state.pr.createFails}\n`)
+    process.exit(1)
+  }
+  if (args[1] === 'close' && state.pr?.closeFails) {
+    process.stderr.write(`${state.pr.closeFails}\n`)
     process.exit(1)
   }
   if (args[1] === 'create') {
