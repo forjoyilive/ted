@@ -3,17 +3,15 @@ import { type AgentChatRef, type AgentChatRow, splitArchived } from '../agent-ch
 import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { FactoryIcon, FactoryName } from '../components/FactoryIcon.tsx'
-import { ChevronIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { useAllChats } from '../data.ts'
 import { when } from '../plans.ts'
 import { age, useNow } from '../requests.ts'
 import agentPicker from './AgentPicker.module.css'
-import agents from './Agents.module.css'
 import styles from './AllChats.module.css'
 import inbox from './Inbox.module.css'
-import { DisplayIcon, FilterIcon, MenuButton, RadioItem } from './TaskList.tsx'
+import { CheckItem, DisplayIcon, FilterIcon, MenuButton, RadioItem } from './TaskList.tsx'
 import views from './views.module.css'
 
 const groupings = ['None', 'Factory', 'Agent'] as const
@@ -27,6 +25,18 @@ export interface AllChatsView {
 }
 
 type FilterKey = 'factory' | 'agent' | 'status'
+
+function ChatColumns({ time }: { time: 'Updated' | 'Archived' }) {
+  return (
+    <div className={styles.columns}>
+      <span>Chat</span>
+      <span>Agent</span>
+      <span>Factory</span>
+      <span>Status</span>
+      <span className={styles.time}>{time}</span>
+    </div>
+  )
+}
 
 function filterStatus(row: AgentChatRow) {
   return row.chip.label.split(' · ', 1)[0] ?? row.chip.label
@@ -61,6 +71,7 @@ export function AllChats({
         (view.status === undefined || filterStatus(row) === view.status),
     ),
   )
+  const showArchive = view.archived && archived.length > 0
   const factoryNames = new Map(factories.map((factory) => [factory.id, factory.name]))
   const grouped = new Map<string, AgentChatRow[]>()
   if (view.grouping !== 'None') {
@@ -121,11 +132,11 @@ export function AllChats({
         className={styles.row}
         onClick={() => onOpen(row.factoryId, row.ref)}
       >
-        <span className={styles.chat}>
-          <span className={styles.title} title={row.title}>
-            {row.title}
-          </span>
-          <span className={styles.meta}>{row.agent}</span>
+        <span className={styles.title} title={row.title}>
+          {row.title}
+        </span>
+        <span className={styles.agent} title={row.agent}>
+          {row.agent}
         </span>
         <FactoryName factories={factories} factoryId={row.factoryId} />
         <span className={styles.status}>
@@ -151,7 +162,7 @@ export function AllChats({
       .map((name) => ({ id: name, label: name }))
 
   return (
-    <section className={`${views.pane} ${styles.pane}`} aria-label="All Chats">
+    <section className={views.pane} aria-label="All Chats">
       <header className={`${views.header} ${styles.header}`}>
         <h1 className={views.title}>All Chats</h1>
         <span className={views.headerSpacer} />
@@ -188,6 +199,14 @@ export function AllChats({
         <MenuButton label="Display" icon={<DisplayIcon />}>
           {(close) => (
             <>
+              <CheckItem
+                label="Show archived chats"
+                checked={view.archived}
+                onChange={() => {
+                  onView({ ...view, archived: !view.archived })
+                  close()
+                }}
+              />
               <div className={inbox.panelHeading}>Group by</div>
               {groupings.map((grouping) => (
                 <RadioItem
@@ -214,35 +233,41 @@ export function AllChats({
           </div>
         )}
         {error !== undefined && <LoadingError error={error} retry={chats.retry} />}
-        {view.grouping === 'None'
-          ? open.map(renderRow)
-          : [...grouped]
-              .sort(([a], [b]) => groupLabel(a).localeCompare(groupLabel(b)))
-              .map(([key, group]) => (
-                <section key={key}>
-                  <h2 className={agents.group}>
-                    {groupLabel(key)} · {group.length}
-                  </h2>
-                  {group.map(renderRow)}
-                </section>
-              ))}
-        {archived.length > 0 && (
-          <section aria-label="Archived chats">
-            <button
-              type="button"
-              className={agents.archivedToggle}
-              aria-expanded={view.archived}
-              onClick={() => onView({ ...view, archived: !view.archived })}
-            >
-              <ChevronIcon open={view.archived} />
-              Archived · {archived.length}
-            </button>
-            {view.archived && archived.map(renderRow)}
-          </section>
+        {(open.length > 0 || showArchive) && (
+          <div className={styles.list}>
+            {open.length > 0 && (
+              <>
+                <ChatColumns time="Updated" />
+                {view.grouping === 'None'
+                  ? open.map(renderRow)
+                  : [...grouped]
+                      .sort(([a], [b]) => groupLabel(a).localeCompare(groupLabel(b)))
+                      .map(([key, group]) => (
+                        <section key={key}>
+                          <h2 className={styles.group}>
+                            {groupLabel(key)} · {group.length}
+                          </h2>
+                          {group.map(renderRow)}
+                        </section>
+                      ))}
+              </>
+            )}
+            {showArchive && (
+              <section aria-label="Archived chats">
+                <h2 className={styles.group}>Archived · {archived.length}</h2>
+                <ChatColumns time="Archived" />
+                {archived.map(renderRow)}
+              </section>
+            )}
+          </div>
         )}
-        {loaded && error === undefined && open.length === 0 && archived.length === 0 && (
+        {loaded && error === undefined && open.length === 0 && !showArchive && (
           <p className={views.empty}>
-            {filterCount > 0 ? 'No chats match these filters.' : 'No chats yet.'}
+            {archived.length > 0
+              ? 'No open chats.'
+              : filterCount > 0
+                ? 'No chats match these filters.'
+                : 'No chats yet.'}
           </p>
         )}
       </div>

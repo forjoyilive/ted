@@ -517,6 +517,9 @@ test('All Chats lists chats across Factories, restores filters and opens or star
   await user_.click(sidebar.getByRole('button', { name: 'All Chats' }))
   const all = () => within(screen.getByRole('region', { name: 'All Chats' }))
   await all().findByRole('button', { name: /Plan the Studio launch.*Studio/ })
+  for (const label of ['Chat', 'Agent', 'Factory', 'Status', 'Updated']) {
+    expect(all().getByText(label, { exact: true })).toBeTruthy()
+  }
   const rows = all()
     .getAllByRole('button')
     .filter((button) => button.hasAttribute('data-nav-item'))
@@ -542,11 +545,21 @@ test('All Chats lists chats across Factories, restores filters and opens or star
   await user_.click(screen.getByRole('button', { name: 'Clear filters' }))
   expect(all().getByRole('heading', { name: 'widgets · 1' })).toBeTruthy()
 
-  expect(all().queryByRole('button', { name: /Archive what merged/ })).toBeNull()
-  await user_.click(all().getByRole('button', { name: 'Archived · 1' }))
-  await user_.click(all().getByRole('button', { name: /Archive what merged/ }))
+  expect(all().queryByRole('region', { name: 'Archived chats' })).toBeNull()
+  const toggleArchive = async (checked: boolean) => {
+    await user_.click(all().getByRole('button', { name: 'Display' }))
+    await user_.click(
+      screen.getByRole('menuitemcheckbox', { name: 'Show archived chats', checked }),
+    )
+  }
+  await toggleArchive(false)
+  const archive = within(all().getByRole('region', { name: 'Archived chats' }))
+  expect(archive.getAllByText('Archived').some((label) => !label.closest('button'))).toBe(true)
+  await user_.click(archive.getByRole('button', { name: /Archive what merged/ }))
   expect(await screen.findByRole('region', { name: 'Coordinator' })).toBeTruthy()
   await user_.click(screen.getByRole('button', { name: '← All Chats' }))
+  await toggleArchive(true)
+  expect(all().queryByRole('region', { name: 'Archived chats' })).toBeNull()
 
   const choose = async (name: string, agent: RegExp) => {
     await user_.click(all().getByRole('button', { name: 'New chat' }))
