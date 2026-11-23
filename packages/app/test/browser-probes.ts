@@ -1,10 +1,8 @@
 import { createSocket } from 'node:dgram'
-import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import path from 'node:path'
-import { type BrowserResult, scriptLiteral } from '@ted/protocol'
-import { isString } from '@ted/protocol/parse'
-import type { ElectronApplication, Locator, Page } from 'playwright'
+import { scriptLiteral } from '@ted/protocol'
+import type { ElectronApplication, Page } from 'playwright'
 import { expect } from 'vitest'
 
 export async function startGuestWorker(app: ElectronApplication, url: string) {
@@ -476,115 +474,5 @@ export async function checkWorkerMedia(
       for (const registration of await navigator.serviceWorker.getRegistrations())
         if (registration.scope.endsWith('/media/')) await registration.unregister();
     })()`)
-  }
-}
-
-export async function checkPrivateSignIn(
-  app: ElectronApplication,
-  panel: Locator,
-  appUrl: string,
-  snapshot: () => Promise<BrowserResult>,
-) {
-  const provider = createHttpServer((request, response) => {
-    response.setHeader('Content-Type', 'text/plain')
-    if (request.url === '/login') {
-      response.setHeader('Set-Cookie', 'test-session=signed-in; HttpOnly; Path=/')
-      response.writeHead(302, { Location: '/signed-in' }).end()
-    } else {
-      response.end(request.headers.cookie ?? 'Signed out')
-    }
-  })
-  await new Promise<void>((resolve) => provider.listen(0, '127.0.0.1', resolve))
-  try {
-    const address = provider.address()
-    if (!address || isString(address)) throw new Error('No sign-in fixture port')
-    const origin = `http://127.0.0.1:${address.port}`
-    const login = { url: appUrl, login: `${origin}/login` }
-    const open = panel.getByRole('button', { name: 'Open with sign-in' })
-    await open.click()
-    await expect
-      .poll(() =>
-        app.evaluate(({ BrowserWindow }, url) => {
-          return BrowserWindow.getAllWindows().some((w) => w.webContents.getURL() === url)
-        }, appUrl),
-      )
-      .toBe(true)
-    await app.evaluate(
-      async ({ BrowserWindow }, { url, script }) => {
-        const privateWindow = BrowserWindow.getAllWindows().find(
-          (w) => w.webContents.getURL() === url,
-        )
-        if (!privateWindow) throw new Error('No sign-in window')
-        await privateWindow.webContents.executeJavaScript(script, true)
-      },
-      { url: login.url, script: `window.open(${scriptLiteral(login.login)}); void 0` },
-    )
-    await expect
-      .poll(() =>
-        app.evaluate(
-          async ({ BrowserWindow }, { url, origin }) => {
-            const popup = BrowserWindow.getAllWindows().find(
-              (w) => w.webContents.getURL() === `${origin}/signed-in`,
-            )
-            const privateWindow = BrowserWindow.getAllWindows().find(
-              (w) => w.webContents.getURL() === url,
-            )
-            if (!popup || !privateWindow) return
-            return {
-              sameSession: popup.webContents.session === privateWindow.webContents.session,
-              page: await popup.webContents.executeJavaScript('document.body.innerText'),
-            }
-          },
-          { url: appUrl, origin },
-        ),
-      )
-      .toEqual({ sameSession: true, page: 'test-session=signed-in' })
-    expect((await snapshot()).text).toContain('Browser fixture')
-    const sharedCookies = await app.evaluate(
-      async ({ BrowserWindow, webContents }, { appUrl, origin }) => {
-        const privateWindow = BrowserWindow.getAllWindows().find(
-          (w) => w.webContents.getURL() === appUrl,
-        )
-        const shared = webContents
-          .getAllWebContents()
-          .find((c) => c !== privateWindow?.webContents && c.getURL() === appUrl)
-        if (!shared) throw new Error('No shared preview')
-        return (await shared.session.cookies.get({ url: origin, name: 'test-session' })).length
-      },
-      { appUrl, origin },
-    )
-    expect(sharedCookies).toBe(0)
-    await app.evaluate(({ BrowserWindow }, url) => {
-      BrowserWindow.getAllWindows()
-        .find((w) => w.webContents.getURL() === url)
-        ?.close()
-    }, appUrl)
-    await expect
-      .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length))
-      .toBe(1)
-    await open.click()
-    await expect
-      .poll(() =>
-        app.evaluate(
-          async ({ BrowserWindow }, { url, origin }) => {
-            const privateWindow = BrowserWindow.getAllWindows().find(
-              (w) => w.webContents.getURL() === url,
-            )
-            return (await privateWindow?.webContents.session.cookies.get({ url: origin }))?.length
-          },
-          { url: appUrl, origin },
-        ),
-      )
-      .toBe(0)
-    await app.evaluate(({ BrowserWindow }, url) => {
-      BrowserWindow.getAllWindows()
-        .find((w) => w.webContents.getURL() === url)
-        ?.close()
-    }, appUrl)
-  } finally {
-    provider.closeAllConnections()
-    await new Promise<void>((resolve, reject) =>
-      provider.close((error) => (error ? reject(error) : resolve())),
-    )
   }
 }

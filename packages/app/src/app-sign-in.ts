@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow, session, type WebPreferences } from 'electron'
+import { url as inspectorUrl } from 'node:inspector'
+import { app, BrowserWindow, session, type WebPreferences } from 'electron'
 
 function webAddress(address: string): URL | undefined {
   const url = URL.parse(address)
@@ -13,6 +14,14 @@ function webAddress(address: string): URL | undefined {
 }
 
 export async function openAppSignInWindow(name: string, address: string): Promise<void> {
+  if (
+    app.commandLine.hasSwitch('remote-debugging-port') ||
+    app.commandLine.hasSwitch('remote-debugging-pipe') ||
+    inspectorUrl() !== undefined
+  ) {
+    throw new Error('Open Ted without remote debugging to use sign-in')
+  }
+
   const privateSession = session.fromPartition(`app-sign-in-${randomUUID()}`)
   privateSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   privateSession.setPermissionCheckHandler(() => false)

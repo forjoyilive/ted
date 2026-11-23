@@ -24,7 +24,6 @@ import {
   checkInFlightNavigation,
   checkModalRace,
   checkOutsideRequests,
-  checkPrivateSignIn,
   checkRefusedNames,
   checkWorkerMedia,
   guestWorkerTraffic,
@@ -156,8 +155,13 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       ),
   )
   await checkWorkerMedia(app, panel, new URL(running.url ?? '').href)
-  await checkPrivateSignIn(app, panel, new URL(running.url ?? '').href, () =>
-    command({ action: 'snapshot' }),
+  const windows = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
+  await panel.getByRole('button', { name: 'Open with sign-in' }).click()
+  await expect
+    .poll(() => panel.getByRole('status').textContent())
+    .toContain('Open Ted without remote debugging to use sign-in')
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(
+    windows,
   )
   const snapshot = await command({ action: 'snapshot' })
   expect(snapshot.text).toContain('Browser fixture')
