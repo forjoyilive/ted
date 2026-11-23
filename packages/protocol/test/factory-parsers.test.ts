@@ -22,6 +22,7 @@ const repos = [
         run: 'pnpm dev',
         url: 'http://localhost:3000',
         preview: 'mobile',
+        allowExternalSignIn: true,
         sandboxAccess: ['ios-xcode'],
       },
       { name: 'Phone', kind: 'android-emulator', run: './gradlew installDebug', device: 'Pixel_8' },

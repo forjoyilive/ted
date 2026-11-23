@@ -20,6 +20,7 @@ export interface AppDeclaration {
   device?: string
   electron?: true
   preview?: PreviewPreset
+  allowExternalSignIn?: boolean
   previewOnly?: true
   pairedPreview?: { desktop: string; relay: string }
   sandboxAccess?: SandboxAccess[]
@@ -89,6 +90,10 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
         ...(typeof fields.device === 'string' && { device: fields.device }),
         ...(electron && { electron: true as const }),
         ...(preview !== undefined && { preview }),
+        ...(kind === 'web' &&
+          fields.allow_external_sign_in === true && {
+            allowExternalSignIn: true,
+          }),
         ...(previewOnly && { previewOnly }),
         ...(pairedPreview?.desktop && pairedPreview.relay && { pairedPreview }),
         ...(access.length > 0 && { sandboxAccess: access }),

@@ -370,6 +370,18 @@ export function TaskBrowserView({
         >
           Open ↗
         </Button>
+        {app?.allowExternalSignIn === true && (
+          <Button
+            disabled={!running}
+            onClick={() =>
+              ted
+                .openAppSignIn(task.id, app.repo, app.name)
+                .catch((error: Error) => setStatus(readableError(error)))
+            }
+          >
+            Open with sign-in
+          </Button>
+        )}
         <PreviewSizeMenu
           scope={zoomKey}
           size={size}
@@ -401,6 +413,12 @@ export function TaskBrowserView({
           </span>
         )}
       </p>
+      {app?.allowExternalSignIn === true && (
+        <p className={styles.shared}>
+          The sign-in window can connect to external services with your account. Agents can’t access
+          it. Closing it clears the session.
+        </p>
+      )}
       <div
         ref={area}
         className={`${styles.viewport} ${size.kind === 'desktop' ? '' : styles.framed}`}

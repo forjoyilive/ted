@@ -51,7 +51,7 @@ import {
   settingsMergeMethods,
   type WorktreeCommandInput,
 } from './factory-settings.ts'
-import { isOneOf, isString, type Untyped } from './parse.ts'
+import { isBoolean, isOneOf, isString, type Untyped } from './parse.ts'
 import { previewPresets } from './preview-size.ts'
 import { permissionModes } from './run.ts'
 import { isSandboxAccess, type SandboxAccess } from './sandbox-groups.ts'
@@ -373,6 +373,9 @@ function settingsApp(given: unknown): AppInput {
   const preview = optionalText(body.preview, 'preview')
   if (preview !== undefined && !isOneOf(preview, previewPresets))
     throw new HttpError(400, 'an App’s preview must be desktop, tablet or mobile')
+  const allowExternalSignIn = body.allowExternalSignIn
+  if (allowExternalSignIn !== undefined && (!isBoolean(allowExternalSignIn) || kind !== 'web'))
+    throw new HttpError(400, 'Only a web App can set allowExternalSignIn to true or false')
   const access = sandboxAccess(body.sandboxAccess, 'App sandboxAccess')
   return {
     ...(typeof was === 'number' && { was }),
@@ -382,6 +385,7 @@ function settingsApp(given: unknown): AppInput {
     ...(url !== undefined && { url }),
     ...(device !== undefined && { device }),
     ...(preview !== undefined && isOneOf(preview, previewPresets) && { preview }),
+    ...(allowExternalSignIn !== undefined && { allowExternalSignIn }),
     ...(access !== undefined && { sandboxAccess: access }),
   }
 }

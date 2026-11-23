@@ -33,6 +33,7 @@ export interface TaskApp {
   outsideSandboxApproval?: OutsideSandboxApproval
   electron?: true
   preview?: PreviewPreset
+  allowExternalSignIn?: boolean
 }
 
 export interface AppSimulator {

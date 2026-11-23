@@ -78,6 +78,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       '  - name: widgets',
       '    apps:',
       '      - name: Web',
+      '        allow_external_sign_in: true',
       `        run: "'${process.execPath}' '${stubApp}'"`,
       '        env:',
       '          STUB_APP_BROWSER: "1"',
@@ -154,6 +155,14 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       ),
   )
   await checkWorkerMedia(app, panel, new URL(running.url ?? '').href)
+  const windows = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
+  await panel.getByRole('button', { name: 'Open with sign-in' }).click()
+  await expect
+    .poll(() => panel.getByRole('status').textContent())
+    .toContain('Open Ted without remote debugging to use sign-in')
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(
+    windows,
+  )
   const snapshot = await command({ action: 'snapshot' })
   expect(snapshot.text).toContain('Browser fixture')
   const field = snapshot.text?.match(/([^\s]+) input Name/)?.[1]

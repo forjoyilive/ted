@@ -1467,12 +1467,18 @@ describe('App preview size edits', () => {
     { was: 'web', repo: 'owner/web', name: 'web', env: [], copy: [], apps },
   ]
 
-  test('a web App’s preview size saves, checks clean and reaches the App declaration', () => {
+  test('web preview settings save, check clean and reach the App declaration', () => {
     const text = applyChanges(
       'version: 1\n',
       {
         repos: repo([
-          { name: 'Site', kind: 'web', run: 'npm run dev', preview: 'mobile' },
+          {
+            name: 'Site',
+            kind: 'web',
+            run: 'npm run dev',
+            preview: 'mobile',
+            allowExternalSignIn: true,
+          },
           { name: 'Worker', kind: 'command', run: 'npm run worker', preview: 'tablet' },
         ]),
       },
@@ -1483,11 +1489,11 @@ describe('App preview size edits', () => {
     expect(text).toContain('preview: mobile')
     expect(text).not.toContain('preview: tablet')
     expect(repoSettingsFrom(layer.settings, stored)[0]?.apps).toMatchObject([
-      { name: 'Site', preview: 'mobile' },
+      { name: 'Site', preview: 'mobile', allowExternalSignIn: true },
       { name: 'Worker' },
     ])
     expect(appDeclarations(layer.settings?.repos?.[0]?.apps)).toMatchObject([
-      { name: 'Site', preview: 'mobile' },
+      { name: 'Site', preview: 'mobile', allowExternalSignIn: true },
       { name: 'Worker' },
     ])
     const cleared = applyChanges(
@@ -1496,6 +1502,7 @@ describe('App preview size edits', () => {
       repoSettingsFrom(layer.settings, stored),
     )
     expect(cleared).not.toContain('preview')
+    expect(cleared).not.toContain('allow_external_sign_in')
   })
 })
 
