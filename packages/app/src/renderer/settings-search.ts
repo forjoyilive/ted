@@ -300,7 +300,7 @@ const entries = {
   },
   'app.integrations.disclosure.preface': {
     name: 'Start what agents post with “From <model> via Ted:”',
-    help: 'Ted asks agents to start comment bodies and task, issue and pull request descriptions on Asana, Linear and GitHub with a line naming their model, such as “From Opus 5.5 via Ted:”. Titles stay free of model attribution. Turning this on or off applies to new Runs.',
+    help: 'Ted asks agents to start comment bodies and task, issue and pull request descriptions with a line naming their model, such as “From Opus 5.5 via Ted:”. Titles stay free of model attribution. Turning this on or off applies to new Runs.',
     keywords: 'ai disclosure preface model label attribution comment',
   },
 
