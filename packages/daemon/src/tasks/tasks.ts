@@ -4386,31 +4386,40 @@ export function createTasks(options: {
     return pending ? { kind: 'publish' } : undefined
   }
 
-  async function reposWithoutCi(
+  async function mergeApprovalDetails(
     task: StoredTask,
     resolution: WorkflowResolution,
-  ): Promise<string[]> {
+    requestedFor: readonly { name: string; commit: string }[],
+  ): Promise<{ nothingToMerge: boolean; noCi: string[] }> {
     const gh = options.gh
-    if (!gh) return []
     const order = factoryRepos(resolution.workflow, factoryOf(task))
-    const found: string[] = []
+    const noCi: string[] = []
+    let nothingToMerge = true
     for (const target of await pullRequestTargets(task)) {
       const repo = task.repos.find((r) => r.name === target.name)
       if (!repo || repo.pullRequest?.state === 'merged') continue
+      if (repo.pullRequest) nothingToMerge = false
+      const commit = requestedFor.find((requested) => requested.name === target.name)?.commit
+      if (commit === undefined) {
+        nothingToMerge = false
+        continue
+      }
       try {
-        const commit = await git.headCommit(target.worktree)
         if ((await git.commitsAhead(target.worktree, `origin/${target.base}`, commit)) === 0)
           continue
+        nothingToMerge = false
+        if (!gh) continue
         const ci = await detectCi({ gh, ...target, commit })
-        if (!expectsCi(repoEntry(order, repo)?.pullRequestCi, ci)) found.push(repo.name)
+        if (!expectsCi(repoEntry(order, repo)?.pullRequestCi, ci)) noCi.push(repo.name)
       } catch (error) {
+        nothingToMerge = false
         console.error(
-          `couldn’t check whether ${task.displayId}’s ${target.name} has CI:`,
+          `couldn’t check ${task.displayId}’s ${target.name} for merge approval:`,
           redactSecrets(textOf(error)),
         )
       }
     }
-    return found
+    return { nothingToMerge, noCi }
   }
 
   async function mergeTargets(
@@ -13888,13 +13897,16 @@ export function createTasks(options: {
             leadsToMerge &&
             workflow.stages.includes(stageWith('merges')) &&
             workflow.settings.stages.merge?.gate !== true
-          const noCi = mergesOnApproval ? await reposWithoutCi(find(task.id), resolution) : []
           const access = leadsToMerge ? await signOffAccess(current, workflow) : []
           const design = outcome.design
           const requestedFor =
             signsOffCode(stage) || entersMerge(stage, workflow.next(stage), workflow.stages)
               ? await requestCommits(current, workflow)
               : []
+          const mergeDetails = mergesOnApproval
+            ? await mergeApprovalDetails(find(task.id), resolution, requestedFor)
+            : undefined
+          const noCi = mergeDetails?.noCi ?? []
           const kept = workflow.overnightKept
           if (kept?.stages.includes(stage) && !gateKept(current)) {
             store.gateKeptOvernight(task.id, stage, kept.reason)
@@ -13906,7 +13918,7 @@ export function createTasks(options: {
             body: brief.text,
             author: { kind: 'run', runId },
             gate: {
-              ...gateButtons(workflow, stage),
+              ...gateButtons(workflow, stage, mergeDetails?.nothingToMerge === true),
               ...(changes && { changes }),
               ...(noCi.length > 0 && { noCi }),
               ...accessGate(access),
@@ -14776,7 +14788,11 @@ function gateName(comment: Comment): string {
   return `${stageTitle(comment.stage ?? '')} sign-off`
 }
 
-function gateButtons(workflow: ResolvedWorkflow, stage: StageId): NonNullable<Comment['gate']> {
+function gateButtons(
+  workflow: ResolvedWorkflow,
+  stage: StageId,
+  nothingToMerge: boolean,
+): NonNullable<Comment['gate']> {
   if (mergesHere(stage)) return { approveLabel: 'Merge' }
   if (hasClarifyRounds(stage)) return { approveLabel: 'Approve', caption: clarifySignoffCaption }
   if (!signsOffCode(stage)) return { approveLabel: 'Approve' }
@@ -14786,7 +14802,8 @@ function gateButtons(workflow: ResolvedWorkflow, stage: StageId): NonNullable<Co
       caption: 'Merge is off for this Factory. You’ll merge on GitHub.',
     }
   }
-  return { approveLabel: workflow.settings.stages.merge?.gate ? 'Approve' : 'Approve and merge' }
+  if (workflow.settings.stages.merge?.gate) return { approveLabel: 'Approve' }
+  return { approveLabel: nothingToMerge ? 'Approve and close' : 'Approve and merge' }
 }
 
 const headingLine = /^#{1,6}\s+(.*?)\s*#*\s*$/

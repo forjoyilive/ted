@@ -27,6 +27,18 @@ import { eventWait } from './support/event-wait.ts'
 
 useMergeHarness()
 
+test('Approve and close finishes a Task with no commits to publish', async () => {
+  const client = await start()
+  const { task, signoff } = await toSignoff(client, { title: leadSteps(client, '') })
+  expect(signoff.gate?.approveLabel).toBe('Approve and close')
+
+  await approve(client, signoff)
+  const done = await waitForStage(client, task, 'done')
+
+  expect(done.repos[0]?.pullRequest).toBeUndefined()
+  expect(await merges()).toEqual([])
+}, 90_000)
+
 describe('Approve and merge', () => {
   test('with no CI, Ted merges at once, deletes the branch, removes the worktree and releases blocked Tasks', async () => {
     const client = await start()

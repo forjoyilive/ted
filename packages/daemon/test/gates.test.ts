@@ -230,7 +230,7 @@ describe('Sign-offs', () => {
     expect(review.request).toMatchObject({
       kind: 'signoff',
       stage: 'review',
-      gate: { approveLabel: 'Approve and merge' },
+      gate: { approveLabel: 'Approve and close' },
     })
     expect((await getTask(client, task.id)).stage).toBe('review')
   })
