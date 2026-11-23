@@ -117,6 +117,7 @@ import {
   currentFactoryId,
   historyReducer,
   initialNavigation,
+  type Screen,
   type SettingsSectionId,
   shownSettingsSectionIds,
   startHistory,
@@ -825,6 +826,72 @@ export function App({ start }: { start?: AppStart | undefined }) {
     />
   )
 
+  function agentChats(
+    factory: Factory,
+    agentScreen?: Extract<Screen, { kind: 'factory' }>,
+    onCloseInboxChat?: () => void,
+  ) {
+    const fromAllChats = agentScreen?.fromAllChats ? { fromAllChats: true as const } : {}
+    return (
+      <AgentsView
+        key={`${factory.id}:${agentScreen?.fromAllChats === true}`}
+        factory={factory}
+        chatId={agentScreen?.chatId}
+        onCloseInboxChat={onCloseInboxChat}
+        {...(agentScreen?.fromAllChats && {
+          allChats: {
+            back: () => dispatch({ type: 'open', screen: { kind: 'all-chats' } }),
+            chooseFactory: () =>
+              dispatch({ type: 'open', screen: { kind: 'all-chats', chooseFactory: true } }),
+          },
+        })}
+        planId={navigation.planId}
+        planFrom={navigation.planFrom}
+        revealRequest={revealRequest}
+        onOpenChat={(chat, options) =>
+          chat.agent === 'planner'
+            ? dispatch({
+                type: 'open-plan',
+                factoryId: factory.id,
+                planId: chat.id,
+                ...fromAllChats,
+                ...options,
+              })
+            : dispatch({
+                type: 'open',
+                screen: {
+                  kind: 'factory',
+                  factoryId: factory.id,
+                  view: 'agents',
+                  chatId: chat.id,
+                  ...fromAllChats,
+                },
+                ...options,
+              })
+        }
+        onNewPlan={() => dispatch({ type: 'open-plan', factoryId: factory.id, ...fromAllChats })}
+        onNewAgent={() =>
+          openSetting(
+            {
+              id: 'factory.agent-files.new',
+              name: 'New Agent',
+              where: '',
+              target: { kind: 'factory', factoryId: factory.id, section: 'agent-files' },
+            },
+            dispatch,
+          )
+        }
+        onPlanMore={(from) =>
+          dispatch({ type: 'open-plan', factoryId: factory.id, from, ...fromAllChats })
+        }
+        onOpenTask={openTaskByRef}
+        onOpenAutomation={(automationId) =>
+          dispatch({ type: 'open-automation', automationId, factoryId: factory.id })
+        }
+      />
+    )
+  }
+
   function main() {
     const opened = task && (
       <TaskPanes
@@ -865,6 +932,10 @@ export function App({ start }: { start?: AppStart | undefined }) {
           },
         })
       }
+      const planFactory =
+        navigation.planId === undefined
+          ? undefined
+          : factories.find((factory) => factory.id === navigation.lastFactoryId)
       return (
         <Inbox
           items={inbox}
@@ -925,6 +996,8 @@ export function App({ start }: { start?: AppStart | undefined }) {
           onNewTask={() => openNewTask()}
         >
           {opened ??
+            (planFactory &&
+              agentChats(planFactory, undefined, () => dispatch({ type: 'open', screen }))) ??
             (navigation.automation?.runId === undefined
               ? undefined
               : automationRun(navigation.automation.id, navigation.automation.runId))}
@@ -1165,64 +1238,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
             />
           )
         }
-        if (screen.view === 'agents' && factory)
-          return (
-            <AgentsView
-              key={`${factory.id}:${screen.fromAllChats === true}`}
-              factory={factory}
-              chatId={screen.chatId}
-              {...(screen.fromAllChats && {
-                allChats: {
-                  back: () => dispatch({ type: 'open', screen: { kind: 'all-chats' } }),
-                  chooseFactory: () =>
-                    dispatch({ type: 'open', screen: { kind: 'all-chats', chooseFactory: true } }),
-                },
-              })}
-              planId={navigation.planId}
-              planFrom={navigation.planFrom}
-              revealRequest={revealRequest}
-              onOpenChat={(chat, options) =>
-                chat.agent === 'planner'
-                  ? dispatch({
-                      type: 'open-plan',
-                      factoryId: factory.id,
-                      planId: chat.id,
-                      ...fromAllChats,
-                      ...options,
-                    })
-                  : dispatch({
-                      type: 'open',
-                      screen: {
-                        kind: 'factory',
-                        factoryId: factory.id,
-                        view: 'agents',
-                        chatId: chat.id,
-                        ...fromAllChats,
-                      },
-                      ...options,
-                    })
-              }
-              onNewPlan={openPlans}
-              onNewAgent={() =>
-                openSetting(
-                  {
-                    id: 'factory.agent-files.new',
-                    name: 'New Agent',
-                    where: '',
-                    target: { kind: 'factory', factoryId: factory.id, section: 'agent-files' },
-                  },
-                  dispatch,
-                )
-              }
-              onPlanMore={(from) =>
-                dispatch({ type: 'open-plan', factoryId: factory.id, from, ...fromAllChats })
-              }
-              onOpenTask={openTaskByRef}
-              onOpenAutomation={(automationId) =>
-                dispatch({ type: 'open-automation', automationId, factoryId: factory.id })
-              }
-            />
-          )
+        if (screen.view === 'agents' && factory) return agentChats(factory, screen)
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }
     }

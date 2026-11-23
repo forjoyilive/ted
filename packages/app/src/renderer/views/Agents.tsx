@@ -51,6 +51,7 @@ export const newCoordinatorChat = 'new'
 export function AgentsView({
   factory,
   allChats,
+  onCloseInboxChat,
   chatId,
   planId,
   planFrom,
@@ -64,6 +65,7 @@ export function AgentsView({
 }: {
   factory: Factory
   allChats?: { back: () => void; chooseFactory: () => void }
+  onCloseInboxChat?: (() => void) | undefined
   chatId: string | undefined
   planId: string | undefined
   planFrom: string | undefined
@@ -119,8 +121,9 @@ export function AgentsView({
   const openAgent = openRef?.agent
   const openId = openRef?.id
   useEffect(() => {
-    if (openAgent !== undefined && openId !== undefined) remember({ agent: openAgent, id: openId })
-  }, [openAgent, openId, remember])
+    if (onCloseInboxChat === undefined && openAgent !== undefined && openId !== undefined)
+      remember({ agent: openAgent, id: openId })
+  }, [onCloseInboxChat, openAgent, openId, remember])
   useEffect(() => {
     if (openAgent !== undefined) setNewAgentId(builtInCoordinator.id)
   }, [openAgent])
@@ -221,7 +224,7 @@ export function AgentsView({
     )
   }
 
-  const list = allChats === undefined && (
+  const list = allChats === undefined && onCloseInboxChat === undefined && (
     <ListPane className={`${views.pane} ${views.listPane}`} aria-label="Agent chats">
       <header className={styles.listHeader}>
         <h1 className={views.listTitle}>Agents</h1>
@@ -383,6 +386,7 @@ export function AgentsView({
         if (deleted) {
           if (sameChat(openRef, ref)) {
             if (allChats) allChats.back()
+            else if (onCloseInboxChat) onCloseInboxChat()
             else startPage()
           }
           setDeleting(undefined)
@@ -415,6 +419,7 @@ export function AgentsView({
   return (
     <>
       {list}
+      {onCloseInboxChat && rowMenu.menu}
       {deleteDialog}
       {middle}
     </>

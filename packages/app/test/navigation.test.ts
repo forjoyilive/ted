@@ -454,8 +454,9 @@ test('picking Dashboard Factories narrows from all, toggles after and falls back
   expect(pickFactories(['a', 'b', 'c'], ['d'], factories)).toBeUndefined()
 })
 
-test('an Inbox Planning request opens its chat on the Agents screen, and back returns to the Inbox', () => {
-  let history = startHistory(initialNavigation)
+test('a Planning request keeps the Factory Inbox open, and Back restores its empty detail pane', () => {
+  const inbox = { kind: 'inbox', factoryId: 'nb' } as const
+  let history = startHistory(after({ type: 'open', screen: inbox }))
   history = withHistory(history, {
     type: 'open-plan',
     factoryId: 'nb',
@@ -463,11 +464,12 @@ test('an Inbox Planning request opens its chat on the Agents screen, and back re
     requestId: 'round1',
   })
   expect(history.now).toMatchObject({
-    screen: { kind: 'factory', factoryId: 'nb', view: 'agents' },
+    screen: inbox,
     planId: 'p1',
     requestId: 'round1',
   })
   history = withHistory(history, { type: 'back' })
-  expect(history.now.screen).toEqual({ kind: 'inbox' })
+  expect(history.now.screen).toEqual(inbox)
   expect(history.now.planId).toBeUndefined()
+  expect(history.now.requestId).toBeUndefined()
 })
