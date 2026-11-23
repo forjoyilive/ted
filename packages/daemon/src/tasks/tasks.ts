@@ -41,7 +41,6 @@ import type {
   CommitChanges,
   CreatedTask,
   DaemonEvent,
-  DeclaredSendBackCause,
   DeleteTaskRequest,
   DescriptionVersion,
   DesignFile,
@@ -280,8 +279,6 @@ import type {
   BlockersCleared,
   CleanupCommandResult,
   FoundConflict,
-  LoopCheck,
-  LoopVerdict,
   MoveTaskInput,
   NewTask,
   NewWorktree,
@@ -323,7 +320,6 @@ import {
 import {
   backStageMessage,
   cleanupStepsText,
-  loopCheckInstructions,
   nextStageMessage,
   preambleText,
   setupInstructions,
@@ -546,9 +542,6 @@ import {
   answerTaskRequest,
   checkBack,
   createRequestAnswers,
-  diagnoseChoice,
-  keepGoingChoice,
-  stopTaskChoice,
   tryAgainChoice,
 } from './request-answers.ts'
 import {
@@ -572,6 +565,7 @@ import {
   pickDepth,
   roundAnswerSummary,
 } from './rounds.ts'
+import { createSendBackHold, reviewReturn } from './send-back-hold.ts'
 import { approvedApps, approvedChecks, setupWorktreeDifferences } from './setup-access.ts'
 import { setupAgentDifferences } from './setup-agents.ts'
 import { clashMessage, sourceClash, sourceKey } from './sources.ts'
@@ -939,8 +933,6 @@ const slugLength = 40
 const recordedConflictFiles = 50
 export const suggestedTasksPerLead = 3
 export const maxTasksPerLead = 10
-
-const timesText = (n: number) => `${n} ${n === 1 ? 'time' : 'times'}`
 
 function withoutRepeats(files: readonly Attachment[]): Attachment[] {
   const seen = new Map<string, Attachment>()
@@ -3355,14 +3347,9 @@ export function createTasks(options: {
 
   async function applyValidationFix(task: StoredTask, value: FailureCase): Promise<void> {
     const references = [failureCaseReference(value), failureCaseReference(value, true)]
-    const matches = (record: { findings: string }) =>
-      references.some((reference) => record.findings.startsWith(`${reference}\n\n`))
-    if (store.sendBackAsks(task.id).some(matches) || store.loopChecks(task.id).some(matches)) return
-    if (
-      pendingLoopCheck(task.id) ||
-      store.sendBackAsks(task.id).some((ask) => !store.getComment(ask.commentId)?.answer)
-    )
-      return
+    const matches = (findings: string) =>
+      references.some((reference) => findings.startsWith(`${reference}\n\n`))
+    if (sendBackHold.heldForFindings(task.id, matches) || sendBackHold.pending(task.id)) return
     if (mergesHere(task.stage)) {
       const current = find(task.id)
       const mode = mergeMode(current, (await taskWorkflow(current, { fetch: false })).workflow)
@@ -3375,7 +3362,7 @@ export function createTasks(options: {
       return
     }
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
-    const sent = store.listSendBacks(task.id).find(matches)
+    const sent = store.listSendBacks(task.id).find((sentBack) => matches(sentBack.findings))
     if (sent) {
       if (sent.at >= visitStart(task))
         await move(
@@ -3416,11 +3403,7 @@ export function createTasks(options: {
         )
         return
       }
-      if (
-        store.sendBackAsks(taskId).some((ask) => ask.checkRunId === checkRunId) ||
-        store.loopChecks(taskId).some((check) => check.checkRunId === checkRunId)
-      )
-        return
+      if (sendBackHold.heldFor(taskId, checkRunId)) return
       judge(task, 'sent-back', undefined)
       await sendBack(
         task,
@@ -3431,16 +3414,6 @@ export function createTasks(options: {
         { counted: true, cause: 'check' },
       )
     })
-  }
-
-  function handOffAsks(taskId: string): Comment[] {
-    const asks = new Set(
-      store
-        .sendBackAsks(taskId)
-        .filter((a) => handsOff(a.from) && handsOff(a.to))
-        .map((a) => a.commentId),
-    )
-    return store.listComments(taskId).filter((c) => asks.has(c.id))
   }
 
   const leftWork = (task: StoredTask) => !handsOff(task.stage) || task.archived
@@ -8123,7 +8096,6 @@ export function createTasks(options: {
     const counted = options.counted ?? lastChangesRequested(task) === ''
     const limit = workflow.settings.stages[from]?.max_back
     const count = store.sendBackCount(task.id, from)
-    const loopAt = validates(from) ? workflow.settings.stages.validate?.loop_check : undefined
     const keepConflict = () => {
       if (options.conflict !== undefined) store.recordBaseConflict(task.id, options.conflict)
     }
@@ -8132,43 +8104,25 @@ export function createTasks(options: {
       ...(checkRunId !== undefined && { checkRunId }),
       ...(declared !== undefined && { cause: declared }),
     }
-    if (counted && limit !== undefined && count >= limit) {
+    if (validates(from)) {
+      const decision = await sendBackHold.decide(task, workflow, {
+        to,
+        findings,
+        counted,
+        count,
+        ...(limit !== undefined && { limit }),
+        ...(options.conflict !== undefined && { conflict: options.conflict }),
+        ...held,
+      })
+      if (decision.kind === 'checking') {
+        return { task: publicTask(task.id), message: decision.message, pending: true }
+      }
+      if (decision.kind === 'asked') {
+        return { task: publicTask(task.id), message: decision.message, request: decision.request }
+      }
+    } else if (counted && limit !== undefined && count >= limit) {
       keepConflict()
       const times = `${count} ${count === 1 ? 'time' : 'times'}`
-      if (validates(from)) {
-        if (
-          workflow.settings.stages.validate?.loop_check !== false &&
-          (await startLoopCheck(task, {
-            to,
-            findings,
-            round: count + 1,
-            limit,
-            ...held,
-          }))
-        ) {
-          return {
-            task: publicTask(task.id),
-            message:
-              'Ted is checking progress before asking the human. The Task stays in Validate.',
-            pending: true,
-          }
-        }
-        const request = askAboutLoop(task, workflow, {
-          to,
-          findings,
-          title: `Validate sent this Task back to Work ${timesText(count)}, its limit`,
-          intro:
-            workflow.settings.stages.validate?.loop_check === false
-              ? ''
-              : 'A Loop check couldn’t start, so Ted couldn’t check whether the rounds are making progress.',
-          ...held,
-        })
-        return {
-          task: publicTask(task.id),
-          message: `Validate has sent this Task back ${times}, its limit, so Ted asked the human instead. Ted sends you their answer.`,
-          request,
-        }
-      }
       const request = store.postComment({
         taskId: task.id,
         kind: 'question',
@@ -8191,23 +8145,6 @@ export function createTasks(options: {
         task: publicTask(task.id),
         message: `${workflow.name(from)} has sent this Task back ${times}, its limit, so Ted asked the human instead. Ted sends you their answer.`,
         request,
-      }
-    }
-    if (counted && typeof loopAt === 'number' && count + 1 === loopAt) {
-      const started = await startLoopCheck(task, {
-        to,
-        findings,
-        round: count + 1,
-        ...(limit !== undefined && { limit }),
-        ...held,
-      })
-      if (started) {
-        keepConflict()
-        return {
-          task: publicTask(task.id),
-          message: `This is Validate’s send-back number ${count + 1}, so Ted started a loop check to see whether the rounds are converging. The Task stays in Validate until it answers; Ted sends you the result.`,
-          pending: true,
-        }
       }
     }
     const cause: SendBackCause | undefined =
@@ -8247,7 +8184,7 @@ export function createTasks(options: {
     baseConflict?: boolean
   }> {
     await execution.local(task.id)
-    const series = countedValidateSendBacks(task.id)
+    const series = sendBackHold.countedValidateSendBacks(task.id)
     const live = task.repos.filter((r) => !r.removed)
     const heads = await Promise.all(
       live.map(async (r) => ({
@@ -8491,7 +8428,10 @@ export function createTasks(options: {
         if ((await movedSinceReview(task)) !== undefined) return
         throw new RequestError(409, p1OnlyRefusal(round, from))
       }
-      if (severity === 'unfixed' && !countedValidateSendBacks(task.id).some(reviewReturn)) {
+      if (
+        severity === 'unfixed' &&
+        !sendBackHold.countedValidateSendBacks(task.id).some(reviewReturn)
+      ) {
         throw new RequestError(409, noEarlierFindingRefusal(round))
       }
     }
@@ -8526,214 +8466,6 @@ export function createTasks(options: {
         ...(failure !== undefined && { failure: shortReference(failure.id) }),
       }),
     ].join('\n\n')
-  }
-
-  const reviewReturn = (sendBack: SendBack) =>
-    sendBack.checkRunId === undefined && sendBack.cause !== 'base-conflict'
-
-  function countedValidateSendBacks(taskId: string) {
-    const count = store.sendBackCount(taskId, stageWith('validates'))
-    if (count === 0) return []
-    return store
-      .listSendBacks(taskId)
-      .filter((b) => validates(b.from) && b.counted)
-      .slice(-count)
-  }
-
-  function roundsText(rounds: readonly string[]): string {
-    return rounds.map((findings, i) => `## Round ${i + 1}\n\n${findings.trim()}`).join('\n\n')
-  }
-
-  function returnsText(taskId: string, limit: number | undefined): string {
-    const returns = countedValidateSendBacks(taskId)
-    const count = (cause: (b: SendBack) => boolean) => returns.filter(cause).length
-    const parts = [
-      [count(reviewReturn), 'review findings', 'review findings'],
-      [count((b) => b.checkRunId !== undefined), 'a failed check', 'failed checks'],
-      [
-        count((b) => b.cause === 'base-conflict'),
-        'a conflict with the base branch',
-        'conflicts with the base branch',
-      ],
-    ] as const
-    const listed = parts.flatMap(([n, one, many]) =>
-      n === 0 ? [] : [`${n} for ${n === 1 ? one : many}`],
-    )
-    const why =
-      listed.length < 2
-        ? listed.join('')
-        : `${listed.slice(0, -1).join(', ')} and ${listed.at(-1) ?? ''}`
-    return `Validate has sent the Task back to Work ${timesText(returns.length)}${why === '' ? '' : `: ${why}`}.${limit === undefined ? '' : ` Its limit is ${limit}.`}`
-  }
-
-  function askAboutLoop(
-    task: StoredTask,
-    workflow: ResolvedWorkflow,
-    input: {
-      to: AgentStageId
-      findings: string
-      title: string
-      intro: string
-      checkRunId?: string
-      cause?: DeclaredSendBackCause
-    },
-  ): Comment {
-    const limit = workflow.settings.stages.validate?.max_back
-    const held =
-      input.cause === 'base-conflict'
-        ? 'the branch conflicted with its base branch'
-        : input.checkRunId === undefined
-          ? 'Validate found more problems to fix'
-          : 'a check failed'
-    const request = store.postComment({
-      taskId: task.id,
-      kind: 'question',
-      author: { kind: 'ted' },
-      title: input.title,
-      purpose: { kind: 'send-back' },
-      body: [
-        ...(input.intro === '' ? [] : [input.intro]),
-        `${returnsText(task.id, limit)} This time ${held}, and the Task is waiting in Validate for your decision. The findings are in the Task’s history.`,
-        `**${keepGoingChoice}** sends the Task back to Work with these findings and starts the count again.`,
-        `**${stopTaskChoice}** sends the Task back to Work with these findings and stops it, as the Stop button does. When you resume it, the Task Lead starts on the findings and the count starts again.`,
-        'To give the Task Lead guidance instead, reply in your own words. The Task stays in Validate.',
-      ].join('\n\n'),
-      choices: [keepGoingChoice, stopTaskChoice],
-    })
-    store.askAboutSendBack({
-      commentId: request.id,
-      taskId: task.id,
-      from: 'validate',
-      to: input.to,
-      findings: input.findings,
-      loop: true,
-      ...(input.checkRunId !== undefined && { checkRunId: input.checkRunId }),
-      ...(input.cause !== undefined && { cause: input.cause }),
-    })
-    return request
-  }
-
-  async function roundCommits(task: StoredTask): Promise<string[]> {
-    const worktree = task.repos.find((r) => !r.removed)?.worktree
-    if (worktree === undefined) return []
-    const commits = await Promise.all(
-      countedValidateSendBacks(task.id).map((b) =>
-        git.commitAt(worktree, b.at).catch(() => undefined),
-      ),
-    )
-    const head = await git.revParse(worktree, 'HEAD').catch(() => undefined)
-    return [...commits, head].map((c, i) => `- Round ${i + 1}: ${c ?? 'unknown'}`)
-  }
-
-  async function startLoopCheck(
-    task: StoredTask,
-    input: {
-      to: AgentStageId
-      findings: string
-      round: number
-      limit?: number
-      checkRunId?: string
-      cause?: DeclaredSendBackCause
-    },
-  ): Promise<boolean> {
-    const rounds = [...countedValidateSendBacks(task.id).map((b) => b.findings), input.findings]
-    const prompt = [
-      await loopCheckInstructions(),
-      roundsText(rounds),
-      `# Commits\n\n${(await roundCommits(task)).join('\n')}`,
-      `# The Task: ${task.displayId}\n\n${task.title}`,
-    ].join('\n\n')
-    const runId = subAgents.requestForTed(task, {
-      name: 'Loop check · Validate',
-      prompt,
-      choice: await reviewerFor(task),
-      purpose: 'loop-check',
-    })
-    if (runId === undefined) return false
-    const check = store.startLoopCheck({
-      runId,
-      taskId: task.id,
-      to: input.to,
-      findings: input.findings,
-      round: input.round,
-      ...(input.limit !== undefined && { limit: input.limit }),
-      ...(input.checkRunId !== undefined && { checkRunId: input.checkRunId }),
-      ...(input.cause !== undefined && { cause: input.cause }),
-    })
-    inBackground(`run ${task.displayId}’s loop check`, () => awaitLoopCheck(check))
-    return true
-  }
-
-  function pendingLoopCheck(taskId: string): LoopCheck | undefined {
-    return store.loopChecks(taskId).find((c) => c.verdict === undefined)
-  }
-
-  async function awaitLoopCheck(check: LoopCheck): Promise<void> {
-    const result = await subAgents.result(check.runId)
-    if (closed) return
-    const said = result.message?.trim() ?? ''
-    const finished = result.error === undefined && result.state !== 'stopped'
-    const verdict: LoopVerdict = finished ? (verdictIn(said) ?? 'failed') : 'failed'
-    const reason =
-      verdict !== 'failed'
-        ? reasonIn(said)
-        : finished
-          ? 'the loop check gave no verdict'
-          : 'the loop check didn’t finish'
-    const run = store.getRun(check.runId)
-    if (run && run.state !== 'finished') await runs.stop(run.id).catch(() => undefined)
-    const resolution = await taskWorkflow(find(check.taskId), { fetch: false })
-    const { workflow } = resolution
-    store.finishLoopCheck(check.runId, verdict, reason)
-    const task = find(check.taskId)
-    if (!validates(task.stage) || task.archived) return
-    const atLimit = check.limit !== undefined && check.round > check.limit
-    if (verdict === 'converging' && !atLimit) {
-      const sentBack = store.recordSendBack({
-        taskId: task.id,
-        from: 'validate',
-        to: check.to,
-        findings: check.findings,
-        counted: true,
-        round: check.round,
-        ...(check.limit !== undefined && { limit: check.limit }),
-        ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
-        cause: check.cause ?? (check.checkRunId !== undefined ? 'check' : 'review'),
-      })
-      await move(
-        task,
-        resolution,
-        check.to,
-        [
-          backMessage(workflow, check.to, stageWith('validates'), sentBack),
-          `# Loop check\n\nTed checked Validate’s ${check.round} rounds of findings and the changes between them. Verdict: converging. ${reason}`,
-        ].join('\n\n'),
-      )
-      return
-    }
-    const looping = verdict === 'looping'
-    const returns = timesText(check.round - 1)
-    const request = askAboutLoop(task, workflow, {
-      to: check.to,
-      findings: check.findings,
-      title: atLimit
-        ? `Validate sent this Task back to Work ${returns}, its limit`
-        : looping
-          ? `Validate sent this Task back to Work ${returns} without getting closer to done`
-          : `Back to Work ${returns}, and Ted couldn’t check progress`,
-      intro: looping
-        ? `Ted’s Loop check found that the rounds aren’t getting closer to done. ${reason} If you keep going, add guidance that breaks the pattern.`
-        : verdict === 'converging'
-          ? `Ted’s Loop check found that the rounds are making progress. ${reason}`
-          : `Ted couldn’t check whether the rounds are making progress: ${reason}.`,
-      ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
-      ...(check.cause !== undefined && { cause: check.cause }),
-    })
-    if (check.checkRunId !== undefined) return
-    await deliver(
-      task,
-      `Ted’s loop check ${looping ? 'found Validate’s rounds are looping' : verdict === 'converging' ? 'found progress, but the send-back limit still needs a human decision' : 'gave no verdict'}, so Ted asked the human what to do (request ${request.id}). The Task stays in Validate; Ted sends you their answer.`,
-    )
   }
 
   function judge(
@@ -8810,13 +8542,6 @@ export function createTasks(options: {
         },
       }),
     })
-  }
-
-  function openSendBackAsk(task: Task): Comment | undefined {
-    const asks = new Set(store.sendBackAsks(task.id).map((a) => a.commentId))
-    return store
-      .listComments(task.id)
-      .find((c) => asks.has(c.id) && c.answer === undefined && c.stage === task.stage)
   }
 
   function live(ref: string): StoredTask {
@@ -11218,7 +10943,7 @@ export function createTasks(options: {
     return (
       task.runs.some((r) => r.id !== lead.id && r.state === 'working') ||
       store.subAgentRequests().some((r) => r.taskId === task.id) ||
-      pendingLoopCheck(task.id) !== undefined ||
+      sendBackHold.checking(task.id) ||
       store.listCheckRuns(task.id).some((c) => c.finishedAt === undefined)
     )
   }
@@ -11525,6 +11250,20 @@ export function createTasks(options: {
     },
   })
 
+  const sendBackHold = createSendBackHold({
+    store,
+    subAgents,
+    reviewerFor,
+    find,
+    taskWorkflow: (task) => taskWorkflow(task, { fetch: false }),
+    stopRun: (id) => runs.stop(id),
+    closed: () => closed,
+    inBackground,
+    move,
+    backMessage,
+    deliver,
+  })
+
   const validation = createValidation({
     ...(options.testReportingEnv && { reportingEnv: options.testReportingEnv }),
     store,
@@ -11585,13 +11324,8 @@ export function createTasks(options: {
       ].join('\n\n')
     },
     returnToWork: checkReturn,
-    diagnosing: (task) => {
-      const since = visitStart(task)
-      return store.sendBackAsks(task.id).some((ask) => {
-        const answer = validates(ask.from) ? store.getComment(ask.commentId)?.answer : undefined
-        return answer?.kind === 'answered' && answer.choice === diagnoseChoice && answer.at >= since
-      })
-    },
+    diagnosing: (task) => sendBackHold.diagnosing(task.id, visitStart(task)),
+    heldFor: sendBackHold.heldFor,
     leaveWork: (task) => leaveWork(task, 'accept'),
     apps: startSetupApps,
     fix: applyValidationFix,
@@ -11706,7 +11440,7 @@ export function createTasks(options: {
       ...interruptedHandOffs.map((task) => task.id),
       ...store
         .listTasks()
-        .filter((task) => validates(task.stage) && openSendBackAsk(task) !== undefined)
+        .filter((task) => validates(task.stage) && sendBackHold.openSendBackAsk(task) !== undefined)
         .map((task) => task.id),
     ]),
   )
@@ -11757,9 +11491,7 @@ export function createTasks(options: {
     )
   }
 
-  for (const check of store.loopChecks().filter((c) => c.verdict === undefined)) {
-    inBackground('wait for a loop check', () => awaitLoopCheck(check))
-  }
+  sendBackHold.recover()
 
   function snoozeNow(): number {
     return options.snoozes?.now?.().getTime() ?? clock.now()
@@ -13666,21 +13398,8 @@ export function createTasks(options: {
               'a setup Task posts its proposal with `ted outcome advance --design <file>` and a setup section; see the setup instructions for Design',
             )
           }
-          if (pendingLoopCheck(task.id)) {
-            throw new RequestError(
-              409,
-              'Ted is checking whether Validate’s rounds are converging; wait for its verdict before reporting an outcome',
-            )
-          }
-          const asked = openSendBackAsk(task)
-          if (asked) {
-            throw new RequestError(
-              409,
-              handOffAsks(task.id).some((c) => c.id === asked.id)
-                ? `Ted asked the human about ${task.displayId}’s failing checks (request ${asked.id}); wait for their answer before reporting an outcome`
-                : `Ted asked the human whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
-            )
-          }
+          const refusal = sendBackHold.refuseOutcome(task)
+          if (refusal !== undefined) throw new RequestError(409, refusal)
         }
         return holding(task, async () => {
           const current = find(task.id)
@@ -14718,21 +14437,6 @@ function isIdleQuestion(comment: Comment): boolean {
 }
 
 const useDefaultChoice = 'Use the default model'
-function verdictIn(text: string): LoopVerdict | undefined {
-  const found = [...text.matchAll(/verdict:\s*\**\s*(converging|looping)/gi)].at(-1)?.[1]
-  return found === undefined ? undefined : (found.toLowerCase() as LoopVerdict)
-}
-
-function reasonIn(text: string): string {
-  const reason = text
-    .split('\n')
-    .filter((line) => !/verdict:/i.test(line))
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return oneLine(redactSecrets(reason === '' ? 'no reason given' : reason), 300)
-}
-
 function latest(a: string, b: string): string {
   return a > b ? a : b
 }
