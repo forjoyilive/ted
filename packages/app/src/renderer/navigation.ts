@@ -144,6 +144,18 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       })
     }
     case 'open-plan': {
+      if (
+        state.screen.kind === 'inbox' &&
+        action.planId !== undefined &&
+        action.requestId !== undefined
+      ) {
+        return {
+          ...navigate(state, { type: 'open', screen: state.screen }),
+          planId: action.planId,
+          requestId: action.requestId,
+          lastFactoryId: action.factoryId,
+        }
+      }
       const opened = navigate(state, {
         type: 'open',
         screen: {

@@ -584,7 +584,7 @@ test('a delayed earlier response keeps the Inbox empty without an answer recap',
 })
 
 test.each(['response-first', 'event-first'] as const)(
-  'answering a Task request stops before a Planning request, which opens on the Agents screen (%s)',
+  'answering a Task request stops before a Planning request, which opens beside the Inbox list (%s)',
   async (order) => {
     const a = appState()
     a.state.tasks = [task()]
@@ -644,10 +644,11 @@ test.each(['response-first', 'event-first'] as const)(
     a.handle('getRunChat', () => chat)
     const reply = deferred<Comment>()
     a.handle('answerRequest', () => reply.promise)
-    a.handle('answerPlanRequest', () => {
+    const answerPlanRequest = vi.fn(() => {
       plans = []
       return { ...required(detail.requests[0]), answer: { kind: 'answered', at: createdAt } }
     })
+    a.handle('answerPlanRequest', answerPlanRequest)
     a.mount()
     const inbox = await screen.findByRole('region', { name: 'Inbox' })
     await within(inbox).findByText('Next settings change')
@@ -677,10 +678,22 @@ test.each(['response-first', 'event-first'] as const)(
     expect(within(inbox).getByText(/Planner · Plan the settings update/)).toBeTruthy()
     await user().click(within(inbox).getByText('Next settings change'))
     const planning = await screen.findByRole('region', { name: 'Planning chat' })
-    await within(planning).findByRole('button', { name: 'Submit answers' })
-    expect(screen.queryByRole('region', { name: 'Inbox' })).toBeNull()
-    expect(within(planning).queryByRole('button', { name: '← Inbox' })).toBeNull()
-    await act(async () => refresh.resolve([]))
+    expect(screen.getByRole('region', { name: 'Inbox' })).toBe(inbox)
+    expect(within(inbox).getByRole('button', { current: true }).textContent).toContain(
+      'Next settings change',
+    )
+    const submit = await within(planning).findByRole('button', { name: 'Submit answers' })
+    await user().click(submit)
+    expect(answerPlanRequest).toHaveBeenCalledWith('round1', {
+      action: 'answer-round',
+      answers: [{ answer: 'Keep it simple' }],
+    })
+    await act(async () => {
+      a.emit({ type: 'plan-updated', planId: 'p1' })
+      refresh.resolve([])
+    })
+    await screen.findByRole('region', { name: 'Nothing open' })
+    expect(within(inbox).queryByText('Next settings change')).toBeNull()
   },
 )
 
