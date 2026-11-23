@@ -124,7 +124,7 @@ describe('Ted app', () => {
     const postedComment = thread
       .getByRole('paragraph')
       .filter({ hasText: /^Keep the old export format\.\s+Same for CSV\.$/ })
-    await postedComment.locator('br').waitFor()
+    await postedComment.locator('br').waitFor({ state: 'attached' })
     await expect.poll(() => box.inputValue()).toBe('')
     expect((await (await daemonClient()).listComments('NB-1')).map((c) => c.body)).toEqual([
       'Keep the old export format.\nSame for CSV.',
@@ -555,7 +555,7 @@ describe('Ted app', () => {
     const postedMessage = chat.getByRole('paragraph').filter({
       hasText: /^Keep pinned notes in the order they were pinned\.\s+Same for archived notes\.$/,
     })
-    await postedMessage.locator('br').waitFor()
+    await postedMessage.locator('br').waitFor({ state: 'attached' })
     await chat
       .getByRole('paragraph')
       .filter({ hasText: /^Thanks\.$/ })
@@ -567,7 +567,7 @@ describe('Ted app', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
     await thread.getByText('You steered the Task Lead in its conversation').waitFor()
     await thread.getByRole('button', { name: 'View message' }).click()
-    await postedMessage.locator('br').waitFor()
+    await postedMessage.locator('br').waitFor({ state: 'attached' })
     reached('message-delivered')
 
     const oldDaemon = await daemonPid()
@@ -587,7 +587,7 @@ describe('Ted app', () => {
       .getByRole('paragraph')
       .filter({ hasText: 'Keep pinned notes in the order they were pinned.' })
       .locator('br')
-      .waitFor()
+      .waitFor({ state: 'attached' })
     expect(await window.getByRole('tab', { name: 'Task Lead', exact: true }).count()).toBe(0)
     expect(await window.getByRole('tab', { name: 'Thread', exact: true }).count()).toBe(0)
   }, 90_000)
