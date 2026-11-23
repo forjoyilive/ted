@@ -72,6 +72,8 @@ export interface CustomRequests {
   downloadTed: () => Promise<void>
   thirdPartyLicenses: () => Promise<string>
   quit: () => Promise<void>
+  sampleData: () => Promise<boolean>
+  openSampleData: () => Promise<void>
   chooseProfilePicture: () => Promise<MachineSettings>
   copyReport: () => Promise<void>
   memoryUse: () => Promise<MemoryUse>

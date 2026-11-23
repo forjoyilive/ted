@@ -1,0 +1,21 @@
+.notice {
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 12px 20px 0;
+  padding: 6px 8px 6px 16px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-control);
+  background: var(--accent-subtle);
+  font-size: var(--text-13);
+  line-height: var(--leading-tight);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+}

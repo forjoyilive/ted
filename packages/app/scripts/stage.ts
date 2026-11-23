@@ -9,6 +9,25 @@ export const stageDir = path.join(appDir, 'dist', 'stage')
 
 const workspacePackages = ['app', 'daemon', 'protocol', 'cli']
 
+// The stand-ins the sample data runs on (`sampleFixtures` in packages/protocol/src/sample.ts,
+// `prepareDemoBinaries` in packages/daemon/src/dev/fixtures.ts, the demo’s stub Linear), and
+// the files they import. No other test file ships.
+export const sampleFixtures = [
+  'free-bytes.txt',
+  'load.txt',
+  'memory.json',
+  'online.txt',
+  'stub-claude.ts',
+  'stub-codex.ts',
+  'stub-gh.ts',
+  'stub-idb.ts',
+  'stub-json.ts',
+  'stub-keyring.ts',
+  'stub-linear.ts',
+  'stub-shell.sh',
+  'stub-xcrun.ts',
+]
+
 interface WorkspaceManifest {
   name: string
   exports?: Record<string, string>
@@ -35,6 +54,11 @@ export async function stage(): Promise<string> {
       path.join(stageDir, 'packages', name, 'src'),
       entries,
     )
+  }
+  const fixtures = path.join('packages', 'daemon', 'test', 'fixtures')
+  await mkdir(path.join(stageDir, fixtures), { recursive: true })
+  for (const name of sampleFixtures) {
+    await copyFile(path.join(repoRoot, fixtures, name), path.join(stageDir, fixtures), entries)
   }
   await markRelease(stageDir)
   await cp(
@@ -104,13 +128,18 @@ async function copySource(from: string, to: string, entries: Map<string, string>
       continue
     }
     if (/\.(tsx|css|d\.ts)$/.test(entry.name)) continue
-    if (entry.name.endsWith('.ts')) {
-      const target = path.join(to, entry.name.replace(/\.ts$/, '.js'))
-      const code = stripTypeScriptTypes(await readFile(source, 'utf8'), { mode: 'strip' })
-      await writeFile(target, rewriteSpecifiers(code, target, entries))
-    } else {
-      await cp(source, path.join(to, entry.name))
-    }
+    await copyFile(source, to, entries)
+  }
+}
+
+async function copyFile(source: string, to: string, entries: Map<string, string>): Promise<void> {
+  const name = path.basename(source)
+  if (name.endsWith('.ts')) {
+    const target = path.join(to, name.replace(/\.ts$/, '.js'))
+    const code = stripTypeScriptTypes(await readFile(source, 'utf8'), { mode: 'strip' })
+    await writeFile(target, rewriteSpecifiers(code, target, entries))
+  } else {
+    await cp(source, path.join(to, name))
   }
 }
 

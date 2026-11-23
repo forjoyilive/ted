@@ -84,7 +84,7 @@ pnpm app
 
 `pnpm app` builds the interface and opens Ted Dev. Ted Dev keeps its data in `~/.ted-dev`, has its own name and settings, and runs side by side with an installed Ted without touching it.
 
-To look around without connecting any accounts, open the demo. It has sample factories and tasks and uses stand-ins for the agents and GitHub:
+To look around without connecting any accounts, click **Try with sample data** on Set up Ted in the installed app, or open the demo from source. It has sample factories and tasks and uses stand-ins for the agents and GitHub:
 
 ```sh
 pnpm app --demo

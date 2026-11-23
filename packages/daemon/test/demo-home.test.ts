@@ -75,17 +75,20 @@ test('demo children receive only local fixtures and no inherited credentials or 
   })
   expect(Object.values(env)).not.toContain('secret')
   expect(env.TED_HOME).toBe(folder)
-  expect(env.TED_CLAUDE_BIN).toBe(path.join(folder, 'bin', 'stub-claude.mjs'))
-  expect(env.TED_CODEX_BIN).toBe(path.join(folder, 'bin', 'stub-codex.mjs'))
-  expect(env.TED_GH_BIN).toBe(path.join(folder, 'bin', 'stub-gh.mjs'))
+  expect(env.TED_CLAUDE_BIN).toBe(path.join(folder, 'bin', 'stub-claude'))
+  expect(env.TED_CODEX_BIN).toBe(path.join(folder, 'bin', 'stub-codex'))
+  expect(env.TED_GH_BIN).toBe(path.join(folder, 'bin', 'stub-gh'))
   expect(env.TED_KEYRING_MODULE).toMatch(/stub-keyring.ts$/)
   expect(env.TED_LOAD_FILE).toMatch(/test\/fixtures\/load.txt$/)
   expect(env.TED_LOW_PRIORITY).toBe('off')
   expect(env.GIT_ALLOW_PROTOCOL).toBe('file')
   expect(env.NODE_OPTIONS).toBeUndefined()
-  expect(env.PATH).toBe([path.dirname(process.execPath), '/usr/bin'].join(path.delimiter))
+  const bin = path.join(folder, 'bin')
+  expect(env.PATH).toBe([bin, path.dirname(process.execPath), '/usr/bin'].join(path.delimiter))
   expect(demoEnvironment(folder, {}).PATH).toBe(
-    [path.dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(path.delimiter),
+    [bin, path.dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(
+      path.delimiter,
+    ),
   )
 })
 
@@ -198,9 +201,9 @@ test('withDemoEnvironment uses the demo stubs and then restores the caller’s e
     expect(inside).toMatchObject({
       TED_HOME: folder,
       TED_DEMO: '1',
-      TED_CODEX_BIN: path.join(folder, 'bin', 'stub-codex.mjs'),
-      TED_CLAUDE_BIN: path.join(folder, 'bin', 'stub-claude.mjs'),
-      TED_GH_BIN: path.join(folder, 'bin', 'stub-gh.mjs'),
+      TED_CODEX_BIN: path.join(folder, 'bin', 'stub-codex'),
+      TED_CLAUDE_BIN: path.join(folder, 'bin', 'stub-claude'),
+      TED_GH_BIN: path.join(folder, 'bin', 'stub-gh'),
     })
     expect(inside.TED_KEYRING_MODULE).toContain('stub-keyring')
     expect(inside.CODEX_HOME).toBeUndefined()

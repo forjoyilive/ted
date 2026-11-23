@@ -4,6 +4,7 @@ import { mkdir, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { gitEnv } from '../command-env.ts'
+import { nodeEntry, shellScript } from '../node-entry.ts'
 import { demoEnvironment } from './home.ts'
 
 const exec = promisify(execFile)
@@ -44,25 +45,38 @@ repos:
   - { name: api, remote: 'https://github.com/demo/garden-api' }
 `
 
+const standIns = () => ({
+  'stub-gh': new URL('../../test/fixtures/stub-gh.ts', import.meta.url),
+  'stub-claude': new URL('../../test/fixtures/stub-claude.ts', import.meta.url),
+  'stub-codex': new URL('../../test/fixtures/stub-codex.ts', import.meta.url),
+  'stub-xcrun': new URL('../../test/fixtures/stub-xcrun.ts', import.meta.url),
+  'stub-idb': new URL('../../test/fixtures/stub-idb.ts', import.meta.url),
+})
+
+// Each stand-in gets a shell launcher that runs it on this process’s own runtime: Node in Ted Dev,
+// the Ted executable itself in the release, which has no `node` of its own. `node` runs the
+// sample projects’ Checks and Apps the same way.
 export async function prepareDemoBinaries(home: string): Promise<void> {
   const bin = path.join(home, 'bin')
   await mkdir(bin, { recursive: true })
-  const executable = async (name: string, source: string) => {
-    const temporary = path.join(bin, `${name}-${randomUUID()}.mjs`)
+  const write = async (name: string, source: string) => {
+    const temporary = path.join(bin, `${name}-${randomUUID()}.tmp`)
     await writeFile(temporary, source, { flag: 'wx', mode: 0o700 })
-    await rename(temporary, path.join(bin, `${name}.mjs`))
+    await rename(temporary, path.join(bin, name))
   }
-  for (const stub of ['gh', 'claude', 'codex']) {
-    const fixture = new URL(`../../test/fixtures/stub-${stub}.ts`, import.meta.url)
-    await executable(
-      `stub-${stub}`,
-      `#!/usr/bin/env node
-import { enableCompileCache } from 'node:module'
+  const runtime = { ELECTRON_RUN_AS_NODE: '1' }
+  for (const [name, fixture] of Object.entries(standIns())) {
+    const loader = path.join(bin, `${name}.mjs`)
+    await write(
+      `${name}.mjs`,
+      `import { enableCompileCache } from 'node:module'
 enableCompileCache(${JSON.stringify(path.join(home, 'module-cache'))})
 await import(${JSON.stringify(fixture.href)})
 `,
     )
+    await write(name, shellScript(nodeEntry(loader), runtime))
   }
+  await write('node', shellScript({ command: process.execPath, args: [] }, runtime))
 }
 
 export async function makeDemoOrigins(home: string): Promise<void> {

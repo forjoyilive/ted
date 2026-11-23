@@ -60,6 +60,7 @@ import { ReportProblemDialog } from './components/ReportProblemDialog.tsx'
 import { RequestSnoozeHost } from './components/RequestSnooze.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
 import { RestartStoppedDialog } from './components/RestartStoppedDialog.tsx'
+import { SampleDataNotice } from './components/SampleDataNotice.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
 import { SetupNoticeDialog } from './components/SetupNoticeDialog.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
@@ -1234,6 +1235,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
       <Offline when={offline}>
         {bannerStack('Problems', [...appWideBanners(banners), ...shownUpdateBanner])}
         <NotificationOfferBanner />
+        <SampleDataNotice />
       </Offline>
     )
 

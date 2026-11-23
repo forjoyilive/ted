@@ -3,7 +3,14 @@ import { lstat, mkdir, readdir, readFile, realpath, rename, writeFile } from 'no
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { edition, tedEnv } from '@ted/protocol'
+import {
+  edition,
+  isSampleHome,
+  sampleFixtures,
+  sampleHome,
+  sampleInputs,
+  tedEnv,
+} from '@ted/protocol'
 
 export const demoVersion = 1
 export const demoMarker = 'demo.json'
@@ -16,7 +23,7 @@ export interface DemoManifest {
 }
 
 export function demoHome(env: NodeJS.ProcessEnv = process.env): string {
-  return path.resolve(tedEnv('TED_HOME', env) || path.join(homedir(), '.ted-dev-demo'))
+  return path.resolve(tedEnv('TED_HOME', env) || sampleHome())
 }
 
 async function canonicalPath(file: string): Promise<string> {
@@ -78,7 +85,8 @@ export async function checkTrialHome(home: string): Promise<string> {
 }
 
 export async function checkDemoHome(home: string): Promise<DemoManifest | undefined> {
-  if (edition !== 'dev') throw new Error('Demo data is available only in Ted Dev.')
+  if (edition !== 'dev' && !isSampleHome(home))
+    throw new Error('Sample data opens only in Ted’s own sample folder.')
   const resolved = path.resolve(home)
   const protectedHomes = ['.ted', '.ted-dev'].map((name) => path.join(homedir(), name))
   const localTrials = fileURLToPath(
@@ -160,8 +168,6 @@ export function demoEnvironment(
       ),
     ),
   )
-  const fixture = (name: string) =>
-    fileURLToPath(new URL(`../../test/fixtures/${name}`, import.meta.url))
   return {
     ...env,
     ...(tedEnv('TED_TEST_RUN', base) && { TED_TEST_RUN: tedEnv('TED_TEST_RUN', base) }),
@@ -173,34 +179,12 @@ export function demoEnvironment(
     ...(tedEnv('TED_HIDDEN_WINDOW', base) && {
       TED_HIDDEN_WINDOW: tedEnv('TED_HIDDEN_WINDOW', base),
     }),
-    SHELL: fixture('stub-shell.sh'),
-    PATH: [path.dirname(process.execPath), env.PATH || defaultPath].join(path.delimiter),
+    SHELL: sampleFixtures().shell,
+    PATH: [path.join(home, 'bin'), path.dirname(process.execPath), env.PATH || defaultPath].join(
+      path.delimiter,
+    ),
     TED_HOME: home,
-    TED_DEMO: '1',
-    TED_CLAUDE_BIN: path.resolve(home, 'bin', 'stub-claude.mjs'),
-    TED_CODEX_BIN: path.resolve(home, 'bin', 'stub-codex.mjs'),
-    TED_GH_BIN: path.resolve(home, 'bin', 'stub-gh.mjs'),
-    TED_XCRUN_BIN: fixture('stub-xcrun.ts'),
-    TED_OPEN_BIN: fixture('stub-xcrun.ts'),
-    TED_IDB_BIN: fixture('stub-idb.ts'),
-    TED_STUB_XCRUN: path.join(home, 'xcrun.json'),
-    TED_KEYRING_MODULE: fixture('stub-keyring.ts'),
-    TED_LINEAR_API: 'http://127.0.0.1:9/graphql',
-    TED_STUB_GH: path.join(home, 'gh.json'),
-    TED_LOGIN_SHELL: 'off',
-    TED_FREE_BYTES_FILE: fixture('free-bytes.txt'),
-    TED_ONLINE_FILE: fixture('online.txt'),
-    TED_LOAD_FILE: fixture('load.txt'),
-    TED_MEMORY_FILE: fixture('memory.json'),
-    TED_LOW_PRIORITY: 'off',
-    TED_STAY_AWAKE: 'off',
-    TED_TIME_MACHINE: 'off',
-    TED_SKIP_FIRST_LAUNCH: '1',
-    TED_NOTIFY_LOG: path.join(home, 'notifications.jsonl'),
-    TED_NOTIFY_STATUS: 'off',
-    TED_FIX_LOG: path.join(home, 'fix.log'),
-    TED_NUDGE_AFTER_MS: String(7 * 24 * 60 * 60_000),
-    TED_STALL_AFTER_MS: String(7 * 24 * 60 * 60_000),
+    ...sampleInputs(home),
     GIT_ALLOW_PROTOCOL: 'file',
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: path.join(home, 'gitconfig'),

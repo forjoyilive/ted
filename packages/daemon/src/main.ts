@@ -59,7 +59,7 @@ async function readAppToken(): Promise<string> {
 const appToken = values['app-token-stdin'] ? await readAppToken() : undefined
 
 const demoLinear =
-  edition === 'dev' && tedEnv('TED_DEMO') === '1'
+  tedEnv('TED_DEMO') === '1'
     ? await import('../test/fixtures/stub-linear.ts').then(({ startStubLinear }) =>
         startStubLinear(),
       )
@@ -107,11 +107,10 @@ try {
   starting = startDaemon({
     home: tedHome(),
     version: tedVersion,
-    ...(edition === 'dev' &&
-      tedEnv('TED_DEMO') === '1' && {
-        mergePollMs: 500,
-        simulators: { supported: true },
-      }),
+    ...(tedEnv('TED_DEMO') === '1' && {
+      mergePollMs: 500,
+      simulators: { supported: true },
+    }),
     onShutdown: () => void shutdown(),
     phones: { push: createExpoPush() },
     stallProfiles: {},
