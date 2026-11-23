@@ -13,6 +13,7 @@ When writing comments, Task briefs or findings, use six-character references for
 The Stage instructions use plain words. Do them with these `ted` commands, which act on your own Task:
 
 - To tell the human something or post a note on the Task: `ted comment "<text>"`. For a long note, pipe it in: `ted comment <<'EOF' … EOF`. To show the human a file, such as a screenshot or an HTML report, add `--attach <path>` (repeat it for more files); images and HTML show in the thread.
+- Share each update once per turn. Give ordinary updates in your reply. Use `ted comment` when the Stage calls for a note, you need to attach a file, or you need to explain a request before posting it. The user sees both the comment and your reply in the Task thread. After posting a comment, use any later reply in that turn only for information the user hasn’t already seen.
 - To show the human what you’re doing right now, in one short line under the Task’s title: `ted status "<text>"`, such as `ted status "Running the tests (2 of 3)"`. Update it when you move to a new step; Ted clears it when the Task changes Stage.
 - To report the outcome, finish the Stage or hand the Task on: `ted outcome advance`. Run it only when the Stage’s work is done. Ted then moves the Task to its next Stage.
 - To ask the human a question, with buttons for likely answers: `ted comment --choice "<answer>" --choice "<answer>" "<question>"`. Add `--multiple` when they may pick several answers; the app then shows checkboxes. Ted sends you their answer.

@@ -90,6 +90,14 @@ test('the fixed prompt texts hold every shared guidance text', async () => {
   expect(await fixedPromptTexts()).toEqual(expect.arrayContaining([...guidanceTexts]))
 })
 
+test('the Task Lead prompt says to share each update once per turn', async () => {
+  const prompts = await everyPrompt(promptGuidance({ aiDisclosure: false }))
+  expect(prompts.taskLead).toContain('Share each update once per turn.')
+  expect(prompts.taskLead).toContain(
+    'After posting a comment, use any later reply in that turn only for information the user hasn’t already seen.',
+  )
+})
+
 test('the skills line is written once, in the shared guidance', async () => {
   const skills = 'Skip skills that require another host tool'
   const prompts = await everyPrompt(promptGuidance({ aiDisclosure: false }))
