@@ -1080,6 +1080,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
               error(node, '`preview` must be desktop, tablet or mobile')
             else if (kind !== 'web') warn(entry.key, 'only a web App has a `preview` size')
             break
+          case 'allow_external_sign_in':
+            if (!isBoolean(scalar(node)))
+              error(node, '`allow_external_sign_in` must be true or false')
+            else if (kind !== 'web') error(node, 'only a web App can allow external sign-in')
+            break
           case 'preview_only':
             if (!isBoolean(scalar(node))) error(node, '`preview_only` must be true or false')
             if (kind !== 'command' && kind !== 'web')

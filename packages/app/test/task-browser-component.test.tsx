@@ -181,3 +181,24 @@ test('← and → follow a page change that ends after its command has returned'
   await waitFor(() => expect(forward.hasAttribute('disabled')).toBe(false))
   expect(back.hasAttribute('disabled')).toBe(true)
 })
+
+test('only a web App that opts in offers the separate sign-in action', async () => {
+  let apps = [web()]
+  const api = bridge({
+    listApps: () => apps,
+    browserCommand: (): BrowserResult => ({ url: address, text: 'Ready' }),
+    browserState: () => ({ url: address, text: 'Ready' }),
+    presentBrowser: () => undefined,
+    hideBrowser: () => undefined,
+    openAppSignIn: () => undefined,
+  })
+  render(<Pane taskId="NB-33" />)
+  const pane = within(await screen.findByRole('region', { name: 'Task browser' }))
+  await waitFor(() => expect(pane.getByRole('status').textContent).toBe('Ready'))
+  expect(pane.queryByRole('button', { name: 'Open with sign-in' })).toBeNull()
+
+  apps = [web({ allowExternalSignIn: true })]
+  await act(async () => api.emit({ type: 'apps-changed', taskId: 'NB-33' }))
+  await user().click(await pane.findByRole('button', { name: 'Open with sign-in' }))
+  expect(api.request).toHaveBeenCalledWith('openAppSignIn', 'NB-33', 'widgets', 'Web')
+})

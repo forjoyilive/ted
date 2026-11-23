@@ -1567,7 +1567,7 @@ function AppEditor({
             value={app.kind}
             onChange={(event) => {
               const kind = appKinds.find((k) => k === event.target.value) ?? 'web'
-              const { url: _, device: __, preview: ___, ...rest } = app
+              const { url: _, device: __, preview: ___, allowExternalSignIn: ____, ...rest } = app
               const device = kind === app.kind ? app.device : undefined
               const kept = device === undefined ? rest : { ...rest, device }
               onChange(kind === 'web' ? { ...app, kind } : { ...kept, kind })
@@ -1674,6 +1674,17 @@ function AppEditor({
             ))}
           </Select>
         </div>
+      )}
+      {app.kind === 'web' && (
+        <label className={styles.label}>
+          <input
+            type="checkbox"
+            checked={app.allowExternalSignIn === true}
+            onChange={(event) => onChange({ ...app, allowExternalSignIn: event.target.checked })}
+          />
+          Allow external sign-in{' '}
+          <Help>Offer a separate sign-in window for this App. Closing it clears the session.</Help>
+        </label>
       )}
       <div className={styles.appActions}>
         <ActionButton type="button" className={styles.dangerLink} onClick={onRemove}>

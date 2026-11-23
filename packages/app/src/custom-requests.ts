@@ -61,6 +61,7 @@ export interface CustomRequests {
     | undefined
   >
   externalBrowser: (taskId: string) => Promise<void>
+  openAppSignIn: (taskId: string, repo: string, name: string) => Promise<void>
   openAppPreview: (taskId: string, repo: string, name: string) => Promise<void>
   openHostedPreview: (taskId: string, repo: string) => Promise<void>
   openRunAppPreview: (runId: string, repo: string, name: string) => Promise<void>

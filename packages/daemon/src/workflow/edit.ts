@@ -17,6 +17,7 @@ import {
   type WorkflowProblem,
   type WorktreeCommandInput,
 } from '@ted/protocol'
+import { isBoolean } from '@ted/protocol/parse'
 import { Document, isMap, isScalar, isSeq, parseDocument, YAMLMap, YAMLSeq } from 'yaml'
 import { sandboxAccessOf } from '../apps/declared.ts'
 import {
@@ -101,6 +102,10 @@ function appsFrom(entry: RepoSettings): AppInput[] {
         ...(typeof fields.url === 'string' && { url: fields.url }),
         ...(typeof fields.device === 'string' && { device: fields.device }),
         ...(preview !== undefined && { preview }),
+        ...(kind === 'web' &&
+          isBoolean(fields.allow_external_sign_in) && {
+            allowExternalSignIn: fields.allow_external_sign_in,
+          }),
         ...(access.length > 0 && { sandboxAccess: access }),
       },
     ]
@@ -592,6 +597,9 @@ function writeRepo(doc: Document, map: YAMLMap, repo: RepoSettingsInput, primary
           : undefined,
       )
       setOrDelete(appMap, 'preview', app.kind === 'web' ? app.preview : undefined)
+      if (app.kind === 'web' && app.allowExternalSignIn !== undefined)
+        setKeepingStyle(appMap, 'allow_external_sign_in', app.allowExternalSignIn)
+      else appMap.delete('allow_external_sign_in')
       setAccess(doc, appMap, app.sandboxAccess)
       apps.items.push(appMap)
     }
@@ -667,6 +675,7 @@ const keyOrder = [
   'url',
   'device',
   'preview',
+  'allow_external_sign_in',
   'repo',
   'timeout',
   'sandbox_access',

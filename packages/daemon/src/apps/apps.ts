@@ -551,6 +551,7 @@ export function createApps(options: AppsOptions): Apps {
       ...(simulator !== undefined && { simulator }),
       ...(app.electron && { electron: true }),
       ...(app.preview !== undefined && { preview: app.preview }),
+      ...(app.allowExternalSignIn && { allowExternalSignIn: true }),
     }
   }
 

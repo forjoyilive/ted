@@ -38,6 +38,7 @@ export interface AppInput {
   url?: string
   device?: string
   preview?: PreviewPreset
+  allowExternalSignIn?: boolean
   sandboxAccess?: SandboxAccess[]
 }
 

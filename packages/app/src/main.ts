@@ -70,6 +70,7 @@ import {
   WebContentsView,
 } from 'electron'
 import { appIconPng } from './app-icon.ts'
+import { openAppSignInWindow } from './app-sign-in.ts'
 import { authorizeAsana } from './asana.ts'
 import { showAttachmentInFolder } from './attachment-preview.ts'
 import {
@@ -194,6 +195,21 @@ const requests = {
       taskId: String(taskId),
       app: { repo: app.repo, name: app.name, browser: true },
     })
+  },
+  openAppSignIn: async (client, taskId, repo, name) => {
+    const app = (await client.listApps(String(taskId))).find(
+      (a) => a.repo === String(repo) && a.name === String(name),
+    )
+    if (
+      app?.kind !== 'web' ||
+      app.state !== 'running' ||
+      app.allowExternalSignIn !== true ||
+      app.url === undefined ||
+      !isLoopbackUrl(app.url)
+    ) {
+      throw new Error('This App isn’t running with external sign-in enabled')
+    }
+    await openAppSignInWindow(app.name, app.url)
   },
   presentBrowser: async (_client, taskId, _repo, _name, bounds, zoom) => {
     const rect = bounds
@@ -348,6 +364,7 @@ const requests = {
   | 'openFigmaLink'
   | 'openMarkdownLink'
   | 'openAppPreview'
+  | 'openAppSignIn'
   | 'presentBrowser'
   | 'hideBrowser'
   | 'browserState'

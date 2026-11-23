@@ -128,6 +128,8 @@ export const ted = {
   hideBrowser: (temporary = false) => request('hideBrowser', temporary),
   browserState: (taskId: string) => request('browserState', taskId),
   externalBrowser: (taskId: string) => request('externalBrowser', taskId),
+  openAppSignIn: (taskId: string, repo: string, name: string) =>
+    request('openAppSignIn', taskId, repo, name),
   openAppPreview: (taskId: string, repo: string, name: string) =>
     request('openAppPreview', taskId, repo, name),
   openHostedPreview: (taskId: string, repo: string) => request('openHostedPreview', taskId, repo),
