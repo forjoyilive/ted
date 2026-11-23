@@ -27,10 +27,10 @@ export function tedStopsText({
     heading: `${count} ${one ? 'Task was' : 'Tasks were'} working when Ted quit`,
     lead: `Ted stopped ${one ? 'its Task Lead' : 'their Task Leads'} at ${stoppedAt}. Restart ${one ? 'it' : 'them'} now, or leave ${one ? 'it' : 'them'} stopped and resume ${one ? 'it' : 'each one'} later from the Task.`,
     restart: one
-      ? 'Restart'
+      ? 'Start again'
       : picked === count
-        ? `Restart all ${count}`
-        : `Restart ${picked} ${picked === 1 ? 'Task' : 'Tasks'}`,
+        ? `Start all ${count} again`
+        : `Start ${picked} ${picked === 1 ? 'Task' : 'Tasks'} again`,
     note: note === '' ? undefined : note,
   }
 }
