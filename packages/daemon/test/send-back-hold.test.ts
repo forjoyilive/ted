@@ -126,9 +126,7 @@ test.each(cases)(
       expect(scheduled).toHaveLength(1)
       await scheduled[0]?.()
 
-      expect(store.loopChecks(id)).toMatchObject([
-        { verdict, ...(reason !== undefined && { reason }) },
-      ])
+      expect(store.loopChecks(id)).toMatchObject([{ verdict }])
       if (releases) {
         expect(find(id).stage).toBe('work')
         expect(store.listSendBacks(id)).toMatchObject([{ findings, round: 1, cause: 'check' }])
@@ -139,6 +137,7 @@ test.each(cases)(
         expect(hold.openSendBackAsk(find(id))).toMatchObject({
           title: expect.stringContaining(question ?? ''),
           choices: ['Keep going', 'Stop the Task'],
+          ...(reason !== undefined && { body: expect.stringContaining(reason) }),
         })
         expect(hold.refuseOutcome(find(id))).toContain('wait for their answer')
       }
