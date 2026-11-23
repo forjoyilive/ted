@@ -477,7 +477,7 @@ export function PersonMessage({
           <span className={styles.when}>{when}</span>
           {children}
         </div>
-        {text !== '' && <Markdown className={styles.text} text={text} />}
+        {text !== '' && <Markdown className={styles.text} text={text} preserveLineBreaks />}
         {files.length > 0 && <CommentFiles files={files} />}
       </div>
     </div>
