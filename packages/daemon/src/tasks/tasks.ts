@@ -9509,6 +9509,19 @@ export function createTasks(options: {
     wake()
   }
 
+  function forget(taskId: string): void {
+    failures.forget(taskId)
+    autoStartFailures.delete(taskId)
+    continuationFailures.delete(taskId)
+    for (const key of runUploads) if (key.startsWith(`${taskId}:`)) runUploads.delete(key)
+    for (const key of baseTips.keys()) if (key.startsWith(`${taskId}\n`)) baseTips.delete(key)
+    baseNotes.delete(taskId)
+    mergeGuards.delete(taskId)
+    mergeUrgent.delete(taskId)
+    parentsChecked.delete(taskId)
+    repairHandOffs.delete(taskId)
+  }
+
   async function removeOne(ref: string): Promise<void> {
     const task = find(ref)
     if (inFlight.is(task.id, 'deleting'))
@@ -9525,7 +9538,7 @@ export function createTasks(options: {
       await lifecycle.cleanFolders(await execution.local(task.id))
       const runIds = store.taskRunList(task.id).map((r) => r.id)
       const files = [...store.taskFiles(task.id), ...unsentFiles]
-      failures.forget(task.id)
+      forget(task.id)
       store.deleteTask(task.id)
       await store.persisted()
       await removeFiles(last, runIds, files)
@@ -9566,43 +9579,9 @@ export function createTasks(options: {
     await holding(task, async () => {
       const deletingDone = inFlight.mark(id, 'deleting')
       try {
-        if (!task.stopped) store.stopTask(id, { runs: task.runs.length, why: 'human' })
-        dropWaitingMove(id)
-        await mergeWatcher.settled(id)
-        await pullRequestQueue.get(id)
-        const open = (current: StoredTask) =>
-          current.repos.filter(
-            (r) =>
-              r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged',
-          )
-        if (resetRefusal(publicTask(id)) === 'merged') {
-          throw new RequestError(409, `${task.displayId} has a merged pull request`)
-        }
-        if (open(find(id)).length > 0) {
-          pullRequestWork(id, 'close')
-          await pullRequestQueue.get(id)
-        }
-        const left = open(find(id))
-        if (left.length > 0 || resetRefusal(publicTask(id)) === 'merged') {
-          throw new RequestError(
-            409,
-            `Ted couldn’t close ${left.map((r) => `${r.repo}#${r.pullRequest?.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t reset. It is stopped and nothing was discarded.`,
-          )
-        }
-        options.planning?.()?.taskGone(id, 'reset')
-        browser.cancel(id)
-        browserApps.delete(id)
-        await clearing(id)
-        const last = find(id)
-        await removeBranches(last, 'reset')
-        await lifecycle.cleanFolders(await execution.local(id))
+        const last = await discardStartedWork(task, 'reset')
         const runIds = store.taskRunList(id).map((r) => r.id)
         const files = [...store.taskFiles(id), ...store.messageDraftFiles(id)]
-        failures.forget(id)
-        autoStartFailures.delete(id)
-        continuationFailures.delete(id)
-        for (const key of runUploads) if (key.startsWith(`${id}:`)) runUploads.delete(key)
-        for (const repo of last.repos) baseTips.delete(baseTipKey(id, repo.name))
         store.resetTask(id)
         await store.persisted()
         await removeFiles(last, runIds, files)
@@ -9760,42 +9739,47 @@ export function createTasks(options: {
     return a.length === b.length && b.every((t) => ids.has(t.id))
   }
 
+  async function discardStartedWork(
+    task: StoredTask,
+    verb: 'reset' | 'moved',
+  ): Promise<StoredTask> {
+    const id = task.id
+    if (!task.stopped) store.stopTask(id, { runs: task.runs.length, why: 'human' })
+    dropWaitingMove(id)
+    await mergeWatcher.settled(id)
+    await pullRequestQueue.get(id)
+    const refusal = verb === 'reset' ? resetRefusal : moveRefusal
+    if (refusal(publicTask(id)) === 'merged') {
+      throw new RequestError(409, `${task.displayId} has a merged pull request`)
+    }
+    if (openPullRequestsOf(find(id)).length > 0) {
+      pullRequestWork(id, 'close')
+      await pullRequestQueue.get(id)
+    }
+    const left = openPullRequestsOf(find(id))
+    if (left.length > 0 || refusal(publicTask(id)) === 'merged') {
+      throw new RequestError(
+        409,
+        `Ted couldn’t close ${left.map((r) => `${r.repo}#${r.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t ${verb}. It is stopped and nothing was discarded.`,
+      )
+    }
+    options.planning?.()?.taskGone(id, verb)
+    browser.cancel(id)
+    browserApps.delete(id)
+    await clearing(id)
+    const last = find(id)
+    await removeBranches(last, verb)
+    await lifecycle.cleanFolders(await execution.local(id))
+    forget(id)
+    return last
+  }
+
   async function discardForMove(task: StoredTask): Promise<void> {
     const id = task.id
     if (task.stage === 'backlog' && task.runs.length === 0 && task.repos.length === 0) return
     const done = inFlight.mark(id, 'deleting')
     try {
-      const current = find(id)
-      if (!current.stopped) store.stopTask(id, { runs: current.runs.length, why: 'human' })
-      dropWaitingMove(id)
-      await mergeWatcher.settled(id)
-      await pullRequestQueue.get(id)
-      if (moveRefusal(publicTask(id)) === 'merged') {
-        throw new RequestError(409, `${task.displayId} has a merged pull request`)
-      }
-      if (openPullRequestsOf(find(id)).length > 0) {
-        pullRequestWork(id, 'close')
-        await pullRequestQueue.get(id)
-      }
-      const left = openPullRequestsOf(find(id))
-      if (left.length > 0 || moveRefusal(publicTask(id)) === 'merged') {
-        throw new RequestError(
-          409,
-          `Ted couldn’t close ${left.map((r) => `${r.repo}#${r.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t moved. It is stopped and nothing was discarded.`,
-        )
-      }
-      options.planning?.()?.taskGone(id, 'moved')
-      browser.cancel(id)
-      browserApps.delete(id)
-      await clearing(id)
-      const last = find(id)
-      await removeBranches(last, 'moved')
-      await lifecycle.cleanFolders(await execution.local(id))
-      failures.forget(id)
-      autoStartFailures.delete(id)
-      continuationFailures.delete(id)
-      for (const key of runUploads) if (key.startsWith(`${id}:`)) runUploads.delete(key)
-      for (const repo of last.repos) baseTips.delete(baseTipKey(id, repo.name))
+      await discardStartedWork(find(id), 'moved')
     } finally {
       done()
     }
@@ -10952,6 +10936,7 @@ export function createTasks(options: {
       store.childrenOf(id).some((c) => store.isMerged(c))
     ) {
       finishingParents.add(id)
+      parentsChecked.add(id)
       inBackground(`finish ${task.displayId} after its child Tasks`, () =>
         finishParent(id).finally(() => {
           finishingParents.delete(id)
@@ -11008,7 +10993,6 @@ export function createTasks(options: {
       }).catch((error: unknown) => {
         console.error(redactSecrets(`couldn’t finish ${before.displayId}: ${String(error)}`))
       })
-    parentsChecked.add(id)
   }
 
   function tellLead(blocker: StoredTask, run: Run): Promise<void> {
@@ -11887,7 +11871,6 @@ export function createTasks(options: {
         if (store.getTask(id)?.factoryId === event.factory.id) autoStartFailures.delete(id)
       }
     }
-    if (event.type === 'task-deleted') autoStartFailures.delete(event.taskId)
     if (event.type === 'factory-removed') {
       for (const id of autoStartFailures) if (!store.getTask(id)) autoStartFailures.delete(id)
     }
