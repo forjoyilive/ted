@@ -56,7 +56,9 @@ describe('Ted defaults', () => {
       ]) {
         if (disclose) {
           expect(prompt).toContain('From Opus 5.5 via Ted:')
-          expect(prompt).toContain('Pull request titles don’t get it.')
+          expect(prompt).toContain(
+            'Keep task, issue and pull request titles free of model attribution.',
+          )
         } else expect(prompt).not.toContain('via Ted:')
       }
     }
