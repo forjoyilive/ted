@@ -439,14 +439,20 @@ describe('Watching GitHub', () => {
     const second = await waitForPullRequest(client, two.task.id)
     expect(second.repos[0]?.pullRequest?.number).toBe(8)
 
-    const before = (await readCalls()).length
-    await waitUntil(async () => (await readCalls()).length >= before + 4, 'four polls')
-    const recent = (await readCalls()).slice(before)
-    for (const call of recent) {
-      const { variables } = JSON.parse(call.stdin ?? '{}') as { variables: Record<string, unknown> }
+    const recent = await waitUntil(async () => {
+      const polls = (await readCalls()).map((call) => {
+        const { variables } = JSON.parse(call.stdin ?? '{}') as {
+          variables: Record<string, unknown>
+        }
+        return { variables, host: call.env.GH_HOST }
+      })
+      const first = polls.findIndex(({ variables }) => variables.p0 === 8 || variables.p1 === 8)
+      if (first >= 0 && polls.length >= first + 4) return polls.slice(first)
+    }, 'four consecutive polls starting with the first query for #8')
+    for (const { variables, host } of recent) {
       expect(Object.keys(variables).filter((k) => k.startsWith('p'))).toHaveLength(2)
       expect(new Set([variables.p0, variables.p1])).toEqual(new Set([7, 8]))
-      expect(call.env.GH_HOST).toBeUndefined()
+      expect(host).toBeUndefined()
     }
   })
 })
