@@ -50,8 +50,8 @@
 
   --status-testing-bg: light-dark(#f3edfc, #30243f);
   --status-testing-fg: light-dark(#7952b3, #c4a3ee);
-  --status-working-fg: light-dark(#3a45b0, #9aa4f5);
-  --status-working-bg: light-dark(#eef0fb, #232845);
+  --status-working-fg: light-dark(#1f794c, #5cc38a);
+  --status-working-bg: light-dark(#e6f2eb, #1c3326);
   --status-waiting-fg: light-dark(#a15800, #e3a04a);
   --status-waiting-bg: light-dark(#fbf2e4, #3a2b16);
   --status-warning-border: light-dark(#efd9b5, #5e4520);
