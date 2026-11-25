@@ -20,6 +20,7 @@ export interface CheckSlots {
   take(input: CheckSlotRequest): Promise<(() => void) | undefined>
   full(): boolean
   cpus(): number
+  soloCpus(): number
   recheck(): void
   watch(listener: (places: ReadonlyMap<string, number>) => void): void
 }
@@ -124,6 +125,7 @@ export function createCheckSlots(options: {
     },
     full,
     cpus: () => checkCpus(cores(), running, options.cpuPercent()),
+    soloCpus: () => checkCpus(cores(), 1, options.cpuPercent()),
     recheck,
     watch(next) {
       listener = next

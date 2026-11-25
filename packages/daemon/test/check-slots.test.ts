@@ -22,6 +22,7 @@ test('a Check may use the set share of the cores, divided between the Checks run
   expect(slots.cpus()).toBe(6)
   const second = await slots.take({})
   expect(slots.cpus()).toBe(3)
+  expect(slots.soloCpus()).toBe(6)
   first?.()
   expect(slots.cpus()).toBe(6)
   percent = 100

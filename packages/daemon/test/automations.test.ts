@@ -1469,6 +1469,46 @@ test('Automation Runs use auto permissions even when the Factory is set to bypas
   }
 })
 
+test('a Scheduled Check that starts while another Check holds a slot still gets the share it would have alone', async () => {
+  const client = await startTed()
+  const done = path.join(scratch, 'first-check-done')
+  const first = await create(client, {
+    name: 'Long tests',
+    prompt: undefined,
+    schedule: { kind: 'daily', at: '03:00' },
+    check: { command: `while [ ! -f '${done}' ]; do sleep 0.1; done` },
+  })
+  const second = await create(client, {
+    name: 'Nightly tests',
+    prompt: undefined,
+    schedule: { kind: 'daily', at: '03:00' },
+    check: { command: 'echo "cpus=$TED_CHECK_CPUS."' },
+  })
+  await client.ok('POST', `/automations/${first.id}/run`)
+  await waitUntil(
+    async () => (await client.ok<Activity>('GET', '/activity')).checksRunning === 1,
+    'the first Check to hold a slot',
+  )
+  await client.ok('POST', `/automations/${second.id}/run`)
+  const [passed] = await waitForHistory(
+    client,
+    second.id,
+    (rows) => rows[0]?.result.kind === 'passed',
+    'the second Check',
+  )
+  await writeFile(done, '')
+  const output = await client.ok<{ text: string }>('GET', `/automation-runs/${passed?.id}/output`)
+  expect(output.text).toContain(
+    `cpus=${checkCpus(availableParallelism(), 1, defaultMachineSettings.checkCpuPercent)}.`,
+  )
+  await waitForHistory(
+    client,
+    first.id,
+    (rows) => rows[0]?.result.kind === 'passed',
+    'the first Check',
+  )
+})
+
 test('removing a Factory deletes its Automations, stops their Runs and removes scheduled Check files', async () => {
   const client = await startTed()
   const automation = await create(client, { prompt: steps(hold(), { endTurn: true }) })
