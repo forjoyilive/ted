@@ -1,9 +1,10 @@
-import type { NewTaskDraft } from '@ted/protocol'
+import type { DaemonClient, NewTaskDraft } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { cleanup, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
+import type { CustomRequests } from '../../src/custom-requests.ts'
 import { showDetailsTab } from '../../src/renderer/details.ts'
 import type { TedBridge, TedEvent } from '../../src/renderer/ted.ts'
 import { coordinatorAgent, plannerAgent } from './fixtures.ts'
@@ -12,7 +13,15 @@ const verifications: (() => void)[] = []
 
 type Handler = (...args: unknown[]) => unknown
 
-export function bridge(given: Record<string, Handler>) {
+type Requests = DaemonClient & CustomRequests
+
+export type RequestHandlers = {
+  [K in keyof Requests]?: Requests[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Awaited<R> | R
+    : never
+}
+
+export function bridge(given: Record<string, Handler>, typed: RequestHandlers = {}) {
   const handlers: Record<string, Handler> = {
     getSettings: () => defaultMachineSettings,
     agentAvailability: () => [],
@@ -44,6 +53,7 @@ export function bridge(given: Record<string, Handler>) {
     sampleData: () => false,
     ...given,
   }
+  Object.assign(handlers, typed)
   const listeners = new Set<(event: TedEvent) => void>()
   const unexpected: string[] = []
   const request = vi.fn(async (name: string, ...args: unknown[]) => {
