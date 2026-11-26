@@ -36,9 +36,8 @@ function isFrameworkNamespace(
 ): boolean {
   if (expression.type !== 'Identifier') return false
   const variable = resolveVariable(sourceCode, expression)
-  if (globalObjects.has(expression.name)) {
-    const undeclared = variable === null || variable.defs.length === 0
-    return (name === 'vi' || name === 'jest') && undeclared
+  if (globalObjects.has(expression.name) && (variable === null || variable.defs.length === 0)) {
+    return name === 'vi' || name === 'jest'
   }
   return (
     variable?.defs.some(
@@ -104,6 +103,13 @@ function aliasesModuleMock(sourceCode: SourceCode, callee: ESTree.Expression): b
   if (callee.type !== 'Identifier') return false
   const variable = resolveVariable(sourceCode, callee)
   if (variable === null) return false
+  const reassignedToNonMock = variable.references.some(
+    (reference) =>
+      reference.isWrite() &&
+      !reference.init &&
+      (reference.writeExpr === null || !moduleMockMember(sourceCode, reference.writeExpr)),
+  )
+  if (reassignedToNonMock) return false
   return variable.defs.some((definition) => {
     if (definition.type !== 'Variable' || definition.node.type !== 'VariableDeclarator') {
       return false
