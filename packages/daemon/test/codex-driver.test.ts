@@ -155,3 +155,50 @@ describe('Codex persistent storage', () => {
     }
   })
 })
+
+describe('Codex turn ids', () => {
+  test('a late turn/completed from an earlier turn leaves the live turn to steer and interrupt', async () => {
+    const messages: { id?: number; method: string; params?: Record<string, unknown> }[] = []
+    let turns = 0
+    const driver = drive({
+      input: JSON.stringify({
+        thread: { method: 'thread/start', params: {} },
+        prompt: 'First',
+        clientVersion: 'test',
+      }),
+      stop: vi.fn(),
+      send(line) {
+        const message = JSON.parse(line)
+        messages.push(message)
+        if (message.id === undefined) return
+        const result =
+          message.method === 'thread/start'
+            ? { thread: { id: 'thread' } }
+            : message.method === 'turn/start'
+              ? { turn: { id: `turn-${++turns}` } }
+              : {}
+        queueMicrotask(() => driver.onLine(JSON.stringify({ id: message.id, result })))
+      },
+    })
+    const started = (n: number) =>
+      vi.waitFor(() => expect(messages.filter((m) => m.method === 'turn/start')).toHaveLength(n))
+    await started(1)
+    driver.onLine(JSON.stringify({ method: 'turn/started', params: { turn: { id: 'turn-1' } } }))
+    driver.onLine(JSON.stringify({ method: 'turn/completed', params: { turn: { id: 'turn-1' } } }))
+    driver.onInput?.(JSON.stringify({ text: 'Second' }))
+    await started(2)
+    driver.onLine(JSON.stringify({ method: 'turn/started', params: { turn: { id: 'turn-2' } } }))
+    driver.onLine(JSON.stringify({ method: 'turn/completed', params: { turn: { id: 'turn-1' } } }))
+
+    driver.onInput?.(JSON.stringify({ text: 'Steer', steer: true }))
+    driver.onInput?.(JSON.stringify({ interrupt: true }))
+    await vi.waitFor(() => expect(messages.map((m) => m.method)).toContain('turn/interrupt'))
+    expect(messages.find((m) => m.method === 'turn/steer')?.params).toMatchObject({
+      expectedTurnId: 'turn-2',
+    })
+    expect(messages.find((m) => m.method === 'turn/interrupt')?.params).toMatchObject({
+      turnId: 'turn-2',
+    })
+    expect(messages.filter((m) => m.method === 'turn/start')).toHaveLength(2)
+  })
+})

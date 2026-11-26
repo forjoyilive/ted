@@ -326,26 +326,39 @@ describe('Steering a working Run', () => {
     await writeFile(file('b'), '')
   })
 
-  test('Codex: ⌘↵ sends turn/interrupt, then starts a turn with the message', async () => {
+  test('Codex: ⌘↵ sends turn/interrupt, then starts a turn with the message, and steers that turn', async () => {
     const client = await startTed()
     const runId = await working(client, [{ waitFor: file('never') }, { endTurn: true }], 'codex')
     await send(
       client,
       runId,
-      JSON.stringify({ steps: [{ say: 'new turn' }, { endTurn: true }] }),
+      JSON.stringify({
+        steps: [
+          { say: 'new turn' },
+          { waitFor: file('late') },
+          { lateFromInterrupted: true },
+          { waitFor: file('done') },
+          { endTurn: true },
+        ],
+      }),
       true,
     )
     await said(client, runId, 'new turn')
-    const methods = (await readFile(path.join(scratch, 'stub-requests.jsonl'), 'utf8'))
+    await send(client, runId, 'Keep the old name.')
+    await writeFile(file('late'), '')
+    await said(client, runId, 'Read: Keep the old name.')
+    const requests = (await readFile(path.join(scratch, 'stub-requests.jsonl'), 'utf8'))
       .trim()
       .split('\n')
-      .map((line) => (JSON.parse(line) as { method?: string }).method)
-    expect(methods.filter((m) => m?.startsWith('turn/'))).toEqual([
-      'turn/start',
-      'turn/interrupt',
-      'turn/start',
+      .map((line) => JSON.parse(line) as { method?: string; params?: Record<string, unknown> })
+    expect(requests.filter((m) => m.method?.startsWith('turn/'))).toMatchObject([
+      { method: 'turn/start' },
+      { method: 'turn/interrupt', params: { turnId: 'turn-1' } },
+      { method: 'turn/start' },
+      { method: 'turn/steer', params: { expectedTurnId: 'turn-2' } },
     ])
     expect((await chatOf(client, runId)).run.state).not.toBe('finished')
+    await writeFile(file('done'), '')
   })
 
   test('a queued message to the Task Lead leaves its thread line once delivered', async () => {

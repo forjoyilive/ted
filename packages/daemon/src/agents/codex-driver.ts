@@ -166,6 +166,11 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     void request('turn/interrupt', { threadId, turnId })
   }
 
+  function olderTurn(message: RpcMessage): boolean {
+    const id = turnIdIn(message)
+    return turnId !== undefined && id !== undefined && id !== turnId
+  }
+
   function queueTurn(text: string) {
     queued.push(text)
     nextTurn()
@@ -219,11 +224,10 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
         return
       }
       if (message.method === 'turn/started') {
-        const id = (message.params?.turn as { id?: unknown } | undefined)?.id
-        if (typeof id === 'string') turnId = id
+        turnId = turnIdIn(message) ?? turnId
         interruptIfWanted()
       }
-      if (message.method === 'turn/completed') {
+      if (message.method === 'turn/completed' && !olderTurn(message)) {
         turnActive = false
         turnId = undefined
         interruptWanted = false
@@ -253,6 +257,11 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
       )
     },
   }
+}
+
+function turnIdIn(message: RpcMessage): string | undefined {
+  const id = (message.params?.turn as { id?: unknown } | undefined)?.id
+  return typeof id === 'string' ? id : undefined
 }
 
 function listedModels(listed: RpcMessage): ListedModel[] {
