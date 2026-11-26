@@ -461,8 +461,11 @@ describe('Instruction Checks at Validate', () => {
     await workflow(
       instructionCheck(
         'Stray',
+        // The send-back quotes this instruction to the stub Task Lead, which runs these steps
+        // instead of its own; `advance` moves it on, and is refused for the Check agent.
         steps(
           { run: ['sh', '-c', 'echo y > stray.txt'] },
+          advance,
           { say: 'I looked.\nResult: pass' },
           { endTurn: true },
         ),

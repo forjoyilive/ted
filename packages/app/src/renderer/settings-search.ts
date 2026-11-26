@@ -444,12 +444,16 @@ const entries = {
     name: 'Asana workspace, project and section',
     keywords: 'asana workspace project section intake',
   },
-  'factory.repos': { name: 'Repos', heading: true },
+  'factory.repos': {
+    name: 'Repos',
+    help: 'Saved in .ted/workflow.yaml on the primary repo’s default branch. Changes go through a pull request.',
+    heading: true,
+  },
   'factory.repos.base-branch': { name: 'Base branch' },
   'factory.repos.merge-method': { name: 'Merge method' },
   'factory.repos.pull-request-ci': {
     name: 'Pull request CI',
-    help: 'Whether Ted waits for CI checks on this repo’s pull requests before it merges.',
+    help: 'Whether Ted waits for CI checks on this repo’s pull requests before it merges. Detect decides from the repo when a Task pushes.',
     keywords: 'ci checks wait merge github actions',
   },
   'factory.repos.worktree': { name: 'Worktree', heading: true },
@@ -505,7 +509,7 @@ const entries = {
   'factory.agent-files': {
     name: 'Agents',
     keywords: 'coordinator planner chat powers instructions agents.yaml',
-    help: 'The Agents you can start chats with in this Factory, saved in .ted/agents.yaml and .ted/agents/. Override copies an inherited Agent into .ted/ for this Factory.',
+    help: 'The Agents you can start chats with in this Factory, saved in .ted/agents.yaml and .ted/agents/. Override copies an inherited Agent into .ted/ for this Factory. Saving opens a settings pull request.',
     heading: true,
   },
   'factory.agent-files.new': {
@@ -551,7 +555,8 @@ const entries = {
   'factory.cleanup.enabled': {
     name: 'Turn on Cleanup',
     keywords: 'after merge',
-    help: 'Adds a Cleanup column between Merge and Done. Cleanup stays off until it has at least one step.',
+    help: 'Adds a Cleanup column between Merge and Done.',
+    detail: 'Cleanup stays off until it has at least one step.',
   },
   'factory.notes': {
     name: 'Factory notes',

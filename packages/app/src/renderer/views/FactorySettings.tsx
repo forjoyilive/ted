@@ -58,7 +58,12 @@ import { usePendingAction } from '../pending-action.ts'
 import { ciFoundText, pullRequestCiLabels } from '../pull-request-ci.ts'
 import { ago, useNow } from '../requests.ts'
 import { openSetting, useShownSetting } from '../setting-focus.ts'
-import { type FactorySectionId, factorySections, type SettingId } from '../settings-search.ts'
+import {
+  type FactorySectionId,
+  factorySections,
+  type SettingId,
+  settingEntry,
+} from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { RepoRowView } from './AddFactoryDialog.tsx'
 import { AgentFilesSection } from './AgentFilesSection.tsx'
@@ -72,6 +77,7 @@ import {
   NotesSection,
   NotificationsSection,
   PermissionsSection,
+  SectionHeading,
   WorkflowSection,
 } from './FactorySettingsSections.tsx'
 import { GitHubIntakeSection } from './GitHubIntakeSection.tsx'
@@ -488,13 +494,7 @@ export function FactorySettings({
                       className={`${styles.section} ${styles.wideSection}`}
                       aria-labelledby="agent-files"
                     >
-                      <SectionHeading
-                        id="agent-files"
-                        setting="factory.agent-files"
-                        title="Agents"
-                        where="repo"
-                        help="The Agents you can start chats with in this Factory, saved in .ted/agents.yaml and .ted/agents/. Override copies an inherited Agent into .ted/ for this Factory. Saving opens a settings pull request."
-                      />
+                      <SectionHeading id="agent-files" setting="factory.agent-files" where="repo" />
                       <AgentFilesSection
                         layer="factory"
                         folder=".ted/"
@@ -683,37 +683,11 @@ function Chip({ where }: { where: 'machine' | 'repo' }) {
   )
 }
 
-function SectionHeading({
-  id,
-  setting,
-  title,
-  help,
-  where,
-}: {
-  id: string
-  setting: SettingId
-  title: string
-  help?: ReactNode
-  where: 'machine' | 'repo'
-}) {
-  return (
-    <div className={styles.sectionHeading} data-setting={setting}>
-      <h2 id={id} className={styles.sectionTitle}>
-        {title}
-      </h2>
-      {help !== undefined && <Help>{help}</Help>}
-      <Chip where={where} />
-    </div>
-  )
-}
-
 function IntakeSection({ factoryId }: { factoryId: string }) {
   return (
     <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="intake">
-      <SectionHeading id="intake" setting="factory.intake" title="Intake" where="machine" />
-      <span className={styles.caption}>
-        Choose which issues and tasks Automations can bring into this Factory.
-      </span>
+      <SectionHeading id="intake" setting="factory.intake" where="machine" />
+      <span className={styles.caption}>{settingEntry('factory.intake').detail}</span>
       <div className={styles.intakeGroups}>
         <GitHubIntakeSection factoryId={factoryId} />
         <LinearIntakeSection factoryId={factoryId} />
@@ -745,14 +719,11 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
 
   return (
     <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="general">
-      <SectionHeading id="general" setting="factory.general" title="General" where="machine" />
+      <SectionHeading id="general" setting="factory.general" where="machine" />
       <div className={styles.field} data-setting="factory.general.icon">
         <span className={styles.label} id={iconId}>
-          Icon{' '}
-          <Help>
-            Shown in the sidebar, the Inbox, ⌘K and Task details. An emoji also starts the Factory’s
-            notifications.
-          </Help>
+          {settingEntry('factory.general.icon').name}{' '}
+          <Help>{settingEntry('factory.general.icon').help}</Help>
         </span>
         <div>
           <FactoryIconPicker
@@ -765,7 +736,8 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
       <div className={styles.fieldRow}>
         <div className={styles.field} data-setting="factory.general.name">
           <label className={styles.label} htmlFor={nameId}>
-            Name <Help>Shown in the sidebar and the Inbox. Task IDs don’t change.</Help>
+            {settingEntry('factory.general.name').name}{' '}
+            <Help>{settingEntry('factory.general.name').help}</Help>
           </label>
           <input
             id={nameId}
@@ -800,15 +772,10 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
 const DangerZoneSection = memo(function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
   return (
     <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="danger-zone">
-      <SectionHeading
-        id="danger-zone"
-        setting="factory.danger-zone"
-        title="Danger zone"
-        where="machine"
-      />
+      <SectionHeading id="danger-zone" setting="factory.danger-zone" where="machine" />
       <div className={styles.removeRow} data-setting="factory.danger-zone.remove">
         <span className={styles.label}>
-          Remove Factory{' '}
+          {settingEntry('factory.danger-zone.remove').name}{' '}
           <Help>
             Stops its Runs and deletes its Tasks and worktrees from {machine}. Its .ted/ folder
             stays in the repo.
@@ -886,13 +853,7 @@ const ReposSection = memo(function ReposSection({
   }
   return (
     <section className={`${styles.section} ${styles.wideSection}`} aria-labelledby="repos">
-      <SectionHeading
-        id="repos"
-        setting="factory.repos"
-        title="Repos"
-        where="repo"
-        help="Saved in .ted/workflow.yaml on the primary repo’s default branch. Changes go through a pull request."
-      />
+      <SectionHeading id="repos" setting="factory.repos" where="repo" />
       {draft.map((repo, index) => {
         const shown = view.repos.find((r) => r.was === repo.was)
         return (
@@ -1079,7 +1040,8 @@ function RepoCard({
         </div>
         <div className={styles.field} data-setting="factory.repos.base-branch">
           <label className={styles.label} htmlFor={`${id}-base`}>
-            Base branch <Edited when={edited.has('baseBranch')} />
+            {settingEntry('factory.repos.base-branch').name}{' '}
+            <Edited when={edited.has('baseBranch')} />
           </label>
           <input
             id={`${id}-base`}
@@ -1091,7 +1053,8 @@ function RepoCard({
         </div>
         <div className={styles.field} data-setting="factory.repos.merge-method">
           <label className={styles.label} htmlFor={`${id}-merge`}>
-            Merge method <Edited when={edited.has('mergeMethod')} />
+            {settingEntry('factory.repos.merge-method').name}{' '}
+            <Edited when={edited.has('mergeMethod')} />
           </label>
           <Select
             fullWidth
@@ -1121,11 +1084,8 @@ function RepoCard({
       <div className={styles.twoColumns} data-setting="factory.repos.pull-request-ci">
         <div className={styles.field}>
           <label className={styles.label} htmlFor={`${id}-ci`}>
-            Pull request CI{' '}
-            <Help>
-              Whether Ted waits for CI checks on this repo’s pull requests before it merges. Detect
-              decides from the repo when a Task pushes.
-            </Help>{' '}
+            {settingEntry('factory.repos.pull-request-ci').name}{' '}
+            <Help>{settingEntry('factory.repos.pull-request-ci').help}</Help>{' '}
             <Edited when={edited.has('pullRequestCi')} />
           </label>
           <Select
@@ -1154,13 +1114,11 @@ function RepoCard({
       </div>
 
       <h3 className={styles.groupLabel} data-setting="factory.repos.worktree">
-        Worktree
+        {settingEntry('factory.repos.worktree').name}
       </h3>
       <div className={styles.twoColumns}>
         <CommandField
           setting="factory.repos.worktree.setup"
-          label="Setup command"
-          help="Runs once in each new worktree, after copying files, before any Run uses it."
           value={repo.setup}
           defaultTimeout="15m"
           edited={edited.has('setup')}
@@ -1168,8 +1126,6 @@ function RepoCard({
         />
         <CommandField
           setting="factory.repos.worktree.teardown"
-          label="Teardown command"
-          help="Runs before Ted removes a worktree. If it fails, Ted logs it and removes the worktree anyway."
           value={repo.teardown}
           placeholder="None"
           edited={edited.has('teardown')}
@@ -1212,8 +1168,6 @@ function withCommand(
 
 function CommandField({
   setting,
-  label,
-  help,
   value,
   placeholder,
   defaultTimeout,
@@ -1221,8 +1175,6 @@ function CommandField({
   onChange,
 }: {
   setting: SettingId
-  label: string
-  help: string
   value: RepoSettingsInput['setup']
   placeholder?: string
   defaultTimeout?: string
@@ -1230,6 +1182,7 @@ function CommandField({
   onChange: (value: RepoSettingsInput['setup']) => void
 }) {
   const id = useId()
+  const label = settingEntry(setting).name
   const run = value?.run ?? ''
   const timeout = value?.timeout
   const access = value?.sandboxAccess
@@ -1247,7 +1200,7 @@ function CommandField({
   return (
     <div className={styles.field} data-setting={setting}>
       <label className={styles.label} htmlFor={id}>
-        {label} <Help>{help}</Help> <Edited when={edited} />
+        {label} <Help>{settingEntry(setting).help}</Help> <Edited when={edited} />
       </label>
       <input
         id={id}
@@ -1302,9 +1255,8 @@ function EnvTable({
   return (
     <div className={styles.block} data-setting="factory.repos.env">
       <span className={styles.label}>
-        Environment variables{' '}
-        <Help>Committed to the repo, so no secrets. Put secrets in a file to copy.</Help>{' '}
-        <Edited when={edited} />
+        {settingEntry('factory.repos.env').name}{' '}
+        <Help>{settingEntry('factory.repos.env').help}</Help> <Edited when={edited} />
       </span>
       <div className={styles.table}>
         {env.map((variable, index) => (
@@ -1366,9 +1318,8 @@ function CopyList({
   return (
     <div className={styles.block} data-setting="factory.repos.copy">
       <span className={styles.label}>
-        Files to copy from the local folder{' '}
-        <Help>Untracked files such as .env, copied into each new worktree. Paths or globs.</Help>{' '}
-        <Edited when={edited} />
+        {settingEntry('factory.repos.copy').name}{' '}
+        <Help>{settingEntry('factory.repos.copy').help}</Help> <Edited when={edited} />
       </span>
       <div className={styles.chips}>
         {copy.map((file) => (
@@ -1481,7 +1432,7 @@ function Apps({
   return (
     <div className={styles.block}>
       <h3 className={styles.groupLabel} data-setting="factory.repos.apps">
-        Apps <Edited when={edited} />
+        {settingEntry('factory.repos.apps').name} <Edited when={edited} />
       </h3>
       <div className={styles.apps}>
         {apps.map((app, index) =>
