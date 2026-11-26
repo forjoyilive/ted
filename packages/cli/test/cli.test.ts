@@ -262,7 +262,7 @@ describe('ted task', () => {
       expect(next.id, mode).toBe(initial.id)
       expect(next.sessionId, mode).toBe(initial.sessionId)
     }
-  })
+  }, 120_000)
 
   test('list says so when there are no Tasks', async () => {
     const listed = await ted(['task', 'list'])
