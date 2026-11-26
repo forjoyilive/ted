@@ -11,6 +11,7 @@ import {
   unsavedChanges,
 } from '../src/renderer/factory-settings.ts'
 import { libraryChanges, libraryDraft, unsavedLibrary } from '../src/renderer/library.ts'
+import { settingEntry } from '../src/renderer/settings-search.ts'
 import { ValidateRounds, WorkFailures } from '../src/renderer/views/FactorySettingsSections.tsx'
 import { user } from './support/component.ts'
 
@@ -80,6 +81,20 @@ test('the help says what each setting trades', async () => {
       .map((tip) => tip.textContent)
       .join('\n'),
   ).toContain('a sub-agent that reviews the diff adds findings that can cost another round')
+})
+
+test('the P1 row shows the name and help from the settings list', async () => {
+  const { container } = render(
+    <Row initial={{ p1OnlyFrom: false, subAgents: false }} onStage={vi.fn()} />,
+  )
+  const entry = settingEntry('factory.workflow.p1-only')
+  const row = container.querySelector('[data-setting="factory.workflow.p1-only"]')
+  if (!row) throw new Error('no P1 row')
+  expect(row.firstChild?.textContent).toBe(entry.name)
+  const [p1] = screen.getAllByRole('button', { name: 'Help' })
+  if (!p1) throw new Error('no help button')
+  await user().hover(p1)
+  expect(screen.getByRole('tooltip').textContent).toBe(entry.help)
 })
 
 type Closes = Pick<StageDraft, 'leadClosesFailures'>
