@@ -61,7 +61,7 @@ import {
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
 import { OvernightNotice } from '../overnight.tsx'
 import { usePendingAction } from '../pending-action.ts'
-import type { SettingId } from '../settings-search.ts'
+import { type SettingId, settingEntry } from '../settings-search.ts'
 import { useStages } from '../stages.tsx'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
@@ -147,7 +147,7 @@ export function ValidateRounds({
   return (
     <div className={styles.validateRounds}>
       <span className={styles.roundSetting} data-setting="factory.workflow.p1-only">
-        Send back only for P1 findings
+        {settingEntry('factory.workflow.p1-only').name}
         <Select
           aria-label="Validate sends back only for P1 findings"
           controlClassName={styles.cellSelect}
@@ -165,28 +165,16 @@ export function ValidateRounds({
             </option>
           ))}
         </Select>
-        <Help>
-          Off: every blocking finding sends the Task back to Work. From a round: in that round of
-          Validate and every later one, a new finding sends it back only if it is P1. P1 means lost
-          or corrupted data, a security hole, or broken behaviour the Task asks for. A finding from
-          an earlier round that is still not fixed sends it back too. Every other new finding stays
-          unfixed and is listed as a note for you at Review. You get fewer rounds, and problems
-          Validate found can merge if you approve without reading the notes.
-        </Help>
+        <Help>{settingEntry('factory.workflow.p1-only').help}</Help>
       </span>
       <span className={styles.roundSetting} data-setting="factory.workflow.validate-sub-agents">
-        Other sub-agents in Validate
+        {settingEntry('factory.workflow.validate-sub-agents').name}
         <Toggle
           label="Other sub-agents in Validate"
           checked={stage?.subAgents === true}
           onChange={(subAgents) => onStage({ subAgents })}
         />
-        <Help>
-          Off: in Validate the Task Lead can start only Ted’s reviewer, one per visit. On: it can
-          also start other sub-agents, for example to run slow tests. Each one takes a working Run,
-          and a sub-agent that reviews the diff adds findings that can cost another round. The
-          one-reviewer rule stays either way.
-        </Help>
+        <Help>{settingEntry('factory.workflow.validate-sub-agents').help}</Help>
       </span>
     </div>
   )
@@ -202,20 +190,13 @@ export function WorkFailures({
   return (
     <div className={styles.validateRounds}>
       <span className={styles.roundSetting} data-setting="factory.workflow.lead-closes-failures">
-        Task Lead closes its own fixed failures
+        {settingEntry('factory.workflow.lead-closes-failures').name}
         <Toggle
           label="Task Lead closes its own fixed failures"
           checked={stage?.leadClosesFailures === true}
           onChange={(leadClosesFailures) => onStage({ leadClosesFailures })}
         />
-        <Help>
-          Off: when a test the Task Lead ran itself failed outside Validate and it recorded the
-          failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs
-          the test again and it passes, it closes the failure itself with that evidence, and you get
-          a line in the thread and no question. Ted doesn’t run the test, so you are trusting the
-          Task Lead’s report. Failed checks and failures found in Validate still need your decision,
-          and only you can accept a failure that still happens.
-        </Help>
+        <Help>{settingEntry('factory.workflow.lead-closes-failures').help}</Help>
       </span>
     </div>
   )
@@ -231,19 +212,13 @@ export function MergeCommitTitles({
   return (
     <div className={styles.validateRounds}>
       <span className={styles.roundSetting} data-setting="factory.workflow.commit-titles">
-        Task Lead writes the merge commit
+        {settingEntry('factory.workflow.commit-titles').name}
         <Toggle
           label="Task Lead writes the merge commit"
           checked={stage?.commitTitles !== false}
           onChange={(commitTitles) => onStage({ commitTitles })}
         />
-        <Help>
-          On: at Merge the Task Lead gives each pull request a Conventional Commits title, such as
-          “fix(app): keep the sidebar open (TED-12)”, and a short description. Ted uses them as the
-          merge commit’s subject and body. If the Task Lead writes none, Ted keeps the Task’s title
-          and GitHub’s own merge message. Off: Ted keeps the Task’s title and GitHub’s merge
-          message.
-        </Help>
+        <Help>{settingEntry('factory.workflow.commit-titles').help}</Help>
       </span>
     </div>
   )
@@ -282,22 +257,20 @@ export function InvalidNotice({
 export function SectionHeading({
   id,
   setting,
-  title: heading,
-  help,
+  help = settingEntry(setting).help,
   where = 'repo',
 }: {
   id: string
   setting: SettingId
-  title: string
-  help: ReactNode
+  help?: ReactNode
   where?: 'repo' | 'machine' | 'both'
 }) {
   return (
     <div className={base.sectionHeading} data-setting={setting}>
       <h2 id={id} className={base.sectionTitle}>
-        {heading}
+        {settingEntry(setting).name}
       </h2>
-      <Help>{help}</Help>
+      {help !== undefined && <Help>{help}</Help>}
       {where !== 'machine' && <span className={base.repoChip}>In the repo</span>}
       {where !== 'repo' && <span className={base.machineChip}>Saved on {machine}</span>}
     </div>
@@ -339,12 +312,7 @@ function WorkflowSectionView({
 
   return (
     <section className={base.section} aria-labelledby="workflow">
-      <SectionHeading
-        id="workflow"
-        setting="factory.workflow"
-        title="Workflow"
-        help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort."
-      />
+      <SectionHeading id="workflow" setting="factory.workflow" />
       <OvernightNotice />
       <div className={`${styles.table} ${styles.workflowTable}`}>
         <div className={`${styles.workflowRow} ${styles.headRow}`}>
@@ -959,12 +927,7 @@ function ChecksSectionView({
 
   return (
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="checks">
-      <SectionHeading
-        id="checks"
-        setting="factory.checks"
-        title="Checks"
-        help="Checks run at Validate. Instruction Checks that may fix run first, then the commands one after another, then the other Instruction Checks."
-      />
+      <SectionHeading id="checks" setting="factory.checks" />
       <div className={styles.checkList}>
         <ListHeading
           title="Commands"
@@ -1700,12 +1663,7 @@ function AgentsSectionView({
     onDraft((d) => ({ ...d, agents: { ...d.agents, [role]: choice } }))
   return (
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="agents">
-      <SectionHeading
-        id="agents"
-        setting="factory.agents"
-        title="Providers"
-        help="Which Provider, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here."
-      />
+      <SectionHeading id="agents" setting="factory.agents" />
       <div className={`${styles.table} ${styles.scrollTable}`}>
         {view.agents.map((row) => (
           <Fragment key={row.role}>
@@ -1868,19 +1826,8 @@ function PermissionsSectionView({
   return (
     <>
       <section className={`${base.section} ${base.compactSection}`} aria-labelledby="permissions">
-        <SectionHeading
-          id="permissions"
-          setting="factory.permissions"
-          title="Permission mode"
-          where="machine"
-          help="Permission mode is saved only on this computer, separately for each Factory."
-        />
-        <p className={base.caption}>
-          Saved here immediately. Applies to new and restarted Task Leads, sub-agents and reviewers,
-          and new checks and agent-started Apps. Running processes keep their current permissions;
-          stop them to end existing access. Planning, Automation and Coordinator Runs always use
-          Auto.
-        </p>
+        <SectionHeading id="permissions" setting="factory.permissions" where="machine" />
+        <p className={base.caption}>{settingEntry('factory.permissions').detail}</p>
         {view.repoPermissions === 'bypass' && !bypass && (
           <p className={styles.bypass}>
             The repo requests Bypass. This computer uses Auto until you enable Bypass here.
@@ -1974,12 +1921,7 @@ function PermissionsSectionView({
         className={`${base.section} ${base.compactSection}`}
         aria-labelledby={`${id}-limits`}
       >
-        <SectionHeading
-          id={`${id}-limits`}
-          setting="factory.permissions.working-run-limit"
-          title="Working Run limit"
-          help="This Factory’s limit follows its Workflow."
-        />
+        <SectionHeading id={`${id}-limits`} setting="factory.permissions.working-run-limit" />
         <div className={base.field}>
           <label className={base.label} htmlFor={`${id}-limit`}>
             Limit on working Runs{' '}
@@ -2018,12 +1960,7 @@ function NotesSectionView({
   const [preview, setPreview] = useState(false)
   return (
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="notes">
-      <SectionHeading
-        id="notes"
-        setting="factory.notes"
-        title="Factory notes"
-        help="Facts about the product, given to every Run in this Factory: how to run it, conventions, risky areas. Stage instructions belong in Stage files."
-      />
+      <SectionHeading id="notes" setting="factory.notes" />
       <div className={styles.notes}>
         <div className={styles.notesBar}>
           <div className={styles.tabs} role="tablist" aria-label="Factory notes view">
@@ -2196,15 +2133,10 @@ function CleanupSectionView({ draft, onDraft }: { draft: SettingsDraft; onDraft:
 
   return (
     <section className={`${base.section} ${base.compactSection}`} aria-labelledby="cleanup">
-      <SectionHeading
-        id="cleanup"
-        setting="factory.cleanup"
-        title="Cleanup"
-        help="Steps that run after a Task’s pull requests merge and before it moves to Done. Ted runs the command steps itself, then the Task Lead does the instruction steps."
-      />
+      <SectionHeading id="cleanup" setting="factory.cleanup" />
       <div className={base.autoStartRow} data-setting="factory.cleanup.enabled">
         <div className={base.block}>
-          <span className={base.label}>Turn on Cleanup</span>
+          <span className={base.label}>{settingEntry('factory.cleanup.enabled').name}</span>
           <span className={base.caption}>Adds a Cleanup column between Merge and Done.</span>
         </div>
         <Toggle
@@ -2364,13 +2296,7 @@ export function NotificationsSection({ factoryId }: { factoryId: string }) {
   const settings = useSettings()
   return (
     <section className={`${base.section} ${base.compactSection}`} aria-labelledby="notifications">
-      <SectionHeading
-        id="notifications"
-        setting="factory.notifications"
-        title="Notifications"
-        where="machine"
-        help="Which of this Factory’s events notify you. The same choices are in Settings → Notifications, under By Factory."
-      />
+      <SectionHeading id="notifications" setting="factory.notifications" where="machine" />
       <p className={base.caption}>
         Saved here immediately. A notification is sent only when it is also on in Settings →
         Notifications.

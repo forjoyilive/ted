@@ -7,6 +7,7 @@ import {
   matchedParts,
   platformOf,
   searchFactory,
+  settingEntry,
   settingIds,
 } from '../src/renderer/settings-search.ts'
 
@@ -195,4 +196,22 @@ test('every setting in the list is on a row or heading in the renderer', async (
   expect(settingIds.filter((id) => !text.includes(`"${id}"`) && !text.includes(`'${id}'`))).toEqual(
     [],
   )
+})
+
+test('Configuration reads Factory setting help from the list instead of repeating it', async () => {
+  const views = fileURLToPath(new URL('../src/renderer/views', import.meta.url))
+  const files = ['FactorySettings.tsx', 'FactorySettingsSections.tsx', 'SandboxSection.tsx']
+  const flat = (text: string) => text.replace(/\s+/g, ' ')
+  const text = flat(
+    (await Promise.all(files.map((file) => readFile(path.join(views, file), 'utf8')))).join('\n'),
+  )
+
+  const repeated = settingIds.filter((id) => {
+    const { help = '', detail = '' } = settingEntry(id)
+    return (
+      id.startsWith('factory.') &&
+      [help, detail].some((words) => words.length >= 40 && text.includes(flat(words)))
+    )
+  })
+  expect(repeated).toEqual([])
 })

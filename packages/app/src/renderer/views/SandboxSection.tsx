@@ -123,13 +123,7 @@ export function SandboxSection({
   const summary = sandboxSummary(openings)
   return (
     <section className={`${base.section} ${base.compactSection}`} aria-labelledby="sandbox">
-      <SectionHeading
-        id="sandbox"
-        setting="factory.sandbox"
-        title="Sandbox"
-        where="both"
-        help="Everything that widens Ted’s sandbox for this Factory, or runs something outside it."
-      />
+      <SectionHeading id="sandbox" setting="factory.sandbox" where="both" />
       <p className={base.caption}>
         Checks, Apps and worktree setup run in Ted’s sandbox. These settings widen it or let
         something run outside it.
