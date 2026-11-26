@@ -36,7 +36,7 @@ type Step =
   | { waitFor: string }
   | { readNextAfter: string }
   | { run: string[] }
-  | { endTurn: true; usage?: Record<string, number> }
+  | { endTurn: true; usage?: Record<string, number>; total_cost_usd?: number }
   | { exit: number }
   | { everyMessage: Step[] }
   | { authError: true }
@@ -47,6 +47,7 @@ type Step =
   | { cancelPermission: true }
   | { emit: Record<string, unknown> }
   | { tool: string; failed?: true }
+  | { startTool: string }
   | { exitOnInput: true }
 
 const argv = process.argv.slice(2)
@@ -208,6 +209,7 @@ let exitOnInput = false
 let gate: ReturnType<typeof spawn> | undefined
 const readDuringGate: { content: string }[] = []
 let nextTool = 0
+let openTool: string | undefined
 let nextRequest = 0
 let lastRequest: string | undefined
 const answers = new Map<string, (response: unknown) => void>()
@@ -269,7 +271,24 @@ async function runStep(step: Step): Promise<void> {
   } else if ('everyMessage' in step) everyMessage = step.everyMessage
   else if ('emit' in step) emit(step.emit)
   else if ('exitOnInput' in step) exitOnInput = true
-  else if ('tool' in step) {
+  else if ('startTool' in step) {
+    openTool = `tool-${++nextTool}`
+    hook('PreToolUse')
+    emit({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: openTool,
+            name: step.startTool,
+            input: { command: `step ${nextTool}` },
+          },
+        ],
+      },
+    })
+  } else if ('tool' in step) {
     const id = `tool-${++nextTool}`
     hook('PreToolUse')
     emit({
@@ -372,12 +391,14 @@ async function runStep(step: Step): Promise<void> {
       demoResults.push({ step: step.run.join(' '), code: result.code, stderr: result.stderr })
     else say(JSON.stringify(result))
   } else if ('endTurn' in step) {
+    openTool = undefined
     hook('Stop')
     emit({
       type: 'result',
       subtype: 'success',
       stop_reason: 'end_turn',
       ...(step.usage && { usage: step.usage }),
+      ...(step.total_cost_usd !== undefined && { total_cost_usd: step.total_cost_usd }),
     })
   } else if ('exit' in step) process.stdout.write('', () => process.exit(step.exit))
 }
@@ -489,7 +510,7 @@ for (;;) {
   if (interrupted) {
     interrupted = false
     await sleep(stubHealth().interruptEndsAfterMs ?? 0)
-    emit({ type: 'result', subtype: 'error_during_execution', is_error: false })
+    endInterruptedTurn()
   }
 }
 
@@ -517,8 +538,49 @@ async function runDemoScript(script: string, content: string) {
   emit({ type: 'system', subtype: 'demo_script_done', script })
   if (interrupted) {
     interrupted = false
-    emit({ type: 'result', subtype: 'error_during_execution', is_error: false })
+    endInterruptedTurn()
   } else await runStep({ endTurn: true })
+}
+
+function endInterruptedTurn(): void {
+  const tool = openTool
+  openTool = undefined
+  if (tool !== undefined)
+    emit({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            content: "The user doesn't want to proceed with this tool use.",
+            is_error: true,
+            tool_use_id: tool,
+          },
+        ],
+      },
+      parent_tool_use_id: null,
+      tool_use_result: 'User rejected tool use',
+    })
+  emit({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: `[Request interrupted by user${tool === undefined ? '' : ' for tool use'}]`,
+        },
+      ],
+    },
+    parent_tool_use_id: null,
+  })
+  emit({
+    type: 'result',
+    subtype: 'error_during_execution',
+    is_error: true,
+    ...(tool !== undefined && { stop_reason: 'tool_use', terminal_reason: 'aborted_tools' }),
+  })
 }
 
 function demoReply(content: string): string | undefined {

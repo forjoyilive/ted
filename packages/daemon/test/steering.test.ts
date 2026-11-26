@@ -263,6 +263,7 @@ describe('Steering a working Run', () => {
     const client = await startTed()
     const runId = await working(client, [
       { everyMessage: [{ say: 'took it' }, { endTurn: true }] },
+      { startTool: 'Bash' },
       { waitFor: file('never') },
       { endTurn: true },
     ])

@@ -52,6 +52,8 @@ function describe(name: string, input: Record<string, unknown>, cwd: string): To
 
 const interruptNote = '[Request interrupted by user'
 
+export const isInterruptNote = (text: string): boolean => text.startsWith(interruptNote)
+
 function resultText(content: unknown): string {
   if (typeof content === 'string') return content
   return list(content)
@@ -101,7 +103,7 @@ export function claudeChatFrom(cwd: string): AgentChat {
       const texts: string[] = []
       for (const block of list(content)) {
         const part = record(block)
-        if (part.type === 'text' && !str(part.text).startsWith(interruptNote)) {
+        if (part.type === 'text' && !isInterruptNote(str(part.text))) {
           texts.push(str(part.text))
         }
         if (part.type !== 'tool_result') continue
