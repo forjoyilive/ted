@@ -35,10 +35,11 @@ function isFrameworkNamespace(
   name: string,
 ): boolean {
   if (expression.type !== 'Identifier') return false
-  if (globalObjects.has(expression.name) && sourceCode.isGlobalReference(expression)) {
-    return name === 'vi' || name === 'jest'
-  }
   const variable = resolveVariable(sourceCode, expression)
+  if (globalObjects.has(expression.name)) {
+    const undeclared = variable === null || variable.defs.length === 0
+    return (name === 'vi' || name === 'jest') && undeclared
+  }
   return (
     variable?.defs.some(
       (definition) =>
