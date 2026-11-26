@@ -1,4 +1,4 @@
-import { RuleTester } from 'oxlint/plugins-dev'
+import { RuleTester } from '../shared/rule-tester.ts'
 
 import { noArrayFilterMapRule } from './no-array-filter-map.ts'
 

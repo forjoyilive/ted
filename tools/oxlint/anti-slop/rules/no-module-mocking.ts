@@ -2,17 +2,59 @@ import type { ESTree, SourceCode } from '@oxlint/plugins'
 import { defineRule } from '@oxlint/plugins'
 import { resolveVariable } from '../shared/scope.ts'
 
-const moduleMockMethods = new Set(['doMock', 'mock', 'unstable_mockModule'])
+const moduleMockMethods = new Set([
+  'createMockFromModule',
+  'doMock',
+  'importMock',
+  'mock',
+  'requireMock',
+  'setMock',
+  'unstable_mockModule',
+])
+const frameworkModules = new Map([
+  ['vitest', 'vi'],
+  ['@jest/globals', 'jest'],
+])
+const globalObjects = new Set(['global', 'globalThis', 'self', 'window'])
 
 function importedName(node: ESTree.Node): string | null {
   if (node.type !== 'ImportSpecifier') return null
   return node.imported.type === 'Identifier' ? node.imported.name : node.imported.value
 }
 
-function isTestFrameworkObject(
+function memberName(expression: ESTree.Expression): string | null {
+  if (expression.type !== 'MemberExpression') return null
+  const property = expression.property
+  if (!expression.computed) return property.type === 'Identifier' ? property.name : null
+  return property.type === 'Literal' && typeof property.value === 'string' ? property.value : null
+}
+
+function isFrameworkNamespace(
   sourceCode: SourceCode,
   expression: ESTree.Expression,
-): expression is ESTree.IdentifierReference {
+  name: string,
+): boolean {
+  if (expression.type !== 'Identifier') return false
+  if (globalObjects.has(expression.name) && sourceCode.isGlobalReference(expression)) {
+    return name === 'vi' || name === 'jest'
+  }
+  const variable = resolveVariable(sourceCode, expression)
+  return (
+    variable?.defs.some(
+      (definition) =>
+        definition.type === 'ImportBinding' &&
+        definition.node.type === 'ImportNamespaceSpecifier' &&
+        definition.parent?.type === 'ImportDeclaration' &&
+        frameworkModules.get(definition.parent.source.value) === name,
+    ) ?? false
+  )
+}
+
+function isTestFrameworkObject(sourceCode: SourceCode, expression: ESTree.Expression): boolean {
+  if (expression.type === 'MemberExpression') {
+    const name = memberName(expression)
+    return name !== null && isFrameworkNamespace(sourceCode, expression.object, name)
+  }
   if (expression.type !== 'Identifier') return false
   if (
     (expression.name === 'vi' || expression.name === 'jest') &&
@@ -29,27 +71,60 @@ function isTestFrameworkObject(
     if (definition.type !== 'ImportBinding' || definition.parent?.type !== 'ImportDeclaration') {
       return false
     }
-    const source = definition.parent.source.value
     const name = importedName(definition.node)
-    return (source === 'vitest' && name === 'vi') || (source === '@jest/globals' && name === 'jest')
+    return name !== null && frameworkModules.get(definition.parent.source.value) === name
+  })
+}
+
+function moduleMockMember(sourceCode: SourceCode, expression: ESTree.Expression): boolean {
+  if (expression.type !== 'MemberExpression') return false
+  const method = memberName(expression)
+  return (
+    method !== null &&
+    moduleMockMethods.has(method) &&
+    isTestFrameworkObject(sourceCode, expression.object)
+  )
+}
+
+function propertyKeyName(property: ESTree.Node): string | null {
+  if (property.type !== 'Property') return null
+  if (!property.computed && property.key.type === 'Identifier') return property.key.name
+  return property.key.type === 'Literal' && typeof property.key.value === 'string'
+    ? property.key.value
+    : null
+}
+
+function bindsName(pattern: ESTree.Node, name: ESTree.Node): boolean {
+  if (pattern.type === 'AssignmentPattern') return bindsName(pattern.left, name)
+  return pattern.type === 'Identifier' && pattern.start === name.start
+}
+
+function aliasesModuleMock(sourceCode: SourceCode, callee: ESTree.Expression): boolean {
+  if (callee.type !== 'Identifier') return false
+  const variable = resolveVariable(sourceCode, callee)
+  if (variable === null) return false
+  return variable.defs.some((definition) => {
+    if (definition.type !== 'Variable' || definition.node.type !== 'VariableDeclarator') {
+      return false
+    }
+    const { id, init } = definition.node
+    if (init === null) return false
+    if (id.type === 'Identifier') return moduleMockMember(sourceCode, init)
+    if (id.type !== 'ObjectPattern' || !isTestFrameworkObject(sourceCode, init)) return false
+    return id.properties.some((property) => {
+      const key = propertyKeyName(property)
+      return (
+        key !== null &&
+        moduleMockMethods.has(key) &&
+        property.type === 'Property' &&
+        bindsName(property.value, definition.name)
+      )
+    })
   })
 }
 
 function moduleMockCall(sourceCode: SourceCode, callee: ESTree.Expression): boolean {
-  if (!('property' in callee) || !('object' in callee) || !('computed' in callee)) return false
-  if (!isTestFrameworkObject(sourceCode, callee.object)) return false
-  const property = callee.property
-  const method = callee.computed
-    ? property.type === 'Literal' &&
-      (property.value === 'doMock' ||
-        property.value === 'mock' ||
-        property.value === 'unstable_mockModule')
-      ? property.value
-      : null
-    : property.type === 'Identifier'
-      ? property.name
-      : null
-  return method !== null && moduleMockMethods.has(method)
+  return moduleMockMember(sourceCode, callee) || aliasesModuleMock(sourceCode, callee)
 }
 
 /** Ban test framework module mocking in favor of real dependency seams. */
