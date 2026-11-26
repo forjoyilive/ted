@@ -208,7 +208,7 @@ export function createScheduledChecks(options: {
           signal,
           lowPriority: store.settings().lowPriorityWork,
           ...(store.settings().limitScheduledCheckCpus && {
-            cpus: () => options.checkSlots.cpus(),
+            cpus: () => options.checkSlots.soloCpus(),
           }),
           ...(options.memory && { memory: options.memory }),
           onStart: () => undefined,
