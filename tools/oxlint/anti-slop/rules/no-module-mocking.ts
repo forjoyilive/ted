@@ -102,15 +102,19 @@ function bindsName(pattern: ESTree.Node, name: ESTree.Node): boolean {
 function aliasesModuleMock(sourceCode: SourceCode, callee: ESTree.Expression): boolean {
   if (callee.type !== 'Identifier') return false
   const variable = resolveVariable(sourceCode, callee)
-  if (variable === null) return false
-  const reassignedToNonMock = variable.references.some(
-    (reference) =>
-      reference.isWrite() &&
-      !reference.init &&
-      (reference.writeExpr === null || !moduleMockMember(sourceCode, reference.writeExpr)),
-  )
+  if (variable === null || variable.defs.length === 0) return false
+  const reassignedToNonMock = variable.references.some((reference) => {
+    if (!reference.isWrite() || reference.init) return false
+    const assignment = reference.identifier.parent
+    return !(
+      assignment.type === 'AssignmentExpression' &&
+      assignment.operator === '=' &&
+      assignment.left === reference.identifier &&
+      moduleMockMember(sourceCode, assignment.right)
+    )
+  })
   if (reassignedToNonMock) return false
-  return variable.defs.some((definition) => {
+  return variable.defs.every((definition) => {
     if (definition.type !== 'Variable' || definition.node.type !== 'VariableDeclarator') {
       return false
     }

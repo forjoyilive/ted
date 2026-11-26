@@ -21,6 +21,9 @@ tester.run('anti-slop/no-module-mocking', noModuleMockingRule, {
     "vi.importActual('./module');",
     "let load = vi.importMock; load = vi.importActual; load('./module');",
     "let load = vi.mock; load = undefined; load('./module');",
+    "let load = vi.mock; load += vi.doMock; load('./module');",
+    "let load = vi.mock; load ??= vi.doMock; load('./module');",
+    "var load = vi.mock; var load = vi.importActual; load('./module');",
   ],
   invalid: [
     { code: "vi.mock('./user-store');", errors: [error] },
@@ -72,6 +75,10 @@ tester.run('anti-slop/no-module-mocking', noModuleMockingRule, {
     },
     {
       code: "let load = vi.importMock; load = vi.mock; load('./user-store');",
+      errors: [error],
+    },
+    {
+      code: "var load = vi.importMock; var load = vi.mock; load('./user-store');",
       errors: [error],
     },
   ],
