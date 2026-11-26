@@ -3,24 +3,28 @@
   "macPublicKey": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw",
   "phoneSecretKey": "ZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gIGCg4Q",
   "phonePublicKey": "VxR2nRFr92Q2rnS8eT0sMK0ZA8WaxSc4BcfiaYtBDDY",
+  "relaySeed": "oaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2-v8A",
+  "relayPublicKey": "C0eCPnEJXdWb54rCccV27zifh7ZFYasHz5pOvNAtIEE",
   "pairingSecret": "ycrLzM3Oz9DR0tPU1dbX2Nna29zd3t_g4eLj5OXm5-g",
   "pairing": "MzQ1Njc4OTo7PD0-P0BBQg",
   "nonce": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY",
   "message": {
-    "protocol": 1,
+    "protocol": 3,
     "id": "AAECAwQFBgcICQoLDA0ODw",
     "at": 1795135669031,
     "type": "pair",
     "pairing": "MzQ1Njc4OTo7PD0-P0BBQg",
     "secret": "ycrLzM3Oz9DR0tPU1dbX2Nna29zd3t_g4eLj5OXm5-g",
     "name": "iPhone 16",
-    "edition": "dev"
+    "edition": "dev",
+    "relayKey": "C0eCPnEJXdWb54rCccV27zifh7ZFYasHz5pOvNAtIEE",
+    "relayProof": "68WvWrZa0J6FkyPYvYb2b2aSi8Q1P3aPjoJGPBAy2iRYAH647xXGVOhe-lIvY-kCRZsFRQqBE2AwhTMXQbKBAQ"
   },
-  "envelope": "{\"v\":1,\"from\":\"VxR2nRFr92Q2rnS8eT0sMK0ZA8WaxSc4BcfiaYtBDDY\",\"nonce\":\"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY\",\"box\":\"b3bVs_siUbeqo4n5bVqgfXPZs1cD_qRSJHY0dkQhHPHg8Nb3wL_Xr_RAl3wV1-A7Fq2EQ_Dss4is8Tfdd9ML1LlB7WMJQa0c9MWzA_MFZHoCqzajKP1qCrCcXiK1fRNGYeRqdCUnjFip9B1_j1-WH1kqha-5z94mewEVRJc2hC3Nr2NZ6XUPXB8yxty5B09-p7kY7yCKBoj8SwbiuByAtmGRqJp7qvVn2hJOx7VsXPYpZtUGG80YJcFzXPfMfHw-h7lSuDs8zMGLh34l0u3SA5Ra5X1B22HZSpg\"}",
+  "envelope": "{\"v\":1,\"from\":\"VxR2nRFr92Q2rnS8eT0sMK0ZA8WaxSc4BcfiaYtBDDY\",\"nonce\":\"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY\",\"box\":\"AHbr1cZwTRgOFjVfmUDw1nPZs1cD_qRSJHY0dkYhHPHg8Nb3wL_Xr_RAl3wV1-A7Fq2EQ_Dss4is8Tfdd9ML1LlB7WMJQa0c9MWzA_MFZHoCqzajKP1qCrCcXiK1fRNGYeRqdCUnjFip9B1_j1-WH1kqha-5z94mewEVRJc2hC3Nr2NZ6XUPXB8yxty5B09-p7kY7yCKBoj8SwbiuByAtmGRqJp7qvVn2hJOx7VsXPYpZtUGG80YJcFzXPfMfHw-h7lSuDs8zMGLh34l0u3SA5Ra5X1B22HZSsk4E7cez6qfapvtyDr5ylnF77gZxYcIQIiPG8KF5nEKsKnM0wz5pTqm13kVynsCn5W3jPTj2CTLdE4EpjIUTKTVT-hneCXQXKcaLhrUJ4kvTj1ORYjcpG9YWyQaZWtzxqJ5Z4uH8gWtAwsRqJp5oOS9_XK-OycbWE5d3BRwby7Ritsurabwl4VBRUoHajXA7sCvJj_rcPNArtmrdmD5X0A\"}",
   "shortCode": "866964",
   "replyNonce": "HyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2",
   "reply": {
-    "protocol": 1,
+    "protocol": 3,
     "id": "AAECAwQFBgcICQoLDA0ODw",
     "at": 1795135670000,
     "type": "reply",
@@ -30,5 +34,5 @@
       "code": "866964"
     }
   },
-  "replyEnvelope": "{\"v\":1,\"from\":\"B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw\",\"nonce\":\"HyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2\",\"box\":\"yTTwPi-hI0CirFsElGeUTGMHHos-gM9kzX9MWZquwjXc0rlpxIxn9G8_A5F76SXDiru0cdy8p7Ij6MaoetSBWrDtUhKS_MMKHw8L7G3u4ZxaCsOwClVoAfQuY6PduKknzbO8zW35vhQJs15Q5crp3vbNH4DkNdsJ40mayPs80jZOVmTjVD1Jx9WuZSW2SUPJYSmR\"}"
+  "replyEnvelope": "{\"v\":1,\"from\":\"B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw\",\"nonce\":\"HyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2\",\"box\":\"IgOzPibVCAE8dHuEhVbLbWMHHos-gM9kzX9MWZiuwjXc0rlpxIxn9G8_A5F76SXDiru0cdy8p7Ij6MaoetSBWrDtUhKS_MMKHw8L7G3u4ZxaCsOwClVoAfQuY6PduKknzbO8zW35vhQJs15Q5crp3vbNH4DkNdsJ40mayPs80jZOVmTjVD1Jx9WuZSW2SUPJYSmR\"}"
 }

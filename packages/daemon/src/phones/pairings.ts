@@ -92,7 +92,11 @@ export interface Pairings {
   registered(pairing: string): void
 }
 
-export function createPairings(now: () => number, ourEdition: Edition): Pairings {
+export function createPairings(
+  now: () => number,
+  ourEdition: Edition,
+  random: (size: number) => Uint8Array = randomBytes,
+): Pairings {
   let current: LivePairing | undefined
   let past: LivePairing[] = []
   const expired = (pairing: LivePairing) =>
@@ -115,8 +119,8 @@ export function createPairings(now: () => number, ourEdition: Edition): Pairings
   }
   return {
     create(keys, relay) {
-      const id = toBase64Url(randomBytes(16))
-      const secret = new Uint8Array(randomBytes(32))
+      const id = toBase64Url(random(16))
+      const secret = new Uint8Array(random(32))
       const ticketHash = relayTicketHash(relayTicket(secret, keys.channel, id))
       const expiresAt = now() + pairingLifetimeMs
       const link = encodePairingLink({
