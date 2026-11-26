@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import {
   fromBase64Url,
   type MacReplyMessage,
+  minPhoneProtocolVersion,
   type PhoneRequest,
   parsePhoneRequest,
   shortCode,
@@ -10,12 +11,16 @@ import {
 import nacl from 'tweetnacl'
 import { expect, test } from 'vitest'
 import { seal, unseal } from '../src/phones/crypto.ts'
+import type { PhoneKeys } from '../src/phones/keys.ts'
+import { createPairings } from '../src/phones/pairings.ts'
 
 interface Vector {
   macSecretKey: string
   macPublicKey: string
   phoneSecretKey: string
   phonePublicKey: string
+  relaySeed: string
+  relayPublicKey: string
   pairingSecret: string
   pairing: string
   nonce: string
@@ -61,4 +66,27 @@ test('sealing and opening the pair request and its reply give the vector’s env
   )
   expect(unseal(vector.replyEnvelope, phone)?.message).toEqual(vector.reply)
   expect(unseal(vector.envelope, phone)).toBeUndefined()
+})
+
+test('the daemon accepts the vector’s pair request', () => {
+  const message = vector.message
+  if (message.type !== 'pair') throw new Error('the vector’s message is not a pair request')
+  expect(message.protocol).toBeGreaterThanOrEqual(minPhoneProtocolVersion)
+  expect(message.relayKey).toBe(vector.relayPublicKey)
+  expect(toBase64Url(nacl.sign.keyPair.fromSeed(bytes(vector.relaySeed)).publicKey)).toBe(
+    vector.relayPublicKey,
+  )
+  const picks = [bytes(vector.pairing), bytes(vector.pairingSecret)]
+  const pairings = createPairings(
+    () => message.at,
+    message.edition,
+    (size) => picks.find((pick) => pick.length === size) ?? new Uint8Array(size),
+  )
+  const keys: PhoneKeys = { box: mac, sign: nacl.sign.keyPair(), channel: 'vector-channel' }
+  expect(pairings.create(keys, 'https://relay.example').offer.pairing).toBe(vector.pairing)
+  expect(pairings.take(message, vector.phonePublicKey, mac.publicKey, () => false)).toEqual({
+    ok: true,
+    code: vector.shortCode,
+    relayKey: vector.relayPublicKey,
+  })
 })
