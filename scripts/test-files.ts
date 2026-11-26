@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
-export const testFilePatterns = ['packages/*/test/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts']
+export const testFilePatterns = [
+  'packages/*/test/**/*.test.{ts,tsx}',
+  'scripts/**/*.test.ts',
+  'tools/oxlint/anti-slop/rules/*.test.ts',
+]
 
 type Read = Map<string, { electron: boolean; imports: string[] }>
 
