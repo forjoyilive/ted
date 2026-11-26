@@ -21,6 +21,7 @@ import {
   parseRetries,
   passedFiles,
   passedInRun,
+  recordPassed,
   runRefusal,
   sandboxSkipped,
   sandboxSkippedInRun,
@@ -76,6 +77,22 @@ function historyFile(): string {
 }
 afterEach(() => {
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true })
+})
+
+describe('recording a passed commit', () => {
+  const commit = 'a'.repeat(40)
+
+  test('appends the commit to ted-checked', () => {
+    const file = historyFile()
+    expect(recordPassed(commit, file)).toBe(true)
+    expect(readFileSync(file, 'utf8')).toBe(`${commit}\n`)
+  })
+
+  test('reports false instead of throwing when ted-checked can’t be written', () => {
+    const file = historyFile()
+    mkdirSync(file)
+    expect(recordPassed(commit, file)).toBe(false)
+  })
 })
 
 function report(status = 'passed') {
