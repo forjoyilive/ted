@@ -75,6 +75,15 @@ export function checkedCommits(text: string): Set<string> {
   return new Set(text.split('\n').filter((line) => /^[0-9a-f]{40}$/.test(line)))
 }
 
+export function recordPassed(commit: string, file = checkedFile()): string | undefined {
+  try {
+    appendFileSync(file, `${commit}\n`)
+    return undefined
+  } catch (error) {
+    return String(error)
+  }
+}
+
 export function hasPassed(commit: string): boolean {
   const file = checkedFile()
   return existsSync(file) && checkedCommits(readFileSync(file, 'utf8')).has(commit)
@@ -644,9 +653,11 @@ export async function checkAndRecord({
       '\nThe app’s checks passed. The daemon, CLI, protocol and script tests did not run, so nothing was recorded.',
     )
   } else if (clean && git('status', '--porcelain') === '' && git('rev-parse', 'HEAD') === commit) {
-    appendFileSync(checkedFile(), `${commit}\n`)
+    const failure = recordPassed(commit)
     console.log(
-      `\nAll checks passed on ${commit.slice(0, 7)}. A release of this commit can skip them.`,
+      failure === undefined
+        ? `\nAll checks passed on ${commit.slice(0, 7)}. A release of this commit can skip them.`
+        : `\nAll checks passed on ${commit.slice(0, 7)}, but the pass couldn’t be recorded (${failure}), so a release of this commit won’t skip them.`,
     )
   } else {
     console.log(
