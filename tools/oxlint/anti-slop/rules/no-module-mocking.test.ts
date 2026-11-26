@@ -19,6 +19,11 @@ tester.run('anti-slop/no-module-mocking', noModuleMockingRule, {
     'const mock = () => {}; mock();',
     "const { mock } = { mock() {} }; mock('./module');",
     "vi.importActual('./module');",
+    "let load = vi.importMock; load = vi.importActual; load('./module');",
+    "let load = vi.mock; load = undefined; load('./module');",
+    "let load = vi.mock; load += vi.doMock; load('./module');",
+    "let load = vi.mock; load ??= vi.doMock; load('./module');",
+    "var load = vi.mock; var load = vi.importActual; load('./module');",
   ],
   invalid: [
     { code: "vi.mock('./user-store');", errors: [error] },
@@ -52,5 +57,29 @@ tester.run('anti-slop/no-module-mocking', noModuleMockingRule, {
     { code: "jest.requireMock('./user-store');", errors: [error] },
     { code: "jest.createMockFromModule('./user-store');", errors: [error] },
     { code: "jest.setMock('./user-store', {});", errors: [error] },
+    {
+      code: "import * as global from 'vitest'; global.vi.mock('./user-store');",
+      errors: [error],
+    },
+    {
+      code: "import * as globalThis from 'vitest'; globalThis.vi.mock('./user-store');",
+      errors: [error],
+    },
+    {
+      code: "import * as window from 'vitest'; window.vi.mock('./user-store');",
+      errors: [error],
+    },
+    {
+      code: "import * as self from '@jest/globals'; self.jest.mock('./user-store');",
+      errors: [error],
+    },
+    {
+      code: "let load = vi.importMock; load = vi.mock; load('./user-store');",
+      errors: [error],
+    },
+    {
+      code: "var load = vi.importMock; var load = vi.mock; load('./user-store');",
+      errors: [error],
+    },
   ],
 })
