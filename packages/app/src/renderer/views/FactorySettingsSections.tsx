@@ -2137,7 +2137,7 @@ function CleanupSectionView({ draft, onDraft }: { draft: SettingsDraft; onDraft:
       <div className={base.autoStartRow} data-setting="factory.cleanup.enabled">
         <div className={base.block}>
           <span className={base.label}>{settingEntry('factory.cleanup.enabled').name}</span>
-          <span className={base.caption}>Adds a Cleanup column between Merge and Done.</span>
+          <span className={base.caption}>{settingEntry('factory.cleanup.enabled').help}</span>
         </div>
         <Toggle
           label="Turn on Cleanup"
@@ -2153,7 +2153,7 @@ function CleanupSectionView({ draft, onDraft }: { draft: SettingsDraft; onDraft:
         </span>
       </div>
       {enabled && steps.length === 0 && (
-        <p className={styles.cleanupNotice}>Cleanup stays off until it has at least one step.</p>
+        <p className={styles.cleanupNotice}>{settingEntry('factory.cleanup.enabled').detail}</p>
       )}
       {steps.map((step, index) => {
         const key = keys.current[index] ?? String(index)

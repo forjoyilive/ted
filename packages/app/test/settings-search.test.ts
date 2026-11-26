@@ -210,7 +210,7 @@ test('Configuration reads Factory setting help from the list instead of repeatin
     const { help = '', detail = '' } = settingEntry(id)
     return (
       id.startsWith('factory.') &&
-      [help, detail].some((words) => words.length >= 40 && text.includes(flat(words)))
+      [help, detail].some((words) => words !== '' && text.includes(flat(words)))
     )
   })
   expect(repeated).toEqual([])

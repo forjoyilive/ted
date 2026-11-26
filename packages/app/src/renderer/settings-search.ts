@@ -555,7 +555,8 @@ const entries = {
   'factory.cleanup.enabled': {
     name: 'Turn on Cleanup',
     keywords: 'after merge',
-    help: 'Adds a Cleanup column between Merge and Done. Cleanup stays off until it has at least one step.',
+    help: 'Adds a Cleanup column between Merge and Done.',
+    detail: 'Cleanup stays off until it has at least one step.',
   },
   'factory.notes': {
     name: 'Factory notes',
