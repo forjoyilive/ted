@@ -14,6 +14,7 @@ import {
   type ThreadEvent,
   tedPaths,
 } from '@ted/protocol'
+import type { JsonObject } from '@ted/protocol/parse'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -351,7 +352,7 @@ describe('Steering a working Run', () => {
     const requests = (await readFile(path.join(scratch, 'stub-requests.jsonl'), 'utf8'))
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line) as { method?: string; params?: Record<string, unknown> })
+      .map((line) => JSON.parse(line) as { method?: string; params?: JsonObject })
     expect(requests.filter((m) => m.method?.startsWith('turn/'))).toMatchObject([
       { method: 'turn/start' },
       { method: 'turn/interrupt', params: { turnId: 'turn-1' } },

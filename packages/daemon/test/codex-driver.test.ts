@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { JsonObject } from '@ted/protocol/parse'
 import { describe, expect, test, vi } from 'vitest'
 import { type CodexPlan, drive } from '../src/agents/codex-driver.ts'
 import { createAgents } from '../src/agents/index.ts'
@@ -158,7 +159,7 @@ describe('Codex persistent storage', () => {
 
 describe('Codex turn ids', () => {
   test('a late turn/completed from an earlier turn leaves the live turn to steer and interrupt', async () => {
-    const messages: { id?: number; method: string; params?: Record<string, unknown> }[] = []
+    const messages: { id?: number; method: string; params?: JsonObject }[] = []
     let turns = 0
     const driver = drive({
       input: JSON.stringify({

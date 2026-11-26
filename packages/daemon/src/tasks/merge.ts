@@ -5,7 +5,8 @@ import {
   type PullRequestCiMode,
   type TaskPush,
 } from '@ted/protocol'
-import type { Gh } from '../github/gh.ts'
+import { isObject, type Json, parseJson } from '@ted/protocol/parse'
+import { type Gh, GhError } from '../github/gh.ts'
 
 export interface MergeTarget {
   name: string
@@ -224,6 +225,13 @@ export async function readByHost(
   return { pulls, failed, hostOf }
 }
 
+function partialData(error: Error): Json {
+  const body =
+    error instanceof GhError && error.kind === 'failed' ? parseJson(error.output) : undefined
+  if (isObject(body) && isObject(body.data)) return body
+  throw error
+}
+
 export async function readPullRequests(
   gh: Pick<Gh, 'graphql'>,
   refs: readonly PullRequestRef[],
@@ -241,11 +249,13 @@ export async function readPullRequests(
     params.push(`$o${i}: String!`, `$n${i}: String!`, `$p${i}: Int!`)
     return repositoryFields(i)
   })
-  const result = (await gh.graphql(
-    `query(${params.join(', ')}) {\n${fields.join('\n')}\n}`,
-    variables,
-    host === defaultHost ? {} : { host },
-  )) as { data?: Record<string, RepositoryBody | null> }
+  const result = (await gh
+    .graphql(
+      `query(${params.join(', ')}) {\n${fields.join('\n')}\n}`,
+      variables,
+      host === defaultHost ? {} : { host },
+    )
+    .catch(partialData)) as { data?: Record<string, RepositoryBody | null> }
   refs.forEach((ref, i) => {
     const repository = result?.data?.[`r${i}`]
     const pr = repository?.pullRequest

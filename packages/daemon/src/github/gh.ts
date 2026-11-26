@@ -7,10 +7,12 @@ export type GhErrorKind = 'missing' | 'auth' | 'rate-limit' | 'failed'
 export class GhError extends Error {
   readonly kind: GhErrorKind
   readonly status: number | undefined
-  constructor(kind: GhErrorKind, message: string, status?: number) {
+  readonly output: string
+  constructor(kind: GhErrorKind, message: string, status?: number, output = '') {
     super(message)
     this.kind = kind
     this.status = status
+    this.output = output
   }
 }
 
@@ -138,7 +140,7 @@ function runFile(
         ...(options.cwd !== undefined && { cwd: options.cwd }),
       },
       (error, stdout, stderr) => {
-        if (error) reject(Object.assign(error, { stderr }))
+        if (error) reject(Object.assign(error, { stderr, stdout }))
         else resolve(stdout)
       },
     )
@@ -159,5 +161,7 @@ function classify(error: unknown, args: readonly string[]): GhError {
     return new GhError('auth', message)
   }
   const status = /\(HTTP (\d{3})\)/.exec(stderr)?.[1]
-  return new GhError('failed', message, status === undefined ? undefined : Number(status))
+  // SAFETY: runFile rejects with execFile's error, which it gives a stdout string.
+  const output = String((error as { stdout?: unknown }).stdout ?? '')
+  return new GhError('failed', message, status === undefined ? undefined : Number(status), output)
 }
