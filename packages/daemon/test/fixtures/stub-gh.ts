@@ -90,6 +90,7 @@ interface StubMerge {
   reviews?: { id: string; state: string; author: StubAuthor; body: string; url?: string }[]
   deployments?: { environment: string; state: string; url?: string }[]
   updateBase?: boolean
+  missing?: boolean
 }
 
 const readyHosts = {
@@ -225,9 +226,20 @@ const author = (a: StubAuthor) => ({ __typename: a.bot ? 'Bot' : 'User', login: 
 
 function pullRequests(variables: Record<string, unknown>) {
   const data: Record<string, unknown> = {}
+  const errors: { type: string; path: string[]; locations: unknown[]; message: string }[] = []
   for (let i = 0; `p${i}` in variables; i++) {
     const number = String(variables[`p${i}`])
     const merge = mergeOf(number)
+    if (merge.missing) {
+      data[`r${i}`] = null
+      errors.push({
+        type: 'NOT_FOUND',
+        path: [`r${i}`],
+        locations: [{ line: i + 2, column: 3 }],
+        message: `Could not resolve to a Repository with the name '${String(variables[`o${i}`])}/${String(variables[`n${i}`])}'.`,
+      })
+      continue
+    }
     data[`r${i}`] = {
       squashMergeAllowed: (merge.allowed ?? ['squash', 'merge', 'rebase']).includes('squash'),
       mergeCommitAllowed: (merge.allowed ?? ['squash', 'merge', 'rebase']).includes('merge'),
@@ -302,7 +314,7 @@ function pullRequests(variables: Record<string, unknown>) {
       },
     }
   }
-  return { data }
+  return errors.length > 0 ? { data, errors } : { data }
 }
 
 function rebaseBranch(): string {
@@ -395,6 +407,10 @@ if (args[0] === '--version') {
     process.stderr.write('gh: Bad credentials (HTTP 401)\n')
     process.exit(1)
   }
+  if (state.api?.result === 'rate-limit') {
+    process.stderr.write('gh: API rate limit exceeded for user ID 1.\n')
+    process.exit(1)
+  }
   const gate = state.graphqlGate
   if (gate && (gate.after ?? 0) > 0) {
     gate.after = (gate.after ?? 0) - 1
@@ -404,7 +420,12 @@ if (args[0] === '--version') {
     while (!existsSync(gate.release)) await sleep(5)
   }
   const { variables } = JSON.parse(stdin) as { variables: Record<string, unknown> }
-  process.stdout.write(`${JSON.stringify(pullRequests(variables))}\n`)
+  const body = pullRequests(variables)
+  process.stdout.write(`${JSON.stringify(body)}\n`)
+  if ('errors' in body) {
+    process.stderr.write(`gh: ${body.errors.map((e) => e.message).join('\n')}\n`)
+    process.exitCode = 1
+  }
 } else if (graphql && stdin.includes('updatePullRequestBranch')) {
   const head = rebaseBranch()
   process.stdout.write(

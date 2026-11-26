@@ -482,18 +482,20 @@ describe('Billing and credentials', () => {
 })
 
 describe('Tokens, dollars, plan usage and retries', () => {
-  const result = {
-    emit: {
-      type: 'result',
-      subtype: 'success',
-      total_cost_usd: 0.42,
-      usage: { input_tokens: 1000, output_tokens: 500 },
+  const turn = {
+    endTurn: true,
+    total_cost_usd: 0.42,
+    usage: {
+      input_tokens: 100,
+      cache_creation_input_tokens: 300,
+      cache_read_input_tokens: 600,
+      output_tokens: 500,
     },
   }
 
   test('every Run shows its tokens; dollars only when the Run used an API key', async () => {
     const client = await start()
-    const sub = await startTask(client, steps(result, { endTurn: true }))
+    const sub = await startTask(client, steps(turn))
     const subRun = await leadRunOf(client, sub.id)
     const subChat = await waitUntil(async () => {
       const chat = await client.ok<RunChat>('GET', `/runs/${subRun}/chat`)
@@ -508,7 +510,7 @@ describe('Tokens, dollars, plan usage and retries', () => {
 
     await client.ok('PATCH', '/settings', { billing: { claude: 'api-key', codex: 'subscription' } })
     await setStub('claude', { apiKeySource: 'ANTHROPIC_API_KEY' })
-    const keyed = await startTask(client, steps(result, { endTurn: true }))
+    const keyed = await startTask(client, steps(turn))
     const keyedRun = await leadRunOf(client, keyed.id)
     const keyedChat = await waitUntil(async () => {
       const chat = await client.ok<RunChat>('GET', `/runs/${keyedRun}/chat`)

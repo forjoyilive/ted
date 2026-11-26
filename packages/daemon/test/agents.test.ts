@@ -132,6 +132,25 @@ describe('agent kinds', () => {
     expect(claude.turnFrom(JSON.stringify({ type: 'result' }))).toBe('completed')
   })
 
+  test('a captured Claude interrupt ends the turn without starting one or adding accepted text', () => {
+    const claude = agents.get('claude')
+    const capture = fileURLToPath(
+      new URL('../../../docs/research/kri-80/claude-interrupt.jsonl', import.meta.url),
+    )
+    const lines = readFileSync(capture, 'utf8')
+      .trim()
+      .split('\n')
+      .slice(10, 13)
+      .map((line) => JSON.stringify((JSON.parse(line) as { msg: unknown }).msg))
+    expect(lines.map((line) => JSON.parse(line).type)).toEqual(['user', 'user', 'result'])
+    expect(lines.map((line) => claude.turnFrom(line))).toEqual([undefined, undefined, 'completed'])
+    expect(lines.map((line) => claude.acceptedTextFrom(line))).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ])
+  })
+
   test('bypass: Claude Code bypassPermissions; Codex danger-full-access with no approvals', () => {
     const claude = agents.get('claude').launch({ ...run, permissions: 'bypass' }).args
     const codex = agents.get('codex').launch({ ...run, permissions: 'bypass' }).args

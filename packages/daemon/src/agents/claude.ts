@@ -18,7 +18,7 @@ import {
   type UsageSignal,
   withoutCredentials,
 } from './agent.ts'
-import { claudeChat, claudeChatFrom } from './claude-chat.ts'
+import { claudeChat, claudeChatFrom, isInterruptNote } from './claude-chat.ts'
 
 const stateByHook: Record<string, RunState> = {
   UserPromptSubmit: 'working',
@@ -518,7 +518,9 @@ function textParts(content: unknown): string | undefined {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return undefined
   const texts = (content as { type?: unknown; text?: unknown }[]).flatMap((part) =>
-    part?.type === 'text' && typeof part.text === 'string' ? [part.text] : [],
+    part?.type === 'text' && typeof part.text === 'string' && !isInterruptNote(part.text)
+      ? [part.text]
+      : [],
   )
   return texts.length > 0 ? texts.join('\n') : undefined
 }

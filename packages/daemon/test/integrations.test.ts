@@ -9,6 +9,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { createIntegrations, type Integrations } from '../src/integrations.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import type { MachineArea } from '../src/store/machine.ts'
+import { type PullRequestRef, readByHost } from '../src/tasks/merge.ts'
 import { terminalScript } from '../src/terminal.ts'
 import { appClient, appHeaders, makeTempHome, rawRequest, stubClaudePath } from './helpers.ts'
 
@@ -426,6 +427,26 @@ describe('GitHub health', () => {
       query: 'query($n: Int!) { viewer { login } }',
       variables: { n: 1 },
     })
+  })
+
+  test('one missing pull request leaves the others on its host readable; a rate limit still fails the host', async () => {
+    const { integrations } = start()
+    const refs: PullRequestRef[] = [
+      { key: 'a', repo: 'acme/app', number: 7 },
+      { key: 'b', repo: 'acme/gone', number: 8 },
+    ]
+    await setGh({ merge: { prs: { '8': { missing: true } } } })
+
+    const read = await readByHost(integrations.gh, refs)
+
+    expect([...read.pulls.keys()]).toEqual(['a'])
+    expect(read.pulls.get('a')).toMatchObject({ state: 'OPEN', title: 'Stub pull request' })
+    expect([...read.failed.keys()]).toEqual([])
+
+    await setGh({ merge: {}, api: { result: 'rate-limit' } })
+    const limited = await readByHost(integrations.gh, refs)
+    expect([...limited.pulls.keys()]).toEqual([])
+    expect(limited.failed.get('github.com')).toMatchObject({ kind: 'rate-limit' })
   })
 })
 
