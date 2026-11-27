@@ -5,6 +5,8 @@ import { contentVersion, readLayerDirectory } from './workflow/layers.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface LibraryWatch {
+  saving(): void
+  saveFailed(): void
   saw(version: string): void
   close(): void
 }
@@ -18,6 +20,7 @@ export interface LibraryWatchOptions {
     close(): void
   }
   pollMs?: number
+  recheckMs?: number
 }
 
 export async function watchLibrary(
@@ -35,13 +38,16 @@ export async function watchLibrary(
   }
   // macOS FSEvents reports the folder's own creation just after the watch starts.
   let seen = await read()
-  let timer: NodeJS.Timeout | undefined
+  let debounce: NodeJS.Timeout | undefined
+  let recheckTimer: NodeJS.Timeout | undefined
+  let loop = 0
   let closed = false
   let polling = false
   let saved = 0
+  let inSave = false
   let refreshing = false
   const refresh = async () => {
-    if (closed || refreshing) return
+    if (closed || refreshing || inSave) return
     refreshing = true
     const before = saved
     try {
@@ -59,15 +65,18 @@ export async function watchLibrary(
   }
   const changed = () => {
     if (closed || polling) return
-    clearTimeout(timer)
-    timer = setTimeout(() => {
-      if (refreshing) changed()
+    clearTimeout(debounce)
+    debounce = setTimeout(() => {
+      if (refreshing || inSave) changed()
       else void refresh()
     }, options.debounceMs ?? 150).unref()
   }
-  const poll = () => {
-    if (closed) return
-    timer = setTimeout(() => void refresh().then(poll), options.pollMs ?? 1000).unref()
+  // fs.watch on macOS (FSEvents) can miss a change under load, so a working watcher
+  // is also backed by a slow re-read.
+  const recheck = (current = ++loop) => {
+    if (closed || current !== loop) return
+    const delay = polling ? (options.pollMs ?? 1000) : (options.recheckMs ?? 5000)
+    recheckTimer = setTimeout(() => void refresh().then(() => recheck(current)), delay).unref()
   }
   const watchDirectory =
     options.watchDirectory ??
@@ -78,8 +87,9 @@ export async function watchLibrary(
     polling = true
     watcher?.close()
     watcher = undefined
-    clearTimeout(timer)
-    poll()
+    clearTimeout(debounce)
+    clearTimeout(recheckTimer)
+    recheck()
   }
   try {
     watcher = watchDirectory(options.libraryDir, changed)
@@ -91,14 +101,25 @@ export async function watchLibrary(
     console.error('couldn’t watch the Library, checking for edits periodically:', error)
     fallback()
   }
+  if (!polling) recheck()
   return {
+    saving() {
+      inSave = true
+      saved += 1
+    },
+    saveFailed() {
+      inSave = false
+      saved += 1
+    },
     saw(version) {
       seen = version
       saved += 1
+      inSave = false
     },
     close() {
       closed = true
-      clearTimeout(timer)
+      clearTimeout(debounce)
+      clearTimeout(recheckTimer)
       watcher?.close()
     },
   }

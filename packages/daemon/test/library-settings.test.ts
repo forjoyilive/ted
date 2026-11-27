@@ -64,6 +64,12 @@ const libraryDir = () => path.join(home, 'library')
 const libraryFile = (file: string) =>
   readFile(path.join(libraryDir(), file), 'utf8').catch(() => undefined)
 
+async function editOutside(file: string, text: string) {
+  const pending = path.join(home, 'pending-library-file')
+  await writeFile(pending, text)
+  await rename(pending, path.join(libraryDir(), file))
+}
+
 function blobHash(text: string): string {
   return createHash('sha1')
     .update(`blob ${Buffer.byteLength(text)}\0`)
@@ -374,10 +380,7 @@ describe('Library settings', () => {
     const subscription = await appClient(info, daemon?.appToken).subscribe((e) => events.push(e))
     try {
       await mkdir(path.join(libraryDir(), 'stages'), { recursive: true })
-      await writeFile(
-        path.join(libraryDir(), 'workflow.yaml'),
-        'version: 1\nstages:\n  merge:\n    enabled: false\n',
-      )
+      await editOutside('workflow.yaml', 'version: 1\nstages:\n  merge:\n    enabled: false\n')
       await waitUntil(
         async () => events.some((e) => e.type === 'library-changed') || undefined,
         'library-changed',
@@ -387,7 +390,7 @@ describe('Library settings', () => {
       expect(valid.invalid).toBeUndefined()
 
       events.length = 0
-      await writeFile(path.join(libraryDir(), 'workflow.yaml'), 'version: 1\nstages:\n  merge: [\n')
+      await editOutside('workflow.yaml', 'version: 1\nstages:\n  merge: [\n')
       await waitUntil(
         async () => events.some((e) => e.type === 'library-changed') || undefined,
         'library-changed',
@@ -410,6 +413,45 @@ describe('Library settings', () => {
       expect(events.filter((e) => e.type === 'library-changed')).toEqual([
         { type: 'library-changed', version: fixed.version },
       ])
+    } finally {
+      subscription.close()
+    }
+  })
+
+  test('an outside edit the watcher never reports is still picked up', async () => {
+    const client = await start({
+      libraryWatch: {
+        watchDirectory: () => ({ on: () => undefined, close: () => undefined }),
+        recheckMs: 20,
+      },
+    })
+    await client.view()
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const events: DaemonEvent[] = []
+    const subscription = await appClient(info, daemon?.appToken).subscribe((e) => events.push(e))
+    try {
+      await mkdir(libraryDir(), { recursive: true })
+      await editOutside('workflow.yaml', 'version: 1\nstages:\n  merge:\n    enabled: false\n')
+      await waitUntil(
+        async () => events.some((e) => e.type === 'library-changed') || undefined,
+        'library-changed',
+      )
+      const view = await client.view()
+      expect(view.stages.find((s) => s.id === 'merge')).toMatchObject({ enabled: false })
+      expect(events.filter((e) => e.type === 'library-changed')).toEqual([
+        { type: 'library-changed', version: view.version },
+      ])
+
+      let version = view.version
+      for (const gate of [false, true, false]) {
+        events.length = 0
+        version = (await client.save({ stages: { design: { gate } } }, version)).version
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        expect(events.filter((e) => e.type === 'library-changed')).toEqual([
+          { type: 'library-changed', version },
+        ])
+      }
     } finally {
       subscription.close()
     }
