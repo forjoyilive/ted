@@ -415,6 +415,38 @@ describe('Library settings', () => {
     }
   })
 
+  test('an outside edit the watcher never reports is still picked up', async () => {
+    const client = await start({
+      libraryWatch: {
+        watchDirectory: () => ({ on: () => undefined, close: () => undefined }),
+        recheckMs: 20,
+      },
+    })
+    await client.view()
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const events: DaemonEvent[] = []
+    const subscription = await appClient(info, daemon?.appToken).subscribe((e) => events.push(e))
+    try {
+      await mkdir(libraryDir(), { recursive: true })
+      await writeFile(
+        path.join(libraryDir(), 'workflow.yaml'),
+        'version: 1\nstages:\n  merge:\n    enabled: false\n',
+      )
+      await waitUntil(
+        async () => events.some((e) => e.type === 'library-changed') || undefined,
+        'library-changed',
+      )
+      const view = await client.view()
+      expect(view.stages.find((s) => s.id === 'merge')).toMatchObject({ enabled: false })
+      expect(events.filter((e) => e.type === 'library-changed')).toEqual([
+        { type: 'library-changed', version: view.version },
+      ])
+    } finally {
+      subscription.close()
+    }
+  })
+
   test('external edits refresh an inherited Workflow after the Library watcher fails', async () => {
     const watcher = new EventEmitter()
     let watcherClosed = false
