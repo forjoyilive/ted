@@ -528,6 +528,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ) {
         awaitingStart = undefined
       }
+      // A read in flight when Ted shuts down can hold a sleeping Run's host exit; recording it
+      // here would end the Run. The next daemon reads it from the saved offset instead.
+      if (signal.aborted && !stopRequested.has(runId)) return
       if (signal.aborted) replacing.delete(runId)
       const swapping = replacing.has(runId)
       if (swapping && (batch.toOffset > offset || hostGone)) {

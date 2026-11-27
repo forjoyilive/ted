@@ -276,13 +276,17 @@ test('an idle sub-agent and then its Lead sleep, stay asleep across a daemon res
       )
       return runs.every((run) => run.asleep) ? runs : undefined
     }, what)
-  const [subStart] = await hostStarts(sub.id)
+  const firstStarts = await Promise.all([lead.id, sub.id].map(async (id) => hostStarts(id)))
 
   await withClockAhead(() => bothAsleep('the sub-agent and then its Lead to be put to sleep'))
+  // A new daemon drops a sleep marker whose host still holds the Run's lock after its stop
+  // grace, and stopping the daemon cancels the SIGKILL that would end a slow host.
   await waitUntil(
     () =>
-      (!isAlive(Number(subStart?.hostPid)) && !isAlive(Number(subStart?.agentPid))) || undefined,
-    'the sub-agent’s host and agent to exit',
+      firstStarts.every((starts) =>
+        starts.every((s) => !isAlive(Number(s.hostPid)) && !isAlive(Number(s.agentPid))),
+      ) || undefined,
+    'the Lead’s and the sub-agent’s hosts and agents to exit',
   )
 
   await daemon?.stop()
