@@ -538,7 +538,8 @@ async function runDemoScript(script: string, content: string) {
   emit({ type: 'system', subtype: 'demo_script_done', script })
   if (interrupted) {
     interrupted = false
-    endInterruptedTurn()
+    openTool = undefined
+    emit({ type: 'result', subtype: 'error_during_execution', is_error: true })
   } else await runStep({ endTurn: true })
 }
 
