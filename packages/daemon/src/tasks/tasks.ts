@@ -153,8 +153,6 @@ import {
   checkLabel,
   clarifyDepths,
   clarifyIsOver,
-  cleanupFinishChoice,
-  cleanupRetryChoice,
   commitTitle,
   commitTitleProblem,
   declaredSendBackCauses,
@@ -235,7 +233,7 @@ import { type Busy, busyCheckEveryMs, createBusyHold } from '../busy.ts'
 import { proposalRows } from '../chats/requests.ts'
 import type { InstructionTries } from '../check-tries.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
-import { loginShell, worktreeCommandEnv } from '../command-env.ts'
+import { worktreeCommandEnv } from '../command-env.ts'
 import type { FileStore } from '../downloads.ts'
 import { AlreadyStartedError, RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
@@ -277,7 +275,6 @@ import { type Sandbox, type SandboxGrants, type SandboxScope, sandboxGrants } fr
 import type { StorageLocations } from '../storage-locations.ts'
 import type {
   BlockersCleared,
-  CleanupCommandResult,
   FoundConflict,
   MoveTaskInput,
   NewTask,
@@ -295,11 +292,9 @@ import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import {
   type AgentChoice,
   type CheckSettings,
-  type CleanupStep,
   checkLayer,
   githubRepoOf,
   inheritedFrom,
-  isCommandStep,
   isInstructionCheck,
   type WorkflowSettings,
 } from '../workflow/check.ts'
@@ -319,7 +314,6 @@ import {
 } from '../workflow/resolve.ts'
 import {
   backStageMessage,
-  cleanupStepsText,
   nextStageMessage,
   preambleText,
   setupInstructions,
@@ -364,7 +358,6 @@ import type { CheckSlots } from './check-slots.ts'
 import {
   type CheckRunnerResult,
   checkEnv,
-  defaultCheckTimeout,
   failureFindings,
   lastLines,
   planChecks,
@@ -382,17 +375,8 @@ import {
   unscoped,
   withoutCheckName,
 } from './ci-failures.ts'
-import {
-  cleanupCommandReportRefusal,
-  cleanupDoneRefusal,
-  cleanupFailureBody,
-  cleanupMoveTarget,
-  cleanupNoBack,
-  cleanupProgress,
-  cleanupRestartNote,
-  entersMerge,
-} from './cleanup.ts'
-import { cleanupCommandsText, runCleanupCommands } from './cleanup-commands.ts'
+import { cleanupDoneRefusal, cleanupMoveTarget, cleanupNoBack, entersMerge } from './cleanup.ts'
+import { createCleanup } from './cleanup-stage.ts'
 import { coalesced } from './coalesced.ts'
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
@@ -6487,7 +6471,7 @@ export function createTasks(options: {
       resumeSession === undefined && validates(current.stage)
         ? await validateRound(current, resolution.workflow)
         : resumeSession === undefined && isCleanup(current.stage)
-          ? cleanupProgress(cleanupSteps(resolution.workflow), store.cleanupReports(task.id))
+          ? cleanupStage.progress(task.id, resolution.workflow)
           : undefined
     const hierarchyPrompt = hierarchyText(hierarchyView(task.id))
     const prompt = [
@@ -7032,7 +7016,7 @@ export function createTasks(options: {
         answerAsanaMissing,
         answerAsanaUnfinished,
         trackerConsents,
-        answerCleanupFailure,
+        answerCleanupFailure: cleanupStage.answerFailure,
         answerMemoryKill,
         answerCheckReport,
         withSimulatorRequest: (comment, work) => apps.withSimulatorRequest(comment, work),
@@ -7683,7 +7667,7 @@ export function createTasks(options: {
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finishing(task, resolution))
     } else if (isCleanup(next) && message !== undefined) {
-      await cleanupThen(task.id, resolution.workflow, message)
+      await cleanupStage.enter(task.id, resolution.workflow, message)
     } else if (validates(next) && message !== undefined) {
       setChecking(task.id, true)
       inBackground(`run ${task.displayId}’s checks`, () => validation.enter(task.id, message))
@@ -7701,206 +7685,6 @@ export function createTasks(options: {
       watchMerge(task.id)
     }
     return moved
-  }
-
-  function cleanupSteps(workflow: ResolvedWorkflow): CleanupStep[] {
-    return workflow.settings.stages.cleanup?.steps ?? []
-  }
-
-  function pendingCleanupCommands(taskId: string, workflow: ResolvedWorkflow) {
-    const reported = new Set(store.cleanupReports(taskId).map((r) => r.step))
-    return cleanupSteps(workflow)
-      .filter(isCommandStep)
-      .filter((step) => !reported.has(step.name))
-  }
-
-  async function cleanupThen(
-    taskId: string,
-    workflow: ResolvedWorkflow,
-    message: string,
-  ): Promise<void> {
-    if (pendingCleanupCommands(taskId, workflow).length === 0) {
-      await afterCleanupCommands(taskId, workflow, message, [])
-      return
-    }
-    setChecking(taskId, true)
-    inBackground(`run ${find(taskId).displayId}’s Cleanup commands`, () =>
-      runCleanupCommandsFor(taskId, workflow, message),
-    )
-  }
-
-  async function runCleanupCommandsFor(
-    taskId: string,
-    workflow: ResolvedWorkflow,
-    message: string,
-  ): Promise<void> {
-    const wait = new AbortController()
-    checkWaits.set(taskId, wait)
-    let ran: CleanupCommandResult[] = []
-    let interrupted = false
-    try {
-      const task = find(taskId)
-      const steps = pendingCleanupCommands(taskId, workflow)
-      const factory = factoryOf(task)
-      const primary = task.repos.find((r) => !r.removed && sameRepo(r.repo, factory.repo))
-      if (!primary) {
-        ran = steps.map((step) => ({
-          step: step.name,
-          state: 'failed' as const,
-          timeout: step.timeout ?? defaultCheckTimeout,
-          durationMs: 0,
-          output: 'Ted didn’t run the command: the Task has no worktree of the primary repo',
-        }))
-        for (const result of ran) store.recordCleanupCommand(taskId, result)
-      } else {
-        const signal = AbortSignal.any([stopping.signal, wait.signal])
-        const release = await options.checkSlots.take({ taskId, signal })
-        if (release === undefined) {
-          interrupted = true
-          return
-        }
-        const batch = randomUUID()
-        try {
-          const entry = repoEntry(factoryRepos(workflow, factory), primary)
-          const env = options.env?.() ?? process.env
-          const result = await runCleanupCommands({
-            steps,
-            cwd: primary.worktree,
-            env: checkEnv(task.displayId, entry?.env ?? {}, env),
-            shell: [loginShell(env), '-lc'],
-            logFor: (position) =>
-              path.join(checkDir(task, `cleanup-${batch}`), `${position + 1}.log`),
-            prepareLaunch: () => prepareCommandLaunch(find(taskId)),
-            lowPriority: store.settings().lowPriorityWork,
-            signal,
-            record: (r) => store.recordCleanupCommand(taskId, r),
-          })
-          if (result.outcome === 'interrupted') {
-            interrupted = true
-            return
-          }
-          ran = result.results
-        } finally {
-          release()
-        }
-      }
-    } finally {
-      if (checkWaits.get(taskId) === wait) checkWaits.delete(taskId)
-      setChecking(taskId, false)
-      if (interrupted && !stopping.signal.aborted) resumedDuringCleanup(taskId, workflow, message)
-    }
-    await store.persisted()
-    await afterCleanupCommands(taskId, workflow, message, ran)
-  }
-
-  function resumedDuringCleanup(taskId: string, workflow: ResolvedWorkflow, message: string) {
-    const task = store.getTask(taskId)
-    if (!task || !isCleanup(task.stage) || task.archived || find(taskId).stopped) return
-    if (pendingCleanupCommands(taskId, workflow).length === 0) return
-    inBackground(`run ${task.displayId}’s Cleanup commands again`, async () => {
-      if (store.queue().some((q) => q.id === taskId)) store.dequeue(taskId)
-      await cleanupThen(taskId, workflow, message)
-    })
-  }
-
-  function cleanupLeft(taskId: string, workflow: ResolvedWorkflow): 'nothing' | 'lead' {
-    const reports = new Map(store.cleanupReports(taskId).map((r) => [r.step, r]))
-    const leadNeeded = cleanupSteps(workflow).some((step) =>
-      isCommandStep(step) ? reports.get(step.name)?.result === 'failed' : !reports.has(step.name),
-    )
-    return leadNeeded || openCleanupFailure(taskId) !== undefined ? 'lead' : 'nothing'
-  }
-
-  async function afterCleanupCommands(
-    taskId: string,
-    workflow: ResolvedWorkflow,
-    message: string,
-    ran: readonly CleanupCommandResult[],
-  ): Promise<void> {
-    const task = store.getTask(taskId)
-    if (!task || !isCleanup(task.stage) || task.archived || task.stopped) return
-    const steps = cleanupSteps(workflow)
-    const reports = new Set(store.cleanupReports(taskId).map((r) => r.step))
-    const instructionsLeft = steps.filter(
-      (step) => !isCommandStep(step) && !reports.has(step.name),
-    ).length
-    if (cleanupLeft(taskId, workflow) === 'nothing') {
-      inBackground(`finish ${task.displayId}’s Cleanup`, async () => {
-        await untilFree(taskId)
-        await holding(find(taskId), async () => {
-          const current = find(taskId)
-          if (!isCleanup(current.stage) || current.stopped || current.archived) return
-          await finishCleanup(current, await taskWorkflow(current, { fetch: false }))
-        })
-      })
-      return
-    }
-    const text =
-      ran.length > 0 ? `${message}\n\n${cleanupCommandsText(ran, instructionsLeft)}` : message
-    if (!(await deliver(task, text, true))) {
-      store.resumeTask(taskId, { waitForBlockers: false })
-      await store.persisted()
-      void pump()
-    }
-  }
-
-  function openCleanupFailure(taskId: string): Comment | undefined {
-    return openRequests(taskId).find((c) => c.cleanupFailure !== undefined)
-  }
-
-  async function finishCleanup(
-    task: StoredTask,
-    resolution: WorkflowResolution,
-  ): Promise<OutcomeResult> {
-    const asked = openCleanupFailure(task.id)
-    if (asked)
-      throw new RequestError(
-        409,
-        `Ted asked the user what to do about the failed Cleanup steps (request ${asked.id}); wait for their answer`,
-      )
-    const steps = cleanupSteps(resolution.workflow)
-    if (pendingCleanupCommands(task.id, resolution.workflow).length > 0) {
-      await cleanupThen(
-        task.id,
-        resolution.workflow,
-        'Ted ran the Cleanup commands that had no result yet.',
-      )
-      return {
-        task: publicTask(task.id),
-        message:
-          'Ted is running the Cleanup commands that have no result yet and sends you their results. End your turn.',
-      }
-    }
-    const reports = new Map(store.cleanupReports(task.id).map((r) => [r.step, r]))
-    const missing = steps.filter((step) => !reports.has(step.name))
-    if (missing.length > 0)
-      throw new RequestError(
-        409,
-        `report every Cleanup step first with \`ted cleanup report "<step name>" done|skipped|failed "<what happened>"\`; still to report: ${missing.map((step) => `“${step.name}”`).join(', ')}`,
-      )
-    const failed = steps.filter((step) => reports.get(step.name)?.result === 'failed')
-    if (failed.length === 0) {
-      await move(task, resolution, 'done', undefined)
-      return { task: publicTask(task.id), message: `${task.displayId} moved to Done` }
-    }
-    const names = failed.map((step) => step.name)
-    const request = store.postComment({
-      taskId: task.id,
-      kind: 'question',
-      author: { kind: 'ted' },
-      title:
-        names.length === 1
-          ? `A Cleanup step failed: ${names[0]}`
-          : `${names.length} Cleanup steps failed`,
-      body: cleanupFailureBody(failed.map((step) => ({ step, report: reports.get(step.name) }))),
-      choices: [cleanupRetryChoice, cleanupFinishChoice],
-      cleanupFailure: { steps: names },
-    })
-    return {
-      task: publicTask(task.id),
-      message: `Ted asked the user whether to try the failed Cleanup steps again or finish anyway (request ${request.id}). End your turn; Ted sends you their answer.`,
-      request,
-    }
   }
 
   async function checkKilledForMemory(
@@ -7973,59 +7757,6 @@ export function createTasks(options: {
     await store.persisted()
     memoryAnswers.get(comment.id)?.(choice)
     return store.getComment(answered.id) ?? answered
-  }
-
-  async function answerCleanupFailure(
-    task: StoredTask,
-    comment: Comment,
-    choice: string | undefined,
-    text: string,
-  ): Promise<Comment> {
-    if (choice !== cleanupRetryChoice && choice !== cleanupFinishChoice)
-      throw new RequestError(400, `answer with ${cleanupRetryChoice} or ${cleanupFinishChoice}`)
-    const picked: string = choice
-    return holding(task, async () => {
-      const current = find(task.id)
-      const open = store.getComment(comment.id)
-      if (open?.answer) throw new RequestError(409, 'this request has already been answered')
-      if (!isCleanup(current.stage))
-        throw new RequestError(409, `${current.displayId} isn’t in Cleanup any more`)
-      const steps = comment.cleanupFailure?.steps ?? []
-      const resolution = await taskWorkflow(current, { fetch: true })
-      const at = new Date().toISOString()
-      const answered = answerRequest(
-        current,
-        comment,
-        { kind: 'answered', at, choice: picked, ...(text !== '' && { text }) },
-        drafts(current.id),
-      )
-      if (picked === cleanupFinishChoice) {
-        store.finishCleanupAnyway(current.id, steps)
-        store.postComment({
-          taskId: current.id,
-          author: { kind: 'ted' },
-          body: `The user chose Finish anyway. These Cleanup steps didn’t happen: ${steps.map((name) => `“${name}”`).join(', ')}.`,
-        })
-        await move(current, resolution, 'done', undefined)
-        return store.getComment(answered.id) ?? answered
-      }
-      store.retryCleanup(current.id, steps)
-      const retry = cleanupSteps(resolution.workflow).filter((step) => steps.includes(step.name))
-      const message = [
-        `The user chose ${cleanupRetryChoice}${text === '' ? '.' : `, and wrote:\n\n${text}`}`,
-        retry.length > 0
-          ? cleanupStepsText(retry, '# Cleanup steps to redo')
-          : 'The failed steps are no longer in the Factory’s Cleanup steps, so there is nothing to redo.',
-        retry.some((step) => !isCommandStep(step))
-          ? 'Report each instruction step again, post a note, then run `ted outcome advance`.'
-          : '',
-      ]
-        .filter((part) => part !== '')
-        .join('\n\n')
-      await store.persisted()
-      await cleanupThen(current.id, resolution.workflow, message)
-      return store.getComment(answered.id) ?? answered
-    })
   }
 
   function postedBy(request: Comment, task: StoredTask, runId: string): boolean {
@@ -9990,15 +9721,7 @@ export function createTasks(options: {
     await execution.local(taskId)
     const task = find(taskId)
     const factory = factoryOf(task)
-    if (isCleanup(task.stage)) {
-      const { workflow } = await taskWorkflow(task, { fetch: false })
-      if (pendingCleanupCommands(task.id, workflow).length > 0) {
-        store.dequeue(task.id)
-        if (!inFlight.is(task.id, 'checking'))
-          await cleanupThen(task.id, workflow, cleanupRestartNote)
-        return
-      }
-    }
+    if (isCleanup(task.stage) && (await cleanupStage.queued(task))) return
     if (task.repos.some((r) => !r.removed)) {
       if (handsOff(task.stage) && store.heldBeforeWork(task.id)) {
         const note = await adoptLatestBase(task)
@@ -11248,6 +10971,31 @@ export function createTasks(options: {
     deliver,
   })
 
+  const cleanupStage = createCleanup({
+    store,
+    checkSlots: options.checkSlots,
+    checkWaits,
+    signal: stopping.signal,
+    env: () => options.env?.() ?? process.env,
+    find,
+    factoryOf,
+    taskWorkflow,
+    moveToDone: (task, resolution) => move(task, resolution, 'done', undefined),
+    deliver: (task, text) => deliver(task, text, true),
+    inBackground,
+    recoverTask,
+    holding,
+    untilFree,
+    openRequests,
+    drafts,
+    publicTask,
+    pump,
+    prepareLaunch: (task) => prepareCommandLaunch(task),
+    checkDir,
+    setChecking,
+    isChecking: (id) => inFlight.is(id, 'checking'),
+  })
+
   const validation = createValidation({
     ...(options.testReportingEnv && { reportingEnv: options.testReportingEnv }),
     store,
@@ -11428,27 +11176,7 @@ export function createTasks(options: {
         .map((task) => task.id),
     ]),
   )
-  for (const task of store.listTasks()) {
-    if (!isCleanup(task.stage) || find(task.id).stopped || task.archived) continue
-    if (openCleanupFailure(task.id)) continue
-    setChecking(task.id, true)
-    recoverTask(task.id, `run ${task.displayId}’s Cleanup commands again`, async () => {
-      let workflow: ResolvedWorkflow
-      try {
-        workflow = (await taskWorkflow(find(task.id), { fetch: false })).workflow
-      } finally {
-        setChecking(task.id, false)
-      }
-      if (pendingCleanupCommands(task.id, workflow).length > 0) {
-        await cleanupThen(task.id, workflow, cleanupRestartNote)
-      } else if (
-        cleanupSteps(workflow).every(isCommandStep) &&
-        cleanupLeft(task.id, workflow) === 'nothing'
-      ) {
-        await afterCleanupCommands(task.id, workflow, cleanupRestartNote, [])
-      }
-    })
-  }
+  cleanupStage.recover()
   for (const task of store.listTasks()) {
     const lead = task.leadRunId && store.getRun(task.leadRunId)
     if (!lead || lead.state === 'finished') continue
@@ -13488,7 +13216,7 @@ export function createTasks(options: {
               `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
             )
           }
-          if (isCleanup(stage)) return finishCleanup(current, resolution)
+          if (isCleanup(stage)) return cleanupStage.finish(current, resolution)
           if (
             handsOff(stage) ||
             ((validates(stage) || signsOffCode(stage)) &&
@@ -13661,28 +13389,7 @@ export function createTasks(options: {
 
     async reportCleanupStep(ref, caller, report) {
       const { task, runId } = taskLead(ref, caller, 'reports Cleanup steps')
-      return holding(task, async () => {
-        const current = find(task.id)
-        if (!isCleanup(current.stage))
-          throw new RequestError(409, `${current.displayId} isn’t in Cleanup`)
-        if (openCleanupFailure(current.id))
-          throw new RequestError(
-            409,
-            'Ted asked the user what to do about the failed Cleanup steps; wait for their answer',
-          )
-        const { workflow } = await taskWorkflow(current, { fetch: false })
-        const steps = cleanupSteps(workflow)
-        const step = steps.find((s) => s.name === report.step)
-        if (!step)
-          throw new RequestError(
-            400,
-            `“${report.step}” isn’t one of the Cleanup steps: ${steps.map((s) => `“${s.name}”`).join(', ')}`,
-          )
-        if (isCommandStep(step)) throw new RequestError(409, cleanupCommandReportRefusal(step.name))
-        store.reportCleanupStep(current.id, runId, { ...report, text: redactSecrets(report.text) })
-        await store.persisted()
-        return store.cleanupReports(current.id)
-      })
+      return holding(task, () => cleanupStage.report(find(task.id), runId, report))
     },
 
     async setPullRequestTitle(ref, caller, input) {
