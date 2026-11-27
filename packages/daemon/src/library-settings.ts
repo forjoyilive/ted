@@ -61,6 +61,8 @@ export interface LibrarySettingsOptions {
   libraryDir: string
   installed: (agent: AgentKind) => boolean
   emit: (event: DaemonEvent) => void
+  saving?: () => void
+  saveFailed?: () => void
   saved?: (version: string) => void
 }
 
@@ -334,14 +336,20 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
           throw new RequestError(400, `${first.file}: ${first.message}${at}`)
         }
         if (Object.keys(files).length === 0) throw new RequestError(400, 'There’s nothing to save.')
-        await write(files)
+        options.saving?.()
+        try {
+          await write(files)
+          const saved = await view()
+          options.saved?.(saved.version)
+          options.emit({ type: 'library-changed', version: saved.version })
+          return saved
+        } catch (error) {
+          options.saveFailed?.()
+          throw error
+        }
       } finally {
         saving = false
       }
-      const saved = await view()
-      options.saved?.(saved.version)
-      options.emit({ type: 'library-changed', version: saved.version })
-      return saved
     },
   }
 }

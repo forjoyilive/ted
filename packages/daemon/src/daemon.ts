@@ -566,6 +566,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         installed: (kind) => agents.installed(kind),
         emit,
+        saving: () => libraryWatch.saving(),
+        saveFailed: () => libraryWatch.saveFailed(),
         saved: (version) => libraryWatch.saw(version),
       })
       banners.onAction(cloneFailedProblem, async ({ factoryId }) => {

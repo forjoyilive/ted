@@ -5,6 +5,8 @@ import { contentVersion, readLayerDirectory } from './workflow/layers.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface LibraryWatch {
+  saving(): void
+  saveFailed(): void
   saw(version: string): void
   close(): void
 }
@@ -42,9 +44,10 @@ export async function watchLibrary(
   let closed = false
   let polling = false
   let saved = 0
+  let inSave = false
   let refreshing = false
   const refresh = async () => {
-    if (closed || refreshing) return
+    if (closed || refreshing || inSave) return
     refreshing = true
     const before = saved
     try {
@@ -64,7 +67,7 @@ export async function watchLibrary(
     if (closed || polling) return
     clearTimeout(debounce)
     debounce = setTimeout(() => {
-      if (refreshing) changed()
+      if (refreshing || inSave) changed()
       else void refresh()
     }, options.debounceMs ?? 150).unref()
   }
@@ -100,9 +103,18 @@ export async function watchLibrary(
   }
   if (!polling) recheck()
   return {
+    saving() {
+      inSave = true
+      saved += 1
+    },
+    saveFailed() {
+      inSave = false
+      saved += 1
+    },
     saw(version) {
       seen = version
       saved += 1
+      inSave = false
     },
     close() {
       closed = true
