@@ -113,7 +113,7 @@ describe('what is left of a Task’s Cleanup', () => {
       failedCommands: [],
       left: 'nothing',
     },
-  ])('when $when', ({ reports, failureOpen, left, ...expected }) => {
+  ])('when $when', ({ when: _when, reports, failureOpen, left, ...expected }) => {
     const status = cleanupStatus(steps, reports, failureOpen)
     expect({
       pendingCommands: names(status.pendingCommands),
