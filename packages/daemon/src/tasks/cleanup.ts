@@ -1,6 +1,7 @@
 import type { CleanupStepReport } from '@ted/protocol'
 import { isCleanup, mergesHere } from '@ted/protocol/stage'
-import { type CleanupStep, isCommandStep } from '../workflow/check.ts'
+import { type CleanupCommandStep, type CleanupStep, isCommandStep } from '../workflow/check.ts'
+import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 
 export const cleanupNoBack =
   'Cleanup can’t send a Task back: its pull requests have merged. Say what more the code needs in a note; the user can make a Follow-up Task.'
@@ -48,33 +49,65 @@ export function entersMerge(from: string, to: string, stages: readonly string[])
   return !mergesHere(from) && mergesHere(cleanupMoveTarget(from, to, stages).next)
 }
 
+export function cleanupSteps(workflow: ResolvedWorkflow): CleanupStep[] {
+  return workflow.settings.stages.cleanup?.steps ?? []
+}
+
+export interface CleanupStatus {
+  reports: ReadonlyMap<string, CleanupStepReport>
+  reported: CleanupStep[]
+  missing: CleanupStep[]
+  pendingCommands: CleanupCommandStep[]
+  unreported: CleanupStep[]
+  failed: CleanupStep[]
+  failedCommands: CleanupCommandStep[]
+  left: 'nothing' | 'lead'
+}
+
+export function cleanupStatus(
+  steps: readonly CleanupStep[],
+  reports: readonly CleanupStepReport[],
+  failureOpen = false,
+): CleanupStatus {
+  const results = new Map(reports.map((r) => [r.step, r]))
+  const missing = steps.filter((step) => !results.has(step.name))
+  const failed = steps.filter((step) => results.get(step.name)?.result === 'failed')
+  const unreported = missing.filter((step) => !isCommandStep(step))
+  const failedCommands = failed.filter(isCommandStep)
+  return {
+    reports: results,
+    reported: steps.filter((step) => results.has(step.name)),
+    missing,
+    pendingCommands: missing.filter(isCommandStep),
+    unreported,
+    failed,
+    failedCommands,
+    left: failedCommands.length > 0 || unreported.length > 0 || failureOpen ? 'lead' : 'nothing',
+  }
+}
+
 export function cleanupProgress(
   steps: readonly CleanupStep[],
   reports: readonly CleanupStepReport[],
 ): string | undefined {
-  const results = new Map(reports.map((r) => [r.step, r]))
-  const reported = steps.filter((step) => results.has(step.name))
-  if (reported.length === 0) return undefined
-  const left = steps.filter((step) => !isCommandStep(step) && !results.has(step.name))
+  const status = cleanupStatus(steps, reports)
+  if (status.reported.length === 0) return undefined
   const line = (step: CleanupStep) => {
-    const report = results.get(step.name)
+    const report = status.reports.get(step.name)
     return isCommandStep(step)
       ? `- “${step.name}” (a command): ${report?.text ?? ''}`
       : `- “${step.name}”: ${report?.result ?? ''}`
   }
-  const failedCommands = reported.filter(
-    (step) => isCommandStep(step) && results.get(step.name)?.result === 'failed',
-  )
   return [
     '# Cleanup so far',
-    `These Cleanup steps already have a result. Don’t do them again:\n${reported.map(line).join('\n')}`,
-    ...(failedCommands.length > 0
+    `These Cleanup steps already have a result. Don’t do them again:\n${status.reported.map(line).join('\n')}`,
+    ...(status.failedCommands.length > 0
       ? [
           'A failed command counts as a failed step. Find out why it failed (you may run it again by hand in the worktree) and say what you found in your note; don’t report it with `ted cleanup report`.',
         ]
       : []),
-    left.length > 0
-      ? `Do only these, then report each: ${left.map((step) => `“${step.name}”`).join(', ')}.`
+    status.unreported.length > 0
+      ? `Do only these, then report each: ${status.unreported.map((step) => `“${step.name}”`).join(', ')}.`
       : 'Every step has a result. Post your note and run `ted outcome advance`.',
   ].join('\n\n')
 }

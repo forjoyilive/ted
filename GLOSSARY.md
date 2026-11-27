@@ -77,7 +77,7 @@ The holding Stage at the start of a Workflow where Tasks wait to be started by t
 _Avoid_: Icebox, queue
 
 **Cleanup**:
-An optional Stage between Merge and Done, where the Task Lead carries out the Factory’s Cleanup steps after every pull request has merged. A Task in Cleanup counts as merged but not Done.
+An optional Stage between Merge and Done that starts after every pull request has merged. Ted runs the Factory’s command steps first, and the Task Lead carries out any instruction steps. A Task in Cleanup counts as merged but not Done.
 _Avoid_: Post-merge, wrap-up
 
 **Cleanup step**:
